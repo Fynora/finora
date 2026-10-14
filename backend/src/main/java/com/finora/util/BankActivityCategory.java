@@ -55,13 +55,19 @@ public final class BankActivityCategory {
             "sb int", "int cr", "int credit", "intcr", "savings interest", "fd interest", "interest payment");
     private static final Pattern CARD_BILL_RECEIVED = words("bbps");
     // "markup fee": a card's foreign-currency markup, printed as one consolidated charge (2026-10-05).
+    // "installments interest": a third issuer's wording for an instalment's interest, "... 2ND OF 3
+    // INSTALLMENTS INTEREST" (2026-10-14, one row; it was "Other").
     private static final Pattern CHARGED = words(
-            "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi", "markup fee");
+            "sms charges", "sms charge", "sms chrg", "sms alert", "emi interest", "interest on emi",
+            "installments interest", "markup fee");
     /** A card's instalment plan billing each month's share of a converted purchase ("EMI PRINCIPAL",
      *  a FlexiPay "FP EMI"): the card's own loan. Not in CategoryRules, whose words also name
      *  merchants -- there they typed the card a BUSINESS. Measured on the corpus (2026-10-05): one
      *  row each, both "Other". Its interest is a charge, above. */
     private static final Pattern CARD_INSTALMENT = words("emi principal", "fp emi");
+    /** A third issuer's wording for the same, "... 2ND OF 3 INSTALLMENTS PRINCIPAL" (2026-10-14, one
+     *  row, "Other"). Also "Loan EMI", but kept apart from CARD_INSTALMENT: see isCardInstalment. */
+    private static final Pattern CARD_INSTALMENT_NTH_OF_M = words("installments principal");
     private static final Pattern GST = words("gst", "igst", "cgst", "sgst");
     private static final Pattern RECURRING_DEPOSIT = words(
             "rd installment", "rd instalment", "recurring deposit");
@@ -108,7 +114,9 @@ public final class BankActivityCategory {
                 || (NET_BANKING_BILL_PAY.matcher(text).find() && MASKED_CARD_NUMBER.matcher(description).find())) {
             return Optional.of("Transfer");
         }
-        if (CARD_INSTALMENT.matcher(text).find()) return Optional.of("Loan EMI");
+        if (CARD_INSTALMENT.matcher(text).find() || CARD_INSTALMENT_NTH_OF_M.matcher(text).find()) {
+            return Optional.of("Loan EMI");
+        }
         if (RECURRING_DEPOSIT.matcher(text).find()) return Optional.of("Investments");
         if (PROVIDENT_FUND.matcher(text).find()) return Optional.of("Investments");
         if (GLUED_SAVINGS_SCHEME.matcher(CategoryRules.normalize(UPI_ID.matcher(description).replaceAll(" "))).find()) {
@@ -132,9 +140,9 @@ public final class BankActivityCategory {
 
     /**
      * Whether the row is one month's share of a card instalment plan: money out, worded as the
-     * card's own instalment, and not a payment to a person. It reads the one word list {@link #of}
-     * reads for "Loan EMI", so a wording added there is marked too; unlike the category, it still
-     * holds after the user picks another category for the row.
+     * card's own instalment, and not a payment to a person. It reads the word list {@link #of} reads
+     * for "Loan EMI" (CARD_INSTALMENT), less one wording below; unlike the category, it still holds
+     * after the user picks another category for the row.
      *
      * <p>Read by clients to mark the row. Such a row repeats part of an earlier purchase, and
      * every spending total counts both when the purchase is in the ledger too; nothing here
@@ -142,8 +150,11 @@ public final class BankActivityCategory {
      *
      * <p>Measured on the real statement corpus (2026-10-12, 34 statements, 1,965 rows): two rows,
      * one on each of two card statements, and none of the 1,682 rows on savings statements.
-     * A third issuer prints "... INSTALLMENTS PRINCIPAL" as a debit and as a credit in the same
-     * statement; what the credit is has not been established, so that wording is not read here.
+     * A third issuer prints "... INSTALLMENTS PRINCIPAL" as a debit and, the same day, as an
+     * identical credit (measured 2026-10-14: same amount, date, counter and words). Reconciliation
+     * already links the credit to the debit by their shared merchant, so that instalment counts
+     * nothing, and the mark's note -- that totals count both the purchase and its instalments --
+     * would be untrue of it. That wording is "Loan EMI" (CARD_INSTALMENT_NTH_OF_M) but not marked.
      */
     public static boolean isCardInstalment(String description, Transaction.Type direction) {
         if (description == null || description.isBlank() || direction != Transaction.Type.EXPENSE) return false;

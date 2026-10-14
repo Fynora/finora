@@ -2724,6 +2724,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/original-view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["openTrust"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/{heldId}/notes": {
         parameters: {
             query?: never;
@@ -2846,6 +2862,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["reprocess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/held-imports/{jobId}/original-view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["openImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4692,6 +4724,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/original-views/{viewId}/pages/{pageNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["page"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/original-views/{viewId}/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/notifications": {
         parameters: {
             query?: never;
@@ -5220,22 +5284,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/held-statements/{heldId}/document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["document"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
         parameters: {
             query?: never;
@@ -5308,22 +5356,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["detail_3"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/held-imports/{jobId}/document": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["document_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8229,6 +8261,30 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        OriginalViewOpenRequest: {
+            reason?: string;
+        };
+        ApiResponseOriginalViewOpened: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["OriginalViewOpened"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        OriginalViewOpened: {
+            /** Format: uuid */
+            viewId?: string;
+            format?: string;
+            /** Format: int32 */
+            pageCount?: number;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
         ApiResponseHeldImportDto: {
             success?: boolean;
             message?: string;
@@ -9353,6 +9409,7 @@ export interface components {
             /** @enum {string} */
             userStatus?: "PROCESSING" | "COMPLETED" | "ACTION_REQUIRED" | "FAILED" | "HELD_FOR_REVIEW" | "CANCELLED";
             resolutionMessage?: string;
+            openedForFixOn?: string[];
         };
         TimelineStage: {
             stage?: string;
@@ -10615,6 +10672,21 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseOriginalViewCsvLines: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["OriginalViewCsvLines"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        OriginalViewCsvLines: {
+            lines?: string[];
         };
         ApiResponsePagedResponseNotificationAdminDto: {
             success?: boolean;
@@ -16750,6 +16822,32 @@ export interface operations {
             };
         };
     };
+    openTrust: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OriginalViewOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseOriginalViewOpened"];
+                };
+            };
+        };
+    };
     notes_1: {
         parameters: {
             query?: never;
@@ -16952,6 +17050,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseHeldImportDto"];
+                };
+            };
+        };
+    };
+    openImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OriginalViewOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseOriginalViewOpened"];
                 };
             };
         };
@@ -19631,6 +19755,51 @@ export interface operations {
             };
         };
     };
+    page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                viewId: string;
+                pageNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+        };
+    };
+    csv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                viewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseOriginalViewCsvLines"];
+                };
+            };
+        };
+    };
     list_26: {
         parameters: {
             query?: {
@@ -20346,28 +20515,6 @@ export interface operations {
             };
         };
     };
-    document: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                heldId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": string;
-                };
-            };
-        };
-    };
     heldStatement: {
         parameters: {
             query?: never;
@@ -20474,28 +20621,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseDetail"];
-                };
-            };
-        };
-    };
-    document_1: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": string;
                 };
             };
         };

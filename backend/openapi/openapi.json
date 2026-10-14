@@ -7029,6 +7029,45 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/{heldId}/original-view": {
+            "post": {
+                "tags": [
+                    "admin-original-view-controller"
+                ],
+                "operationId": "openTrust",
+                "parameters": [
+                    {
+                        "name": "heldId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OriginalViewOpenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseOriginalViewOpened"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-statements/{heldId}/notes": {
             "post": {
                 "tags": [
@@ -7325,6 +7364,46 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseHeldImportDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/held-imports/{jobId}/original-view": {
+            "post": {
+                "tags": [
+                    "admin-original-view-controller"
+                ],
+                "operationId": "openImport",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OriginalViewOpenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseOriginalViewOpened"
                                 }
                             }
                         }
@@ -10855,6 +10934,78 @@
                 }
             }
         },
+        "/api/v1/admin/original-views/{viewId}/pages/{pageNumber}": {
+            "get": {
+                "tags": [
+                    "admin-original-view-controller"
+                ],
+                "operationId": "page",
+                "parameters": [
+                    {
+                        "name": "viewId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "pageNumber",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "image/png": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "byte"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/original-views/{viewId}/csv": {
+            "get": {
+                "tags": [
+                    "admin-original-view-controller"
+                ],
+                "operationId": "csv",
+                "parameters": [
+                    {
+                        "name": "viewId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseOriginalViewCsvLines"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/notifications": {
             "get": {
                 "tags": [
@@ -11886,37 +12037,6 @@
                 }
             }
         },
-        "/api/v1/admin/held-statements/{heldId}/document": {
-            "get": {
-                "tags": [
-                    "admin-held-statement-controller"
-                ],
-                "operationId": "document",
-                "parameters": [
-                    {
-                        "name": "heldId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "type": "string",
-                                    "format": "byte"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
             "get": {
                 "tags": [
@@ -12075,38 +12195,6 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseDetail"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/held-imports/{jobId}/document": {
-            "get": {
-                "tags": [
-                    "admin-held-import-controller"
-                ],
-                "operationId": "document_1",
-                "parameters": [
-                    {
-                        "name": "jobId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "type": "string",
-                                    "format": "byte"
                                 }
                             }
                         }
@@ -19596,6 +19684,62 @@
                     }
                 }
             },
+            "OriginalViewOpenRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseOriginalViewOpened": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/OriginalViewOpened"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "OriginalViewOpened": {
+                "type": "object",
+                "properties": {
+                    "viewId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "format": {
+                        "type": "string"
+                    },
+                    "pageCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "ApiResponseHeldImportDto": {
                 "type": "object",
                 "properties": {
@@ -22465,6 +22609,13 @@
                     },
                     "resolutionMessage": {
                         "type": "string"
+                    },
+                    "openedForFixOn": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "date"
+                        }
                     }
                 }
             },
@@ -25625,6 +25776,45 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseOriginalViewCsvLines": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/OriginalViewCsvLines"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "OriginalViewCsvLines": {
+                "type": "object",
+                "properties": {
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 }
             },

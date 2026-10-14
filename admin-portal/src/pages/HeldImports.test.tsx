@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldImports from './HeldImports';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldImportApi, adminOriginalViewApi } from '../api/endpoints';
 import type { HeldImportRow, HeldImportDetail } from '../types';
 
 // Same reason Notifications.test.tsx mocks these two: AdminLayout renders ThemeToggle (calls
@@ -25,7 +25,12 @@ vi.mock('../api/endpoints', () => ({
     reprocess: vi.fn(),
     reprocessAll: vi.fn(),
     resolve: vi.fn(),
-    download: vi.fn(),
+  },
+  adminOriginalViewApi: {
+    openImport: vi.fn(),
+    openTrust: vi.fn(),
+    pageBlob: vi.fn(),
+    csv: vi.fn(),
   },
   adminBlankedCopyApi: {
     status: vi.fn(),
@@ -35,6 +40,11 @@ vi.mock('../api/endpoints', () => ({
 }));
 // jsdom has no URL.createObjectURL; the panel's own test covers what is handed to the download.
 vi.mock('../lib/download', () => ({ downloadBlob: vi.fn() }));
+// Nor object URLs for the original view's page images.
+URL.createObjectURL = vi.fn(() => 'blob:page');
+URL.revokeObjectURL = vi.fn();
+
+const REASON = 'Rows on page 2 are missing';
 
 const heldRow: HeldImportRow = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -249,29 +259,35 @@ describe('HeldImports', () => {
     expect(screen.queryByText(/scanned or damaged file/i)).not.toBeInTheDocument();
   });
 
-  it('lets an operator with an admin role download the held statement', async () => {
-    vi.mocked(adminHeldImportApi.download).mockResolvedValue(undefined);
+  /** The real statement is viewed in the browser, never downloaded: a reason first, then the
+   *  pages as images. */
+  it('lets an operator with an admin role view the held statement after typing a reason', async () => {
+    vi.mocked(adminOriginalViewApi.openImport).mockResolvedValue(
+      { viewId: 'v1', format: 'PDF', pageCount: 1, expiresAt: '2026-10-15T05:30:00Z' });
+    vi.mocked(adminOriginalViewApi.pageBlob).mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
     renderPage();
     await screen.findByText('hdfc-june.pdf');
     await userEvent.click(screen.getByRole('button', { name: /details/i }));
     await screen.findByText(/no header row found/);
 
-    await userEvent.click(screen.getByRole('button', { name: /download statement/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'View original' }));
+    expect(screen.getByText(/Super Admins will be emailed/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Reason'), REASON);
+    await userEvent.click(screen.getByRole('button', { name: 'Open statement' }));
 
-    await waitFor(() => expect(adminHeldImportApi.download)
-      .toHaveBeenCalledWith(heldRow.id, heldRow.fileName));
+    expect(adminOriginalViewApi.openImport).toHaveBeenCalledWith(heldRow.id, REASON);
+    expect(await screen.findByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
   });
 
   /**
-   * Found in review: this used to always show a fixed generic string, discarding whatever the
-   * server actually said -- unlike reprocess/resolve on this same page, which both surface the
-   * real message. A download can fail for a specific, actionable reason too (e.g. the job was
-   * resolved by someone else a moment ago), and that reason is what an operator needs to read.
+   * Found in review on the download this replaced: a failure must show what the server said (e.g.
+   * the job was resolved by someone else a moment ago), not a fixed generic string.
    */
-  it('surfaces the server\'s own download error rather than a generic failure', async () => {
-    vi.mocked(adminHeldImportApi.download).mockRejectedValue({
-      response: { data: { message: 'This job was already resolved by another admin.' } },
+  it('surfaces the server\'s own error when the statement cannot be opened', async () => {
+    vi.mocked(adminOriginalViewApi.openImport).mockRejectedValue({
+      response: { status: 409, data: { message: 'Only a held import can be opened; this one is FAILED.' } },
     });
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
     renderPage();
@@ -279,30 +295,32 @@ describe('HeldImports', () => {
     await userEvent.click(screen.getByRole('button', { name: /details/i }));
     await screen.findByText(/no header row found/);
 
-    await userEvent.click(screen.getByRole('button', { name: /download statement/i }));
+    await userEvent.click(screen.getByRole('button', { name: 'View original' }));
+    await userEvent.type(screen.getByLabelText('Reason'), REASON);
+    await userEvent.click(screen.getByRole('button', { name: 'Open statement' }));
 
-    expect(await screen.findByText(/already resolved by another admin/i)).toBeInTheDocument();
+    expect(await screen.findByText(/only a held import can be opened; this one is FAILED/i)).toBeInTheDocument();
   });
 
   /** Mirrors HeldStatementDetail's identical rule and identical reasoning: a role that can work
    *  the queue must not see a control for an action the backend would refuse anyway. */
-  it('hides the download control from a non-admin role', async () => {
+  it('hides the view control from a non-admin role', async () => {
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['SUPPORT']);
     renderPage();
     await screen.findByText('hdfc-june.pdf');
     await userEvent.click(screen.getByRole('button', { name: /details/i }));
     await screen.findByText(/no header row found/);
 
-    expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
   });
 
   /**
    * Found in review: the panel was not keyed on selectedId, and the table stays clickable with
    * the panel open (not a modal) -- so switching from one job's Details to another's kept the
-   * same component instance and carried the first job's failed-download error into the second
-   * job's view, misattributing it.
+   * same component instance and carried the first job's local state into the second job's view,
+   * misattributing it. Here that state is a viewer opened, with a refusal, on the first job.
    */
-  it('does not carry a failed download error over when switching to a different held job', async () => {
+  it('does not carry an open viewer or its error over when switching to a different held job', async () => {
     const secondRow: HeldImportRow = {
       ...heldRow, id: '33333333-3333-3333-3333-333333333333', fileName: 'sbi-july.pdf',
     };
@@ -311,25 +329,26 @@ describe('HeldImports', () => {
     });
     vi.mocked(adminHeldImportApi.get).mockImplementation((jobId: string) =>
       Promise.resolve(jobId === secondRow.id ? { ...heldDetail, job: secondRow } : heldDetail));
-    vi.mocked(adminHeldImportApi.download).mockRejectedValue(new Error('network error'));
+    vi.mocked(adminOriginalViewApi.openImport).mockRejectedValue(new Error('network error'));
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
     renderPage();
     await screen.findByText('hdfc-june.pdf');
 
     const [firstDetailsButton] = await screen.findAllByRole('button', { name: /details/i });
     await userEvent.click(firstDetailsButton);
-    await userEvent.click(await screen.findByRole('button', { name: /download statement/i }));
-    await screen.findByText(/could not download this statement/i);
+    await userEvent.click(await screen.findByRole('button', { name: 'View original' }));
+    await userEvent.type(screen.getByLabelText('Reason'), REASON);
+    await userEvent.click(screen.getByRole('button', { name: 'Open statement' }));
+    await screen.findByText(/the statement could not be opened/i);
 
     // Straight to the SECOND row's Details, panel A still open the whole time -- selectedId
     // never passes through null, which is exactly the path that must not carry state over.
     const [, secondDetailsButton] = await screen.findAllByRole('button', { name: /details/i });
     await userEvent.click(secondDetailsButton);
-    // Confirms the panel actually switched to job B's data (not just that the stale error faded
-    // on its own) -- the filename now appears twice, once in the table row and once in the panel.
     await waitFor(() => expect(screen.getAllByText('sbi-july.pdf')).toHaveLength(2));
 
-    expect(screen.queryByText(/could not download this statement/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/the statement could not be opened/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument();
   });
 
   describe('blanked copy', () => {
@@ -354,7 +373,7 @@ describe('HeldImports', () => {
 
       expect(adminBlankedCopyApi.heldImport).toHaveBeenCalledWith(heldRow.id);
       expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
     });
 
     it('is not offered when the switch is off', async () => {
@@ -377,7 +396,7 @@ describe('HeldImports', () => {
       renderPage();
       await screen.findByText('hdfc-june.csv');
       await userEvent.click(screen.getByRole('button', { name: /details/i }));
-      await screen.findByRole('button', { name: /download statement/i });
+      await screen.findByRole('button', { name: 'View original' });
     }
 
     /** The server cannot copy a CSV yet; the operator is told so in place of a button that would

@@ -1309,6 +1309,16 @@ export interface BlankedCopy {
   differences: BlankedCopyDifference[];
 }
 
+/** An opened view of a held statement's real pages -- mirrors `OriginalViewDto.Opened`. `format` is
+ *  "PDF" (fetch pages 1..pageCount as images) or "CSV" (fetch the lines); `expiresAt` is when the
+ *  server stops serving it. */
+export interface OriginalViewOpened {
+  viewId: string;
+  format: string;
+  pageCount: number;
+  expiresAt: string;
+}
+
 /** `reprocessing` counts jobs already sent back to the queue, not every queued import. */
 export interface HeldImportSummary {
   held: number;

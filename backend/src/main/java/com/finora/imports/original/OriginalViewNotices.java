@@ -37,10 +37,12 @@ public class OriginalViewNotices {
      * After the opening commits: an opening that rolled back never tells anyone it happened.
      *
      * <p>The customer notice is written in a transaction of its own. At this phase the opening's
-     * transaction has committed but is still bound to the thread, and the notification outbox joins
-     * whatever transaction it finds ({@code NotificationService.request} is deliberately not
-     * {@code @Transactional}), so without one the outbox rows would join a transaction that never
-     * commits again, and be lost. The Super Admin email writes nothing, so it needs no transaction.
+     * transaction has committed but its resources are still bound to the thread, and Spring's
+     * {@code TransactionSynchronization.afterCommit} contract says data access here should declare
+     * {@code REQUIRES_NEW} rather than rely on that finished transaction. Measured 2026-10-15: without
+     * it, the outbox rows still landed (the connection is back in auto-commit by now), so this is
+     * the documented-safe form, not a fix for an observed loss. The Super Admin email writes
+     * nothing, so it needs no transaction.
      */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onOpened(OriginalViewOpened event) {

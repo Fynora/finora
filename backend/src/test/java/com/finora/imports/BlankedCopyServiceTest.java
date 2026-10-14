@@ -267,6 +267,21 @@ class BlankedCopyServiceTest {
         assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
     }
 
+    /** Both readings ran but could not be compared (here: a reading came back with no section
+     *  list at all). The reason names the comparison, not either reading. */
+    @Test
+    void readingsThatCannotBeComparedAreNotCheckedAndSaySo() throws Exception {
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doReturn(new PdfPreviewGenerator.PdfGenerationResult(null, null, null)).when(generator)
+                .generateSectionsFromAcquired(any(), any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("j-10", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any());
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
+        assertThat(copy.notCheckedReason()).isEqualTo("The two readings could not be compared (NullPointerException).");
+        assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
+    }
+
     /** The real statement reads, the copy does not: the reason says which side failed. */
     @Test
     void aCopyThatCannotBeReadBackIsNotCheckedAndSaysSo() throws Exception {

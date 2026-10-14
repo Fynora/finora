@@ -365,8 +365,8 @@ describe('HeldImports', () => {
       expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
     });
 
-    function mockCsvJob() {
-      const csvRow: HeldImportRow = { ...heldRow, fileName: 'hdfc-june.csv', sourceFormat: 'CSV' };
+    function mockCsvJob(sourceFormat: string | null = 'CSV') {
+      const csvRow: HeldImportRow = { ...heldRow, fileName: 'hdfc-june.csv', sourceFormat };
       vi.mocked(adminHeldImportApi.list).mockResolvedValue({
         content: [csvRow], page: 0, size: 25, totalElements: 1, totalPages: 1,
       });
@@ -389,6 +389,19 @@ describe('HeldImports', () => {
       await openCsvDetails();
 
       expect(await screen.findByText('Blanked copy not available for CSV yet.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    /** Only a CSV is told it cannot be copied. A format the page does not know gets neither the
+     *  CSV text nor the button: what it is, and whether it can be copied, is the server's call. */
+    it.each([null, 'XLSX'])('shows neither the CSV text nor the button for format %s', async (format) => {
+      mockCsvJob(format);
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByText('Blanked copy not available for CSV yet.')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
     });
 

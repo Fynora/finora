@@ -7,7 +7,7 @@ import type { BlankedCopy, BlankedCopyDifference } from '../types';
 const FIELD_LABEL: Record<string, string> = {
   SECTION_COUNT: 'Number of accounts', ROW_COUNT: 'Number of rows', UNPARSEABLE_COUNT: 'Rows that could not be read',
   DATE: 'date', AMOUNT: 'amount', DIRECTION: 'money in or out', BALANCE: 'balance', DESCRIPTION: 'description',
-  PERIOD_START: 'Statement start date', PERIOD_END: 'Statement end date',
+  DETECTED_ACCOUNT: 'Account details', PERIOD_START: 'Statement start date', PERIOD_END: 'Statement end date',
   OPENING_BALANCE: 'Opening balance', CLOSING_BALANCE: 'Closing balance', FINDINGS: 'Check results',
 };
 

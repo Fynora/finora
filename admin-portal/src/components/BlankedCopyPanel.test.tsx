@@ -49,6 +49,17 @@ describe('BlankedCopyPanel', () => {
     expect(screen.getByText('Account 2, Closing balance')).toBeInTheDocument();
   });
 
+  it('names a difference in whether account details were found at all', async () => {
+    vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy({
+      check: 'DIFFERS',
+      differences: [{ section: 0, row: null, field: 'DETECTED_ACCOUNT', maskedTokens: [] }],
+    }))} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(await screen.findByText('Account details')).toBeInTheDocument();
+    expect(screen.queryByText('Statement start date')).not.toBeInTheDocument();
+  });
+
   it('clears an earlier verdict when a later attempt is refused', async () => {
     vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
     const fetchCopy = vi.fn()
@@ -85,10 +96,10 @@ describe('BlankedCopyPanel', () => {
   it('says not checked with the reason', async () => {
     vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
     render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy({
-      check: 'NOT_CHECKED', notCheckedReason: 'The reading could not be repeated (IllegalStateException).',
+      check: 'NOT_CHECKED', notCheckedReason: 'The copy could not be read back (IllegalStateException).',
     }))} />);
     await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
-    expect(await screen.findByText(/Not checked: The reading could not be repeated/)).toBeInTheDocument();
+    expect(await screen.findByText('Not checked: The copy could not be read back (IllegalStateException).')).toBeInTheDocument();
   });
 
   it('shows the server refusal message', async () => {

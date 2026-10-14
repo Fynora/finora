@@ -126,6 +126,10 @@ export interface Transaction {
   // and does not follow an edit to `amount`.
   referenceNumber?: string | null;
   balanceAfter?: number | null;
+  // One month's share of a card instalment plan, read by the server from the row's own words.
+  // Display only: the row is marked (lib/cardInstalment.ts) and no total reads it. Absent from a
+  // server that predates it, which reads as "not marked".
+  cardInstalment?: boolean;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see

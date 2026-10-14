@@ -522,8 +522,13 @@ public class DataExportService {
                 .map(NetWorthSnapshotExportDto::from)
                 .toList();
 
+        Map<UUID, List<String>> narrationsByMerchant = new java.util.HashMap<>();
+        for (Transaction t : userTransactions) {
+            if (t.getMerchantId() == null || t.getDescription() == null) continue;
+            narrationsByMerchant.computeIfAbsent(t.getMerchantId(), id -> new java.util.ArrayList<>()).add(t.getDescription());
+        }
         List<MerchantExportDto> merchants = merchantRepository.findByUserId(userId).stream()
-                .map(MerchantExportDto::from)
+                .map(m -> MerchantExportDto.from(m, narrationsByMerchant.getOrDefault(m.getId(), List.of())))
                 .toList();
 
         List<ImportJob> importJobEntities = importJobRepository.findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged());

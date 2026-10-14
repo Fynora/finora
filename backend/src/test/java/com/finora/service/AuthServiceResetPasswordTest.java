@@ -233,7 +233,8 @@ class AuthServiceResetPasswordTest {
 
         assertThatThrownBy(() -> authService.resetPassword(new ResetPasswordRequest("never-issued", "some-token", "NewSecurePass123")))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("invalid");
+                .hasMessageContaining("invalid")
+                .hasMessageNotContaining("used");
 
         verify(userRepository, never()).save(any());
     }

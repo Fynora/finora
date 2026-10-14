@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { FlatList, Platform, StyleSheet } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ import {
 } from './LedgerScreen';
 import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
 import { hapticImpact } from '../lib/haptics';
+import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
@@ -64,16 +65,26 @@ jest.mock('../lib/invalidateFinancialData', () => ({
 
 jest.mock('../lib/haptics');
 
+// React Native's jest setup reports a font scale of 2, which is "large text" to this screen: rows
+// lose their avatar and the controls stack. These tests describe the ordinary layout; the one that
+// is about large text turns it on.
+jest.mock('../lib/useLargeFontScale', () => ({ useLargeFontScale: jest.fn(() => false) }));
+const { useLargeFontScale } = jest.requireMock('../lib/useLargeFontScale');
+
 const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;
 const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
 const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 
 function txn(over: Partial<Transaction> = {}): Transaction {
+  const description = over.description ?? 'Grocery run';
   return {
     id: 't-1',
     date: '2026-07-14',
-    description: 'Grocery run',
-    merchant: 'Big Bazaar',
+    description,
+    // As the server derives it: the description in lower case, punctuation gone, four words at
+    // most. The row is titled from the two together (lib/ledgerRows rowTitle), so a test that sets
+    // only `description` still finds it as the title.
+    merchant: description.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').slice(0, 4).join(' '),
     amount: -1250,
     type: 'EXPENSE',
     category: 'Food',
@@ -120,8 +131,25 @@ function renderScreen() {
   return result;
 }
 
+/** Status, date range and International live in the Filters sheet. */
+function openFilters() {
+  fireEvent.press(screen.getByLabelText(/^Filters/));
+}
+
+/** A scroll event with everything the list reads from one. */
+function scrollListTo(y: number) {
+  fireEvent.scroll(screen.getByTestId('ledger-list'), {
+    nativeEvent: {
+      contentOffset: { x: 0, y },
+      contentSize: { width: 390, height: 4000 },
+      layoutMeasurement: { width: 390, height: 800 },
+    },
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  useLargeFontScale.mockReturnValue(false);
   mockRouteParams = undefined;
   categories.list.mockResolvedValue([
     { id: 'c-1', name: 'Food', isSystem: true, icon: 'utensils', color: 'orange' },
@@ -276,16 +304,18 @@ describe('reconciliation status indicator', () => {
  * review state entirely, independent of the reconciliation badge above (which is about a MATCH,
  * not review state).
  */
-describe('status badges (Phase 5)', () => {
-  it('shows "Categorized" for an ordinary, engine-categorized row with nothing else to flag', async () => {
-    transactions.search.mockResolvedValue(page([txn()]) as never);
+describe('row tags', () => {
+  it('shows no tag for an ordinary row: Categorized and Reviewed are the normal state', async () => {
+    transactions.search.mockResolvedValue(page([txn(), txn({ id: 't-2', description: 'Salary', categoryManuallySet: true })]) as never);
 
     renderScreen();
 
-    expect(await screen.findByText('Categorized')).toBeTruthy();
+    await screen.findByText('Grocery run');
+    expect(screen.queryByText('Categorized')).toBeNull();
+    expect(screen.queryByText('Reviewed')).toBeNull();
   });
 
-  it('marks an international transaction beside its status, and says so to a screen reader', async () => {
+  it('marks an international transaction, and says so to a screen reader', async () => {
     transactions.search.mockResolvedValue(page([
       txn({ id: 't-intl', international: true, foreignCurrency: 'USD', foreignAmount: 12.5 }),
       txn({ id: 't-home', description: 'Salary' }),
@@ -295,60 +325,47 @@ describe('status badges (Phase 5)', () => {
 
     expect(await screen.findByTestId('international-badge-t-intl')).toBeTruthy();
     expect(screen.queryByTestId('international-badge-t-home')).toBeNull();
-    expect(screen.getAllByText('Categorized')).toHaveLength(2);
     expect(screen.getByLabelText(/Grocery run.*, international$/)).toBeTruthy();
   });
 
-  it('shows "Reviewed" instead, once the category was set by hand', async () => {
-    transactions.search.mockResolvedValue(page([txn({ categoryManuallySet: true })]) as never);
+  it('marks a card instalment, and reads out in full what the mark means', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ id: 't-emi', description: 'FP EMI 02/06', cardInstalment: true }),
+      txn({ id: 't-plain', description: 'Salary', cardInstalment: false }),
+      // A server that predates the flag sends none: not marked.
+      txn({ id: 't-old', description: 'Old row' }),
+    ]) as never);
 
     renderScreen();
 
-    expect(await screen.findByText('Reviewed')).toBeTruthy();
-    expect(screen.queryByText('Categorized')).toBeNull();
+    expect(await screen.findByTestId('card-instalment-badge-t-emi')).toHaveTextContent('EMI instalment');
+    expect(screen.queryByTestId('card-instalment-badge-t-plain')).toBeNull();
+    expect(screen.queryByTestId('card-instalment-badge-t-old')).toBeNull();
+    // The whole note, not the pill's two words: a listener has no details sheet open yet.
+    expect(screen.getByLabelText(/^FP EMI 02\/06.*A monthly instalment on an earlier card purchase\..*count both the purchase and its instalments\.$/i)).toBeTruthy();
+    expect(screen.getByLabelText(/^Salary/).props.accessibilityLabel).not.toMatch(/instalment/i);
   });
 
-  it('shows "Needs Review" instead of the fallback when the engine is unsure', async () => {
-    transactions.search.mockResolvedValue(page([txn({ needsCategoryReview: true })]) as never);
-
-    renderScreen();
-
-    expect(await screen.findByText('Needs Review')).toBeTruthy();
-    expect(screen.queryByText('Categorized')).toBeNull();
-  });
-
-  it('shows both Needs Review and Recurring at once -- independent facts, not a priority chain', async () => {
-    transactions.search.mockResolvedValue(
-      page([txn({ needsCategoryReview: true, recurring: true })]) as never
-    );
+  it('shows Needs Review and Recurring at once: independent facts, not a priority chain', async () => {
+    transactions.search.mockResolvedValue(page([txn({ needsCategoryReview: true, recurring: true })]) as never);
 
     renderScreen();
 
     await screen.findByText('Needs Review');
     expect(screen.getByText('Recurring')).toBeTruthy();
-    // Neither fallback applies once either real flag is set.
-    expect(screen.queryByText('Categorized')).toBeNull();
-    expect(screen.queryByText('Reviewed')).toBeNull();
   });
 
-  it('shows "Bank Correction" when pendingBankCorrection is true (Plan 6, Track B mobile parity)', async () => {
-    transactions.search.mockResolvedValue(page([txn({ pendingBankCorrection: true })]) as never);
+  it('shows Bank Correction only when the bank changed the row', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ pendingBankCorrection: true }), txn({ id: 't-2', description: 'Salary' }),
+    ]) as never);
 
     renderScreen();
 
-    expect(await screen.findByText('Bank Correction')).toBeTruthy();
+    expect(await screen.findAllByText('Bank Correction')).toHaveLength(1);
   });
 
-  it('does not show "Bank Correction" for an ordinary transaction', async () => {
-    transactions.search.mockResolvedValue(page([txn()]) as never);
-
-    renderScreen();
-
-    await screen.findByText('Categorized');
-    expect(screen.queryByText('Bank Correction')).toBeNull();
-  });
-
-  it('names every status badge in the row\'s accessibility label', async () => {
+  it("names every tag in the row's spoken name", async () => {
     transactions.search.mockResolvedValue(page([txn({ recurring: true })]) as never);
 
     renderScreen();
@@ -524,6 +541,7 @@ describe('status filter (Phase 4)', () => {
 
     renderScreen();
     await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    openFilters();
     fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
@@ -539,6 +557,7 @@ describe('status filter (Phase 4)', () => {
 
     renderScreen();
     await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    openFilters();
     fireEvent.press(screen.getByLabelText('Filter by status: OK'));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
@@ -553,6 +572,7 @@ describe('status filter (Phase 4)', () => {
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ international: undefined })
     ));
+    openFilters();
     fireEvent.press(screen.getByLabelText('Show only international transactions'));
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ international: true })
@@ -570,6 +590,7 @@ describe('status filter (Phase 4)', () => {
 
     renderScreen();
     await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    openFilters();
     fireEvent.press(screen.getByLabelText('Filter by status: Duplicate'));
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'DUPLICATE' })
@@ -588,6 +609,7 @@ describe('status filter (Phase 4)', () => {
     renderScreen();
     await waitFor(() => expect(transactions.search).toHaveBeenCalled());
     fireEvent.press(screen.getByLabelText('Filter: expense'));
+    openFilters();
     fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
@@ -600,6 +622,7 @@ describe('status filter (Phase 4)', () => {
 
     renderScreen();
     await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    openFilters();
     fireEvent.press(screen.getByLabelText('Filter by status: Superseded'));
 
     expect(await screen.findByText('No transactions match these filters.')).toBeTruthy();
@@ -629,7 +652,18 @@ describe('the header count', () => {
     renderScreen();
 
     expect(await screen.findByText(/Couldn't load your transactions/i)).toBeTruthy();
-    expect(screen.queryByText('0 total')).toBeNull();
+    expect(screen.queryByText(/^0 /)).toBeNull();
+  });
+
+  it('counts in words, singular for one', async () => {
+    transactions.search.mockResolvedValue(page([txn()], { totalElements: 392 }) as never);
+    const many = renderScreen();
+    expect(await screen.findByText('392 transactions')).toBeTruthy();
+    many.unmount();
+
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    expect(await screen.findByText('1 transaction')).toBeTruthy();
   });
 });
 
@@ -822,7 +856,9 @@ describe('correcting a category from the ledger', () => {
     renderScreen();
     fireEvent.press(await screen.findByText('Grocery run'));
     fireEvent.press(await screen.findByTestId('category-button-t-1'));
-    fireEvent.press(await screen.findByText('Food'));
+    await screen.findByText('Change category');
+    // The last "Food" is the picker's: the row behind it shows its category too.
+    fireEvent.press(screen.getAllByText('Food').at(-1)!);
 
     await waitFor(() => expect(screen.queryByText('Change category')).toBeNull());
     expect(transactions.updateCategory).not.toHaveBeenCalled();
@@ -1098,6 +1134,7 @@ describe('manual date-range filter (Phase 5)', () => {
     jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
       onChange?.({ type: 'set' } as never, new Date(2026, 6, 1)); // July 1, 2026 local
     });
+    openFilters();
     fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
@@ -1119,6 +1156,7 @@ describe('manual date-range filter (Phase 5)', () => {
     jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
       onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
     });
+    openFilters();
     fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
@@ -1130,6 +1168,8 @@ describe('manual date-range filter (Phase 5)', () => {
     renderScreen();
     await screen.findByText(/No transactions yet/i);
 
+    openFilters();
+    expect(screen.getByLabelText(/From: not set\. Choose a date/)).toBeTruthy();
     expect(screen.queryByLabelText('Clear From')).toBeNull();
     expect(screen.queryByLabelText('Clear To')).toBeNull();
   });
@@ -1149,6 +1189,7 @@ describe('manual date-range filter (Phase 5)', () => {
     jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
       onChange?.({ type: 'set' } as never, new Date(2026, 6, 15)); // July 15, 2026 local
     });
+    openFilters();
     fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
       expect.objectContaining({ dateFrom: '2026-07-15' })
@@ -1244,7 +1285,8 @@ describe('"Why this category?" panel (Phase 4)', () => {
     fireEvent.press(await screen.findByTestId('explain-button-t-1'));
 
     await screen.findByText('You corrected this merchant to Food before.');
-    expect(screen.getByText('Food')).toBeTruthy();
+    // Two: the row's own category line, and the panel's echo of it.
+    expect(screen.getAllByText('Food')).toHaveLength(2);
     expect(screen.getByText('87% confidence')).toBeTruthy();
   });
 
@@ -1271,10 +1313,10 @@ describe('"Why this category?" panel (Phase 4)', () => {
     // Not an exact match -- the bullet renders as its own text node inside the same <Text>, so the
     // element's full text content is "• Same date, amount and description".
     expect(screen.getByText(/Same date, amount and description/)).toBeTruthy();
-    // Three, not two: the status filter chip (Phase 4), the row's own pill, and the modal's own
-    // badge for the same status -- the detail sheet's own pill for the same status is not among
-    // these three, since opening this modal already closed that sheet.
-    expect(screen.getAllByText('Duplicate')).toHaveLength(3);
+    // Two: the row's own tag and the modal's own badge for the same status. The status filter's
+    // "Duplicate" is in the Filters sheet now, which is closed, and the detail sheet's own pill is
+    // not among these either, since opening this modal already closed that sheet.
+    expect(screen.getAllByText('Duplicate')).toHaveLength(2);
   });
 
   it('closes without affecting the row underneath', async () => {
@@ -1750,7 +1792,7 @@ describe('sibling modal keys', () => {
         ? page([])
         : page([
           txn({ id: 't-1', reconciliationStatus: 'OK' }),
-          txn({ id: 't-2', description: 'Rent', merchant: 'Landlord', reconciliationStatus: 'OK' }),
+          txn({ id: 't-2', description: 'Rent', reconciliationStatus: 'OK' }),
         ])) as never);
 
     renderScreen();
@@ -1765,5 +1807,240 @@ describe('sibling modal keys', () => {
     fireEvent.press(await screen.findByTestId('mark-transfer-button-t-2'));
 
     expect((await screen.findByLabelText('Search transactions to pair with')).props.value).toBe('');
+  });
+});
+
+describe('the redesigned list', () => {
+  it('titles a row by the payee name with softened capitals, not by the narration', async () => {
+    transactions.search.mockResolvedValue(page([
+      txn({ description: 'UPI/DR/600000000001/RAHUL SH/YESB/rahulsh@ybl', merchant: 'rahul sh' }),
+    ]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByText('Rahul Sh')).toBeTruthy();
+    expect(screen.queryByText(/UPI\/DR/)).toBeNull();
+  });
+
+  it('heads each day with a short date and no longer prints the date on rows', async () => {
+    transactions.search.mockResolvedValue(page([txn({ date: '2026-07-14' })]) as never);
+
+    renderScreen();
+
+    expect(await screen.findByRole('header', { name: dayHeading('2026-07-14', new Date()) })).toBeTruthy();
+    expect(screen.queryByText(/2026-07-14/)).toBeNull();
+  });
+
+  it('drops the line under the title and the arrow at the end of a row', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Grocery run');
+    expect(screen.queryByText('All your financial activity in one place.')).toBeNull();
+    // The icon stand-in in these tests renders an icon as its name.
+    expect(screen.queryByText('chevron-forward')).toBeNull();
+  });
+
+  it('lists and counts once a row the server returned on two pages', async () => {
+    const repeated = txn({ id: 't-rep', description: 'Rent', amount: -100 });
+    transactions.search
+      .mockResolvedValueOnce(page([txn({ id: 't-a', description: 'Tea', amount: -10 }), repeated], { totalPages: 2, totalElements: 3 }) as never)
+      .mockResolvedValueOnce(page([repeated, txn({ id: 't-b', description: 'Bus', amount: -5 })], { page: 1, totalPages: 2, totalElements: 3 }) as never);
+
+    renderScreen();
+    await screen.findByText('Rent');
+    fireEvent(screen.getByTestId('ledger-list'), 'endReached');
+
+    expect(await screen.findByText('Bus')).toBeTruthy();
+    expect(screen.getAllByText('Rent')).toHaveLength(1);
+    // 10 + 100 + 5, the repeated 100 counted once.
+    expect(screen.getByText('-₹115')).toBeTruthy();
+  });
+
+  it('says on the Filters button how many of its filters are on, and shows a chip for each', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+
+    openFilters();
+    fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+
+    expect(screen.getByLabelText('Filters, 2 on')).toBeTruthy();
+    expect(screen.getByLabelText('Clear filter: Transfer')).toBeTruthy();
+    expect(screen.getByLabelText('Clear filter: International')).toBeTruthy();
+  });
+
+  it('turns a filter off from its chip', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    openFilters();
+    fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ status: 'TRANSFER' })));
+
+    fireEvent.press(screen.getByLabelText('Clear filter: Transfer'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({ status: undefined })));
+    expect(screen.getByLabelText('Filters')).toBeTruthy();
+  });
+
+  it('shows a picked date range as one chip that clears both dates', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'android';
+    try {
+      transactions.search.mockResolvedValue(page([]) as never);
+      renderScreen();
+      await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+      jest.mocked(DateTimePickerAndroid.open).mockImplementation(({ onChange }) => {
+        onChange?.({ type: 'set' } as never, new Date(2026, 6, 1));
+      });
+      openFilters();
+      fireEvent.press(screen.getByLabelText(/From: not set\. Choose a date/));
+
+      const clear = await screen.findByLabelText(/^Clear filter: From /);
+      expect(screen.getByLabelText('Filters, 1 on')).toBeTruthy();
+      fireEvent.press(clear);
+
+      await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({ dateFrom: undefined })));
+      expect(screen.queryByLabelText(/^Clear filter: From /)).toBeNull();
+    } finally {
+      Platform.OS = originalOS;
+    }
+  });
+
+  it('Clear all turns off status, dates and international, and leaves search, type and an arriving filter alone', async () => {
+    mockRouteParams = { filters: { label: 'Dining', nonce: 7, categoryId: 'c-1' } };
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'tea');
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    openFilters();
+    fireEvent.press(screen.getByLabelText('Filter by status: Refund'));
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+
+    fireEvent.press(screen.getByLabelText('Clear all filters'));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: undefined, international: undefined, dateFrom: undefined, dateTo: undefined,
+      type: 'EXPENSE', keyword: 'tea', categoryId: 'c-1',
+    })));
+    expect(screen.getByLabelText('Clear filter: Dining')).toBeTruthy();
+  });
+
+  it('closes the sheet from a button that says how many match', async () => {
+    transactions.search.mockResolvedValue(page([txn(), txn({ id: 't-2', description: 'Salary' })]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    openFilters();
+
+    expect(screen.getByTestId('filters-done')).toHaveTextContent('Show 2 transactions');
+    fireEvent.press(screen.getByTestId('filters-done'));
+
+    expect(screen.queryByTestId('filters-done')).toBeNull();
+  });
+
+  it('says Done on that button while the count is loading', async () => {
+    transactions.search.mockReturnValue(new Promise(() => {}));
+    renderScreen();
+    openFilters();
+    expect(screen.getByTestId('filters-done')).toHaveTextContent('Done');
+  });
+
+  it('shows the pinned title and its buttons as soon as the list has moved under the bar', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Search transactions' })).toBeNull();
+
+    // Still inside the space above the large title: nothing has reached the bar yet.
+    scrollListTo(8);
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
+
+    // The large title is still on its way out. The bar covers it from here on, so its own title
+    // and buttons have to be there already.
+    scrollListTo(20);
+
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Search transactions' })).toBeTruthy();
+  });
+
+  it('puts the pinned bar away again at the top, and during a pull to refresh', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    scrollListTo(300);
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(2);
+    scrollListTo(0);
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
+
+    scrollListTo(-80);
+    expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
+  });
+
+  it('scrolls to the top from the pinned search button', async () => {
+    const scrollToOffset = jest.spyOn(FlatList.prototype, 'scrollToOffset').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    scrollListTo(300);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Search transactions' }));
+
+    expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: true });
+    scrollToOffset.mockRestore();
+  });
+
+  it('opens Add from the pinned bar too', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    scrollListTo(300);
+
+    fireEvent.press(screen.getAllByLabelText('Add transaction')[1]);
+
+    expect(await screen.findByText('Add Transaction')).toBeTruthy();
+  });
+
+  it('at large text drops the row avatar and stacks the controls', async () => {
+    useLargeFontScale.mockReturnValue(true);
+    transactions.search.mockResolvedValue(page([txn({ merchant: 'Swiggy' })]) as never);
+
+    renderScreen();
+
+    await screen.findByText('Swiggy');
+    expect(screen.queryByLabelText('Swiggy')).toBeNull();
+    expect(screen.getByTestId('ledger-controls-row')).toHaveStyle({ flexDirection: 'column' });
+  });
+
+  it('starts the list below the status bar, so the refresh spinner is not hidden under it', async () => {
+    // Found on an iPhone 17 Pro simulator: with the list running under the status bar, the
+    // pull-to-refresh spinner sat centred under the camera cut-out and could not be seen. The
+    // pinned bar is what covers the status bar area; the list itself begins under it.
+    const insets = require('react-native-safe-area-context').useSafeAreaInsets() as { top: number };
+    insets.top = 59;
+    try {
+      transactions.search.mockResolvedValue(page([txn()]) as never);
+      renderScreen();
+      await screen.findByText('Grocery run');
+
+      const list = screen.getByTestId('ledger-list');
+      expect(list).toHaveStyle({ marginTop: 59 });
+      expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingTop).toBeUndefined();
+      expect(screen.getByTestId('ledger-pinned-bar')).toHaveStyle({ top: 0, height: 59 + 54 });
+    } finally {
+      insets.top = 0;
+    }
+  });
+
+  it('puts the loading, failed and empty states in a card', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await screen.findByText(/No transactions yet/i);
+    expect(screen.getByTestId('ledger-state-card')).toBeTruthy();
   });
 });

@@ -21,8 +21,9 @@ import java.util.Objects;
  * an amount. The only text a difference carries is the copy's own masked tokens, which the copy
  * already contains.
  *
- * <p>A description is compared by masking the real one with the same rules as the copy, so the
- * two match exactly when the same words were grouped into that row in the same order.
+ * <p>A description is compared position by position: each character of the copy's must be the
+ * real one or the redactor's mask of it (see {@link #sameDescription}), so the two match exactly
+ * when the same words were grouped into that row in the same order.
  */
 public final class BlankedCopyComparison {
 
@@ -80,10 +81,41 @@ public final class BlankedCopyComparison {
         money(s, r, Field.AMOUNT, a.amount(), b.amount(), out);
         if (!Objects.equals(a.type(), b.type())) out.add(new Difference(s, r, Field.DIRECTION, List.of()));
         money(s, r, Field.BALANCE, a.balanceAfter(), b.balanceAfter(), out);
-        String maskedReal = a.description() == null ? null : PdfTraceRedactor.redactLine(a.description());
-        if (!Objects.equals(maskedReal, b.description())) {
+        if (!sameDescription(a.description(), b.description())) {
             out.add(new Difference(s, r, Field.DESCRIPTION, maskedTokens(b.description())));
         }
+    }
+
+    /**
+     * Whether the copy's description is the real one with some of its characters masked: the same
+     * number of code points and, at every position, the copy's code point is the real one, the
+     * redactor's mask of it ({@link PdfTraceRedactor#maskOf}), or what the redactor writes at that
+     * position when it masks the real description as one line. Spaces, punctuation and symbols
+     * mask to themselves, so they must be equal.
+     *
+     * <p>Why per position rather than masking the real description and comparing: the copy masks
+     * each run on its own, the real description is one joined line, and a date or a long digit run
+     * that only forms across a line break is kept by one and masked by the other. Neither is a
+     * difference in what was read. A different grouping of lines still differs, because it moves
+     * a space or a word to a position where neither rule allows it.
+     *
+     * <p>Why the joined line's own masking as well: one rule does not mask character by character.
+     * An IFSC's branch code is written as X whatever its characters, digits included, so the
+     * character-by-character mask of a branch digit (a 9) is not what the copy holds.
+     */
+    static boolean sameDescription(String real, String copy) {
+        if (real == null || copy == null) return real == copy;
+        int[] r = real.codePoints().toArray();
+        int[] c = copy.codePoints().toArray();
+        if (r.length != c.length) return false;
+        int[] joined = PdfTraceRedactor.redactLine(real).codePoints().toArray();
+        boolean joinedAligned = joined.length == r.length;
+        for (int i = 0; i < r.length; i++) {
+            if (c[i] == r[i] || c[i] == PdfTraceRedactor.maskOf(r[i])) continue;
+            if (joinedAligned && c[i] == joined[i]) continue;
+            return false;
+        }
+        return true;
     }
 
     /** The copy's own tokens that were masked: they hold an X, x or 9 run the redactor wrote. */

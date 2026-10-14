@@ -178,6 +178,73 @@ class BlankedCopyComparisonTest {
                 .allSatisfy(d -> assertThat(d.maskedTokens()).allMatch(t -> !t.contains("98765")));
     }
 
+    // ---- Descriptions. The copy masks each run on its own; the real description is one joined
+    // line. A date or a digit run that only forms across a line break masks differently in the
+    // two, which is not a difference in what was read.
+
+    private static Field descriptionOutcome(String realDescription, String copyDescription) {
+        var result = BlankedCopyComparison.compare(
+                List.of(section(List.of(row("2026-07-01", realDescription, "5.00", "DEBIT", "1.00")))),
+                List.of(section(List.of(row("2026-07-01", copyDescription, "5.00", "DEBIT", "1.00")))));
+        return result.differences().stream().map(BlankedCopyComparison.Difference::field)
+                .filter(f -> f == Field.DESCRIPTION).findFirst().orElse(null);
+    }
+
+    /** Joined, "05 Jul" is a date and kept; masked run by run, its halves are not. */
+    @Test
+    void aDateThatFormsOnlyAcrossALineBreakMatches() {
+        String copy = PdfTraceRedactor.redactLine("Asha 05") + " " + PdfTraceRedactor.redactLine("Jul");
+        // Guard: the joined line really does mask differently, so this is the artifact.
+        assertThat(PdfTraceRedactor.redactLine("Asha 05 Jul")).isNotEqualTo(copy);
+        assertThat(descriptionOutcome("Asha 05 Jul", copy)).isNull();
+    }
+
+    /** Joined, the digits after an amount form an 8-digit run and the whole token is masked; run by
+     *  run, the amount is kept and only the second run is masked. */
+    @Test
+    void aLongDigitRunThatFormsOnlyAcrossRunsMatches() {
+        String copy = PdfTraceRedactor.redactLine("12345.00") + PdfTraceRedactor.redactLine("123456");
+        assertThat(PdfTraceRedactor.redactLine("12345.00123456")).isNotEqualTo(copy);
+        assertThat(descriptionOutcome("12345.00123456", copy)).isNull();
+    }
+
+    /** The redactor masks an IFSC's branch code to X whatever its characters; the copy's run does
+     *  the same, so a description holding one still matches. */
+    @Test
+    void aDescriptionHoldingAnIfscMatches() {
+        String real = "NEFT HDFC0001234 Asha"; // synthetic-ok: invented branch code
+        assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).isNull();
+    }
+
+    @Test
+    void aDifferentGroupingOfLinesStillDiffers() {
+        // An extra line in the copy, and a line missing from it.
+        assertThat(descriptionOutcome("UPI Asha", "UPI Xxxx Xxxxx")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI Asha Verma", "UPI Xxxx")).isEqualTo(Field.DESCRIPTION);
+        // The same words in another order.
+        assertThat(descriptionOutcome("UPI Asha Verma", "Xxxxx UPI Xxxx")).isEqualTo(Field.DESCRIPTION);
+        // Words of different lengths in the same total length.
+        assertThat(descriptionOutcome("Asha Verma", "Xxxxx Xxxx")).isEqualTo(Field.DESCRIPTION);
+        // A description on one side only.
+        assertThat(descriptionOutcome("UPI Asha", null)).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome(null, "UPI Xxxx")).isEqualTo(Field.DESCRIPTION);
+    }
+
+    @Test
+    void aCopyCharacterThatIsNotTheMaskOfTheRealOneDiffers() {
+        // A letter where the real description has a digit, and a digit where it has a letter.
+        assertThat(descriptionOutcome("REF 1234", "REF xxxx")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI Asha", "UPI 9999")).isEqualTo(Field.DESCRIPTION);
+        // Upper-case X for a lower-case letter, which the redactor writes as x.
+        assertThat(descriptionOutcome("UPI Asha", "UPI XXXX")).isEqualTo(Field.DESCRIPTION);
+        // Punctuation and spacing must be equal.
+        assertThat(descriptionOutcome("UPI-Asha", "UPI/Xxxx")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("UPI Asha", "UPI  Xxx")).isEqualTo(Field.DESCRIPTION);
+        // Both null, or the same text, is no difference.
+        assertThat(descriptionOutcome(null, null)).isNull();
+        assertThat(descriptionOutcome("UPI", "UPI")).isNull();
+    }
+
     @Test
     void maskedTokensAreExactlyTheCopysOwnMaskedTokensWhenDescriptionsDiffer() {
         // The copy grouped an extra line into the row, so the descriptions really differ.

@@ -274,6 +274,24 @@ class PdfTraceRedactorTest {
         assertThat(redact("\u20B9 1,234.00 \u2013 Balance")).isEqualTo("\u20B9 1,234.00 \u2013 Balance");
     }
 
+    /** The one-code-point mask the blanked-copy comparison uses is the redactor's own: masking a
+     *  word that no rule keeps gives the same characters one at a time. */
+    @Test
+    void maskOfIsWhatTheRedactorWritesForEachCodePoint() {
+        assertThat(PdfTraceRedactor.maskOf('A')).isEqualTo('X');
+        assertThat(PdfTraceRedactor.maskOf('a')).isEqualTo('x');
+        assertThat(PdfTraceRedactor.maskOf('7')).isEqualTo('9');
+        assertThat(PdfTraceRedactor.maskOf(0x096D)).isEqualTo('9');   // a Devanagari digit
+        assertThat(PdfTraceRedactor.maskOf(0x093F)).isEqualTo('x');   // a Devanagari vowel sign (a mark)
+        assertThat(PdfTraceRedactor.maskOf('-')).isEqualTo('-');
+        assertThat(PdfTraceRedactor.maskOf(' ')).isEqualTo(' ');
+        assertThat(PdfTraceRedactor.maskOf(0x20B9)).isEqualTo(0x20B9);   // the rupee sign is a symbol
+        String word = "Qwz7अि";   // synthetic-ok: no rule keeps it
+        StringBuilder oneByOne = new StringBuilder();
+        word.codePoints().forEach(cp -> oneByOne.appendCodePoint(PdfTraceRedactor.maskOf(cp)));
+        assertThat(PdfTraceRedactor.redactLine(word)).isEqualTo(oneByOne.toString());
+    }
+
     private String redact(String text) {
         return PdfTraceRedactor.redact(List.of(new PositionedText(text.trim(), 0f, 0f, 0)))
                 .get(0).text();

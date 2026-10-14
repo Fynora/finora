@@ -446,11 +446,15 @@ public final class PdfTraceRedactor {
      *  punctuation is kept. */
     private static String mask(String token) {
         StringBuilder masked = new StringBuilder(token.length());
-        token.codePoints().forEach(cp -> {
-            if (isNumber(Character.getType(cp))) masked.append('9');
-            else if (isTextCodePoint(cp)) masked.append(Character.isUpperCase(cp) ? 'X' : 'x');
-            else masked.appendCodePoint(cp);
-        });
+        token.codePoints().forEach(cp -> masked.appendCodePoint(maskOf(cp)));
         return masked.toString();
+    }
+
+    /** What {@link #mask} writes for one code point: '9' for a number, 'X' for an upper-case
+     *  letter, 'x' for any other text code point, and the code point itself for anything else. */
+    public static int maskOf(int cp) {
+        if (isNumber(Character.getType(cp))) return '9';
+        if (isTextCodePoint(cp)) return Character.isUpperCase(cp) ? 'X' : 'x';
+        return cp;
     }
 }

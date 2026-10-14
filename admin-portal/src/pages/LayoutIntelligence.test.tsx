@@ -209,7 +209,7 @@ function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
     fingerprint: 'FP-1-AAAA0001', name: null, status: 'OBSERVED', sourceFormat: 'PDF', parser: null,
     observationCount: 0, stagingCount: 2, firstSeen: '2026-09-01T00:00:00Z', lastSeen: '2026-09-02T00:00:00Z',
     needsReview: true, reviewReasons: ['NEW_LAYOUT', 'BLANK_DESCRIPTIONS', 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN', 'IDENTITY_CONFLICT'], reviewFlaggedAt: '2026-09-01T00:00:00Z',
-    reviewAnalysisReference: 'SA-000001', acknowledgedReasons: [], profileId: null, profileName: null,
+    reviewAnalysisReference: 'SA-000001', reviewReasonSources: {}, acknowledgedReasons: [], profileId: null, profileName: null,
     profileVersion: null, profileLinkSource: null, previousProfileVersion: null, profileVersionChangedAt: null,
     ...overrides,
   };
@@ -227,6 +227,22 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     expect(screen.getByText('Seen as a different bank or account type')).toBeInTheDocument();
     expect(screen.getByText('SA-000001')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Needs review \(1\)/ })).toBeInTheDocument();
+  });
+
+  it('shows the upload that first raised each reason, and calls the reference column the latest upload', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({
+      reviewReasons: ['STAGING_FAILED', 'IDENTITY_CONFLICT', 'NEW_LAYOUT'],
+      reviewAnalysisReference: 'SA-000009',
+      reviewReasonSources: { STAGING_FAILED: 'SA-000002', IDENTITY_CONFLICT: 'SA-000009' },
+    })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByLabelText('raised by upload SA-000002')).toHaveTextContent('from SA-000002');
+    expect(screen.getByLabelText('raised by upload SA-000009')).toHaveTextContent('from SA-000009');
+    // A reason flagged before sources were recorded has none, rather than borrowing another's.
+    const newLayout = screen.getByText('New layout').parentElement as HTMLElement;
+    expect(newLayout).not.toHaveTextContent('from SA-');
+    expect(screen.getByRole('columnheader', { name: 'Latest upload' })).toBeInTheDocument();
   });
 
   it('resolves a flagged layout for a curator', async () => {

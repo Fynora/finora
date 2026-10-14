@@ -146,6 +146,12 @@ public class RegisteredLayout {
     @Column(name = "review_analysis_reference", length = 24)
     private String reviewAnalysisReference;
 
+    /** Each current reason's source: the analysis reference of the staging run that first raised
+     *  it in this flag (V270). Null for a layout flagged before V270, and once resolved. */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "review_reason_sources", columnDefinition = "jsonb")
+    private java.util.Map<String, String> reviewReasonSources;
+
     /** Reasons already reviewed; a later staging re-flags only for a reason not in here. */
     @Column(name = "acknowledged_reasons")
     private String acknowledgedReasons;
@@ -211,6 +217,9 @@ public class RegisteredLayout {
         acknowledged.addAll(reasonsOf(reviewReasons));
         this.acknowledgedReasons = acknowledged.isEmpty() ? null : String.join(",", acknowledged);
         this.needsReview = false;
+        // The next flag starts its own map (LayoutReviewService), so a source is never shown against
+        // a reason that came back in a later flag.
+        this.reviewReasonSources = null;
         this.updatedAt = Instant.now();
     }
 
@@ -272,6 +281,9 @@ public class RegisteredLayout {
     public java.util.List<String> getReviewReasons() { return reasonsOf(reviewReasons); }
     public Instant getReviewFlaggedAt() { return reviewFlaggedAt; }
     public String getReviewAnalysisReference() { return reviewAnalysisReference; }
+    public java.util.Map<String, String> getReviewReasonSources() {
+        return reviewReasonSources == null ? java.util.Map.of() : java.util.Map.copyOf(reviewReasonSources);
+    }
     public java.util.List<String> getAcknowledgedReasons() { return reasonsOf(acknowledgedReasons); }
     public UUID getProfileId() { return profileId; }
     public Integer getProfileVersion() { return profileVersion; }

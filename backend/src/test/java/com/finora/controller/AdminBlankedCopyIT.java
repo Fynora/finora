@@ -6,7 +6,9 @@ import com.finora.entity.ImportJob;
 import com.finora.entity.Permission;
 import com.finora.entity.Role;
 import com.finora.entity.User;
+import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
+import com.finora.imports.ImportConcurrencyLimiter;
 import com.finora.imports.passwords.StatementPasswordService;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
 import com.finora.imports.storage.ContentAddress;
@@ -33,6 +35,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -42,6 +45,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 /**
  * The blanked-copy endpoints on both held queues, switched on. Every statement here is the
@@ -83,6 +89,8 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private StatementStorage storage;
     @Autowired private StatementPasswordService statementPasswordService;
+    /** The real limiter, spied so one test can make it answer "busy". Mockito resets it after each test. */
+    @MockitoSpyBean private ImportConcurrencyLimiter limiter;
 
     private static byte[] plantedPdf() {
         try {
@@ -257,12 +265,30 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void aSuccessfulCopyIsAudited() {
+    void aSuccessfulCopyIsAudited() throws Exception {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
         get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
+        // The read and both readings ran under an import slot, as every other parse does.
+        verify(limiter).runGated(any());
+    }
+
+    /** Every import slot taken: refused at once with the import queue's own 503, before the audit
+     *  row and before the statement is read. */
+    @Test
+    void aBusyServerRefusesBeforeTheAuditAndTheRead(CapturedOutput output) throws Exception {
+        ImportJob job = heldJob();
+        doThrow(new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY)).when(limiter).runGated(any());
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+                createSupportUser("IMPORT_TRIAGE_MANAGE"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
     }
 
     /** The stored file is gone: refused with 409 (not the catch-all 500), still on record, and the
@@ -397,6 +423,20 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
                 .satisfies(e -> assertThat(e.getMetadata())
                         .containsOnlyKeys("actorId", "subjectUserId", "heldId", "savedPasswordOnFile"));
         assertNothingLeft(copy.getBody(), auditOf(held.getId()), output);
+    }
+
+    @Test
+    void theTrustQueueRefusesWhenTheServerIsBusy(CapturedOutput output) throws Exception {
+        HeldStatement held = seedHold("HLD-2026-610009");
+        doThrow(new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY)).when(limiter).runGated(any());
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610009/blanked-copy",
+                createSupportUser("TRUST_REVIEW_MANAGE"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));
+        assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
     }
 
     /** Same account both ways, so the 403 on the document is the role pin, not a missing permission. */

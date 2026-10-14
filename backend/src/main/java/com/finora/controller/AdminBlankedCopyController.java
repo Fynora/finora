@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.finora.dto.ApiResponse;
 import com.finora.dto.BlankedCopyDto;
 import com.finora.exception.ApiException;
+import com.finora.imports.ImportConcurrencyLimiter;
 import com.finora.imports.blanked.BlankedCopyService;
 import com.finora.security.CurrentUser;
 import com.finora.service.AdminHeldImportService;
@@ -27,6 +28,11 @@ import java.util.UUID;
  * <p>No class-level {@code @PreAuthorize}: the two copy endpoints need different queue permissions,
  * and a method-level annotation replaces a class-level one rather than adding to it, so each handler
  * carries its own.
+ *
+ * <p>Making a copy reads the statement (OCR for a scanned one) and reads it twice more, on the
+ * request thread, so it takes an import slot from {@link ImportConcurrencyLimiter} like every other
+ * parse. A busy server refuses at once with the import queue's own 503, before the audit row is
+ * written and before any bytes are read.
  */
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -36,15 +42,18 @@ public class AdminBlankedCopyController {
     private final HeldStatementService heldStatements;
     private final BlankedCopyService blankedCopies;
     private final CurrentUser currentUser;
+    private final ImportConcurrencyLimiter concurrencyLimiter;
     private final boolean enabled;
 
     public AdminBlankedCopyController(AdminHeldImportService heldImports, HeldStatementService heldStatements,
                                       BlankedCopyService blankedCopies, CurrentUser currentUser,
+                                      ImportConcurrencyLimiter concurrencyLimiter,
                                       @Value("${app.blanked-copy.enabled:false}") boolean enabled) {
         this.heldImports = heldImports;
         this.heldStatements = heldStatements;
         this.blankedCopies = blankedCopies;
         this.currentUser = currentUser;
+        this.concurrencyLimiter = concurrencyLimiter;
         this.enabled = enabled;
     }
 
@@ -57,18 +66,20 @@ public class AdminBlankedCopyController {
 
     @PreAuthorize("hasAuthority('IMPORT_TRIAGE_MANAGE')")
     @GetMapping("/held-imports/{jobId}/blanked-copy")
-    public ApiResponse<BlankedCopyDto.Response> heldImport(@PathVariable UUID jobId) {
+    public ApiResponse<BlankedCopyDto.Response> heldImport(@PathVariable UUID jobId) throws Exception {
         requireEnabled();
-        return ApiResponse.ok(BlankedCopyDto.Response.of(
-                blankedCopies.make(heldImports.contentForBlankedCopy(currentUser.id(), jobId))));
+        UUID actor = currentUser.id();
+        return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
+                () -> blankedCopies.make(heldImports.contentForBlankedCopy(actor, jobId)))));
     }
 
     @PreAuthorize("hasAuthority('TRUST_REVIEW_MANAGE')")
     @GetMapping("/held-statements/{heldId}/blanked-copy")
-    public ApiResponse<BlankedCopyDto.Response> heldStatement(@PathVariable String heldId) {
+    public ApiResponse<BlankedCopyDto.Response> heldStatement(@PathVariable String heldId) throws Exception {
         requireEnabled();
-        return ApiResponse.ok(BlankedCopyDto.Response.of(
-                blankedCopies.make(heldStatements.contentForBlankedCopy(currentUser.id(), heldId))));
+        UUID actor = currentUser.id();
+        return ApiResponse.ok(BlankedCopyDto.Response.of(concurrencyLimiter.runGated(
+                () -> blankedCopies.make(heldStatements.contentForBlankedCopy(actor, heldId)))));
     }
 
     private void requireEnabled() {

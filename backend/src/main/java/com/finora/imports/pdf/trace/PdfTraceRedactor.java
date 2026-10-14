@@ -52,7 +52,7 @@ public final class PdfTraceRedactor {
     // Tamil word, full-width or accented Latin, Devanagari digits) was kept verbatim, and combining
     // marks were copied out as if they were punctuation.
     // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
-    // real one.
+    // real one. An invisible format character inside a token is masked to x.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -340,7 +340,7 @@ public final class PdfTraceRedactor {
             int cp = text.codePointAt(i);
             if (isTextCodePoint(cp)) {
                 int start = i;
-                while (i < text.length() && isTokenChar(text.codePointAt(i))) {
+                while (i < text.length() && (isTokenChar(text.codePointAt(i)) || formatRunInsideToken(text, i))) {
                     i += Character.charCount(text.codePointAt(i));
                 }
                 String token = text.substring(start, i);
@@ -382,6 +382,21 @@ public final class PdfTraceRedactor {
     private static boolean isNumber(int type) {
         return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
                 || type == Character.OTHER_NUMBER;
+    }
+
+    /**
+     * Whether the code point at {@code i} is an invisible format character (Unicode category Cf: a
+     * zero-width joiner or non-joiner, a soft hyphen) with more text after it, so it sits inside a
+     * token rather than at its end. Inside a token it is masked to x like a mark, so a masked word
+     * does not show where its joins were; at a token's end or outside any token it carries nothing
+     * and is copied, so an amount followed by one stays a kept amount.
+     */
+    private static boolean formatRunInsideToken(String text, int i) {
+        int j = i;
+        while (j < text.length() && Character.getType(text.codePointAt(j)) == Character.FORMAT) {
+            j += Character.charCount(text.codePointAt(j));
+        }
+        return j > i && j < text.length() && isTextCodePoint(text.codePointAt(j));
     }
 
     /** A token runs across '.' and ',' so that "24,462.00" and "10/07/2026" are judged whole rather
@@ -458,10 +473,12 @@ public final class PdfTraceRedactor {
     }
 
     /** What {@link #mask} writes for one code point: '9' for a number, 'X' for an upper-case
-     *  letter, 'x' for any other text code point, and the code point itself for anything else. */
+     *  letter, 'x' for any other text code point or a format character (one only reaches a mask
+     *  from inside a token), and the code point itself for anything else. */
     public static int maskOf(int cp) {
         if (isNumber(Character.getType(cp))) return '9';
         if (isTextCodePoint(cp)) return Character.isUpperCase(cp) ? 'X' : 'x';
+        if (Character.getType(cp) == Character.FORMAT) return 'x';
         return cp;
     }
 }

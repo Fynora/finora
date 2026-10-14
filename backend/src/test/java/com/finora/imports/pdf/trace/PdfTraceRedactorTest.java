@@ -274,6 +274,33 @@ class PdfTraceRedactorTest {
         assertThat(redact("Ref \u0301\u093F")).isEqualTo("Ref xx");
     }
 
+    /**
+     * An invisible format character (a zero-width joiner or non-joiner) inside a word is masked to x
+     * like a mark, so a masked word no longer shows where its conjuncts or joins were. One outside
+     * any token (before a word, after an amount, between spaces) carries nothing and is kept, so a
+     * kept amount stays kept. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "\u0915\u094D\u200D\u0937 | xxxx",                     // synthetic-ok: a conjunct with ZWJ
+            "Asha\u200CVerma | XxxxxXxxxx",                        // synthetic-ok: ZWNJ inside a word
+            "UPI Asha\u200D\u200DVerma 1,234.00 | UPI XxxxxxXxxxx 1,234.00", // synthetic-ok
+    })
+    void aFormatCharacterInsideATokenIsMasked(String input, String expected) {
+        String redacted = redact(input);
+        assertThat(redacted).isEqualTo(expected.trim());
+        assertThat(redacted.codePointCount(0, redacted.length()))
+                .isEqualTo(input.trim().codePointCount(0, input.trim().length()));
+        assertThat(redacted.codePoints().filter(cp -> Character.getType(cp) == Character.FORMAT)).isEmpty();
+    }
+
+    @Test
+    void aFormatCharacterOutsideAnyTokenIsKept() {
+        assertThat(redact("\u200DBalance 1,234.00\u200B")).isEqualTo("\u200DBalance 1,234.00\u200B");
+        assertThat(redact("1,234.00\u200B Cr")).isEqualTo("1,234.00\u200B Cr");
+        assertThat(PdfTraceRedactor.maskOf(0x200D)).isEqualTo('x');
+    }
+
     /** A vocabulary word spelled with a character that lower-cases to ASCII (the Kelvin sign) is
      *  not the vocabulary word: only plain ASCII is ever kept. */
     @Test

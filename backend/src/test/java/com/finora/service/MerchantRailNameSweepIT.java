@@ -122,17 +122,23 @@ class MerchantRailNameSweepIT extends AbstractIntegrationTest {
         Merchant renamedByAPerson = merchant("Samplefive Stores", Merchant.Lifecycle.TEMPORARY);
         expense(renamedByAPerson, "UPI/DR/100000000006/SAMPLEFIVE/HDFC/samplefive@okhdfc");
         Merchant noTransactions = merchant("Upi Dr Samplesix Hdfc", Merchant.Lifecycle.TEMPORARY);
+        // The shown name hides "Pos" as well, but the queue was built from the nine rails:
+        // a person who renamed a queued merchant to a card-purchase name has still renamed it.
+        Merchant renamedToACardName = merchant("Pos Sampleseven Mart", Merchant.Lifecycle.TEMPORARY);
+        expense(renamedToACardName, "UPI/DR/100000000007/SAMPLEEIGHT/HDFC/sampleeight@okhdfc");
         enqueue(approved);
         enqueue(renamedByAPerson);
         enqueue(noTransactions);
+        enqueue(renamedToACardName);
 
         MerchantRailNameSweepService.Result result = sweepService.apply();
 
         assertThat(nameOf(approved)).isEqualTo("Upi Dr Samplefour Hdfc");
         assertThat(nameOf(renamedByAPerson)).isEqualTo("Samplefive Stores");
         assertThat(nameOf(noTransactions)).isEqualTo("Upi Dr Samplesix Hdfc");
+        assertThat(nameOf(renamedToACardName)).isEqualTo("Pos Sampleseven Mart");
         assertThat(result.renamed()).isZero();
-        assertThat(result.unchanged()).isEqualTo(3);
+        assertThat(result.unchanged()).isEqualTo(4);
         assertThat(queued()).isEmpty();
     }
 

@@ -102,6 +102,26 @@ class MerchantNamesTest {
                 .isEqualTo("Mmt Hotel Booking");
     }
 
+    /**
+     * A card purchase keeps "Pos" in its stored name: one bank prints the masked card number after
+     * it ("POS 512345XXXXXX1234 SHOP"), the stored name keeps that number, and without the "Pos"
+     * in front nothing would tell {@link MerchantNames#forDisplay} to hide it. Only the shown name
+     * is cleaned.
+     */
+    @Test
+    void aCardPurchaseKeepsItsStoredNameWhole() {
+        assertThat(MerchantNames.forNarration("POS 100000000001 SAMPLE MART BENGALURU")).isEqualTo("Pos Sample Mart Bengaluru");
+        assertThat(MerchantNames.forNarration("POS 512345XXXXXX1234 SAMPLE MART")).isEqualTo("Pos 512345xxxxxx1234 Sample Mart");
+        assertThat(MerchantNames.forNarration("POS 100000000001")).isEqualTo("Pos");
+    }
+
+    /** ATM withdrawals are left to the work that takes their merchant away; nothing changes here. */
+    @Test
+    void anAtmWithdrawalKeepsItsStoredNameWhole() {
+        assertThat(MerchantNames.forNarration("ATM WDL 100000000001 SAMPLETOWN MAIN")).isEqualTo("Atm Wdl Sampletown Main");
+        assertThat(MerchantNames.forDisplay("Atm Wdl Sampletown Main")).isEqualTo("Atm Wdl Sampletown Main");
+    }
+
     @Test
     void anEmptyNarrationIsStillNamed() {
         assertThat(MerchantNames.forNarration(null)).isEqualTo("Unknown");
@@ -130,8 +150,25 @@ class MerchantNamesTest {
     }
 
     @Test
+    void aCardPurchaseIsShownAsTheShop() {
+        assertThat(MerchantNames.forDisplay("Pos Sample Mart")).isEqualTo("Sample Mart");
+        assertThat(MerchantNames.forDisplay("Pos")).isEqualTo("Card payment");
+        assertThat(MerchantNames.forDisplay("Pos Sample Mart", List.of("POS 100000000001 SAMPLE MART BENGALURU")))
+                .isEqualTo("Sample Mart");
+    }
+
+    /** A masked card number is a code, not the shop: it is never what the customer reads first. */
+    @Test
+    void aCardPurchaseIsShownWithoutItsMaskedCardNumber() {
+        assertThat(MerchantNames.forDisplay("Pos 512345xxxxxx1234 Sample Mart")).isEqualTo("Sample Mart");
+        assertThat(MerchantNames.forDisplay("Pos 512345xxxxxx1234")).isEqualTo("Card payment");
+        assertThat(MerchantNames.forDisplay("Pos 512345xxxxxx1234 Sample Mart", List.of("POS 512345XXXXXX1234 SAMPLE MART")))
+                .isEqualTo("Sample Mart");
+    }
+
+    @Test
     void theShownNameOfARailsPaymentIsItself() {
-        for (String rail : List.of("Upi", "Imps", "Neft", "Rtgs", "Mmt", "Ach", "Nach", "Mob", "Ib")) {
+        for (String rail : List.of("Upi", "Imps", "Neft", "Rtgs", "Mmt", "Ach", "Nach", "Mob", "Ib", "Pos")) {
             String shown = MerchantNames.forDisplay(rail);
             assertThat(MerchantNames.forDisplay(shown)).as(rail).isEqualTo(shown);
         }
@@ -140,7 +177,8 @@ class MerchantNamesTest {
     @Test
     void aStoredNameThatDoesNotOpenWithARailIsShownAsStored() {
         for (String name : List.of("Sample Store", "Dr Sample Clinic", "Amazon", "Payment Sample Gateway",
-                "Pos Sample Mart", "From Sample Sender", "HP", "sample UPI store")) {
+                "From Sample Sender", "HP", "sample UPI store", "Card payment", "Atm Wdl Sampletown",
+                "Atw 512345xxxxxx1234 Sampletown")) {
             assertThat(MerchantNames.forDisplay(name)).isEqualTo(name);
         }
         assertThat(MerchantNames.forDisplay(null)).isNull();
@@ -153,6 +191,8 @@ class MerchantNamesTest {
         assertThat(MerchantNames.opensWithRail("Upi Dr Samplepa Hdfc")).isTrue();
         assertThat(MerchantNames.opensWithRail("ib sample billpay")).isTrue();
         assertThat(MerchantNames.opensWithRail("Mmt Imps Monthly Samplepa")).isTrue();
+        assertThat(MerchantNames.opensWithRail("Pos Sample Mart")).isTrue();
+        assertThat(MerchantNames.opensWithRail("Atm Wdl Sampletown")).isFalse();
         assertThat(MerchantNames.opensWithRail("Mmt Hotel Booking")).isFalse();
         assertThat(MerchantNames.opensWithRail("Sample Store")).isFalse();
         assertThat(MerchantNames.opensWithRail(null)).isFalse();

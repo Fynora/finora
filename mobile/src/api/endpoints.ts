@@ -194,6 +194,10 @@ export interface TransactionFilters {
   size?: number;
   sortField?: string;
   sortDir?: string;
+  // The id of the last transaction already held: the server answers with the rows that follow it
+  // in the requested order and ignores `page`, and its page/totalElements/totalPages then describe
+  // only what is left (page 0 of the remainder). See LedgerScreen's LedgerPageParam.
+  after?: string;
 }
 
 export interface PagedResponse<T> {

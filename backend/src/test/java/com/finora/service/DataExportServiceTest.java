@@ -270,7 +270,7 @@ class DataExportServiceTest {
         when(subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(planRepository.findAllById(any())).thenReturn(List.of());
         when(planChangeRepository.findBySubscriptionIdInOrderByCreatedAtDesc(any())).thenReturn(List.of());
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(any(), any())).thenReturn(Page.empty());
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(any(), any())).thenReturn(Page.empty());
         when(supportTicketAttachmentRepository.findMetadataByTicketIdIn(any())).thenReturn(List.of());
         when(feedbackEntryRepository.findByUserIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(chatConversationRepository.findByUserIdOrderByUpdatedAtDesc(any())).thenReturn(List.of());
@@ -1232,6 +1232,40 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         assertThat(dto.lifecycleStatus()).isEqualTo("APPROVED");
     }
 
+    /**
+     * A merchant created before 2026-10-03 is stored under its narration's first words, rail word
+     * first. merchants.json is read by the customer, so it carries the name the app shows for that
+     * merchant -- the payee its own transactions name -- and not the stored one. Invented narration.
+     */
+    @Test
+    void buildBundle_merchants_namesARailFirstMerchantAsTheAppShowsIt() {
+        Merchant old = new Merchant();
+        UUID oldId = UUID.randomUUID();
+        ReflectionTestUtils.setField(old, "id", oldId);
+        old.setUserId(userId);
+        old.setCanonicalName("Upi Dr Samplepa Hdfc");
+        Merchant unused = new Merchant();
+        ReflectionTestUtils.setField(unused, "id", UUID.randomUUID());
+        unused.setUserId(userId);
+        unused.setCanonicalName("Neft Sample Traders Netbank");
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(old, unused));
+        Transaction payment = new Transaction();
+        ReflectionTestUtils.setField(payment, "id", UUID.randomUUID());
+        payment.setUserId(userId);
+        payment.setMerchantId(oldId);
+        payment.setTxnDate(LocalDate.of(2026, 7, 10));
+        payment.setAmount(BigDecimal.valueOf(500));
+        payment.setTxnType(Transaction.Type.EXPENSE);
+        payment.setDescription("UPI/DR/100000000001/SAMPLEPA/HDFC/samplepayee21@okhdfc");
+        when(transactionRepository.findByUserId(userId)).thenReturn(List.of(payment));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.merchants()).extracting(com.finora.dto.DataExportDto.MerchantExportDto::canonicalName)
+                // The second merchant has no transaction to read, so only its rail word goes.
+                .containsExactly("Samplepa", "Sample Traders Netbank");
+    }
+
     /** category_rules.json now goes through the shared RuleDto.from(CategoryRule) factory (also
      *  used by RuleService) instead of a hand-duplicated mapping -- proves the shared path still
      *  produces the right shape for export specifically. */
@@ -1632,7 +1666,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         ticket.setSource(ClientPlatform.WEB);
         ticket.setSubject("Import stuck");
         ticket.setDescription("Progress bar froze at 60%.");
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
         SupportTicketAttachment attachment = new SupportTicketAttachment();
@@ -1689,7 +1723,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         ticket.setSource(ClientPlatform.WEB);
         ticket.setSubject("No attachment");
         ticket.setDescription("Text-only ticket.");
-        when(supportTicketRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any()))
+        when(supportTicketRepository.findByUserIdOrderByCreatedAtDescIdDesc(eq(userId), any()))
                 .thenReturn(new PageImpl<>(List.of(ticket)));
 
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);

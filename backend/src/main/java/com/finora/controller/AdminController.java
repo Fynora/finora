@@ -78,7 +78,7 @@ public class AdminController {
         int safeSize = com.finora.util.PageBounds.safeSize(size);
         int safePage = com.finora.util.PageBounds.safePage(page);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
-        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(direction, "createdAt"));
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(direction, "createdAt", "id"));
 
         // Escaped for LIKE -- see LikePatterns. The audit Activity Feed searches action and
         // entityType, where an underscore is ordinary ("USER_LOGIN"), so an unescaped _ made

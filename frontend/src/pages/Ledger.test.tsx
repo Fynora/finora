@@ -623,7 +623,7 @@ describe('Ledger — edit transaction category picker', () => {
 describe('Ledger — merchant group review card', () => {
   beforeEach(() => {
     vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
-      items: [], totalItems: 0, page: 0, size: 20, totalPages: 0,
+      content: [], totalElements: 0, page: 0, size: 20, totalPages: 0,
     } as never);
     vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
     vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
@@ -770,6 +770,90 @@ describe('Ledger — Phase 2 table skeleton and IconButton migration', () => {
 
     expect(await screen.findByRole('button', { name: 'Previous page' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next page' })).toBeInTheDocument();
+  });
+
+  /**
+   * A page number counts rows from the top. A transaction added or deleted elsewhere between two
+   * clicks shifted the next page by one row: it began with a row already seen, or stepped over one.
+   * Next now names the last row on screen, and the server continues from there.
+   */
+  describe('moving to the next page continues from the last row on screen', () => {
+    const firstPage = Array.from({ length: 10 }, (_, i) => txn({ id: `t-${i}`, description: `Row ${i}` }));
+    const eleventh = txn({ id: 't-10', description: 'Row 10' });
+    const listCalls = () => vi.mocked(transactionsApi.search).mock.calls
+      .map(([filters]) => filters)
+      .filter((filters) => filters.size === 10);
+    const lastListCall = () => {
+      const calls = listCalls();
+      return calls[calls.length - 1];
+    };
+
+    it('sends the last row as `after`, and shows what the server says is left as the next page', async () => {
+      vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters) => Promise.resolve(
+        filters.after === 't-9'
+          // Continued from a row, the server describes what is left: page 0 of the remainder.
+          ? { content: [eleventh], page: 0, size: 10, totalElements: 1, totalPages: 1 }
+          : { content: firstPage, page: 0, size: 10, totalElements: 11, totalPages: 2 },
+      ));
+      renderLedger();
+      await screen.findByText('Row 9');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+
+      expect(await screen.findByText('Row 10')).toBeInTheDocument();
+      expect(lastListCall()).toMatchObject({ page: 1, after: 't-9' });
+      expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+      expect(screen.getByText(/Showing/).textContent).toBe('Showing 11–11 of 11 transactions');
+    });
+
+    it('goes back to the first page by number, with no row named', async () => {
+      vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters) => Promise.resolve(
+        filters.after === 't-9'
+          ? { content: [eleventh], page: 0, size: 10, totalElements: 1, totalPages: 1 }
+          : { content: firstPage, page: 0, size: 10, totalElements: 11, totalPages: 2 },
+      ));
+      renderLedger();
+      await screen.findByText('Row 9');
+      await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+      await screen.findByText('Row 10');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
+
+      expect(await screen.findByText('Row 0')).toBeInTheDocument();
+      expect(lastListCall()).toMatchObject({ page: 0 });
+      expect(lastListCall()).not.toHaveProperty('after');
+    });
+
+    it('works the same against a server that pages by number only', async () => {
+      vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters) => Promise.resolve(
+        filters.page === 1
+          ? { content: [eleventh], page: 1, size: 10, totalElements: 11, totalPages: 2 }
+          : { content: firstPage, page: 0, size: 10, totalElements: 11, totalPages: 2 },
+      ));
+      renderLedger();
+      await screen.findByText('Row 9');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+
+      expect(await screen.findByText('Row 10')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    });
+
+    it('does not carry a row from one search into another', async () => {
+      vi.mocked(transactionsApi.search).mockReset().mockImplementation((filters) => Promise.resolve(
+        { content: firstPage, page: filters.after ? 0 : (filters.page ?? 0), size: 10, totalElements: 30, totalPages: filters.after ? 2 : 3 },
+      ));
+      renderLedger();
+      await screen.findByText('Row 9');
+      await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() => expect(lastListCall()).toMatchObject({ page: 1, after: 't-9' }));
+
+      await userEvent.selectOptions(screen.getByDisplayValue('All Types'), 'EXPENSE');
+      await waitFor(() => expect(lastListCall()).toMatchObject({ type: 'EXPENSE', page: 0 }));
+      expect(lastListCall()).not.toHaveProperty('after');
+    });
   });
 });
 

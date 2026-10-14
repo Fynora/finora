@@ -1069,7 +1069,18 @@ actually works — no test, no claim.
     2. **Duplicate-label refusal**, applied within a page. A field is accepted only when exactly one
        label occurrence on the winning page resolves a value for it — the pre-fix code took
        whichever occurrence it scanned first, which happened to be correct for AU; that was luck,
-       not correctness.
+       not correctness. A rewards-points grid is the usual second occurrence, and GRID passes over
+       a heading row that says "points". Measured 2026-10-11 on a real HDFC card: its rewards grid
+       is headed "Opening Balance | Feature + Bonus Reward | Disbursed | Adjusted/Lapsed", with
+       "Reward Points" and "Points Earned" printed a few points lower, so nothing on the heading
+       row said points. Its "Opening Balance" was read as a second previous balance, the field was
+       refused, and the whole summary with it: both card rules were `NOT_APPLICABLE` on a
+       statement whose summary is otherwise read in full. A heading row is now also passed over
+       when a line within a label's own second-line distance under it says "points". (An older
+       note blamed an unmapped-glyph font for HDFC's summary; on this statement every label
+       extracts whole.) The same statement prints its previous dues below zero, a few paise in the
+       customer's favour: the previous balance alone is now read with a printed minus sign kept,
+       so the equation and a new account's opening balance start on the right side of zero.
     3. **Cross-strategy conflict detection.** `CreditCardSummaryEvidence.conflictingFields()` names
        any field where GRID and INLINE_LABEL_VALUE disagree, checked by the validator FIRST, ahead
        of both `NOT_APPLICABLE` and the equation math. This is not redundant with page-scoping: on
@@ -1166,7 +1177,7 @@ actually works — no test, no claim.
 - **Evidence-gated, not just summary-gated.** `CreditCardFlowEvidenceLevel` records how much of the
   billing-summary panel AND the extracted rows were actually usable — `NO_SUMMARY`,
   `PARTIAL_SUMMARY_ONLY`, `NO_CLASSIFIED_TRANSACTIONS`, or `FULL_SUMMARY_RECONCILIATION` — because
-  "no panel at all" (HDFC), "a panel that doesn't print a purchases/payments split" (Axis), and "a
+  "no panel at all" (HDFC), "a panel that doesn't print a purchases/payments split", and "a
   full panel but zero EXPENSE/INCOME rows extracted" are three different claims even though all
   three currently resolve to the same `NOT_APPLICABLE` outcome. The third is deliberately kept apart
   from the first two: it is a statement-format gap, while the first two are extraction failures —
@@ -1196,6 +1207,24 @@ actually works — no test, no claim.
   mismatch to either side, all four evidence levels each independently distinguished by both outcome
   and reason text, `NO_CLASSIFIED_TRANSACTIONS` covering both zero rows and rows present but none
   EXPENSE/INCOME, and a non-EXPENSE/INCOME row type ignored rather than breaking the sum).
+- **A summary printed as its own equation (Axis), measured 2026-10-11.** Axis was this section's
+  example of a panel that prints no purchases/payments split. It prints one: the whole billing
+  equation as a single line of text ("Previous Balance - Payments - Credits + Purchase + Cash
+  Advance + Other Debit&Charges =Total Payment Due") over one row of seven figures. No strategy
+  could name a figure under a label that is one run, so both card rules were `NOT_APPLICABLE` and
+  nothing checked the statement's amounts. `CardSummaryEquationReader` reads it, a figure by its
+  place in the row (`CREDIT_CARD_SUMMARY_EQUATION_ROW`), only where neither older strategy forms
+  the equation. Measured on the two real statements of this layout before any rule was wired:
+  on both, the charges match the rows to the paisa and the rows carry the previous balance to the
+  total due exactly. On one, the printed equation is short of its own total by exactly one refund
+  row, which the summary counted in neither "Payments" nor "Credits". So, for this kind of summary
+  only, rows whose credits run over the summary's still verify when the charges match exactly and
+  the rows carry the previous balance to the total due exactly (`creditsNotCountedInSummary`), and
+  `CREDIT_CARD_STATEMENT_TOTALS` reports that gap as `NOT_APPLICABLE` with the reason
+  `SUMMARY_LEAVES_OUT_A_CREDIT` rather than as a misread. Credits short of the summary, any gap in
+  the charges, or rows that do not reach the total still warn, and that warning holds the import.
+  A figure marked `Cr` (a balance in the customer's favour) has not been seen on this layout and is
+  left unread. Two statements of one cardholder is the whole of the evidence.
 - **Maturity:** Beta.
 - **Known limitations — real-corpus measurement, not a claim.** Run against all 6 real credit-card
   documents: `VERIFIED` on **AU** (the exact match the design was built from), `NOT_APPLICABLE` on
@@ -1205,6 +1234,21 @@ actually works — no test, no claim.
   (`NO_SUMMARY`) — this rule cannot see a document its sibling rule cannot see either. No document
   in the current corpus exercises the `WARNING` (aggregate mismatch) path yet; that outcome is
   covered only by synthetic tests until a real document surfaces it.
+- **A summary whose figures are joined by the equation's own signs (Kotak), measured 2026-10-11.**
+  One Kotak card layout prints its "My Summary" box as four figures with `-`, `+` and `=` between
+  them, each under a label wrapped over two lines ("Previous / Amount Due", "Payments",
+  "Purchases & / Other Charges", "Total / Amount Due"), every word a text run of its own. No
+  strategy could read a label whole, so both card rules were `NOT_APPLICABLE` and nothing checked
+  the statement's amounts. (The same-row strategy did pair the rewards box's "Opening Balance"
+  with the points count beside it; that reading never formed an equation and is still dropped.)
+  `CardSummarySignedFigureRowReader` finds the row by its signs, bounds each figure's column by
+  them, joins the words above a figure into its label, and requires each label to be a known one
+  on the side of the sign it belongs on (`CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW`). It runs only
+  where no other reading forms the equation. Measured on the one real statement of this layout
+  before wiring: the box's own arithmetic holds exactly, payments match the income rows, purchases
+  and other charges match the expense rows, and the rows carry the previous balance to the total
+  due, all to the paisa. So both existing rules apply to it unchanged. One statement is the whole
+  of the evidence.
 
 #### `OFFSET_COLUMN_ANCHORS`
 - **Purpose:** correctly bucket a row's text into columns even when a column's header LABEL

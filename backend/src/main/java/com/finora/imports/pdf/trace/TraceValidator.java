@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li><b>No unmasked PII.</b> The same patterns {@code scripts/check-fixture-hygiene.sh} blocks
- *       commits on, applied to the trace's own text, plus any letter, number or mark outside ASCII (every rule
+ *       commits on, applied to the trace's own text and its metadata comment lines, plus any
+ *       letter, number or mark outside ASCII (every rule
  *       that keeps text unmasked keeps ASCII only). A trace that trips this must never be
  *       committed, regardless of how useful its structure is.</li>
  *   <li><b>Required structural evidence preserved.</b> Declared per trace in its own metadata. This
@@ -78,6 +79,7 @@ public final class TraceValidator {
         List<Finding> findings = new ArrayList<>();
 
         findings.addAll(scanForPii(runs));
+        findings.addAll(scanTexts(commentLines(content)));
 
         String allText = runs.stream().map(PositionedText::text)
                 .reduce(new StringBuilder(), (sb, t) -> sb.append(t).append('\n'), StringBuilder::append)
@@ -129,12 +131,13 @@ public final class TraceValidator {
             // capture stamps v3 unconditionally -- so a v3 trace can carry no widths at all, and
             // telling that reader to "recapture at v3" would be advice they have already followed.
             // The two states need different remedies, so they get different messages.
-            String remedy = metadata.traceVersion() < TraceMetadata.CURRENT_TRACE_VERSION
+            String remedy = metadata.traceVersion() < TraceMetadata.FIRST_VERSION_WITH_WIDTHS
                     ? "The format itself has no width column at trace v" + metadata.traceVersion()
                             + ". Recapture at trace v" + TraceMetadata.CURRENT_TRACE_VERSION + " to fix."
                     : "The format carries a width column and every value in it is 0.00, so the widths "
-                            + "were dropped during capture rather than absent by format. Recapturing "
-                            + "will not help until the redactor preserves them.";
+                            + "were dropped during capture rather than absent by format. A recapture "
+                            + "under redactor v5 or later keeps them (a masked run's rounded to a "
+                            + "whole point).";
             findings.add(new Finding(Finding.Severity.REVIEW, "widths",
                     "rows carry no width, so every run has endX == x. Any capability guarded on a "
                             + "measured width -- RIGHT_ALIGNED_AMOUNTS, and the column bucketing it "
@@ -163,7 +166,108 @@ public final class TraceValidator {
             if (hasUnmaskedIfsc(text)) kinds.add("IFSC branch code");
             if (hasUnmaskedTextInAnotherScript(text)) kinds.add("unmasked text in another script");
         }
+        if (hasNumberSplitIntoGroups(runs)) kinds.add(NUMBER_SPLIT_INTO_GROUPS);
         return List.copyOf(kinds);
+    }
+
+    static final String NUMBER_SPLIT_INTO_GROUPS = "number split into groups";
+
+    static final String UNMASKED_NUMBER = "unmasked number";
+    static final String COPY_DOES_NOT_LINE_UP = "copy does not line up with the statement";
+    private static final Pattern IFSC_IN_TEXT = Pattern.compile("(?<![A-Za-z0-9])([A-Z]{4})0[A-Z0-9]{6}(?![A-Za-z0-9])");
+
+    /**
+     * The exact backstop: compares a copy with the statement it came from, digit by digit, using
+     * only the statement's own text (read by {@link NumberGroups}, the redactor's token rules play
+     * no part). Refused, by kind name only:
+     * <ul>
+     *   <li>"number split into groups": a digit of a long number in the statement (six or more
+     *       digits joined by short separators, across runs and across a wrapped line) still shown
+     *       in the copy at the same place;</li>
+     *   <li>"unmasked number": any other digit shown in the copy that is not part of a value the
+     *       policy keeps (a date, an HH:MM time, an amount) -- the redactor keeps no plain integer,
+     *       so this includes digits glued to a slash, an at sign, a colon or an underscore;</li>
+     *   <li>"copy does not line up with the statement": a different number of runs or of code
+     *       points in a run, which a redactor that only substitutes characters never produces.</li>
+     * </ul>
+     * Every number the copy shows (any Unicode number category) is judged, so digits moved to
+     * another place are caught too. A '9' is never counted (it reads the same masked or not), and
+     * neither is the fixed fifth character '0' of an IFSC whose copy is the IFSC rule's own output:
+     * it is the format, not data.
+     */
+    public static List<String> copyLeaks(List<PositionedText> original, List<PositionedText> copy) {
+        if (original.size() != copy.size()) return List.of(COPY_DOES_NOT_LINE_UP);
+        NumberGroups.Kind[][] kinds = NumberGroups.scanByLine(original);
+        LinkedHashSet<String> found = new LinkedHashSet<>();
+        for (int r = 0; r < original.size(); r++) {
+            String o = original.get(r).text();
+            String c = copy.get(r).text();
+            if (o == null || c == null) {
+                if (o != c) found.add(COPY_DOES_NOT_LINE_UP);
+                continue;
+            }
+            int[] copyCps = c.codePoints().toArray();
+            if (copyCps.length != o.codePointCount(0, o.length())) {
+                found.add(COPY_DOES_NOT_LINE_UP);
+                continue;
+            }
+            boolean[] ifscZero = new boolean[o.length()];
+            var ifsc = IFSC_IN_TEXT.matcher(o);
+            while (ifsc.find()) {
+                int zero = ifsc.start() + 4;
+                int cpStart = o.codePointCount(0, ifsc.start());
+                String copied = new String(copyCps, cpStart, Math.min(11, copyCps.length - cpStart));
+                if (copied.equals(ifsc.group(1) + "0XXXXXX")) ifscZero[zero] = true;
+            }
+            // Every number the COPY shows is judged, wherever it came from: it passes only where the
+            // statement has the same code point at the same place and it is part of a value there.
+            int cpIndex = 0;
+            for (int i = 0; i < o.length(); ) {
+                int cp = o.codePointAt(i);
+                int shown = copyCps[cpIndex];
+                if (PdfTraceRedactor.isNumber(Character.getType(shown)) && shown != '9' && !ifscZero[i]) {
+                    NumberGroups.Kind kind = kinds[r][i];
+                    boolean sameValueDigit = shown == cp && kind == NumberGroups.Kind.UNIT;
+                    if (!sameValueDigit) {
+                        found.add(shown == cp && kind == NumberGroups.Kind.LONG ? NUMBER_SPLIT_INTO_GROUPS : UNMASKED_NUMBER);
+                    }
+                }
+                i += Character.charCount(cp);
+                cpIndex++;
+            }
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * The fail-closed backstop behind the redactor's number rules. Printed lines are rebuilt from
+     * the runs and read with the redactor's own model ({@link NumberGroups}), treating a group made
+     * only of '9' as the redactor's mask. Refused: a number of six or more digits in clear made of
+     * groups joined by short separators (a mobile, card, account or Aadhaar number printed in
+     * pieces, in one run, across runs or wrapped onto the next line), and a short group in clear glued to a slash, an at sign, a
+     * colon, an underscore or a format character (an identifier's digits, as in a UPI id wrapped
+     * onto the next line). The redactor never keeps either, so a refusal means it regressed. One
+     * kind covers all three, including a long number printed in one piece. Not part of
+     * {@link #validate}: committed traces were captured by earlier redactors.
+     */
+    static boolean hasNumberSplitIntoGroups(List<PositionedText> runs) {
+        List<NumberGroups.Line> lines = NumberGroups.lines(runs);
+        List<NumberGroups.Kind[]> scanned = NumberGroups.scanLines(lines, true);
+        for (int l = 0; l < lines.size(); l++) {
+            String text = lines.get(l).text();
+            NumberGroups.Kind[] kinds = scanned.get(l);
+            for (int p = 0; p < kinds.length; p++) {
+                if (kinds[p] == NumberGroups.Kind.LONG) return true;
+                if (kinds[p] == NumberGroups.Kind.SHORT
+                        && ((p > 0 && isIdentifierGlue(text.charAt(p - 1)))
+                        || (p + 1 < text.length() && isIdentifierGlue(text.charAt(p + 1))))) return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isIdentifierGlue(char c) {
+        return c == '/' || c == '@' || c == ':' || c == '_' || Character.getType(c) == Character.FORMAT;
     }
 
     /**
@@ -189,9 +293,12 @@ public final class TraceValidator {
      * redacted trace unpublishable.
      */
     private static List<Finding> scanForPii(List<PositionedText> runs) {
+        return scanTexts(runs.stream().map(PositionedText::text).toList());
+    }
+
+    private static List<Finding> scanTexts(List<String> texts) {
         List<Finding> findings = new ArrayList<>();
-        for (PositionedText run : runs) {
-            String text = run.text();
+        for (String text : texts) {
             if (text == null || text.isBlank()) continue;
             checkPattern(findings, EMAIL, text, "email address");
             checkPattern(findings, INDIAN_MOBILE, text, "phone number");
@@ -199,6 +306,16 @@ public final class TraceValidator {
             checkOtherScripts(findings, text);
         }
         return findings;
+    }
+
+    /**
+     * The file's comment lines: the format header and the metadata block. They are written by
+     * people (where a trace came from, why it was captured) and committed with the runs, so the
+     * same privacy checks run over them. The run parser skips them, so without this a phone number
+     * in a motivation line was never seen.
+     */
+    private static List<String> commentLines(String content) {
+        return content.lines().filter(line -> line.startsWith("#")).toList();
     }
 
     /** The same backstop {@link #privacyKinds} applies, on a trace about to be (or already)

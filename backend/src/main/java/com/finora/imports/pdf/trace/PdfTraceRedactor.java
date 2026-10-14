@@ -32,7 +32,10 @@ import java.util.regex.Pattern;
  * narration text are gone, a bare "24,462.00" or "10/07/2026" identifies nobody -- and keeping them
  * is what allows a trace to regression-test date parsing, running balances and (once it exists)
  * reconciliation against the statement's own arithmetic. Redacting them would leave a fixture that
- * can only ever test header detection.
+ * can only ever test header detection. From version 5 the same holds for the value shapes reading
+ * takes amounts and directions from: an amount with a rupee prefix or a glued Cr/Dr, a
+ * comma-grouped amount, a glued or apostrophe-year date, and a lone C or D as a whole run. A plain
+ * integer is masked, as it always was.
  */
 public final class PdfTraceRedactor {
 
@@ -51,7 +54,23 @@ public final class PdfTraceRedactor {
     // point. Up to version 3 a token made only of non-ASCII letters or digits (a Devanagari or
     // Tamil word, full-width or accented Latin, Devanagari digits) was kept verbatim, and combining
     // marks were copied out as if they were punctuation.
-    public static final int REDACTOR_VERSION = 4;
+    // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
+    // real one. An invisible format character inside a token is masked to x. Kept now: amounts with
+    // a currency prefix or a glued Cr/Dr, glued day-month dates, apostrophe-year dates,
+    // comma-grouped amounts and lone C/D markers. (The
+    // reader's own label words were added to the allowlist at the same time; the allowlist
+    // fingerprint tracks that on its own.) A changed run keeps its width rounded to a whole point
+    // instead of losing it. Digits are read per printed line (NumberGroups): groups joined by up to
+    // three non-word characters of any kind are one number, and six or more digits together are
+    // masked, the values in such a number included; a number token is kept only when every digit
+    // is part of a value (a date, an HH:MM time, an amount), so no plain integer is kept (keeping
+    // integers of up to five digits was tried within this version and measured to win no
+    // matches); comma-grouped amounts keep at most eight integer digits; a numeric date must have
+    // real day/month parts. Every format
+    // character is masked, a lone C/D is kept only as a whole run, and a changed run's x is rounded
+    // like its width. TraceValidator.privacyKinds refuses what these rules never keep, and
+    // TraceValidator.copyLeaks compares the copy with the statement digit by digit.
+    public static final int REDACTOR_VERSION = 5;
 
     /**
      * A short hash of the effective allowlist, recomputed from the live vocabulary every call.
@@ -85,8 +104,10 @@ public final class PdfTraceRedactor {
         }
     }
 
-    private static final Pattern DATE_LIKE = Pattern.compile(
-            "\\d{1,4}[-/.]\\d{1,2}[-/.]\\d{1,4}");
+    // DATE_LIKE, the all-numeric date: since redactor version 5 only a real date shape is kept
+    // (NumberGroups.isRealNumericDate: a day, a month and a year, or a year, a month and a day).
+    // Up to version 4 any "\\d{1,4}[-/.]\\d{1,2}[-/.]\\d{1,4}" was kept whole, so a ten-digit
+    // number printed as 1234-56-7890 passed as a date.
     // A real Kotak Mahindra Bank credit-card statement states every pre-table metadata date
     // ("16-Feb-2026", "02-Apr-2026") in this named-month shape rather than DATE_LIKE's all-numeric
     // one. Without this, the day and year survive as bare digit tokens (neither DATE_LIKE nor
@@ -95,7 +116,7 @@ public final class PdfTraceRedactor {
     // and a trace meant to regression-test parsing this exact format carries no real date to parse.
     // Matched and preserved WHOLE, the same "dates are structure, not identity" reasoning DATE_LIKE
     // above already applies.
-    private static final Pattern NAMED_MONTH_DATE_LIKE = Pattern.compile(
+    static final Pattern NAMED_MONTH_DATE_LIKE = Pattern.compile(
             "\\d{1,2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\\d{2,4}",
             Pattern.CASE_INSENSITIVE);
     // A named-month date printed with SPACES rather than hyphens: "06 Jul 26" on a real SBI Card
@@ -112,10 +133,42 @@ public final class PdfTraceRedactor {
     private static final String MONTH_NAME =
             "(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?"
                     + "|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
-    private static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
-            "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4})?"
-                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?)(?![\\p{L}\\p{N}\\p{M}])",
+    // Version 5: a two-digit year after an apostrophe ("12 Jul '26", "12 Jul'26", "Jul '26"), which
+    // CsvParser reads (APOSTROPHE_TWO_DIGIT_YEAR). Before, the month and day were kept and the year
+    // fell outside the span, so the copy's dates lost their year.
+    private static final String APOSTROPHE_YEAR = "\\s*['\u2018\u2019]\\d{2}";
+    static final Pattern SPACED_NAMED_MONTH_DATE_LIKE = Pattern.compile(
+            "(?<![\\p{L}\\p{N}\\p{M}])(?:\\d{1,2}\\s+" + MONTH_NAME + "(?:,?\\s+\\d{2,4}|" + APOSTROPHE_YEAR + ")?"
+                    + "|" + MONTH_NAME + "\\s+\\d{1,2}(?:,?\\s+\\d{2,4})?"
+                    + "|" + MONTH_NAME + APOSTROPHE_YEAR + ")(?![\\p{L}\\p{N}\\p{M}])",
             Pattern.CASE_INSENSITIVE);
+    /** Version 5: a day glued to its month, with or without a glued year ("12Jul", "12Jul2026"),
+     *  which CsvParser reads by splitting at the letter-digit boundaries (MISSING_SEPARATOR). */
+    static final Pattern GLUED_DAY_MONTH_DATE_LIKE = Pattern.compile(
+            "\\d{1,2}" + MONTH_NAME + "(?:\\d{4}|\\d{2})?", Pattern.CASE_INSENSITIVE);
+    /**
+     * An integer shape a number rule recognises: comma-grouped in the Indian or the western way
+     * ("1,00,000", "12,345"), or plain. Matching it only makes a token a candidate: it is kept only
+     * when its digits are a value on the printed line (see {@link #allUnit}), which a comma-grouped
+     * amount within its cap can be and a plain integer never is.
+     */
+    private static final String AMOUNT_SHAPED_INTEGER =
+            "(?:\\d{1,3}(?:,\\d{2})*,\\d{3}|\\d{1,3}(?:,\\d{3})+|\\d{1,5})";
+    private static final Pattern AMOUNT_SHAPED_INTEGER_LIKE = Pattern.compile(AMOUNT_SHAPED_INTEGER);
+    /** Any amount this class keeps on its own: with decimals, or an amount-shaped integer. */
+    private static final String AMOUNT_VALUE = "(?:[\\d,]+\\.\\d{1,2}|" + AMOUNT_SHAPED_INTEGER + ")";
+    /** Version 5: an amount with a glued Cr or Dr ("1,234.00Cr", "500.00DR") -- that suffix only,
+     *  in any case. CsvParser.parseNumeric reads the direction from it. */
+    private static final Pattern AMOUNT_WITH_DIRECTION_LIKE = Pattern.compile(
+            AMOUNT_VALUE + "(?i:cr|dr)");
+    /** Version 5: an amount with a glued rupee prefix ("Rs.1,234.00", "INR1,234.00"), optionally
+     *  with a glued Cr or Dr. The prefix is the only text kept; a prefix on a six-digit integer is
+     *  not an amount shape this class keeps, so that stays masked. */
+    private static final Pattern CURRENCY_AMOUNT_LIKE = Pattern.compile(
+            "(?i:rs\\.?|inr\\.?)" + AMOUNT_VALUE + "(?i:cr|dr)?");
+    /** Version 5: the one-letter direction markers TransactionNormalizer reads ("C", "D", any case),
+     *  only as a token of their own with no punctuation attached. */
+    private static final Pattern DIRECTION_LETTER = Pattern.compile("[CcDd]");
     private static final Pattern AMOUNT_LIKE = Pattern.compile(
             "\\(?-?[\\d,]+\\.\\d{1,2}\\)?");
     /** Account numbers, card numbers and payment references. Never preserved, whatever else the
@@ -195,7 +248,18 @@ public final class PdfTraceRedactor {
             // trigger pattern itself matches on -- masking any of these words away leaves a captured
             // trace unable to exercise the trigger it exists to protect. None of these identify
             // anybody; it is the same fixed regulatory disclosure on both documents.
-            "unless", "constituent", "notifies", "immediately", "any", "discrepancy"));
+            "unless", "constituent", "notifies", "immediately", "any", "discrepancy",
+            // The reading code's own label and marker words, taken from its constants (see
+            // ReaderKeywordVocabularyTest, which fails when one of those constants gains a word this
+            // list does not keep): CreditCardSummaryExtractor's previous-balance, fees, purchases
+            // and cash-advance labels, and PdfTableLocator's page-legend sentences, illustration,
+            // EMI-balances and loan-summary table markers and "date & time" hint. Masked, a blanked
+            // copy lost a card's opening balance, glued a page footer onto a transaction and read a
+            // section count differently. Statement furniture; none of them identify anybody.
+            "previous", "dues", "charges", "fees", "fee", "taxes", "purchase", "spends", "made",
+            "this", "cycle", "advance", "advances", "highlighted", "grey", "color", "includes",
+            "funds", "earmarked", "should", "be", "payable", "illustration", "will", "indicate",
+            "calculating", "balances", "table", "time"));
 
     /**
      * A bare single letter immediately trailing an already-preserved currency marker WITHIN THE
@@ -206,9 +270,9 @@ public final class PdfTraceRedactor {
      * rendering artifact of the rupee glyph, not a word this class's word-level allowlist could
      * ever recognize on its own -- {@link #STRUCTURAL_WORDS} above is deliberately word-shaped.
      *
-     * <p><b>Why masking it broke a whole column, not just cosmetics.</b> {@link #redact} zeroes the
-     * WIDTH of any run whose redacted text differs from the original at all (see that method's own
-     * doc comment) -- correct for a run that is genuinely hidden, but this run is 5/6ths real text
+     * <p><b>Why masking it broke a whole column, not just cosmetics.</b> Up to redactor version 4,
+     * {@link #redact} zeroed the WIDTH of any run whose redacted text differed from the original at
+     * all (it now rounds it; see that method's own doc comment) -- but this run is 5/6ths real text
      * ("(Rs.)") and one masked letter, and the whole run's width -- this header cell's own trailing
      * edge -- paid for that one letter. {@code PdfTableLocator}'s RIGHT_ALIGNED_AMOUNTS correction
      * -- the mechanism that reassigns a right-aligned numeric value from its naive nearest-header
@@ -239,7 +303,7 @@ public final class PdfTraceRedactor {
 
     /**
      * Redacts every run, preserving the measured width of runs redaction left byte-identical and
-     * dropping it (to 0) for every run it changed.
+     * rounding it to a whole point for every run it changed.
      *
      * <p>The discriminator is exact rather than heuristic: redaction is purely character-substituting
      * ({@link #mask}, which preserves length and every non-alphanumeric character), so
@@ -251,31 +315,37 @@ public final class PdfTraceRedactor {
      * corpus was structurally blind to the exact class of defect it exists to catch — a short
      * right-aligned amount bucketing into the wrong column.
      *
-     * <p><b>Why only for unmasked runs.</b> An unmasked run's width is a deterministic function of
-     * text this same file already publishes verbatim, so it discloses nothing new. A masked run's
-     * width would be a real-valued observation about hidden characters — for alphabetic tokens it
-     * constrains the letter multiset (~5–6 bits) — so it is dropped. It also keeps the artefact
-     * internally consistent: a width in a trace is always the true width of the text printed next
-     * to it.
+     * <p><b>Why a changed run's width is rounded.</b> An unmasked run's width is a deterministic
+     * function of text this same file already publishes verbatim, so it discloses nothing new and is
+     * kept exactly. A masked run's exact width is a real-valued observation about hidden characters
+     * — for alphabetic tokens it constrains the letter multiset — so up to redactor version 4 it was
+     * dropped to 0. That changed readings: reading real statements with only those widths zeroed
+     * (text otherwise unchanged) changed the result on 14 files of the corpus, through the
+     * page-shows-a-space evidence built from run ends, the right-aligned amount and column-span
+     * corrections, and on card statements the summary extractor's label geometry. From version 5
+     * the width is kept rounded to a whole point: the run's right edge stays within half a point of
+     * where it was printed, which is what those readers need, while letters, which differ in width
+     * by fractions of a point, are far less constrained than by the measured value.
      *
-     * <p><b>Dropping it does change readings.</b> This comment used to say nothing in the pipeline
-     * reads a masked run's width. That is false: reading real statements with only these widths
-     * zeroed (text otherwise unchanged) changed the result on 14 files of the corpus. Traced
-     * readers: the page-shows-a-space evidence built from run ends; on some files the copy also
-     * lost the right-aligned amount and column-span corrections; on card statements the effect is
-     * consistent with the summary extractor's label geometry, not traced to the line. A blanked
-     * copy's check can therefore come back DIFFERS because of this rule alone. The width stays
-     * dropped as a privacy choice, not because it is unread.
+     * <p><b>Why runs are not redacted one by one alone.</b> Whether a date or an amount is a value
+     * depends on its neighbours, in the same run or the next one: glued to another number it is part
+     * of that number. Digits are therefore read per printed line first (see {@link NumberGroups}),
+     * and a token is kept only when its digits are a value that is not part of a long number. A
+     * changed run's x and width are rounded to a whole point.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();
+        NumberGroups.Kind[][] kinds = NumberGroups.scanByLine(runs);
         List<PositionedText> out = new ArrayList<>(runs.size());
-        for (PositionedText run : runs) {
-            String redacted = redactText(run.text(), vocabulary);
+        for (int r = 0; r < runs.size(); r++) {
+            PositionedText run = runs.get(r);
+            String redacted = redactText(run.text(), vocabulary,
+                    new Context(run.text(), kinds[r]));
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
-            out.add(unmasked
-                    ? new PositionedText(redacted, run.x(), run.y(), run.pageIndex(), run.width())
-                    : new PositionedText(redacted, run.x(), run.y(), run.pageIndex()));
+            // A changed run's x is rounded like its width: an exact x beside a rounded width would
+            // let the width be recovered from the gap to the next run.
+            out.add(new PositionedText(redacted, unmasked ? run.x() : Math.round(run.x()), run.y(),
+                    run.pageIndex(), unmasked ? run.width() : Math.round(run.width())));
         }
         return out;
     }
@@ -288,7 +358,7 @@ public final class PdfTraceRedactor {
     /** Structural words plus every bank's own identifiers, taken from {@link BankRegistry} so this
      *  never drifts as banks are added. A bank's name is not identifying once the account holder's
      *  is gone, and preserving it is what lets a trace regression-test bank detection. */
-    private static Set<String> vocabulary() {
+    static Set<String> vocabulary() {
         Set<String> vocabulary = new LinkedHashSet<>(STRUCTURAL_WORDS);
         for (BankRegistry.BankInfo bank : BankRegistry.all()) {
             vocabulary.add(bank.id().toLowerCase(Locale.ROOT));
@@ -306,7 +376,18 @@ public final class PdfTraceRedactor {
     }
 
     static String redactText(String text, Set<String> vocabulary) {
+        return redactText(text, vocabulary,
+                text == null ? null : new Context(text, NumberGroups.scan(text)));
+    }
+
+    /** {@code ctx} says, per char of {@code text}, how each digit groups into a number on its
+     *  printed line, and which line chars stand just before and after the run (see
+     *  {@link NumberGroups}). */
+    static String redactText(String text, Set<String> vocabulary, Context ctx) {
         if (text == null || text.isBlank()) return text;
+        // A lone C or D is a direction marker only as a whole run (a Type column cell); anywhere
+        // else a single letter may be an initial.
+        if (DIRECTION_LETTER.matcher(text.strip()).matches()) return text;
         // Spaced named-month dates first: they span several tokens, so the per-token loop below
         // cannot see them whole. Each span is copied verbatim and the text between spans is
         // redacted as before.
@@ -314,19 +395,40 @@ public final class PdfTraceRedactor {
         StringBuilder joined = null;
         int last = 0;
         while (spaced.find()) {
+            // Copied whole only when its digits stand apart as a date; a date glued into a longer
+            // number is redacted token by token instead.
+            if (!allUnit(ctx, spaced.start(), spaced.end())) continue;
             if (joined == null) joined = new StringBuilder(text.length());
-            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary));
+            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary, ctx, last));
             joined.append(spaced.group());
             last = spaced.end();
         }
         if (joined != null) {
-            joined.append(redactTokens(text.substring(last), vocabulary));
+            joined.append(redactTokens(text.substring(last), vocabulary, ctx, last));
             return joined.toString();
         }
-        return redactTokens(text, vocabulary);
+        return redactTokens(text, vocabulary, ctx, 0);
     }
 
-    private static String redactTokens(String text, Set<String> vocabulary) {
+    /** The whole run being redacted and how its digits group on the printed line. */
+    record Context(String text, NumberGroups.Kind[] kinds) {}
+
+    /**
+     * A token a number rule matched is kept only when every digit in it is part of a value that
+     * stands apart on its printed line (a date, an HH:MM time, a decimal amount, a comma-grouped
+     * amount within its cap) and not part of a long number (see {@link NumberGroups}). A plain
+     * integer is never kept: keeping integers of up to five digits was tried and measured to win no
+     * matches, while every way of printing a number in pieces leaked through it.
+     */
+    private static boolean allUnit(Context ctx, int from, int to) {
+        for (int k = from; k < to; k++) {
+            char c = ctx.text().charAt(k);
+            if (c >= '0' && c <= '9' && (ctx.kinds() == null || ctx.kinds()[k] != NumberGroups.Kind.UNIT)) return false;
+        }
+        return true;
+    }
+
+    private static String redactTokens(String text, Set<String> vocabulary, Context ctx, int offset) {
         if (text.isEmpty()) return text;
         StringBuilder out = new StringBuilder(text.length());
         // Split keeping the separators, so every space and its exact position survives -- the
@@ -338,16 +440,19 @@ public final class PdfTraceRedactor {
             int cp = text.codePointAt(i);
             if (isTextCodePoint(cp)) {
                 int start = i;
-                while (i < text.length() && isTokenChar(text.codePointAt(i))) {
+                while (i < text.length() && (isTokenChar(text.codePointAt(i)) || formatRunInsideToken(text, i))) {
                     i += Character.charCount(text.codePointAt(i));
                 }
                 String token = text.substring(start, i);
                 // See TRAILING_CURRENCY_MARKER_LETTER's own doc comment -- checked ahead of the
                 // ordinary vocabulary/date/amount rules below, against what THIS SAME redaction
                 // pass has already appended for this run, not a separate lookup.
-                out.append(isTrailingCurrencyMarkerLetter(token, out) ? token : redactToken(token, vocabulary));
+                out.append(isTrailingCurrencyMarkerLetter(token, out) ? token
+                        : redactToken(token, vocabulary, ctx, offset + start));
             } else {
-                out.appendCodePoint(cp);
+                // An invisible format character (a zero-width space, a tag character) can carry a
+                // hidden message anywhere, so it is masked wherever it stands.
+                out.appendCodePoint(Character.getType(cp) == Character.FORMAT ? 'x' : cp);
                 i += Character.charCount(cp);
             }
         }
@@ -377,9 +482,24 @@ public final class PdfTraceRedactor {
                 || type == Character.PRIVATE_USE || type == Character.SURROGATE;
     }
 
-    private static boolean isNumber(int type) {
+    static boolean isNumber(int type) {
         return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
                 || type == Character.OTHER_NUMBER;
+    }
+
+    /**
+     * Whether the code point at {@code i} is an invisible format character (Unicode category Cf: a
+     * zero-width joiner or non-joiner, a soft hyphen) with more text after it, so it sits inside a
+     * token rather than at its end. Inside a token it is masked to x like a mark, so a masked word
+     * does not show where its joins were; at a token's end or outside any token it carries nothing
+     * and is copied, so an amount followed by one stays a kept amount.
+     */
+    private static boolean formatRunInsideToken(String text, int i) {
+        int j = i;
+        while (j < text.length() && Character.getType(text.codePointAt(j)) == Character.FORMAT) {
+            j += Character.charCount(text.codePointAt(j));
+        }
+        return j > i && j < text.length() && isTextCodePoint(text.codePointAt(j));
     }
 
     /** A token runs across '.' and ',' so that "24,462.00" and "10/07/2026" are judged whole rather
@@ -405,18 +525,32 @@ public final class PdfTraceRedactor {
         return text.chars().allMatch(c -> c < 128);
     }
 
-    private static String redactToken(String token, Set<String> vocabulary) {
+    private static String redactToken(String token, Set<String> vocabulary, Context ctx, int offset) {
         String bare = stripPunctuation(token);
         if (bare.isEmpty()) return token;
+        int bareStart = offset + token.indexOf(bare);
 
         var ifsc = IFSC.matcher(bare);
-        if (ifsc.matches()) return ifsc.group(1) + "0XXXXXX";
+        if (ifsc.matches()) {
+            // The punctuation at the token's edges is kept, as every other rule keeps it, so the
+            // masked token is as long as the real one.
+            int start = token.indexOf(bare);
+            return token.substring(0, start) + ifsc.group(1) + "0XXXXXX" + token.substring(start + bare.length());
+        }
 
         // Order matters: a long digit run is an account or reference number even when it would
         // otherwise pass as an amount, so it is checked first and always redacted.
         if (LONG_DIGIT_RUN.matcher(bare).find()) return mask(token);
-        if (DATE_LIKE.matcher(bare).matches() || AMOUNT_LIKE.matcher(bare).matches()
-                || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()) return token;
+        boolean integerShaped = AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
+                || ((AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches() || CURRENCY_AMOUNT_LIKE.matcher(bare).matches())
+                        && !DECIMAL_END.matcher(bare).find());
+        if (integerShaped || NumberGroups.isRealNumericDate(bare) || AMOUNT_LIKE.matcher(bare).matches()
+                || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()
+                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()
+                || AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches()
+                || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) {
+            return allUnit(ctx, bareStart, bareStart + bare.length()) ? token : mask(token);
+        }
         // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
         // word spelled with one is not the vocabulary word.
         if (isAscii(bare) && vocabulary.contains(bare.toLowerCase(Locale.ROOT))) return token;
@@ -431,7 +565,7 @@ public final class PdfTraceRedactor {
             int start = 0;
             for (int i = 0; i <= token.length(); i++) {
                 if (i == token.length() || token.charAt(i) == '/' || token.charAt(i) == '-') {
-                    rejoined.append(redactToken(token.substring(start, i), vocabulary));
+                    rejoined.append(redactToken(token.substring(start, i), vocabulary, ctx, offset + start));
                     if (i < token.length()) rejoined.append(token.charAt(i));
                     start = i + 1;
                 }
@@ -440,6 +574,9 @@ public final class PdfTraceRedactor {
         }
         return mask(token);
     }
+
+    /** An amount whose number ends in one or two decimals, before an optional glued Cr/Dr. */
+    private static final Pattern DECIMAL_END = Pattern.compile("\\d\\.\\d{1,2}(?i:cr|dr)?$");
 
     /** One character out per code point in: a number becomes 9, an upper-case letter X, any other
      *  text code point (a lower-case or uncased letter, a mark, a private-use glyph) x, and
@@ -451,10 +588,12 @@ public final class PdfTraceRedactor {
     }
 
     /** What {@link #mask} writes for one code point: '9' for a number, 'X' for an upper-case
-     *  letter, 'x' for any other text code point, and the code point itself for anything else. */
+     *  letter, 'x' for any other text code point or a format character (one only reaches a mask
+     *  from inside a token), and the code point itself for anything else. */
     public static int maskOf(int cp) {
         if (isNumber(Character.getType(cp))) return '9';
         if (isTextCodePoint(cp)) return Character.isUpperCase(cp) ? 'X' : 'x';
+        if (Character.getType(cp) == Character.FORMAT) return 'x';
         return cp;
     }
 }

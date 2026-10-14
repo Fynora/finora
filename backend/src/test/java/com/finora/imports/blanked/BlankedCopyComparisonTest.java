@@ -220,13 +220,13 @@ class BlankedCopyComparisonTest {
         assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).isNull();
     }
 
-    /** The redactor's IFSC rule drops the punctuation at the token's edges, so the masked token is
-     *  shorter than the real one. The copy's run is masked the same way, and still matches. */
+    /** The redactor keeps the punctuation at an IFSC's edges, so the copy's run holds it, and a
+     *  copy that lost it is not what the redactor writes: no special case for an IFSC is needed. */
     @Test
     void anIfscNextToPunctuationMatches() {
         for (String real : List.of("NEFT HDFC0001234, Asha", "NEFT HDFC0001234. Asha")) { // synthetic-ok: invented branch code
             assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).as(real).isNull();
-            assertThat(descriptionOutcome(real, "NEFT HDFC0XXXXXX Xxxx")).as(real).isNull();
+            assertThat(descriptionOutcome(real, "NEFT HDFC0XXXXXX Xxxx")).as(real).isEqualTo(Field.DESCRIPTION);
         }
     }
 
@@ -258,7 +258,7 @@ class BlankedCopyComparisonTest {
     }
 
     /**
-     * Rule (d). A digit run split across two runs ("UPI/1234" then "5678/ASHA", glued) reaches 8
+     * Rule (d). A digit run split across two runs ("UPI/100000" then "000001/ASHA", glued) reaches 8
      * digits only when joined, so the joined line masks the whole compound, the kept "UPI"
      * included; the copy masked each run and kept "UPI". The copy token is the real token masked
      * piece by piece between '/' and '-', which is still the redactor's own masking of the real
@@ -266,13 +266,26 @@ class BlankedCopyComparisonTest {
      */
     @Test
     void aCompoundMaskedPieceByPieceMatches() {
-        String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
-        assertThat(copy).isEqualTo("UPI/99999999/XXXX");
-        assertThat(PdfTraceRedactor.redactLine("UPI/12345678/ASHA")).isEqualTo("XXX/99999999/XXXX");
-        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isNull();
+        String copy = PdfTraceRedactor.redactLine("UPI/100000") + PdfTraceRedactor.redactLine("000001/ASHA");
+        assertThat(copy).isEqualTo("UPI/999999999999/XXXX");
+        assertThat(PdfTraceRedactor.redactLine("UPI/100000000001/ASHA")).isEqualTo("XXX/999999999999/XXXX");
+        assertThat(descriptionOutcome("UPI/100000000001/ASHA", copy)).isNull();
         assertThat(descriptionOutcome("NEFT-12345678-ASHA", "NEFT-99999999-XXXX")).isNull();
         // With no 8-digit run when joined, the joined line already masks piece by piece.
         assertThat(descriptionOutcome("UPI/123456/789012/ASHA", "UPI/999999/999999/XXXX")).isNull();
+    }
+
+    /**
+     * A long number split across runs into short pieces glued to a slash is no longer kept piece by
+     * piece: an integer glued to '/' is an identifier's digits and is masked, so the copy holds the
+     * redactor's own piece-by-piece masking of the real token and matches. (Up to the previous
+     * round each short piece was kept, which both showed the number and read as a difference.)
+     */
+    @Test
+    void aLongNumberSplitIntoShortPiecesIsMaskedAndMatches() {
+        String copy = PdfTraceRedactor.redactLine("UPI/1234") + PdfTraceRedactor.redactLine("5678/ASHA");
+        assertThat(copy).isEqualTo("UPI/99999999/XXXX");
+        assertThat(descriptionOutcome("UPI/12345678/ASHA", copy)).isNull();
     }
 
     /** Rule (d) is one exact masking, not a tolerance: any other shape or a kept name differs. */

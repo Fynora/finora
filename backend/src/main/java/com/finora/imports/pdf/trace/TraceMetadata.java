@@ -64,8 +64,17 @@ public record TraceMetadata(int traceVersion, int redactorVersion, String allowl
      * existing traces keep working and keep behaving exactly as before. What they cannot do is
      * cover a width-dependent capability, and that stays true until they are recaptured from their
      * source documents.
+     *
+     * <p><b>v4 — line breaks inside a run.</b> Rows are unchanged, but a carriage return or line
+     * feed inside a run's text is written as a visible symbol (see {@link TraceFormat}) and decoded
+     * on parse. Up to v3 a line feed split a run across two file lines and a trailing carriage
+     * return was stripped as a line ending, so a statement whose runs end in one read differently
+     * once written. Only a v4 file is decoded, so older files keep reading exactly as before.
      */
-    public static final int CURRENT_TRACE_VERSION = 3;
+    public static final int CURRENT_TRACE_VERSION = 4;
+
+    /** The first trace version whose rows carry a width column. */
+    public static final int FIRST_VERSION_WITH_WIDTHS = 3;
 
     /**
      * What a v1 trace reports.
@@ -98,9 +107,10 @@ public record TraceMetadata(int traceVersion, int redactorVersion, String allowl
      * the redactor reported "this trace has widths" while carrying 0 real widths in 1408 rows. The
      * two facts are stamped independently, so only the rows can answer.
      *
-     * <p>The condition is <b>all</b> widths zero, not <b>any</b>. Since
-     * {@link PdfTraceRedactor#redact} preserves width only for runs it left byte-identical, a healthy
-     * v3 trace legitimately carries width 0 on every masked run; "any zero width" would condemn every
+     * <p>The condition is <b>all</b> widths zero, not <b>any</b>. Up to redactor version 4,
+     * {@link PdfTraceRedactor#redact} preserved width only for runs it left byte-identical, so a
+     * healthy trace captured then legitimately carries width 0 on every masked run (from version 5 a
+     * masked run keeps its width rounded to a whole point); "any zero width" would condemn every
      * correctly captured trace. A trace with no runs at all likewise carries no width data, and
      * reports true.
      */

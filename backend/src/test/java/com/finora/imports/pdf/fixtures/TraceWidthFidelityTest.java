@@ -59,16 +59,18 @@ class TraceWidthFidelityTest {
         assertThat(reparsed.get(0).width()).isGreaterThan(0f);
     }
 
-    /** A v3 file has to say so in its magic line. A reader that cannot tell from the header whether
-     *  widths are present has to guess from the body, and guessing is what a version exists to
-     *  prevent. */
+    /** A file carrying widths has to say so in its magic line. A reader that cannot tell from the
+     *  header whether widths are present has to guess from the body, and guessing is what a version
+     *  exists to prevent. Widths arrived at v3; a capture today writes the current version, v4. */
     @Test
-    void aCapturedTraceDeclaresItselfV3() {
+    void aCapturedTraceDeclaresAVersionWithWidths() {
         String written = PdfTrace.format(List.of(new PositionedText("1.00", 10f, 10f, 0, 5f)), META);
 
-        assertThat(written.lines().findFirst()).contains("# finora-pdf-trace v3");
+        assertThat(written.lines().findFirst()).contains("# finora-pdf-trace v" + TraceMetadata.CURRENT_TRACE_VERSION);
         assertThat(written).contains("# page\tx\ty\twidth\ttext");
-        assertThat(TraceMetadata.parse(written).traceVersion()).isEqualTo(3);
+        assertThat(TraceMetadata.parse(written).traceVersion())
+                .isEqualTo(TraceMetadata.CURRENT_TRACE_VERSION)
+                .isGreaterThanOrEqualTo(TraceMetadata.FIRST_VERSION_WITH_WIDTHS);
     }
 
     /** Older traces still parse, and still mean what they meant. Backward compatibility here is not
@@ -116,17 +118,20 @@ class TraceWidthFidelityTest {
                 new PositionedText("XXXX XXXXXXX", 50f, 700f, 0),
                 new PositionedText("99999999999999", 150f, 700f, 0)), META);
 
-        assertThat(TraceMetadata.parse(stampedV3ButBlind).traceVersion()).isEqualTo(3);
+        // Stamped with a version whose format has a width column (v3 when this was found; the
+        // current version now), yet every width in it is zero.
+        assertThat(TraceMetadata.parse(stampedV3ButBlind).traceVersion())
+                .isGreaterThanOrEqualTo(TraceMetadata.FIRST_VERSION_WITH_WIDTHS);
         assertThat(TraceMetadata.hasNoWidths(PdfTrace.parse(stampedV3ButBlind))).isTrue();
     }
 
-    /** The condition is ALL widths zero, not ANY. Under the redactor's unmasked-only rule a healthy
-     *  trace legitimately carries width 0 on every masked run, so "any zero" would condemn every
-     *  correctly captured trace in the corpus. */
+    /** The condition is ALL widths zero, not ANY. Under the redactor's unmasked-only rule (redactor
+     *  version 4 and earlier) a healthy trace legitimately carries width 0 on every masked run, so
+     *  "any zero" would condemn every correctly captured trace in the corpus. */
     @Test
     void aTraceWithSomeRealWidthsHasWidths() {
         String mixed = PdfTrace.format(List.of(
-                new PositionedText("XXXX XXXXXXX", 50f, 700f, 0),          // masked -> 0 by design
+                new PositionedText("XXXX XXXXXXX", 50f, 700f, 0),          // masked, captured before v5 -> 0
                 new PositionedText("24,462.00", 300f, 700f, 0, 41.02f)),   // unmasked -> real width
                 META);
 

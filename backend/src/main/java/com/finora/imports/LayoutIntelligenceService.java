@@ -334,11 +334,13 @@ public class LayoutIntelligenceService {
                     + "Re-run once more imports have accumulated.";
         }
         long delta = medianFirst - medianRecurring;
-        if (Math.abs(delta) * 10 < medianFirst) {
+        // delta == 0 is checked on its own because a 0ms first-encounter median fails the 10% test.
+        if (delta == 0 || Math.abs(delta) * 10 < medianFirst) {
             return "Recurring layouts import at effectively the same speed as first encounters ("
                     + medianRecurring + "ms vs " + medianFirst + "ms). No performance case for layout reuse.";
         }
-        return "Recurring layouts import " + delta + "ms " + (delta > 0 ? "faster" : "slower")
+        // The sign is carried by "faster"/"slower"; printing it too reads as "-1926ms slower".
+        return "Recurring layouts import " + Math.abs(delta) + "ms " + (delta > 0 ? "faster" : "slower")
                 + " at the median (" + medianRecurring + "ms vs " + medianFirst + "ms). Worth investigating "
                 + "why before drawing conclusions -- this is a correlation across differing documents, "
                 + "not a controlled measurement.";

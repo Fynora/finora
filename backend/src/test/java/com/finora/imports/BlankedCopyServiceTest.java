@@ -1,6 +1,8 @@
 package com.finora.imports;
 
+import com.finora.dto.ImportDto.StagedRow;
 import com.finora.imports.blanked.BlankedCopy;
+import com.finora.imports.blanked.BlankedCopyComparison;
 import com.finora.imports.blanked.BlankedCopyRefusedException;
 import com.finora.imports.blanked.BlankedCopyService;
 import com.finora.imports.blanked.StaffStatementContent;
@@ -23,6 +25,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -98,6 +101,41 @@ class BlankedCopyServiceTest {
         assertThat(copy.toString()).doesNotContain(PLANTED);
         assertThat(copy.differences()).isEmpty();
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+    }
+
+    /**
+     * End to end, a statement whose reading depends on a word the copy masks: the direction is
+     * printed only as a bare "C" or "D", the redactor masks a lone letter to "X", and the copy's
+     * reading has no type to read, so its credit rows come back as money out. The check must say
+     * so, name exactly those rows and that field, and carry nothing from the statement.
+     */
+    @Test
+    void aStatementWhoseDirectionIsAMaskedLetterDoesNotMatch() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample();
+        // The real reading takes the direction from the letter, so the mismatch below is the copy's.
+        var real = PdfGeneratorTestSupport.generator()
+                .generateSectionsWithContext(UUID.randomUUID(), "statement.pdf", pdf).sections();
+        assertThat(real).hasSize(1);
+        assertThat(real.get(0).rows()).extracting(StagedRow::type)
+                .containsExactly("EXPENSE", "INCOME", "EXPENSE", "INCOME");
+
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000005", "PDF", pdf));
+
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.DIFFERS);
+        assertThat(copy.notCheckedReason()).isNull();
+        assertThat(copy.differences())
+                .extracting(BlankedCopyComparison.Difference::section, BlankedCopyComparison.Difference::row,
+                        BlankedCopyComparison.Difference::field)
+                .containsExactly(tuple(0, 1, BlankedCopyComparison.Field.DIRECTION),
+                        tuple(0, 3, BlankedCopyComparison.Field.DIRECTION));
+        assertThat(copy.differences()).flatExtracting(BlankedCopyComparison.Difference::maskedTokens)
+                .allMatch(t -> t.matches("[Xx9\\p{Punct}]+"));
+        assertThat(copy.differences().toString()).doesNotContain("EMPLOYER", "SENDER", "MERCHANT", "PAYEE");
+        // Where the statement printed C and D, the copy holds the masked letter.
+        assertThat(TraceFormat.parse(copy.trace())).extracting(PositionedText::text)
+                .doesNotContain("C", "D").contains("X");
+        assertThat(produced(BlankedCopy.Check.DIFFERS)).isEqualTo(1);
     }
 
     @Test

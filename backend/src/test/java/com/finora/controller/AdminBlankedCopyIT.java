@@ -1,5 +1,7 @@
 package com.finora.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportJob;
@@ -302,6 +304,38 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
         assertThat(output.getAll()).contains("Stored statement behind held import " + job.getId() + " could not be read");
+        assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
+    }
+
+    /**
+     * A statement whose reading depends on a masked word (its direction is only a bare C or D):
+     * the endpoint says it does not match and lists each difference as section, row, field and the
+     * copy's masked tokens, and nothing else.
+     */
+    @Test
+    void aCopyThatReadsDifferentlyListsTheDifferences(CapturedOutput output) throws Exception {
+        ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsABareLetterSample(), CUSTOMER_FILE_NAME, "PDF");
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+                createSupportUser("IMPORT_TRIAGE_MANAGE"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = new ObjectMapper().readTree(response.getBody()).get("data");
+        assertThat(data.get("check").asText()).isEqualTo("DIFFERS");
+        assertThat(data.get("notCheckedReason").isNull()).isTrue();
+        JsonNode differences = data.get("differences");
+        assertThat(differences).hasSize(2);
+        int i = 0;
+        for (JsonNode d : differences) {
+            assertThat(d.fieldNames()).toIterable().containsExactlyInAnyOrder("section", "row", "field", "maskedTokens");
+            assertThat(d.get("section").asInt()).isZero();
+            assertThat(d.get("row").asInt()).isEqualTo(i == 0 ? 1 : 3);
+            assertThat(d.get("field").asText()).isEqualTo("DIRECTION");
+            assertThat(d.get("maskedTokens").isArray()).isTrue();
+            assertThat(d.get("maskedTokens")).allSatisfy(t -> assertThat(t.asText()).matches("[Xx9\\p{Punct}]+"));
+            i++;
+        }
+        assertThat(differences.toString()).doesNotContain("EMPLOYER", "SENDER", "MERCHANT", "PAYEE");
         assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
     }
 

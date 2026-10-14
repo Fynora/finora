@@ -346,6 +346,30 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * A statement whose money-in-or-out is printed only as a bare letter in a "Type" column: "C"
+     * for a credit and "D" for a debit, with no Dr/Cr word, no sign, no credit column and no
+     * running balance to infer it from. The reading takes the direction from that letter
+     * ({@code TransactionNormalizer} reads a bare "c"/"d" as the type). A blanked copy masks a lone
+     * letter like any other word, so its reading has no type to read and every row comes back as
+     * money out: the credit rows read differently. Built to give a blanked copy a known mismatch,
+     * on rows 1 and 3 (0-based), and only in the direction.
+     */
+    public static byte[] buildDirectionOnlyAsABareLetterSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 380f, 460f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .blankLine()
+                .row(col, "Date", "Particulars", "Amount", "Type")
+                .row(col, "01/07/2026", "UPI/GENERIC MERCHANT", "1000.00", "D")
+                .row(col, "02/07/2026", "NEFT/SAMPLE EMPLOYER", "5000.00", "C")
+                .row(col, "03/07/2026", "UPI/GENERIC PAYEE", "150.00", "D")
+                .row(col, "04/07/2026", "IMPS/SAMPLE SENDER", "250.00", "C");
+
+        return render(List.of(page));
+    }
+
     // ==================== DR_CR_SUFFIX (bare and parenthesized) / REPEATED_HEADER ====================
 
     /**

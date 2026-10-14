@@ -27,7 +27,7 @@ import java.util.Objects;
 public final class BlankedCopyComparison {
 
     public enum Field { SECTION_COUNT, ROW_COUNT, UNPARSEABLE_COUNT, DATE, AMOUNT, DIRECTION, BALANCE,
-        DESCRIPTION, PERIOD_START, PERIOD_END, OPENING_BALANCE, CLOSING_BALANCE, FINDINGS }
+        DESCRIPTION, DETECTED_ACCOUNT, PERIOD_START, PERIOD_END, OPENING_BALANCE, CLOSING_BALANCE, FINDINGS }
 
     public record Difference(int section, Integer row, Field field, List<String> maskedTokens) {}
 
@@ -51,7 +51,9 @@ public final class BlankedCopyComparison {
         DetectedAccountInfo b = copy.detectedAccount();
         if (a != null || b != null) {
             if (a == null || b == null) {
-                out.add(new Difference(s, null, Field.PERIOD_START, List.of()));
+                // One reading found the account's details and the other found none: that is the
+                // difference, not any one of the fields inside them.
+                out.add(new Difference(s, null, Field.DETECTED_ACCOUNT, List.of()));
             } else {
                 section(s, Field.PERIOD_START, a.statementPeriodStart(), b.statementPeriodStart(), out);
                 section(s, Field.PERIOD_END, a.statementPeriodEnd(), b.statementPeriodEnd(), out);

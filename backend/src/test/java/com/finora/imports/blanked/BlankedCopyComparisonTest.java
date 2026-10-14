@@ -116,6 +116,49 @@ class BlankedCopyComparisonTest {
                         Field.CLOSING_BALANCE, Field.FINDINGS);
     }
 
+    /** Account details found on one side only: named as such, not as a start-date difference. */
+    @Test
+    void accountDetailsFoundOnOneSideOnlyAreReportedAsTheirOwnField() {
+        var withAccount = assemble(account(null, null, "2026-07-01", "2026-07-31", null, null), List.of(), null);
+        var withoutAccount = assemble(null, List.of(), null);
+        for (var pair : List.of(List.of(withAccount, withoutAccount), List.of(withoutAccount, withAccount))) {
+            assertThat(BlankedCopyComparison.compare(List.of(pair.get(0)), List.of(pair.get(1))).differences())
+                    .singleElement()
+                    .satisfies(d -> {
+                        assertThat(d.field()).isEqualTo(Field.DETECTED_ACCOUNT);
+                        assertThat(d.section()).isZero();
+                        assertThat(d.row()).isNull();
+                        assertThat(d.maskedTokens()).isEmpty();
+                    });
+        }
+        // Neither side found account details: nothing to report.
+        assertThat(BlankedCopyComparison.compare(List.of(withoutAccount), List.of(withoutAccount)).matches()).isTrue();
+    }
+
+    @Test
+    void aDifferentNumberOfUnreadableRowsIsReported() {
+        var real = new StagedAccountSection(account(null, null, null, null, null, null), List.of(), 0, 0,
+                List.of(new UnparseableRow(Map.of("Date", "01/07/2026"), "no amount")), null);
+        var copy = new StagedAccountSection(account(null, null, null, null, null, null), List.of(), 0, 0,
+                List.of(), null);
+        assertThat(BlankedCopyComparison.compare(List.of(real), List.of(copy)).differences())
+                .singleElement()
+                .satisfies(d -> {
+                    assertThat(d.field()).isEqualTo(Field.UNPARSEABLE_COUNT);
+                    assertThat(d.section()).isZero();
+                    assertThat(d.row()).isNull();
+                    assertThat(d.maskedTokens()).isEmpty();
+                });
+        // The same count on both sides is not a difference, whatever the rows hold.
+        var copyWithOne = new StagedAccountSection(account(null, null, null, null, null, null), List.of(), 0, 0,
+                List.of(new UnparseableRow(Map.of("Date", "99/99/9999"), "no amount")), null);
+        assertThat(BlankedCopyComparison.compare(List.of(real), List.of(copyWithOne)).matches()).isTrue();
+        // A null list counts as none.
+        var copyWithNull = new StagedAccountSection(account(null, null, null, null, null, null), List.of(), 0, 0,
+                null, null);
+        assertThat(BlankedCopyComparison.compare(List.of(copy), List.of(copyWithNull)).matches()).isTrue();
+    }
+
     @Test
     void accountIdentityCategoryAndDuplicatesAreNotCompared() {
         var real = List.of(sectionNamed("Asha Verma", "XXXX1234", "Groceries"));

@@ -11,6 +11,7 @@ import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.List;
@@ -26,7 +27,8 @@ import static org.mockito.Mockito.verify;
 /**
  * The real path a user took: an account registered with mobile + password gets a verification
  * link (A) and stays unverified; each later "Sign in with Google" attempt on that email mints a
- * fresh link (B, then C), and minting burns every older unused link without verifying anything.
+ * fresh link (B, then C) once the resend cooldown has passed, and minting burns every older unused
+ * link without verifying anything.
  * Opening an older email's link must say it was replaced -- not "already been used" -- and the
  * newest link must still verify. Links are captured from the real {@link EmailProvider} calls
  * (spied, not stubbed), so these are the exact tokens the emails would have carried.
@@ -36,6 +38,7 @@ class EmailVerificationSupersededLinkIT extends AbstractIntegrationTest {
     @Autowired private AuthService authService;
     @Autowired private UserRepository userRepository;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @MockitoSpyBean private EmailProvider emailProvider;
 
@@ -47,11 +50,23 @@ class EmailVerificationSupersededLinkIT extends AbstractIntegrationTest {
         authService.register(new RegisterRequest(email, "SecurePass123", "Jane Doe", phone, null));
         UUID userId = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow().getId();
 
+        // Straight after register(): inside the resend cooldown, so nothing new is sent and
+        // register()'s link is left alone.
+        assertThat(catchThrowableOfType(
+                () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
+                ApiException.class).getMessage()).contains("a few minutes ago");
+        verify(emailProvider, times(1)).sendEmailVerificationEmail(eq(email), org.mockito.ArgumentMatchers.anyString());
+
+        // Two later attempts, each past the cooldown: each sends a new link and burns the older ones.
         for (int attempt = 0; attempt < 2; attempt++) {
+            jdbcTemplate.update(
+                    "UPDATE email_verification_tokens SET created_at = created_at - interval '1 hour' WHERE user_id = ?",
+                    userId);
             ApiException refused = catchThrowableOfType(
                     () -> authService.loginWithGoogle(new GoogleIdentity(email, "Jane Doe")),
                     ApiException.class);
             assertThat(refused).as("Google sign-in into an unverified account is refused").isNotNull();
+            assertThat(refused.getMessage()).contains("sent a new verification link");
         }
 
         ArgumentCaptor<String> links = ArgumentCaptor.forClass(String.class);

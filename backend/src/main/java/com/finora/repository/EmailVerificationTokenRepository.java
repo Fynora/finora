@@ -41,6 +41,10 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
      *  i.e. whether {@link #markAllUnusedAsUsed} burned it on the way to sending a replacement. */
     boolean existsByUserIdAndCreatedAtAfter(UUID userId, Instant createdAt);
 
+    /** AuthService's Google/Apple sign-in conflict branch -- whether a still-live link (unused,
+     *  unexpired) was sent recently enough that it should be pointed at instead of replaced. */
+    boolean existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(UUID userId, Instant now, Instant since);
+
     /** AccountPurgeSweepService -- moot after purge (the account can never log in again to use
      *  it) but cheap to clean up. Hard delete, no soft-delete concern. */
     void deleteByUserId(UUID userId);

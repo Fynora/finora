@@ -287,6 +287,48 @@ class AuthServiceGoogleLoginTest {
     }
 
     @Test
+    @DisplayName("a repeat Google attempt while a recently sent link is still live sends nothing and burns nothing")
+    void existingAccount_withUnverifiedEmail_insideTheResendCooldown_leavesTheLiveLinkAlone() {
+        User existing = existingUser("jane@example.com", User.STATUS_ACTIVE);
+        existing.setEmailVerified(false);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", "USER"))
+                .thenReturn(Optional.of(existing));
+        when(emailVerificationTokenRepository.existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                eq(userId), any(), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleIdentity("jane@example.com", "Jane")))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("a few minutes ago")
+                .satisfies(e -> assertThat(((ApiException) e).getStatus()).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN));
+
+        // Minting would burn the link already in the inbox -- the whole point is that it doesn't.
+        verify(emailVerificationTokenRepository, never()).markAllUnusedAsUsed(any(), any());
+        verify(emailVerificationTokenRepository, never()).save(any());
+        verify(emailProvider, never()).sendEmailVerificationEmail(any(), any());
+        verify(refreshTokenService, never()).issue(any());
+    }
+
+    @Test
+    @DisplayName("the cooldown window is the last ten minutes, and only counts a live link")
+    void resendCooldown_asksForAnUnusedUnexpiredLinkFromTheLastTenMinutes() {
+        User existing = existingUser("jane@example.com", User.STATUS_ACTIVE);
+        existing.setEmailVerified(false);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", "USER"))
+                .thenReturn(Optional.of(existing));
+        org.mockito.ArgumentCaptor<java.time.Instant> now = org.mockito.ArgumentCaptor.forClass(java.time.Instant.class);
+        org.mockito.ArgumentCaptor<java.time.Instant> since = org.mockito.ArgumentCaptor.forClass(java.time.Instant.class);
+
+        assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleIdentity("jane@example.com", "Jane")))
+                .isInstanceOf(ApiException.class);
+
+        verify(emailVerificationTokenRepository).existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                eq(userId), now.capture(), since.capture());
+        assertThat(java.time.Duration.between(since.getValue(), now.getValue())).isEqualTo(java.time.Duration.ofMinutes(10));
+        // No live recent link (the mock's default false): the normal path mints and sends.
+        verify(emailVerificationTokenRepository).save(any());
+    }
+
+    @Test
     @DisplayName("a suspended account cannot sign in via Google either -- the same gate login() enforces")
     void suspendedAccount_isRefusedViaGoogleToo() {
         User existing = existingUser("jane@example.com", User.STATUS_SUSPENDED);

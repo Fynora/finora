@@ -187,7 +187,7 @@ class AuthServiceVerifyEmailTest {
         try {
             authService.verifyEmail("raw-token");
         } catch (ApiException e) {
-            assertThat(e.getMessage()).contains("already been used");
+            assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
             assertThat(u.isEmailVerified()).isFalse();
             verify(userRepository, never()).save(any());
             verify(auditService, never()).record(any(), any(), any(), any());
@@ -279,7 +279,7 @@ class AuthServiceVerifyEmailTest {
     }
 
     @Test
-    void verifyEmail_withAnAlreadyUsedToken_whoseAccountIsGone_isRejectedAsUsed() {
+    void verifyEmail_withAnAlreadyUsedToken_whoseAccountIsGone_isRejectedWithAWayForward() {
         EmailVerificationToken t = token(Instant.now().plusSeconds(600), Instant.now().minusSeconds(60));
         when(emailVerificationTokenRepository.findByTokenHash(TokenHasher.sha256("raw-token")))
                 .thenReturn(Optional.of(t));
@@ -289,7 +289,7 @@ class AuthServiceVerifyEmailTest {
         try {
             authService.verifyEmail("raw-token");
         } catch (ApiException e) {
-            assertThat(e.getMessage()).contains("already been used");
+            assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
             return;
         }
         throw new AssertionError("Expected verifyEmail() to throw for an already-used token with no account");

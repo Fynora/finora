@@ -217,9 +217,10 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
                 .hasSize(1);
     }
 
-    /** A spent link on an account that is still unverified -- here superseded by a newer link,
-     *  the way loginWithGoogle's fresh link burns register()'s -- is still rejected and verifies
-     *  nothing. */
+    /** A spent link on an account that is still unverified, with no newer link to explain it -- a
+     *  state no flow produces today (see verifyEmail's last branch) -- is still rejected, verifies
+     *  nothing, and names a way forward rather than claiming the link was used. The superseded
+     *  case is EmailVerificationSupersededLinkIT's. */
     @Test
     void aSpentLinkForAnUnverifiedAccountIsStillRejected() {
         UUID userId = saveUser("verify-email-spent-it-", false).getId();
@@ -235,7 +236,7 @@ class AuthServiceVerifyEmailConcurrentRaceIT extends AbstractIntegrationTest {
             authService.verifyEmail(rawToken);
             throw new AssertionError("Expected a spent link on an unverified account to throw");
         } catch (ApiException e) {
-            assertThat(e.getMessage()).contains("already been used");
+            assertThat(e.getMessage()).contains("can no longer be used").doesNotContain("already been used");
         }
 
         assertThat(userRepository.findById(userId).orElseThrow().isEmailVerified()).isFalse();

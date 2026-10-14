@@ -84,6 +84,12 @@ public class AuthService {
     // verification link sits in an inbox and might reasonably be clicked hours later, not
     // necessarily inside the same sitting as registration.
     private static final long EMAIL_VERIFICATION_TOKEN_TTL_MINUTES = 1440;
+    // How long a Google/Apple sign-in on an unverified account keeps pointing at the link it
+    // already sent instead of sending another. Minting a new link burns the old one, so a few
+    // impatient taps used to leave every email but the last showing a dead link -- the case a
+    // real user hit. Long enough to cover a slow inbox, short enough that a lost email costs
+    // minutes, not the link's day-long lifetime.
+    private static final long EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES = 10;
     // MAX_FAILED_LOGIN_ATTEMPTS / LOCKOUT_DURATION_MINUTES used to be hardcoded here -- now read
     // live from PlatformSettingsService on every call (see registerFailedLogin() and login()'s
     // lockout check) so an admin's change on the System page takes effect immediately, not just
@@ -868,6 +874,16 @@ public class AuthService {
         User user = existing.orElseGet(() -> createOAuthUserRecord(email, displayName, provider));
         if (!isNewAccount) {
             if (!user.isEmailVerified()) {
+                Instant now = Instant.now();
+                if (emailVerificationTokenRepository.existsByUserIdAndUsedAtIsNullAndExpiresAtAfterAndCreatedAtAfter(
+                        user.getId(), now, now.minusSeconds(EMAIL_VERIFICATION_RESEND_COOLDOWN_MINUTES * 60))) {
+                    // A link sent minutes ago is still live: leave it live rather than burning it
+                    // with a replacement, and send nothing.
+                    throw new ApiException(HttpStatus.FORBIDDEN,
+                            "An account with this email already exists but hasn't been verified yet. "
+                                    + "We emailed you a verification link a few minutes ago -- open it (check "
+                                    + "your spam folder too), then try Sign in with " + provider.label + " again.");
+                }
                 String verifyLink = emailProperties.resolveBaseUrl(null) + "/verify-email?token="
                         + mintEmailVerificationToken(user.getId());
                 UUID unverifiedUserId = user.getId();
@@ -1242,7 +1258,16 @@ public class AuthService {
                         "This link was replaced by a newer one. Open the most recent verification email "
                                 + "from Fynora and use that link.");
             }
-            throw new ApiException(HttpStatus.BAD_REQUEST, "This verification link has already been used.");
+            // Not reachable from any flow today: using a link verifies the account, nothing ever
+            // un-verifies one, and the only other thing that marks a link used (minting a newer
+            // one) is answered just above. Arriving here means the data disagrees with that --
+            // log it so it is seen, and give the person the one way forward instead of a claim
+            // ("already used") that would be false.
+            log.warn("verifyEmail: link {} for user {} is spent, the account is unverified, and no newer link exists",
+                    evt.getId(), evt.getUserId());
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This verification link can no longer be used. Sign in with Google or Apple again and "
+                            + "we'll email you a new one.");
         }
         if (evt.getExpiresAt().isBefore(Instant.now())) {
             // There is no resend endpoint: loginWithOAuthIdentity is what mints a fresh link for an

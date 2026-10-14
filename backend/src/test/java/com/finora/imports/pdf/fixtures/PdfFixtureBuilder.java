@@ -290,6 +290,34 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /** Invented customer-shaped values planted by {@link #buildSampleWithPlantedCustomerData}, so a
+     *  test can assert none of them reaches a blanked copy. None belongs to anybody. */
+    public static final String PLANTED_NAME = "Asha Verma";
+    public static final String PLANTED_PHONE = "9876543210"; // synthetic-ok: invented, the textbook 9876543210 sequence
+    public static final String PLANTED_EMAIL = "asha.verma@example.org"; // synthetic-ok: example.org is reserved
+    public static final String PLANTED_ACCOUNT_NUMBER = "100000000001"; // synthetic-ok: the repo's account-number placeholder
+
+    /**
+     * {@link #buildReferenceNumberAndBalanceSample}'s layout with an account holder's name, phone,
+     * email and account number planted in the header and in two narrations -- the values a blanked
+     * copy must never carry. Every value is invented; see the PLANTED_* constants.
+     */
+    public static byte[] buildSampleWithPlantedCustomerData() throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 320f, 460f, 530f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .line("Customer Name: " + PLANTED_NAME + "  Phone: " + PLANTED_PHONE + "  Email: " + PLANTED_EMAIL)
+                .line("Account Number: " + PLANTED_ACCOUNT_NUMBER)
+                .blankLine()
+                .row(col, "Date", "Particulars", "Reference No", "Amount", "Balance")
+                .row(col, "01/07/2026", "UPI/" + PLANTED_NAME + "/" + PLANTED_PHONE, "234567890123", "-1000.00", "49000.00")   // synthetic-ok: invented ascending digits, as in buildReferenceNumberAndBalanceSample
+                .row(col, "01/07/2026", "IMPS/" + PLANTED_EMAIL, "10203040506070", "1000.00", "50000.00")   // synthetic-ok: 10-20-30-40-50-60-70, invented, not corpus-derived
+                .row(col, "02/07/2026", "UPI/DR/345678901234/GENERIC PAYEE", "345678901234", "-150.00", "49850.00");   // synthetic-ok: invented ascending digits
+
+        return render(List.of(page));
+    }
+
     // ==================== DR_CR_SUFFIX (bare and parenthesized) / REPEATED_HEADER ====================
 
     /**

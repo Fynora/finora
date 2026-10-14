@@ -68,7 +68,9 @@ public class CreditCardFlowReconciliationValidator {
      * Collapsing these into one {@code NOT_APPLICABLE} count would hide that the first two are a
      * statement-format gap and the third is an extraction failure — a future failure-rate breakdown
      * needs this distinction to tell "the bank doesn't print this" from "our own extraction broke"
-     * apart. Not surfaced in the UI yet — kept for when it is.
+     * apart. The review screens word each of the three differently, keyed on these names
+     * ({@code verificationCopy.ts} in frontend and mobile), so renaming one changes what a customer
+     * reads: an unrecognised name falls back to "This check could not be run on this statement."
      */
     public enum CreditCardFlowEvidenceLevel {
         FULL_SUMMARY_RECONCILIATION,

@@ -4,6 +4,7 @@ import com.finora.dto.HeldImportDto;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
+import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.repository.ImportJobRepository;
@@ -161,6 +162,32 @@ public class AdminHeldImportService {
             content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+    }
+
+    /**
+     * The held job's bytes for a blanked copy, unlocked in memory when a password is saved. Same
+     * gates as {@link #download}, under its own action, and without the role pin: the copy that
+     * leaves the server is blanked, which is what a support role may receive. The bytes go to
+     * {@code BlankedCopyService} and nowhere else; the reference is the job id, never its file name.
+     *
+     * <p>Audited in its own transaction, before the bytes are read: a failed read rolls this
+     * transaction back, and the attempt is the event being recorded.
+     */
+    @Transactional
+    public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, UUID jobId) {
+        ImportJob job = require(jobId);
+        requireHeld(job, "copied");
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+        auditService.recordEvenOnRollback(actingAdminId, "HELD_IMPORT_BLANKED_COPY", "ImportJob", jobId,
+                Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", job.getUserId().toString(),
+                        "savedPasswordOnFile", savedPassword));
+        byte[] content = statementContentService.read(job);
+        if (savedPassword) {
+            content = statementPasswordService.reviewCopy(job, content).content();
+        }
+        return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
     }
 
     /** Same switch {@code HeldStatementService.contentTypeFor} makes, over the formats this system

@@ -17,6 +17,7 @@ import com.finora.imports.ImportSessionService;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.analysis.ImportVerificationFinding;
 import com.finora.imports.analysis.ImportVerificationFindingRepository;
+import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
@@ -1102,6 +1103,41 @@ public class HeldStatementService {
             content = statementPasswordService.reviewCopy(job, content).content();
         }
         return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+    }
+
+    /**
+     * As {@link #download}, for a blanked copy: same gates and audit-before-read, under its own
+     * action, and without the role pin -- the copy that leaves the server is blanked. The bytes go
+     * to {@code BlankedCopyService} and nowhere else; the reference is the Held ID, never the file
+     * name.
+     *
+     * <p>One gate {@code download} does not have: only an open hold is copied. {@link #require}
+     * finds a decided hold too, and a blanked copy is for working the queue, which a decided hold
+     * has left.
+     */
+    @Transactional
+    public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, String heldId) {
+        HeldStatement held = require(heldId);
+        if (held.getStatus().isResolved()) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only an open hold can be copied; " + held.getHeldId() + " is " + held.getStatus() + ".");
+        }
+        refuseIfLockedWithoutPassword(held, "copied");
+        ImportJob job = requireJob(held);
+        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+        // Its own transaction, as download's: a failed read rolls this one back, and the attempt is
+        // the event being recorded.
+        auditService.recordEvenOnRollback(actingAdminId, "HELD_STATEMENT_BLANKED_COPY", "HeldStatement",
+                held.getId(), Map.of("actorId", actingAdminId.toString(),
+                        "subjectUserId", held.getUserId().toString(),
+                        "heldId", held.getHeldId(),
+                        "savedPasswordOnFile", savedPassword));
+        byte[] content = readStatement(held, job);
+        if (savedPassword) {
+            content = statementPasswordService.reviewCopy(job, content).content();
+        }
+        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
     }
 
     /** Same switch {@code StatementImportService.contentTypeFor} makes, over the formats this

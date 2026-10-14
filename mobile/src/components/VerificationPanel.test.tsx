@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { VerificationPanel } from './VerificationPanel';
+import { flaggedRows } from './verificationFlags';
 import type { VerificationFinding, VerificationReport } from '../types';
 
 function report(overrides: Partial<VerificationReport> = {}): VerificationReport {
@@ -82,6 +83,44 @@ describe('VerificationPanel', () => {
     fireEvent.press(screen.getByText('Statement verification'));
 
     expect(screen.getByText(/1 row didn't match/)).toBeTruthy();
+    // rowIndex alone does not say where the row is on this screen, so nothing points at the list.
+    expect(screen.queryByText(/in the list below/)).toBeNull();
+  });
+
+  describe('the rows the balance check points at', () => {
+    const chain = (discrepancies: Record<string, number>[]) => report({
+      reliabilityStatus: 'REVIEW_RECOMMENDED',
+      findings: [finding({
+        outcome: 'WARNING',
+        details: { rowsChecked: 10, rowsWithBalance: 10, anchoredOnOpeningBalance: true, discrepancies },
+      })],
+    });
+    const amounts = { expectedBalance: 100, actualBalance: 90, difference: 10 };
+    const expand = (verification: VerificationReport, rowCount: number) => {
+      render(<VerificationPanel verification={verification} flagged={flaggedRows(verification, rowCount)} />);
+      fireEvent.press(screen.getByText('Statement verification'));
+    };
+
+    it('says the row is marked in the list, and names no number', () => {
+      expand(chain([{ rowIndex: 2, displayIndex: 4, ...amounts }]), 10);
+
+      expect(screen.getByText('That row is marked "Balance didn\'t match" in the list below.')).toBeTruthy();
+      expect(screen.queryByText(/\brows? \d/i)).toBeNull();
+    });
+
+    it('says rows, for several', () => {
+      expand(chain([{ rowIndex: 4, displayIndex: 4, ...amounts }, { rowIndex: 9, displayIndex: 9, ...amounts }]), 10);
+
+      expect(screen.getByText(/2 rows didn't match/)).toBeTruthy();
+      expect(screen.getByText('Those rows are marked "Balance didn\'t match" in the list below.')).toBeTruthy();
+    });
+
+    it('does not point at the list when a position is past its end', () => {
+      expand(chain([{ rowIndex: 16, displayIndex: 16, ...amounts }]), 10);
+
+      expect(screen.getByText(/1 row didn't match/)).toBeTruthy();
+      expect(screen.queryByText(/in the list below/)).toBeNull();
+    });
   });
 
   it('shows the OCR provenance note only when the text source involved OCR', () => {
@@ -665,12 +704,60 @@ describe('VerificationPanel', () => {
     });
 
     it('never names a transaction by its row number', () => {
-      // The backend counts rows in the order the document printed them, and a PDF's review list is
-      // sorted by date afterwards. On a statement printed newest-first a row number from the
-      // finding names a different transaction, so none is shown -- here rowIndex 13, row 14.
-      expand(cases.find((c) => c.name === 'one description picked up extra text')!.finding);
+      // rowIndex counts rows in the order the document printed them, and a PDF's review list is
+      // sorted by date afterwards. On a statement printed newest-first it names a different
+      // transaction, so a report that carries nothing else points at none -- here rowIndex 13.
+      const one = cases.find((c) => c.name === 'one description picked up extra text')!;
+      const verification = report({ findings: [one.finding] });
+      render(<VerificationPanel verification={verification} flagged={flaggedRows(verification, 42)} />);
+      fireEvent.press(screen.getByText('Statement verification'));
 
-      expect(screen.queryByText(/\brows? \d|\b1[34]\b/i)).toBeNull();
+      expect(screen.queryByText(/\brows? \d|\b1[34]\b|in the list below/i)).toBeNull();
+      expect(screen.getByText(one.note!)).toBeTruthy();
+    });
+
+    describe('when the report says where the rows are shown', () => {
+      const shownAt = (displayIndex: number, rowIndex: number, length = 412) =>
+        ({ rowIndex, displayIndex, length, sectionMedianLength: 47, sentenceBreaks: 3 });
+      const warning = (outliers: Record<string, number>[]): VerificationFinding => ({
+        rule: DESCRIPTIONS, outcome: 'WARNING', details: { rowsChecked: 42, sectionMedianLength: 47, outliers },
+      });
+      const expandMarked = (found: VerificationFinding, rowCount: number | null) => {
+        const verification = report({ findings: [found] });
+        render(rowCount === null
+          ? <VerificationPanel verification={verification} />
+          : <VerificationPanel verification={verification} flagged={flaggedRows(verification, rowCount)} />);
+        fireEvent.press(screen.getByText('Statement verification'));
+      };
+
+      it('points at the mark on the card, and still names no row by number', () => {
+        expandMarked(warning([shownAt(1, 5)]), 42);
+
+        expect(screen.getByText('It is marked "Check description" in the list below. Read it before you import.'))
+          .toBeTruthy();
+        expect(screen.queryByText(/\brows? \d|Find that description/i)).toBeNull();
+      });
+
+      it('says they, for several', () => {
+        expandMarked(warning([shownAt(19, 2), shownAt(2, 19)]), 42);
+
+        expect(screen.getByText('They are marked "Check description" in the list below. Read them before you import.'))
+          .toBeTruthy();
+      });
+
+      it('goes back to the unmarked wording when one row has no position', () => {
+        expandMarked(warning([shownAt(2, 2), { rowIndex: 13, length: 300, sectionMedianLength: 47, sentenceBreaks: 3 }]), 42);
+
+        expect(screen.getByText(/Find those descriptions in the list and read them before you import\./)).toBeTruthy();
+        expect(screen.queryByText(/in the list below/)).toBeNull();
+      });
+
+      it('goes back to the unmarked wording where no list is shown below the panel', () => {
+        expandMarked(warning([shownAt(1, 5)]), null);
+
+        expect(screen.getByText(/Find that description in the list and read it before you import\./)).toBeTruthy();
+        expect(screen.queryByText(/in the list below/)).toBeNull();
+      });
     });
 
     it('gives no count of the rows that could not be read', () => {

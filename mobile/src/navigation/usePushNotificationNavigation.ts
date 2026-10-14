@@ -38,7 +38,7 @@ import type { RootParamList } from './types';
  * in user legitimately dips through): a system notification tapped while genuinely signed out --
  * most plausibly one that was delivered and sat in the tray before sign-out, since sign-out
  * revokes this device's token but cannot retract an already-shown notification -- is dropped
- * outright rather than stashed. Both of this hook's destinations (Settings, Statements) are
+ * outright rather than stashed. Every one of this hook's destinations (Settings, Statements, Import) is
  * generic, backend-scoped-to-whoever's-signed-in screens with no equivalent of the email link's
  * own findByIdAndUserId rejection, so nothing else would stop a stale tap from opening the wrong
  * screen for whoever signs in next on the device -- unlike the confirmed-harmless replay
@@ -48,10 +48,12 @@ export interface PushNotificationNavigationDeps {
   messaging?: PushMessaging;
 }
 
-/** The only two destinations a notification `type` can resolve to -- kept as literals (not
+/** The destinations a notification `type` can resolve to -- kept as literals (not
  *  `keyof MoreStackParamList`) so `navigationRef.navigate('More', { screen: ... })` below stays
- *  inside NavigatorScreenParams' discriminated union instead of a widened, unnavigable one. */
-type PushRoute = 'Settings' | 'Statements';
+ *  inside NavigatorScreenParams' discriminated union instead of a widened, unnavigable one.
+ *  'Import' is the Import tab itself, whose unfinished-imports list is where a statement waiting to
+ *  be confirmed is reopened. */
+type PushRoute = 'Settings' | 'Statements' | 'Import';
 
 const TYPE_ROUTE: Record<string, PushRoute> = {
   PASSWORD_CHANGED: 'Settings',
@@ -59,6 +61,8 @@ const TYPE_ROUTE: Record<string, PushRoute> = {
   IMPORT_STATEMENT_HELD: 'Statements',
   IMPORT_STATEMENT_RESOLVED: 'Statements',
   IMPORT_STATEMENT_REJECTED: 'Statements',
+  // The confirm step lives on the Import tab's unfinished-imports list, not on Statements.
+  IMPORT_STATEMENT_CONFIRM_REMINDER: 'Import',
   // Statement refresh, step 5: the banner that updates them is on the Statements screen.
   STATEMENT_REFRESH_AVAILABLE: 'Statements',
 };
@@ -91,6 +95,7 @@ export function usePushNotificationNavigation(
     // no in-app affordance carried the user here and no NavEntryPointId describes it. The baseline
     // exists to compare navigation affordances against each other; a push arrival is not one.
     if (route === 'Settings') navigationRef.navigate('More', { screen: 'Settings' });
+    else if (route === 'Import') navigationRef.navigate('Import');
     else navigationRef.navigate('More', { screen: 'Statements' });
   }, [navigationRef]);
 

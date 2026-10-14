@@ -625,6 +625,155 @@ describe('Import — paginates the review table', () => {
 });
 
 /**
+ * The verification panel says "Row 13" about a list that is paged ten at a time and used to carry
+ * no numbers. The list now numbers its rows and marks the ones a finding points at -- by the
+ * position the backend says the row is SHOWN at, never by a finding's rowIndex, which on a PDF
+ * counts a list the customer never sees.
+ */
+describe('Import — rows a verification finding points at are marked in the review table', () => {
+  function stagedRow(description: string) {
+    return {
+      date: '2026-07-10', description, amount: 100, type: 'EXPENSE' as const, suggestedCategory: 'Other',
+      categorySource: 'rule' as const, ruleId: null, likelyDuplicate: false, referenceNumber: null,
+      balanceAfter: null, duplicateMatch: null,
+    };
+  }
+  const rowsNamed = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, i) => stagedRow(`${prefix} ${String(i + 1).padStart(3, '0')}`));
+
+  const amounts = { expectedBalance: 9390, actualBalance: 9400, difference: 10 };
+  const verification = (discrepancies: object[], outliers: object[]) => ({
+    headerReconstructionUncertain: false, textSource: 'NATIVE_PDF', reliabilityStatus: 'REVIEW_RECOMMENDED',
+    findings: [
+      {
+        rule: 'BALANCE_CHAIN', outcome: discrepancies.length > 0 ? 'WARNING' : 'VERIFIED',
+        details: { rowsChecked: 23, rowsWithBalance: 23, anchoredOnOpeningBalance: true, discrepancies },
+      },
+      {
+        rule: 'DESCRIPTION_CORRUPTION', outcome: outliers.length > 0 ? 'WARNING' : 'VERIFIED',
+        details: { rowsChecked: 23, sectionMedianLength: 12, ...(outliers.length > 0 ? { outliers } : {}) },
+      },
+    ],
+  });
+
+  function stage(report: ReturnType<typeof verification>) {
+    const rows = rowsNamed('ROW', 23);
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-flagged',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows, totalParsed: rows.length, flaggedDuplicates: 0, detectedAccount, unparseableRows: [], verification: report,
+      },
+    } as never);
+  }
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  const listRow = (description: string) => screen.getByText(description).closest('tr')!;
+  const BALANCE = "Balance didn't match";
+  const DESCRIPTION = 'Check description';
+
+  it('numbers every row by its place in the whole list, across pages', async () => {
+    stage(verification([], []));
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText('ROW 001');
+
+    expect(within(listRow('ROW 001')).getByText('1')).toBeInTheDocument();
+    expect(within(listRow('ROW 010')).getByText('10')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText(/next page/i));
+    expect(within(listRow('ROW 011')).getByText('11')).toBeInTheDocument();
+    // A clean report marks nothing.
+    expect(screen.queryByText(BALANCE)).not.toBeInTheDocument();
+    expect(screen.queryByText(DESCRIPTION)).not.toBeInTheDocument();
+  });
+
+  it('marks the row at displayIndex, not the one at rowIndex, and the panel names the same number', async () => {
+    // What a newest-first PDF sends: the balance row was checked at position 2 and is shown at 12;
+    // the long description was printed at position 20 and is shown at 1.
+    stage(verification(
+      [{ rowIndex: 2, displayIndex: 12, ...amounts }],
+      [{ rowIndex: 20, displayIndex: 1, length: 162, sectionMedianLength: 12, sentenceBreaks: 2 }],
+    ));
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText('ROW 001');
+
+    // Page 1: only the description row is marked, and only with its own mark.
+    expect(within(listRow('ROW 002')).getByText(DESCRIPTION)).toBeInTheDocument();
+    expect(screen.getAllByText(DESCRIPTION)).toHaveLength(1);
+    expect(screen.queryByText(BALANCE)).not.toBeInTheDocument();
+    expect(within(listRow('ROW 003')).queryByText(/match|check/i)).not.toBeInTheDocument();
+
+    // The panel points at the same two rows by the numbers the list prints.
+    await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+    expect(screen.getByRole('cell', { name: '13' })).toBeInTheDocument();
+    expect(screen.getByText('It is row 2.')).toBeInTheDocument();
+    expect(screen.getByText(`That row is marked "${BALANCE}" in the list below.`)).toBeInTheDocument();
+
+    // Page 2: row 13 carries the balance mark; row 21 (rowIndex 20) carries nothing.
+    await user.click(screen.getByLabelText(/next page/i));
+    expect(within(await screen.findByText('ROW 013').then((cell) => cell.closest('tr')!)).getByText(BALANCE))
+      .toBeInTheDocument();
+    expect(screen.getAllByText(BALANCE)).toHaveLength(1);
+    await user.click(screen.getByLabelText(/next page/i));
+    expect(within(listRow('ROW 021')).queryByText(/match|check/i)).not.toBeInTheDocument();
+  });
+
+  it('marks nothing and names no row for a report that only has rowIndex', async () => {
+    // A review staged before the backend sent displayIndex, opened again after this build.
+    stage(verification(
+      [{ rowIndex: 2, ...amounts }],
+      [{ rowIndex: 1, length: 162, sectionMedianLength: 12, sentenceBreaks: 2 }],
+    ));
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText('ROW 001');
+    await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+
+    expect(screen.queryByText(BALANCE)).not.toBeInTheDocument();
+    expect(screen.queryByText(DESCRIPTION)).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Row' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/in the list below/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Find that description in the list and read it before you import\./)).toBeInTheDocument();
+    // The balances are still shown: the finding is real, only its position is unknown.
+    expect(screen.getByText(/9,390\.00/)).toBeInTheDocument();
+  });
+
+  it("marks a row in the account section its finding belongs to, and not the same position in the other", async () => {
+    const section = (name: string, prefix: string, report: unknown) => ({
+      detectedAccount: { ...detectedAccount, suggestedName: name },
+      rows: rowsNamed(prefix, 3), totalParsed: 3, flaggedDuplicates: 0, unparseableRows: [], verification: report,
+    });
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-flagged-multi',
+      multiAccount: true,
+      staging: null,
+      sections: [
+        section('Savings', 'SAV', verification([], [])),
+        section('Card', 'CARD', verification([{ rowIndex: 0, displayIndex: 2, ...amounts }], [])),
+      ],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText('SAV 001');
+
+    expect(within(listRow('CARD 003')).getByText(BALANCE)).toBeInTheDocument();
+    expect(screen.getAllByText(BALANCE)).toHaveLength(1);
+    expect(within(screen.getByTestId('account-section-0')).queryByText(BALANCE)).not.toBeInTheDocument();
+  });
+});
+
+/**
  * Phase 1B: {@code totalAmountDue} was already correctly detected server-side but went no further
  * than the verification report -- this is the review screen's half of the plumbing fix.
  */

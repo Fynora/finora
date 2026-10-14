@@ -561,7 +561,7 @@ public class ImportSessionService {
      * #findByImportSessionIdInAndHeldStatementIdIsNotNull}'s own doc comment for the real bug this
      * replaced.
      */
-    private java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
+    java.util.Set<UUID> sessionsBlockedByTrustReview(java.util.Collection<UUID> sessionIds) {
         if (sessionIds.isEmpty()) return java.util.Set.of();
         // A job still held blocks on its own status, record or not. The worker holds the import
         // even when it cannot write the held_statements row (fail closed), and the record-keyed
@@ -597,12 +597,18 @@ public class ImportSessionService {
      *  {@link #readStagedRows}/{@link #readDetectedAccount} -- which the resume flow reads through
      *  {@code ImportController.toSummary} -- both {@link #requireKind}. */
     private boolean supportsResume(ImportSession session) {
-        return switch (session.getSessionKind()) {
+        return supportsResume(session.getId(), session.getSessionKind());
+    }
+
+    /** The same answer from a session's id and kind alone, for a caller that read those columns
+     *  without loading the session (UnconfirmedImportReminder: a loaded session carries the file). */
+    static boolean supportsResume(UUID sessionId, String sessionKind) {
+        return switch (sessionKind) {
             case ImportSession.KIND_SINGLE_ACCOUNT -> true;
             case ImportSession.KIND_MULTI_ACCOUNT -> false;
-            default -> {
+            case null, default -> {
                 log.warn("Import session {} has unrecognized kind '{}' -- excluding it from the resumable list.",
-                        session.getId(), session.getSessionKind());
+                        sessionId, sessionKind);
                 yield false;
             }
         };
@@ -861,14 +867,39 @@ public class ImportSessionService {
         requireKind(session, ImportSession.KIND_SINGLE_ACCOUNT);
         String json = session.getVerificationReportJson();
         if (json == null) return null;
-        return readJson(json, VerificationReport.class);
+        return renumberStoredAmbiguities(readJson(json, VerificationReport.class), readStagedRows(session));
     }
 
     /** Multi-account equivalent of {@link #readStagedRows}/{@link #readDetectedAccount} -- see
      *  {@link #createMultiSection}. */
     public List<StagedAccountSection> readSections(ImportSession session) {
         requireKind(session, ImportSession.KIND_MULTI_ACCOUNT);
-        return readJson(session.getSectionsJson(), new TypeReference<List<StagedAccountSection>>() {});
+        List<StagedAccountSection> sections =
+                readJson(session.getSectionsJson(), new TypeReference<List<StagedAccountSection>>() {});
+        if (sections == null) return null;
+        // Replaced in place, so callers keep the mutable list they have always been given.
+        sections.replaceAll(s -> s == null || s.verification() == null ? s
+                : new StagedAccountSection(s.detectedAccount(), s.rows(), s.totalParsed(),
+                        s.flaggedDuplicates(), s.unparseableRows(),
+                        renumberStoredAmbiguities(s.verification(), s.rows())));
+        return sections;
+    }
+
+    /**
+     * A stored report is served again whenever the customer reopens the review, so a report staged
+     * by an earlier build must be read with today's numbering -- see {@link
+     * ColumnAmbiguityValidator#renumberStored} for the two-ways check, and {@link
+     * StoredRowPositions} for the balance and description checks. Only those three findings can
+     * change; the rest of the report, its order and its status are carried through untouched.
+     */
+    private static VerificationReport renumberStoredAmbiguities(VerificationReport report, List<StagedRow> shown) {
+        if (report == null || report.findings() == null) return report;
+        return new VerificationReport(
+                report.findings().stream()
+                        .map(f -> ColumnAmbiguityValidator.renumberStored(f, shown))
+                        .map(f -> StoredRowPositions.withDisplayPositions(f, shown))
+                        .toList(),
+                report.headerReconstructionUncertain(), report.textSource(), report.reliabilityStatus());
     }
 
     /** Credit-card statement entity, roadmap item 6 follow-up (PR #451) -- {@link

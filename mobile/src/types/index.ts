@@ -427,7 +427,11 @@ export interface BalanceChainDetails {
   rowsChecked: number;
   rowsWithBalance: number;
   anchoredOnOpeningBalance: boolean;
-  discrepancies: { rowIndex: number; expectedBalance: number; actualBalance: number; difference: number }[];
+  // displayIndex: the row's zero-based place in the staged rows as shown. Absent on a report staged
+  // before the backend sent it -- read through components/verificationFlags.ts, never directly.
+  discrepancies: {
+    rowIndex: number; displayIndex?: number; expectedBalance: number; actualBalance: number; difference: number;
+  }[];
 }
 
 export interface StagedRow {

@@ -24,6 +24,7 @@ import { countedExpense, ledgerExpense, transactionsFor } from '../../fixtures/d
  */
 
 const FARE: Row = { date: '2026-06-07', description: 'METRO FARE', amount: 45.0, type: 'DEBIT' };
+const COFFEE: Row = { date: '2026-06-09', description: 'BLUE TOKAI COFFEE', amount: 320.0, type: 'DEBIT' };
 
 test.describe('Phase 7 — what the ledger holds and what the product counts', () => {
   /**
@@ -55,13 +56,20 @@ test.describe('Phase 7 — what the ledger holds and what the product counts', (
     expect(dashboard.data!.spendByCategory['Transport']).toBe(90);
   });
 
-  /** The other direction. A skipped row must be absent from both, not merely uncounted. */
+  /**
+   * The other direction. A skipped row must be absent from both, not merely uncounted.
+   *
+   * The statement carries a clean second row (COFFEE) so there is still something to confirm after
+   * the duplicate is skipped: since #2105 an import with nothing ticked cannot be confirmed at all
+   * (covered in duplicate-review.spec.ts). The expected total is therefore the fare once, plus the
+   * coffee -- never the fare twice.
+   */
   test('a duplicate the user chose to skip is absent from the ledger, not hidden in it',
     async ({ userPage, api, user }) => {
       await api.importStatement([FARE], { accountName: 'Primary' });
 
       await userPage.goto('/app/import');
-      await uploadStatement(userPage, 'fares.csv', 'text/csv', csv([FARE]));
+      await uploadStatement(userPage, 'fares.csv', 'text/csv', csv([FARE, COFFEE]));
       await expect(userPage.getByTestId('duplicate-review')).toBeVisible({ timeout: 20_000 });
 
       await userPage.getByTestId('duplicate-0').getByRole('button', { name: 'Skip this row' }).click();
@@ -69,9 +77,9 @@ test.describe('Phase 7 — what the ledger holds and what the product counts', (
       await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
 
       expect(await transactionsFor(user.id, 'METRO FARE')).toHaveLength(1);
-      expect(await ledgerExpense(user.id)).toBe(45);
+      expect(await ledgerExpense(user.id)).toBe(365);
       expect(await countedExpense(user.id), 'skipping means not imported, not imported-and-ignored')
-        .toBe(45);
+        .toBe(365);
     });
 
   /**

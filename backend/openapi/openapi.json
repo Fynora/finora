@@ -14510,6 +14510,12 @@
                     "reviewAnalysisReference": {
                         "type": "string"
                     },
+                    "reviewReasonSources": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
                     "acknowledgedReasons": {
                         "type": "array",
                         "items": {

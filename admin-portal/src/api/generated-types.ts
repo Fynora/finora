@@ -6347,6 +6347,9 @@ export interface components {
             /** Format: date-time */
             reviewFlaggedAt?: string;
             reviewAnalysisReference?: string;
+            reviewReasonSources?: {
+                [key: string]: string;
+            };
             acknowledgedReasons?: string[];
             /** Format: uuid */
             profileId?: string;

@@ -1579,7 +1579,11 @@ export interface RegistryEntry {
   needsReview: boolean;
   reviewReasons: LayoutReviewReason[];
   reviewFlaggedAt: string | null;
+  /** The latest upload that added a reason to this flag. */
   reviewAnalysisReference: string | null;
+  /** Each current reason's source: the upload that first raised it in this flag (V270). Empty for a
+   *  layout flagged before sources were recorded. */
+  reviewReasonSources: Record<string, string>;
   /** Reasons already reviewed; these no longer re-flag the layout. */
   acknowledgedReasons: LayoutReviewReason[];
   profileId: string | null;

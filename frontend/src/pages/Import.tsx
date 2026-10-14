@@ -25,6 +25,7 @@ import { BankLogo } from '../components/BankLogo';
 import { PasswordInput } from '../components/PasswordInput';
 import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
+import { flaggedRows, ROW_FLAG_LABEL, type FlaggedRows } from '../components/verificationFlags';
 import { matchExistingAccount } from '../lib/accountMatch';
 import { isLikelyMatch } from '../lib/holderNameMatcher';
 import { DuplicateReview } from '../components/DuplicateReview';
@@ -1653,7 +1654,10 @@ export default function Import() {
 
                   {/* This section's own report. Composite statements are exactly where a merged verdict
                       would mislead -- a savings section can verify while a credit-card section does not. */}
-                  <VerificationPanel verification={section.verification} />
+                  <VerificationPanel
+                    verification={section.verification}
+                    flagged={flaggedRows(section.verification, section.rows.length)}
+                  />
 
                   <AccountChoiceFields
                     idPrefix={`import-section-${sectionIndex}`}
@@ -1677,6 +1681,7 @@ export default function Import() {
 
                   <TransactionPreviewTable
                     rows={section.rows}
+                    flagged={flaggedRows(section.verification, section.rows.length)}
                     review={section.review}
                     onToggleIncluded={(rowIndex, include) =>
                       updateSection(setMultiSections, sectionIndex, (s) => ({ review: setIncluded(s.review, rowIndex, include) }))
@@ -1766,7 +1771,7 @@ export default function Import() {
             <>
               {/* Above the account card on purpose: whether the numbers can be trusted is worth
                   reading before deciding where to put them. */}
-              <VerificationPanel verification={verification} />
+              <VerificationPanel verification={verification} flagged={flaggedRows(verification, rows.length)} />
 
               {reimportState ? (
                 <div className="bg-card rounded-xl2 shadow-card border border-border p-5">
@@ -1842,6 +1847,7 @@ export default function Import() {
                 </p>
                 <TransactionPreviewTable
                   rows={rows}
+                  flagged={flaggedRows(verification, rows.length)}
                   review={review}
                   onToggleIncluded={toggleRowIncluded}
                   chosenCategory={chosenCategory}
@@ -2361,6 +2367,7 @@ function AccountChoiceFields({
 // between the single-account review step and each account card in the multi-account review step.
 function TransactionPreviewTable({
   rows,
+  flagged,
   review,
   onToggleIncluded,
   chosenCategory,
@@ -2368,6 +2375,9 @@ function TransactionPreviewTable({
   categories,
 }: {
   rows: StagedRow[];
+  // The rows the verification panel is talking about, marked here so nobody has to count to one --
+  // see components/verificationFlags.ts for when a report can and cannot say where they are.
+  flagged: FlaggedRows;
   // The whole review rather than a bare boolean[]: the include flags and the decisions that gate
   // them are one value by construction (see lib/importReview.ts), and taking them apart here is
   // how the multi-account path ended up able to untick a row with no decision attached to it.
@@ -2399,7 +2409,11 @@ function TransactionPreviewTable({
       <table className="w-full text-xs font-mono mb-4">
         <thead>
           <tr className="text-left text-2xs uppercase text-muted">
-            <th className="p-1"></th><th className="p-1">Date</th><th className="p-1">Description</th>
+            <th className="p-1"></th>
+            {/* The row's place in the whole list, not on this page: the verification panel names a
+                row by this number, and the list is paged. */}
+            <th className="p-1 text-right" aria-label="Row number">#</th>
+            <th className="p-1">Date</th><th className="p-1">Description</th>
             <th className="p-1 text-right">DR</th><th className="p-1 text-right">CR</th><th className="p-1">Category</th>
           </tr>
         </thead>
@@ -2414,11 +2428,18 @@ function TransactionPreviewTable({
                   onChange={(e) => onToggleIncluded(i, e.target.checked)}
                 />
               </td>
+              <td className="p-1 text-right text-muted">{i + 1}</td>
               <td className="p-1">{formatDateDDMMMYYYY(r.date)}</td>
               <td className="p-1">
                 {r.description}
                 {r.merchant && (
                   <div className="text-2xs text-muted">Detected: {r.merchant}</div>
+                )}
+                {flagged.balance?.includes(i) && (
+                  <span className="text-2xs uppercase ml-1 text-warning">{ROW_FLAG_LABEL.balance}</span>
+                )}
+                {flagged.description?.includes(i) && (
+                  <span className="text-2xs uppercase ml-1 text-warning">{ROW_FLAG_LABEL.description}</span>
                 )}
                 {r.likelyDuplicate && <span className="text-danger text-2xs uppercase ml-1">duplicate</span>}
                 {isUnconfirmedGuess(r.categorySource) && (

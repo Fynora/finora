@@ -317,7 +317,8 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
         // Neither the reviewer nor the parser can open the file: both refuse, saying what to use.
         assertThatThrownBy(() -> heldStatementService.rerunParser(admin, held.getHeldId()))
                 .isInstanceOf(ApiException.class).hasMessageContaining("password was not kept");
-        assertThatThrownBy(() -> heldStatementService.download(admin, held.getHeldId()))
+        assertThatThrownBy(() -> heldStatementService.contentForOriginalView(admin, held.getHeldId(),
+                "Rows on page 2 are missing from the preview"))
                 .isInstanceOf(ApiException.class).hasMessageContaining("password was not kept");
         // ... and the rows are there to review instead.
         var rows = heldStatementService.stagedRows(admin, held.getHeldId());

@@ -146,10 +146,19 @@ public class StatementPasswordService {
      */
     @Transactional(readOnly = true)
     public byte[] unlockedForBlankedCopy(ImportJob job, byte[] content, String itemName) {
+        return unlockedOrRefused(job, content, itemName, "no blanked copy can be made");
+    }
+
+    /**
+     * As {@link #unlockedForBlankedCopy}, for any use that needs the file opened: the refusal ends
+     * with {@code consequence}, such as "it cannot be shown", so it names what the caller was doing.
+     */
+    @Transactional(readOnly = true)
+    public byte[] unlockedOrRefused(ImportJob job, byte[] content, String itemName, String consequence) {
         ReviewCopy review = reviewCopy(job, content);
         if (!review.unlocked() && PdfTextExtractor.needsPassword(new ByteArrayInputStream(review.content()))) {
             throw new ApiException(HttpStatus.CONFLICT, "The saved password did not open the statement behind "
-                    + itemName + ", so no blanked copy can be made.");
+                    + itemName + ", so " + consequence + ".");
         }
         return review.content();
     }

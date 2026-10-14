@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * The name a merchant is stored under ({@code merchants.canonical_name}) and the name a customer is
@@ -43,7 +44,15 @@ public final class MerchantNames {
             "ach", "ACH payment",
             "nach", "NACH payment",
             "mob", "Mobile banking payment",
-            "ib", "Internet banking payment");
+            "ib", "Internet banking payment",
+            "pos", "Card payment");
+
+    /**
+     * A word holding four or more digits in a row: a reference or a masked card number
+     * ("512345xxxxxx1234"), which {@link CategoryRules#extractMerchant} strips only when it is
+     * digits alone. It is never what a customer should read first.
+     */
+    private static final Pattern CODE = Pattern.compile("\\d{4,}");
 
     /**
      * What is left of a generated UPI handle ("q&lt;digits&gt;@ybl") once its digits are stripped:
@@ -61,12 +70,18 @@ public final class MerchantNames {
      * skips exactly those words, so the key read back from the stored name is the key the narration
      * was matched by. "ib" and "mob" open a narration too but are not in that list -- the key reads
      * them -- so the stored name keeps them and only {@link #forDisplay} hides them.
+     *
+     * <p>A card purchase keeps its "Pos". One bank prints the masked card number after it, the
+     * stored name keeps that number (the key reads it), and the "Pos" in front is what tells
+     * {@link #forDisplay} to hide both.
      */
     public static String forNarration(String description) {
         String payee = CategoryRules.structuredPayee(description);
         if (payee != null) return titleCase(payee);
         String[] words = CategoryRules.extractMerchant(description).split(" ");
-        if (!opensWithRail(words) || !PaymentRailTokens.isRailToken(words[0])) return titleCase(String.join(" ", words));
+        if (!opensWithRail(words) || !PaymentRailTokens.isRailToken(words[0]) || words[0].equals("pos")) {
+            return titleCase(String.join(" ", words));
+        }
         // Rail words and handle suffixes give the grouping key nothing either, so this name has no
         // key, exactly as the narration has none.
         if (Arrays.stream(words).allMatch(w -> PaymentRailTokens.isRailToken(w) || HANDLE_SUFFIXES.contains(w))) {
@@ -84,18 +99,19 @@ public final class MerchantNames {
 
     /**
      * The name to show for a merchant stored as {@code storedName}. A name that opens with a rail
-     * word is shown from its first word that is not a rail, direction or filler word; a name with
-     * no such word is shown as that rail's payment. Any other name is shown as stored.
+     * word is shown from its first word that is not a rail, direction or filler word or a code (see
+     * {@link #CODE}); a name with no such word is shown as that rail's payment. Any other name is
+     * shown as stored.
      */
     public static String forDisplay(String storedName) {
         if (storedName == null || storedName.isBlank()) return storedName;
         String[] words = storedName.trim().split("\\s+");
         if (!opensWithRail(words)) return storedName;
-        if (Arrays.stream(words).allMatch(MerchantNames::namesNobody)) {
+        if (Arrays.stream(words).allMatch(w -> namesNobody(w) || isCode(w))) {
             return RAIL_PAYMENTS.get(words[0].toLowerCase(Locale.ROOT));
         }
         int from = 0;
-        while (from < words.length && isLeadingNoise(words[from])) from++;
+        while (from < words.length && (isLeadingNoise(words[from]) || isCode(words[from]))) from++;
         return join(words, from);
     }
 
@@ -159,6 +175,10 @@ public final class MerchantNames {
     private static boolean isLeadingNoise(String word) {
         String lower = word.toLowerCase(Locale.ROOT);
         return CategoryRules.isFillerToken(lower) || PaymentRailTokens.isRailToken(lower);
+    }
+
+    private static boolean isCode(String word) {
+        return CODE.matcher(word).find();
     }
 
     /** A rail, direction or filler word, or a handle suffix: a word that never names a payee. */

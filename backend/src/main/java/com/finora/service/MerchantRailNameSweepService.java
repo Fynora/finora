@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -49,6 +50,13 @@ public class MerchantRailNameSweepService {
 
     /** The widest value merchants.canonical_name holds (V7). */
     private static final int MAX_NAME_LENGTH = 255;
+
+    /**
+     * The first words V268 queued a merchant for. A queued name that no longer opens with one of
+     * them was renamed by a person since. {@link MerchantNames#opensWithRail} alone is not that
+     * test: it also accepts "Pos", which the shown name hides but this queue never held.
+     */
+    private static final Set<String> QUEUED_RAILS = Set.of("upi", "imps", "neft", "rtgs", "mob", "mmt", "ib", "ach", "nach");
 
     @Value("${app.merchant-rail-name-recheck.sweep.mode:dry-run}")
     private String mode;
@@ -159,7 +167,7 @@ public class MerchantRailNameSweepService {
         String key;
         boolean shared;
         try {
-            if (!MerchantNames.opensWithRail(merchant.name())) return Outcome.UNCHANGED;
+            if (!stillQueuedShape(merchant.name())) return Outcome.UNCHANGED;
             String imported = MerchantNames.importedNameFor(narrations);
             if (imported == null) return Outcome.UNCHANGED;
             newName = imported.length() > MAX_NAME_LENGTH ? imported.substring(0, MAX_NAME_LENGTH) : imported;
@@ -184,6 +192,11 @@ public class MerchantRailNameSweepService {
         auditService.record(merchant.userId(), "MERCHANT_NAME_RECHECKED", "Merchant", merchant.merchantId(),
                 Map.of("previousName", merchant.name(), "newName", newName, "actor", "merchant-rail-name-recheck"));
         return Outcome.RENAMED;
+    }
+
+    private static boolean stillQueuedShape(String name) {
+        String first = name.trim().split("\\s+")[0].toLowerCase(Locale.ROOT);
+        return QUEUED_RAILS.contains(first) && MerchantNames.opensWithRail(name);
     }
 
     private static Result result(int[] counts, boolean drained) {

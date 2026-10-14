@@ -10,6 +10,7 @@ import com.finora.entity.Merchant;
 import com.finora.entity.MerchantLearningEvent;
 import com.finora.entity.StatementImport;
 import com.finora.entity.User;
+import com.finora.imports.BalanceChainValidator;
 import com.finora.imports.StatementUpload;
 import com.finora.imports.analysis.ImportVerificationRecorder;
 import com.finora.imports.analysis.ParseDiagnostics;
@@ -202,6 +203,52 @@ class ImportTraceIT extends AbstractIntegrationTest {
         assertThat(trace.completion().transactionsImported()).isEqualTo(124);
         assertThat(trace.completion().transactionsSkipped()).isEqualTo(2);
         assertThat(trace.completion().sessionConfirmedAt()).isNotNull();
+    }
+
+    @Test
+    void aBalanceMismatchReachesTheTraceAsRowsAndPatternsAnOperatorCanRead() {
+        // What the admin page renders from. The stored document is unit- and column-tested where it
+        // is written; this asserts it comes back out as the nested structure the page expects, since
+        // every other details value in this trace is a flat scalar and a list of objects is the
+        // first one that could be flattened or dropped on the way.
+        User owner = user();
+        ImportSession session = stagingSession(owner);
+        String reference = analysisRecorder.recordParsed(owner.getId(),
+                StatementAnalysisSession.Source.CUSTOMER_IMPORT, "statement.pdf", "PDF", 40960L,
+                "FP-TEST-1A9E", 1, 812L, ParseDiagnostics.of(4, Map.of()), session.getId());
+        // A deposit recorded as an expense: one row, out by twice its own amount.
+        var report = new BalanceChainValidator().report(List.of(
+                stagedRow("2026-07-10", "OPENING SPEND", "1000.00", "EXPENSE", "9000.00"),
+                stagedRow("2026-07-11", "SALARY", "25000.00", "EXPENSE", "34000.00"),
+                stagedRow("2026-07-12", "RENT", "5000.00", "EXPENSE", "29000.00"),
+                stagedRow("2026-07-13", "GROCERIES", "1250.00", "EXPENSE", "27750.00")), null);
+        verificationRecorder.recordForAnalysis(reference, List.of(report));
+
+        ImportTraceDto.Trace trace = traceService.byAnalysisReference(reference).orElseThrow();
+
+        ImportTraceDto.Finding finding = trace.verification().get(0);
+        assertThat(finding.rule()).isEqualTo("BALANCE_CHAIN");
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details())
+                .containsEntry("discrepanciesCount", 1)
+                .containsEntry("gapsCancel", false);
+        assertThat(finding.details().get("discrepancyShapes")).isEqualTo(List.of(Map.of(
+                "rowIndex", 1,
+                "sameDayAsPrevious", false,
+                "sameDayAsNext", false,
+                "directionLooksFlipped", true,
+                "balanceDidNotMove", false,
+                "gapMatchesAmountOfRows", List.of())));
+        assertThat(finding.details().toString())
+                .as("the trace is read by operators, not by the statement's owner")
+                .doesNotContain("25000", "34000", "50000", "SALARY", "2026");
+    }
+
+    private static ImportDto.StagedRow stagedRow(String date, String description, String amount,
+                                                  String type, String balanceAfter) {
+        return new ImportDto.StagedRow(java.time.LocalDate.parse(date), description,
+                new java.math.BigDecimal(amount), type, "Other", "default", null, false, null,
+                new java.math.BigDecimal(balanceAfter));
     }
 
     @Test

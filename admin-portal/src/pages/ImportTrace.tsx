@@ -4,6 +4,7 @@ import { Search, Route, Clock, ShieldQuestion, GraduationCap, CheckCircle2, Aler
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminImportTraceApi, adminStatementAnalysisApi } from '../api/endpoints';
+import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import type { ImportTrace, ImportTraceFinding, ImportTraceStage } from '../types';
 
 /**
@@ -107,20 +108,38 @@ function StageRow({ stage }: { stage: ImportTraceStage }) {
   );
 }
 
+/** A histogram (ROW_ACCOUNTING's reason counts) is an object, and `String()` of one is
+ *  "[object Object]". Lists of names keep the comma form they have always had. */
+function detailValue(value: unknown): string {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? JSON.stringify(value)
+    : String(value);
+}
+
 function FindingRow({ finding }: { finding: ImportTraceFinding }) {
   const tone = finding.outcome === 'FAILED' ? 'text-danger'
     : finding.outcome === 'WARNING' ? 'text-warning'
     : finding.outcome === 'VERIFIED' ? 'text-success'
     : 'text-muted';
+  const details = finding.details ?? {};
+  // A balance mismatch is described in sentences by BalanceMismatchList. Whatever it renders is left
+  // out of the flat line, so nothing is said twice and a list of objects never reaches String().
+  const described = balanceMismatchShapes(details).length > 0;
+  const flat = Object.entries(details)
+    .filter(([k]) => k !== 'discrepancyShapes' && !(described && BALANCE_MISMATCH_KEYS.includes(k)))
+    .map(([k, v]) => `${k}=${detailValue(v)}`)
+    .join('  ');
   return (
     <tr className="border-b border-border last:border-0 align-top">
       <td className="py-2 pr-3 text-muted">{finding.sectionIndex}</td>
       <td className="py-2 pr-3 text-ink">{finding.rule}</td>
       <td className={`py-2 pr-3 font-medium ${tone}`}>{finding.outcome}</td>
-      <td className="py-2 text-muted font-mono text-xs break-all">
-        {Object.keys(finding.details ?? {}).length === 0
-          ? '—'
-          : Object.entries(finding.details).map(([k, v]) => `${k}=${String(v)}`).join('  ')}
+      <td className="py-2 text-muted text-xs">
+        <span className="font-mono break-all">{flat === '' ? '—' : flat}</span>
+        <BalanceMismatchList
+          details={details}
+          rowNumbersNote="Row numbers count down the rows as the customer’s review screen lists them, and are the ones in its balance-check table."
+        />
       </td>
     </tr>
   );
@@ -221,7 +240,7 @@ function TraceView({ trace }: { trace: ImportTrace }) {
       <Panel
         icon={<ShieldQuestion size={16} className="text-primary" />}
         title="Verification"
-        hint="Every rule that ran, with what it found. Details are structural facts only — no balances, no cell values."
+        hint="Every rule that ran, with what it found. Details are structural facts only — no balances, no amounts, no dates, no cell values."
         empty={trace.verification.length > 0 ? null
           : 'No verification recorded. That is not the same as every rule passing — it means nothing was written for this import.'}
       >

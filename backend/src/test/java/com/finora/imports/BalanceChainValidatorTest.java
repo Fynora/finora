@@ -7,8 +7,11 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 
 /**
  * The validator's whole purpose is catching parses that every other stage reported as successful,
@@ -266,5 +269,414 @@ class BalanceChainValidatorTest {
 
         // No false discrepancy against the row right after the gap, which is the whole point.
         assertThat(result.discrepancies()).isEmpty();
+    }
+
+    // --- The shape of a discrepancy: what can be said about it without any of its numbers ---
+    //
+    // The count that survives persistence ("2 rows disagreed") could not tell these failures apart,
+    // and telling them apart on a customer's statement meant querying the staged rows by hand. Each
+    // test below is one of the patterns that had to be distinguished, on synthetic rows.
+
+    private Map<String, Object> balanceChainDetails(List<StagedRow> rows, String openingBalance) {
+        var report = validator.report(rows, openingBalance == null ? null : new BigDecimal(openingBalance));
+        return report.findings().get(0).details();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> shapes(Map<String, Object> details) {
+        return (List<Map<String, Object>>) details.get("discrepancyShapes");
+    }
+
+    @Test
+    void aFlippedDirectionIsNamedAsOne() {
+        // The salary recorded as money out: the gap is exactly twice the row's own amount.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "OPENING SPEND", "1000.00", "EXPENSE", "9000.00"),
+                row("2026-07-11", "SALARY", "25000.00", "EXPENSE", "34000.00"),
+                row("2026-07-12", "RENT", "5000.00", "EXPENSE", "29000.00")), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        var shape = shapes(details).get(0);
+        assertThat(shape.get("rowIndex")).isEqualTo(1);
+        assertThat(shape.get("directionLooksFlipped")).isEqualTo(true);
+        assertThat(shape.get("balanceDidNotMove")).isEqualTo(false);
+        assertThat(shape.get("sameDayAsPrevious")).isEqualTo(false);
+        assertThat(shape.get("sameDayAsNext")).isEqualTo(false);
+        assertThat(shape.get("gapMatchesAmountOfRows")).isEqualTo(List.of());
+        assertThat(details.get("gapsCancel"))
+                .as("one discrepancy has nothing to cancel against")
+                .isEqualTo(false);
+    }
+
+    @Test
+    void aFlippedDirectionIsRecognisedTheOtherWayRoundToo() {
+        // Money out recorded as money in. Same pattern, opposite sign -- a check written against
+        // only the first direction would call this one unrecognised.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-11", "RENT", "5000.00", "INCOME", "20000.00"),
+                row("2026-07-12", "APY INSTALLMENT", "82.00", "EXPENSE", "19918.00")), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        assertThat(shapes(details).get(0).get("directionLooksFlipped")).isEqualTo(true);
+    }
+
+    @Test
+    void aSlippedBalanceColumnShowsAsARepeatedBalanceAndACatchUpThatCancelIt() {
+        // The balance column prints one row late through a run of identical same-day debits, then
+        // catches up. Inside the run the slip is invisible -- every row moves the balance by the
+        // same amount -- so exactly two rows disagree: the one that repeats the balance before it,
+        // and the one where the column catches up.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "10000.00", "INCOME", "10000.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9500.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9500.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9000.00"),
+                row("2026-07-16", "ATM FEE", "200.00", "EXPENSE", "8300.00"),
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "8218.00")), null);
+
+        assertThat(shapes(details)).hasSize(2);
+
+        var repeated = shapes(details).get(0);
+        assertThat(repeated.get("rowIndex")).isEqualTo(2);
+        assertThat(repeated.get("balanceDidNotMove")).isEqualTo(true);
+        assertThat(repeated.get("directionLooksFlipped")).isEqualTo(false);
+        assertThat(repeated.get("sameDayAsPrevious")).isEqualTo(true);
+        assertThat(repeated.get("sameDayAsNext")).isEqualTo(true);
+        assertThat(repeated.get("gapMatchesAmountOfRows"))
+                .as("the gap is the amount its identical neighbours share, nearest first")
+                .isEqualTo(List.of(1, 3));
+
+        var catchUp = shapes(details).get(1);
+        assertThat(catchUp.get("rowIndex")).isEqualTo(4);
+        assertThat(catchUp.get("balanceDidNotMove")).isEqualTo(false);
+        assertThat(catchUp.get("directionLooksFlipped")).isEqualTo(false);
+        assertThat(catchUp.get("sameDayAsPrevious")).isEqualTo(true);
+        assertThat(catchUp.get("sameDayAsNext")).isEqualTo(false);
+        assertThat(catchUp.get("gapMatchesAmountOfRows")).isEqualTo(List.of(3, 2, 1));
+
+        assertThat(details.get("gapsCancel"))
+                .as("what one row is over, the other is short: the statement as a whole still adds up")
+                .isEqualTo(true);
+    }
+
+    @Test
+    void aSingleMisreadAmountMatchesNoPattern() {
+        // 436.00 read as 463.00. The gap is no number the rows contain, so nothing can be said
+        // about it beyond where it is -- and saying nothing is the correct description.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-16", "PMSBY PREMIUM", "20.00", "EXPENSE", "24980.00"),
+                row("2026-07-17", "PMJJBY PREMIUM", "463.00", "EXPENSE", "24544.00"),
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "24462.00")), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        var shape = shapes(details).get(0);
+        assertThat(shape.get("rowIndex")).isEqualTo(2);
+        assertThat(shape.get("directionLooksFlipped")).isEqualTo(false);
+        assertThat(shape.get("balanceDidNotMove")).isEqualTo(false);
+        assertThat(shape.get("gapMatchesAmountOfRows")).isEqualTo(List.of());
+        assertThat(details.get("gapsCancel")).isEqualTo(false);
+    }
+
+    @Test
+    void aCleanChainReportsExactlyWhatItAlwaysDid() {
+        // Nothing disagreed, so there is nothing to describe -- and a statement that verifies must
+        // not grow new fields in the response a customer's review screen is built from.
+        var details = balanceChainDetails(correctlyParsedStatement(), "0.00");
+
+        assertThat(details).containsOnlyKeys(
+                "rowsChecked", "rowsWithBalance", "anchoredOnOpeningBalance", "discrepancies");
+        assertThat((List<?>) details.get("discrepancies")).isEmpty();
+    }
+
+    @Test
+    void aStatementTooShortToJudgeDescribesNothing() {
+        // NOT_APPLICABLE drops its discrepancies on purpose (see MIN_PAIRS_FOR_A_VERDICT). A shape
+        // for a discrepancy the verdict refused to report would be the one place it still showed.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "24462.00")), null);
+
+        assertThat(details).doesNotContainKeys("discrepancyShapes", "gapsCancel");
+    }
+
+    @Test
+    void aShapeHoldsOnlyPositionsAndYesNoAnswers() {
+        // The property the whole description rests on, asserted on the values' TYPES rather than on
+        // a list of numbers that must be absent: a description that has no decimal, no date and no
+        // text in it cannot be carrying an amount, a balance, a transaction date or a narration.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "10000.00", "INCOME", "10000.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9500.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9500.00"),
+                row("2026-07-16", "TRANSFER", "500.00", "EXPENSE", "9000.00"),
+                row("2026-07-16", "ATM FEE", "200.00", "EXPENSE", "8300.00")), null);
+
+        assertThat(shapes(details)).isNotEmpty().allSatisfy(shape -> {
+            assertThat(shape).containsOnlyKeys("rowIndex", "sameDayAsPrevious", "sameDayAsNext",
+                    "directionLooksFlipped", "balanceDidNotMove", "gapMatchesAmountOfRows");
+            assertThat(shape.get("rowIndex")).isInstanceOf(Integer.class);
+            assertThat(shape.get("gapMatchesAmountOfRows")).asInstanceOf(LIST)
+                    .allSatisfy(position -> assertThat(position).isInstanceOf(Integer.class));
+            assertThat(shape.entrySet())
+                    .filteredOn(entry -> !entry.getKey().equals("rowIndex")
+                            && !entry.getKey().equals("gapMatchesAmountOfRows"))
+                    .allSatisfy(entry -> assertThat(entry.getValue()).isInstanceOf(Boolean.class));
+        });
+        assertThat(details.get("gapsCancel")).isInstanceOf(Boolean.class);
+        assertThat(shapes(details).toString())
+                .doesNotContain("500").doesNotContain("9500").doesNotContain("8300")
+                .doesNotContain("TRANSFER").doesNotContain("2026");
+    }
+
+    @Test
+    void aRepeatedBalanceIsJudgedAgainstWhatWasPrinted_notAgainstTheCarriedBalance() {
+        // A balance-less row sits between the two printed balances. The chain carries its amount
+        // forward, so the balance it EXPECTS has moved -- but the column printed the same number
+        // twice, and that is what "did not move" is a statement about.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-16", "PMSBY PREMIUM", "20.00", "EXPENSE", "24980.00"),
+                row("2026-07-16", "ATM FEE", "20.00", "EXPENSE", null),
+                row("2026-07-16", "PMJJBY PREMIUM", "436.00", "EXPENSE", "24980.00"),
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "24898.00")), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        assertThat(shapes(details).get(0).get("rowIndex")).isEqualTo(3);
+        assertThat(shapes(details).get(0).get("balanceDidNotMove")).isEqualTo(true);
+    }
+
+    @Test
+    void theFirstRowCanRepeatTheOpeningBalance() {
+        // Anchored, the first row is an ordinary link, so it can fail in this way like any other --
+        // and it has no previous row, which is the index a neighbour lookup gets wrong.
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "PMSBY PREMIUM", "20.00", "EXPENSE", "25000.00"),
+                row("2026-07-16", "PMJJBY PREMIUM", "436.00", "EXPENSE", "24564.00"),
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "24482.00")), "25000.00");
+
+        assertThat(shapes(details)).hasSize(1);
+        var shape = shapes(details).get(0);
+        assertThat(shape.get("rowIndex")).isEqualTo(0);
+        assertThat(shape.get("balanceDidNotMove")).isEqualTo(true);
+        assertThat(shape.get("sameDayAsPrevious")).isEqualTo(false);
+    }
+
+    @Test
+    void theLastRowHasNoNextRowToShareADayWith() {
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-16", "PMSBY PREMIUM", "20.00", "EXPENSE", "24980.00"),
+                row("2026-07-16", "PMJJBY PREMIUM", "463.00", "EXPENSE", "24544.00")), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        var shape = shapes(details).get(0);
+        assertThat(shape.get("rowIndex")).isEqualTo(2);
+        assertThat(shape.get("sameDayAsPrevious")).isEqualTo(true);
+        assertThat(shape.get("sameDayAsNext")).isEqualTo(false);
+    }
+
+    @Test
+    void rowsWithNoDateAreNeverCalledTheSameDay() {
+        // Two missing dates are equal as values and say nothing about the calendar.
+        var undated = new StagedRow(null, "PMJJBY PREMIUM", new BigDecimal("463.00"), "EXPENSE",
+                "Other", "default", null, false, null, new BigDecimal("24544.00"));
+        var alsoUndated = new StagedRow(null, "APY INSTALLMENT", new BigDecimal("82.00"), "EXPENSE",
+                "Other", "default", null, false, null, new BigDecimal("24462.00"));
+        var details = balanceChainDetails(List.of(
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"),
+                row("2026-07-16", "PMSBY PREMIUM", "20.00", "EXPENSE", "24980.00"),
+                undated, alsoUndated), null);
+
+        assertThat(shapes(details)).hasSize(1);
+        assertThat(shapes(details).get(0).get("sameDayAsNext")).isEqualTo(false);
+    }
+
+    @Test
+    void aWholeColumnMisreadIsDescribedForItsFirstRowsOnly_andStillCountedInFull() {
+        // Every debit read as zero: each row disagrees and each looks like the last. Describing all
+        // of them would say nothing the first few did not, in a response and a table row that grow
+        // with the statement.
+        List<StagedRow> rows = new java.util.ArrayList<>();
+        rows.add(row("2026-07-01", "UPI CREDIT", "100000.00", "INCOME", "100000.00"));
+        BigDecimal balance = new BigDecimal("100000.00");
+        for (int i = 1; i <= 30; i++) {
+            balance = balance.subtract(new BigDecimal(i));
+            rows.add(row("2026-07-02", "DEBIT", "0.00", "EXPENSE", balance.toPlainString()));
+        }
+
+        var details = balanceChainDetails(rows, null);
+
+        assertThat((List<?>) details.get("discrepancies")).hasSize(30);
+        assertThat(shapes(details)).hasSize(BalanceChainValidator.MAX_DISCREPANCY_SHAPES);
+        assertThat(shapes(details).get(0).get("rowIndex")).isEqualTo(1);
+    }
+
+    @Test
+    void aGapIsMatchedAgainstItsNearestRowsOnly() {
+        // Eight rows share the gap's amount. Naming all of them would be a list of every equal
+        // amount in the statement; the nearest few are the ones that bear on this row.
+        List<StagedRow> rows = new java.util.ArrayList<>();
+        rows.add(row("2026-07-01", "UPI CREDIT", "10000.00", "INCOME", "10000.00"));
+        BigDecimal balance = new BigDecimal("10000.00");
+        for (int i = 0; i < 4; i++) {
+            balance = balance.subtract(new BigDecimal("500.00"));
+            rows.add(row("2026-07-02", "TRANSFER", "500.00", "EXPENSE", balance.toPlainString()));
+        }
+        // Repeats the balance before it.
+        rows.add(row("2026-07-02", "TRANSFER", "500.00", "EXPENSE", balance.toPlainString()));
+        for (int i = 0; i < 4; i++) {
+            balance = balance.subtract(new BigDecimal("500.00"));
+            rows.add(row("2026-07-02", "TRANSFER", "500.00", "EXPENSE", balance.toPlainString()));
+        }
+
+        var details = balanceChainDetails(rows, null);
+
+        assertThat(shapes(details)).hasSize(1);
+        assertThat(shapes(details).get(0).get("rowIndex")).isEqualTo(5);
+        assertThat(shapes(details).get(0).get("gapMatchesAmountOfRows"))
+                .isEqualTo(List.of(4, 6, 3, 7, 2));
+    }
+
+    // --- Which row a number names ---
+    //
+    // A row number is only worth printing if it is the row a person counts to. These pin the
+    // validator's half of that; BalanceCheckRowNumberTest pins the whole path through both real
+    // generators, which is where the two halves used to disagree.
+
+    /** Newest first, as some exports print: the misread premium is the second row from the top. */
+    private List<StagedRow> newestFirstWithAMisreadSecondRow() {
+        return List.of(
+                row("2026-07-18", "APY INSTALLMENT", "82.00", "EXPENSE", "24462.00"),
+                row("2026-07-16", "PMJJBY PREMIUM", "463.00", "EXPENSE", "24544.00"),
+                row("2026-07-16", "PMSBY PREMIUM", "20.00", "EXPENSE", "24980.00"),
+                row("2026-07-10", "UPI CREDIT", "25000.00", "INCOME", "25000.00"));
+    }
+
+    @Test
+    void aNewestFirstStatementNamesTheRowWhereItWasGiven_notWhereTheWalkMetIt() {
+        // The walk reverses this list, and meets the misread premium third. It was reported as row
+        // index 2 -- the row BELOW the faulty one on any screen showing the list as given.
+        var rows = newestFirstWithAMisreadSecondRow();
+
+        var discrepancies = validator.validate(rows).discrepancies();
+        var details = balanceChainDetails(rows, null);
+
+        assertThat(discrepancies).hasSize(1);
+        assertThat(discrepancies.get(0).rowIndex()).isEqualTo(1);
+        assertThat(rows.get(discrepancies.get(0).rowIndex()).description()).isEqualTo("PMJJBY PREMIUM");
+        assertThat(shapes(details).get(0).get("rowIndex")).isEqualTo(1);
+        // Its neighbours are the rows above and below it as given, not the ones the walk passed.
+        assertThat(shapes(details).get(0).get("sameDayAsPrevious")).isEqualTo(false);
+        assertThat(shapes(details).get(0).get("sameDayAsNext")).isEqualTo(true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<com.finora.dto.ImportDto.RowDiscrepancy> discrepanciesIn(Map<String, Object> details) {
+        return (List<com.finora.dto.ImportDto.RowDiscrepancy>) details.get("discrepancies");
+    }
+
+    @Test
+    void aCallerThatShowsTheRowsInAnotherOrderGetsNumbersForTheOrderItShows() {
+        // The PDF path: the chain is checked along the document's sequence, and the customer is
+        // shown a date-sorted copy. Here the back-dated third row is shown second, which moves the
+        // faulty row from index 1 to index 2 on screen.
+        var documentOrder = List.of(
+                row("2026-07-01", "ROW A", "100.00", "EXPENSE", "9900.00"),
+                row("2026-07-02", "ROW B", "210.00", "EXPENSE", "9700.00"),
+                row("2026-07-01", "ROW H", "300.00", "EXPENSE", "9400.00"),
+                row("2026-07-04", "ROW F", "400.00", "EXPENSE", "9000.00"));
+        // Shown as A, H, B, F.
+        int[] displayedPositionOf = {0, 2, 1, 3};
+
+        var details = validator.report(documentOrder, null, displayedPositionOf).findings().get(0).details();
+
+        assertThat(discrepanciesIn(details)).hasSize(1);
+        assertThat(discrepanciesIn(details).get(0).rowIndex()).isEqualTo(2);
+        var shape = shapes(details).get(0);
+        assertThat(shape.get("rowIndex")).isEqualTo(2);
+        assertThat(shape.get("sameDayAsPrevious"))
+                .as("shown above it is the back-dated row, a day earlier -- not the row the chain met before it")
+                .isEqualTo(false);
+        assertThat(shape.get("sameDayAsNext")).isEqualTo(false);
+    }
+
+    @Test
+    void rowsThatMatchAGapAreNamedByWhereTheyAreShownToo() {
+        // The repeated balance sits at document index 3 and is shown first; the rows sharing its
+        // amount have to be named by the positions an operator will look for them at.
+        var documentOrder = List.of(
+                row("2026-07-02", "CREDIT", "10000.00", "INCOME", "10000.00"),
+                row("2026-07-02", "TRANSFER", "500.00", "EXPENSE", "9500.00"),
+                row("2026-07-02", "TRANSFER", "500.00", "EXPENSE", "9000.00"),
+                row("2026-07-01", "TRANSFER", "500.00", "EXPENSE", "9000.00"),
+                row("2026-07-03", "FEE", "200.00", "EXPENSE", "8800.00"));
+        // Shown date-sorted: the back-dated fourth row first, then the rest in document order.
+        int[] displayedPositionOf = {1, 2, 3, 0, 4};
+
+        var details = validator.report(documentOrder, null, displayedPositionOf).findings().get(0).details();
+
+        assertThat(shapes(details)).hasSize(1);
+        assertThat(shapes(details).get(0).get("rowIndex")).isEqualTo(0);
+        assertThat(shapes(details).get(0).get("balanceDidNotMove")).isEqualTo(true);
+        assertThat(shapes(details).get(0).get("gapMatchesAmountOfRows"))
+                .as("the two other transfers, at the positions they are shown in, nearest first")
+                .isEqualTo(List.of(2, 3));
+    }
+
+    @Test
+    void discrepanciesAreListedDownThePage_whicheverWayTheStatementRan() {
+        // Two faults on a newest-first statement. The walk meets the lower one first; a reader
+        // meets the upper one first, and "the first 20 of 87" has to mean the first 20 they see.
+        var rows = List.of(
+                row("2026-07-20", "ROW F", "600.00", "EXPENSE", "7900.00"),
+                row("2026-07-19", "ROW E", "510.00", "EXPENSE", "8500.00"),
+                row("2026-07-18", "ROW D", "400.00", "EXPENSE", "9000.00"),
+                row("2026-07-17", "ROW C", "300.00", "EXPENSE", "9400.00"),
+                row("2026-07-16", "ROW B", "210.00", "EXPENSE", "9700.00"),
+                row("2026-07-15", "ROW A", "100.00", "EXPENSE", "9900.00"),
+                row("2026-07-14", "OPENING", "10000.00", "INCOME", "10000.00"));
+
+        var details = balanceChainDetails(rows, null);
+
+        assertThat(discrepanciesIn(details)).extracting(com.finora.dto.ImportDto.RowDiscrepancy::rowIndex)
+                .containsExactly(1, 4);
+        assertThat(shapes(details)).extracting(shape -> shape.get("rowIndex")).containsExactly(1, 4);
+    }
+
+    @Test
+    void aMappingThatIsNotARearrangementOfTheRowsIsRefused() {
+        // Every one of these would still yield a number for each discrepancy -- a confident one,
+        // pointing at the wrong row or at no row. That is the defect, so it is not guessed around.
+        var rows = correctlyParsedStatement();
+
+        assertThatThrownBy(() -> validator.report(rows, null, new int[] {0, 1, 2}))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.report(rows, null, new int[] {0, 1, 1, 3}))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.report(rows, null, new int[] {0, 1, 2, 4}))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> validator.report(rows, null, new int[] {-1, 1, 2, 3}))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aMappingIsCheckedEvenWhenNothingDisagreed() {
+        // A wrong mapping that only failed on the statement with a discrepancy would be found by a
+        // customer. This statement verifies, and the bad mapping is still refused.
+        assertThatThrownBy(() -> validator.report(correctlyParsedStatement(), new BigDecimal("0.00"),
+                new int[] {0, 0, 0, 0}))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void theSameOrderShownAsCheckedNeedsNoMapping() {
+        var withIdentity = validator.report(correctlyParsedStatement(), null, new int[] {0, 1, 2, 3});
+        var without = validator.report(correctlyParsedStatement(), null);
+
+        assertThat(withIdentity).isEqualTo(without);
+        assertThat(validator.report(List.of(), null, null).findings().get(0).outcome()).isEqualTo("NOT_APPLICABLE");
+        assertThat(validator.report(null, null, null).findings().get(0).outcome()).isEqualTo("NOT_APPLICABLE");
     }
 }

@@ -104,7 +104,8 @@ public final class ImportTraceDto {
     /**
      * One verification rule's outcome.
      *
-     * @param details structural facts only — counts, booleans and bounded enum constants. Balances,
+     * @param details structural facts only — counts, booleans, bounded enum constants and, for a
+     *                balance-chain mismatch, the positions of the rows that disagreed. Balances,
      *                totals and raw cell values are absent by construction; see
      *                {@code ImportVerificationRecorder}.
      */

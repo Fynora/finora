@@ -6,6 +6,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminHeldStatementApi } from '../api/endpoints';
+import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldStatementFinding, HeldStatementRerunResult, HeldStatementStagedRows } from '../types';
 
@@ -30,7 +31,12 @@ function formatDetailValue(value: unknown): string {
  *  summarising them. `details` is an arbitrary allowlisted map from the backend, so this renders
  *  whatever keys are actually present rather than assuming a fixed shape. */
 function FindingCard({ finding }: { finding: HeldStatementFinding }) {
-  const entries = Object.entries(finding.details);
+  // A balance mismatch's rows are described in sentences below the pairs, by the same component
+  // Import Trace uses, rather than printed here as a line of JSON. Left in the pairs only when
+  // there is nothing readable in them, so a shape this version cannot describe is still visible.
+  const described = balanceMismatchShapes(finding.details).length > 0;
+  const entries = Object.entries(finding.details)
+    .filter(([key]) => !(described && BALANCE_MISMATCH_KEYS.includes(key)));
   return (
     <div className="rounded-lg border border-border bg-bg p-3">
       <div className="flex items-center justify-between">
@@ -47,6 +53,10 @@ function FindingCard({ finding }: { finding: HeldStatementFinding }) {
           ))}
         </dl>
       )}
+      <BalanceMismatchList
+        details={finding.details}
+        rowNumbersNote={`Row numbers are the # column of section ${finding.sectionIndex + 1}’s staged rows on this page.`}
+      />
     </div>
   );
 }
@@ -72,6 +82,9 @@ function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-muted">
+                  {/* The number a balance-mismatch finding names a row by, so "Row 13" above can
+                      be found without counting. */}
+                  <th className="py-1 pr-3 font-normal text-right">#</th>
                   <th className="py-1 pr-3 font-normal">Date</th>
                   <th className="py-1 pr-3 font-normal">Description</th>
                   <th className="py-1 pr-3 font-normal text-right">Amount</th>
@@ -82,6 +95,7 @@ function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
               <tbody>
                 {section.rows.map((row, rowIndex) => (
                   <tr key={rowIndex} className="border-t border-border">
+                    <td className="py-1 pr-3 font-mono text-right text-muted">{rowIndex + 1}</td>
                     <td className="py-1 pr-3 font-mono whitespace-nowrap">{row.date ?? '—'}</td>
                     <td className="py-1 pr-3 text-ink">{row.description ?? '—'}</td>
                     <td className="py-1 pr-3 font-mono text-right">{row.amount ?? '—'}</td>

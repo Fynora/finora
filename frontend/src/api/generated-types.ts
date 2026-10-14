@@ -11214,10 +11214,10 @@ export interface components {
             heldId?: string;
             sections?: components["schemas"]["HeldSection"][];
         };
-        ApiResponseResponse: {
+        ApiResponseBlankedCopyResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["Response"];
+            data?: components["schemas"]["BlankedCopyResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -11226,7 +11226,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        Difference: {
+        BlankedCopyDifference: {
             /** Format: int32 */
             section?: number;
             /** Format: int32 */
@@ -11234,12 +11234,12 @@ export interface components {
             field?: string;
             maskedTokens?: string[];
         };
-        Response: {
+        BlankedCopyResponse: {
             fileName?: string;
             trace?: string;
             check?: string;
             notCheckedReason?: string;
-            differences?: components["schemas"]["Difference"][];
+            differences?: components["schemas"]["BlankedCopyDifference"][];
         };
         ApiResponsePagedResponseHoldWithoutReviewRecordDto: {
             success?: boolean;
@@ -11518,10 +11518,10 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        ApiResponseSwitchStatus: {
+        ApiResponseBlankedCopySwitchStatus: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["SwitchStatus"];
+            data?: components["schemas"]["BlankedCopySwitchStatus"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -11530,7 +11530,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        SwitchStatus: {
+        BlankedCopySwitchStatus: {
             enabled?: boolean;
         };
         ApiResponsePagedResponseBankDto: {
@@ -20382,7 +20382,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseResponse"];
+                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
                 };
             };
         };
@@ -20514,7 +20514,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseResponse"];
+                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
                 };
             };
         };
@@ -20699,7 +20699,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSwitchStatus"];
+                    "*/*": components["schemas"]["ApiResponseBlankedCopySwitchStatus"];
                 };
             };
         };

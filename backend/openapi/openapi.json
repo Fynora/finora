@@ -11939,7 +11939,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseResponse"
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
                                 }
                             }
                         }
@@ -12137,7 +12137,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseResponse"
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
                                 }
                             }
                         }
@@ -12373,7 +12373,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSwitchStatus"
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopySwitchStatus"
                                 }
                             }
                         }
@@ -27098,7 +27098,7 @@
                     }
                 }
             },
-            "ApiResponseResponse": {
+            "ApiResponseBlankedCopyResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -27108,7 +27108,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/Response"
+                        "$ref": "#/components/schemas/BlankedCopyResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -27126,7 +27126,7 @@
                     }
                 }
             },
-            "Difference": {
+            "BlankedCopyDifference": {
                 "type": "object",
                 "properties": {
                     "section": {
@@ -27148,7 +27148,7 @@
                     }
                 }
             },
-            "Response": {
+            "BlankedCopyResponse": {
                 "type": "object",
                 "properties": {
                     "fileName": {
@@ -27166,7 +27166,7 @@
                     "differences": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Difference"
+                            "$ref": "#/components/schemas/BlankedCopyDifference"
                         }
                     }
                 }
@@ -27852,7 +27852,7 @@
                     }
                 }
             },
-            "ApiResponseSwitchStatus": {
+            "ApiResponseBlankedCopySwitchStatus": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -27862,7 +27862,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/SwitchStatus"
+                        "$ref": "#/components/schemas/BlankedCopySwitchStatus"
                     },
                     "timestamp": {
                         "type": "string",
@@ -27880,7 +27880,7 @@
                     }
                 }
             },
-            "SwitchStatus": {
+            "BlankedCopySwitchStatus": {
                 "type": "object",
                 "properties": {
                     "enabled": {

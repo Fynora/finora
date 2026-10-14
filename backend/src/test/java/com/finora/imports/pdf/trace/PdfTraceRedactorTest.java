@@ -195,43 +195,45 @@ class PdfTraceRedactorTest {
     }
 
     /**
-     * A run redaction changed loses its width, whatever it was measured at.
+     * A run redaction changed keeps its width rounded to a whole point (redactor version 5).
      *
-     * <p>For digits this leaks nothing anyway (digit glyphs are uniform-width in every text font), but
-     * for letters a width constrains the multiset of masked characters. The pipeline does read
-     * these widths (see {@code PdfTraceRedactor#redact}: dropping them changes some readings); the
-     * disclosure is declined anyway.
+     * <p>Reading uses these widths: zeroing them changed the reading of 14 real statements (a card's
+     * summary labels, the page-shows-a-space evidence, right-aligned amounts). Rounded, the width
+     * still places the run's right edge to within half a point, while it says much less about which
+     * letters were masked than the measured value would (letters differ in width by fractions of a
+     * point).
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "JANE EXAMPLE     | 61.34",   // a name
-            "50100999999999   | 77.84",   // an account number
-            "HDFC0001234      | 58.71",   // synthetic-ok invented IFSC -- prefix kept, branch code masked, so it CHANGED
-            "Zorbulax         | 44.02",   // an unrecognised word
-            "Flat No 404, Sample Gardens | 118.90",
+            "JANE EXAMPLE     | 61.34 | 61",   // a name
+            "50100999999999   | 77.84 | 78",   // an account number
+            "HDFC0001234      | 58.71 | 59",   // synthetic-ok invented IFSC -- prefix kept, branch code masked, so it CHANGED
+            "Zorbulax         | 44.50 | 45",   // an unrecognised word; half a point rounds up
+            "Flat No 404, Sample Gardens | 118.49 | 118",
+            "Zorbulax         | 0     | 0",    // a run measured with no width keeps none
     })
-    void aMaskedRunLosesItsWidth(String text, float width) {
+    void aMaskedRunKeepsItsWidthRoundedToAWholePoint(String text, float width, float rounded) {
         List<PositionedText> redacted = PdfTraceRedactor.redact(
                 List.of(new PositionedText(text.trim(), 300f, 100f, 0, width)));
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).as("this input must have been changed by redaction")
                     .isNotEqualTo(text.trim());
-            assertThat(run.width()).isZero();
-            assertThat(run.endX()).isEqualTo(run.x());
+            assertThat(run.width()).isEqualTo(rounded);
+            assertThat(run.endX()).isEqualTo(300f + rounded);
         });
     }
 
-    /** A partially masked run is a masked run: one hidden character is enough to drop the width,
-     *  because the width describes the original glyphs and would no longer match the text beside it. */
+    /** A partially masked run is a masked run: one hidden character is enough for its width to be
+     *  rounded, because the width describes the original glyphs, not the text beside it. */
     @Test
-    void aRunWithOneMaskedTokenAmongStructuralOnesLosesItsWidth() {
+    void aRunWithOneMaskedTokenAmongStructuralOnesHasItsWidthRounded() {
         List<PositionedText> redacted = PdfTraceRedactor.redact(List.of(
-                new PositionedText("UPI-JANE EXAMPLE-PAYMENT FROM PHONE", 50f, 100f, 0, 180.5f)));
+                new PositionedText("UPI-JANE EXAMPLE-PAYMENT FROM PHONE", 50f, 100f, 0, 180.3f)));
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).isEqualTo("UPI-XXXX XXXXXXX-PAYMENT FROM PHONE");
-            assertThat(run.width()).isZero();
+            assertThat(run.width()).isEqualTo(180f);
         });
     }
 
@@ -263,7 +265,7 @@ class PdfTraceRedactorTest {
 
         assertThat(redacted).singleElement().satisfies(run -> {
             assertThat(run.text()).isEqualTo("XXXX X XXXXX");
-            assertThat(run.width()).isZero();
+            assertThat(run.width()).isEqualTo(90f);
         });
     }
 

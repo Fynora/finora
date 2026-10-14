@@ -125,13 +125,13 @@ class TraceWidthFidelityTest {
         assertThat(TraceMetadata.hasNoWidths(PdfTrace.parse(stampedV3ButBlind))).isTrue();
     }
 
-    /** The condition is ALL widths zero, not ANY. Under the redactor's unmasked-only rule a healthy
-     *  trace legitimately carries width 0 on every masked run, so "any zero" would condemn every
-     *  correctly captured trace in the corpus. */
+    /** The condition is ALL widths zero, not ANY. Under the redactor's unmasked-only rule (redactor
+     *  version 4 and earlier) a healthy trace legitimately carries width 0 on every masked run, so
+     *  "any zero" would condemn every correctly captured trace in the corpus. */
     @Test
     void aTraceWithSomeRealWidthsHasWidths() {
         String mixed = PdfTrace.format(List.of(
-                new PositionedText("XXXX XXXXXXX", 50f, 700f, 0),          // masked -> 0 by design
+                new PositionedText("XXXX XXXXXXX", 50f, 700f, 0),          // masked, captured before v5 -> 0
                 new PositionedText("24,462.00", 300f, 700f, 0, 41.02f)),   // unmasked -> real width
                 META);
 

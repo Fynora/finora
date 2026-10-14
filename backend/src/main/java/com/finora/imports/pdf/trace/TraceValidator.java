@@ -133,8 +133,9 @@ public final class TraceValidator {
                     ? "The format itself has no width column at trace v" + metadata.traceVersion()
                             + ". Recapture at trace v" + TraceMetadata.CURRENT_TRACE_VERSION + " to fix."
                     : "The format carries a width column and every value in it is 0.00, so the widths "
-                            + "were dropped during capture rather than absent by format. Recapturing "
-                            + "will not help until the redactor preserves them.";
+                            + "were dropped during capture rather than absent by format. A recapture "
+                            + "under redactor v5 or later keeps them (a masked run's rounded to a "
+                            + "whole point).";
             findings.add(new Finding(Finding.Severity.REVIEW, "widths",
                     "rows carry no width, so every run has endX == x. Any capability guarded on a "
                             + "measured width -- RIGHT_ALIGNED_AMOUNTS, and the column bucketing it "

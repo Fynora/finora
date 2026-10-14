@@ -58,7 +58,8 @@ public final class PdfTraceRedactor {
     // a currency prefix or a glued Cr/Dr, glued day-month dates, apostrophe-year dates,
     // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers. (The
     // reader's own label words were added to the allowlist at the same time; the allowlist
-    // fingerprint tracks that on its own.)
+    // fingerprint tracks that on its own.) A changed run keeps its width rounded to a whole point
+    // instead of losing it.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -257,9 +258,9 @@ public final class PdfTraceRedactor {
      * rendering artifact of the rupee glyph, not a word this class's word-level allowlist could
      * ever recognize on its own -- {@link #STRUCTURAL_WORDS} above is deliberately word-shaped.
      *
-     * <p><b>Why masking it broke a whole column, not just cosmetics.</b> {@link #redact} zeroes the
-     * WIDTH of any run whose redacted text differs from the original at all (see that method's own
-     * doc comment) -- correct for a run that is genuinely hidden, but this run is 5/6ths real text
+     * <p><b>Why masking it broke a whole column, not just cosmetics.</b> Up to redactor version 4,
+     * {@link #redact} zeroed the WIDTH of any run whose redacted text differed from the original at
+     * all (it now rounds it; see that method's own doc comment) -- but this run is 5/6ths real text
      * ("(Rs.)") and one masked letter, and the whole run's width -- this header cell's own trailing
      * edge -- paid for that one letter. {@code PdfTableLocator}'s RIGHT_ALIGNED_AMOUNTS correction
      * -- the mechanism that reassigns a right-aligned numeric value from its naive nearest-header
@@ -290,7 +291,7 @@ public final class PdfTraceRedactor {
 
     /**
      * Redacts every run, preserving the measured width of runs redaction left byte-identical and
-     * dropping it (to 0) for every run it changed.
+     * rounding it to a whole point for every run it changed.
      *
      * <p>The discriminator is exact rather than heuristic: redaction is purely character-substituting
      * ({@link #mask}, which preserves length and every non-alphanumeric character), so
@@ -302,21 +303,17 @@ public final class PdfTraceRedactor {
      * corpus was structurally blind to the exact class of defect it exists to catch — a short
      * right-aligned amount bucketing into the wrong column.
      *
-     * <p><b>Why only for unmasked runs.</b> An unmasked run's width is a deterministic function of
-     * text this same file already publishes verbatim, so it discloses nothing new. A masked run's
-     * width would be a real-valued observation about hidden characters — for alphabetic tokens it
-     * constrains the letter multiset (~5–6 bits) — so it is dropped. It also keeps the artefact
-     * internally consistent: a width in a trace is always the true width of the text printed next
-     * to it.
-     *
-     * <p><b>Dropping it does change readings.</b> This comment used to say nothing in the pipeline
-     * reads a masked run's width. That is false: reading real statements with only these widths
-     * zeroed (text otherwise unchanged) changed the result on 14 files of the corpus. Traced
-     * readers: the page-shows-a-space evidence built from run ends; on some files the copy also
-     * lost the right-aligned amount and column-span corrections; on card statements the effect is
-     * consistent with the summary extractor's label geometry, not traced to the line. A blanked
-     * copy's check can therefore come back DIFFERS because of this rule alone. The width stays
-     * dropped as a privacy choice, not because it is unread.
+     * <p><b>Why a changed run's width is rounded.</b> An unmasked run's width is a deterministic
+     * function of text this same file already publishes verbatim, so it discloses nothing new and is
+     * kept exactly. A masked run's exact width is a real-valued observation about hidden characters
+     * — for alphabetic tokens it constrains the letter multiset — so up to redactor version 4 it was
+     * dropped to 0. That changed readings: reading real statements with only those widths zeroed
+     * (text otherwise unchanged) changed the result on 14 files of the corpus, through the
+     * page-shows-a-space evidence built from run ends, the right-aligned amount and column-span
+     * corrections, and on card statements the summary extractor's label geometry. From version 5
+     * the width is kept rounded to a whole point: the run's right edge stays within half a point of
+     * where it was printed, which is what those readers need, while letters, which differ in width
+     * by fractions of a point, are far less constrained than by the measured value.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();
@@ -324,9 +321,8 @@ public final class PdfTraceRedactor {
         for (PositionedText run : runs) {
             String redacted = redactText(run.text(), vocabulary);
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
-            out.add(unmasked
-                    ? new PositionedText(redacted, run.x(), run.y(), run.pageIndex(), run.width())
-                    : new PositionedText(redacted, run.x(), run.y(), run.pageIndex()));
+            out.add(new PositionedText(redacted, run.x(), run.y(), run.pageIndex(),
+                    unmasked ? run.width() : Math.round(run.width())));
         }
         return out;
     }

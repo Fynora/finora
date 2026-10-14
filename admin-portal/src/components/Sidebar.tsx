@@ -118,7 +118,10 @@ function linkIsActive(pathname: string, link: { to: string; end: boolean }): boo
   return link.end ? pathname === link.to : pathname === link.to || pathname.startsWith(`${link.to}/`);
 }
 
-export function Sidebar() {
+/** `onNavigate` lets the phone-width drawer (AdminLayout's NavDrawer) close itself when a link is
+ *  followed -- including the current page's own link, which changes no route and so would not
+ *  unmount the drawer on its own. */
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { fullName, permissions, logout } = useAdminAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -184,6 +187,7 @@ export function Sidebar() {
         <NavLink
           to={DASHBOARD_LINK.to}
           end={DASHBOARD_LINK.end}
+          onClick={onNavigate}
           className={({ isActive }) =>
             `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               isActive ? 'bg-primary text-on-primary' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'
@@ -216,6 +220,7 @@ export function Sidebar() {
                       key={to}
                       to={to}
                       end={end}
+                      onClick={onNavigate}
                       className={({ isActive }) =>
                         `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                           isActive ? 'bg-primary text-on-primary' : 'text-gray-400 hover:bg-sidebar-hover hover:text-gray-200'

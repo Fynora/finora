@@ -229,25 +229,29 @@ export default function LayoutIntelligence() {
         )}
         {canDiagnose && evidenceQ.data && <EvidencePanel report={evidenceQ.data} />}
 
-        <div className="flex gap-1 mb-3 border-b border-border">
-          {([
-            ['review', `Needs review${reviewQ.data ? ` (${reviewQ.data.length})` : ''}`, Flag, true],
-            ['layouts', 'All layouts', Columns3, canDiagnose],
-            ['drifting', 'Drifting', AlertTriangle, canDiagnose],
-            ['headers', 'Unknown headers', ScrollText, canDiagnose],
-            ['profiles', 'Profiles', Layers, true],
-          ] as const).filter(([, , , visible]) => visible).map(([key, label, Icon]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px ${
-                tab === key ? 'border-primary text-primary font-medium' : 'border-transparent text-muted'
-              }`}
-            >
-              <Icon size={14} /> {label}
-            </button>
-          ))}
+        {/* Five tabs are wider than a phone: the row scrolls in its own box instead of widening
+            the page. w-max keeps each tab on one line; min-w-full keeps the underline full width. */}
+        <div className="overflow-x-auto mb-3">
+          <div className="flex gap-1 border-b border-border w-max min-w-full">
+            {([
+              ['review', `Needs review${reviewQ.data ? ` (${reviewQ.data.length})` : ''}`, Flag, true],
+              ['layouts', 'All layouts', Columns3, canDiagnose],
+              ['drifting', 'Drifting', AlertTriangle, canDiagnose],
+              ['headers', 'Unknown headers', ScrollText, canDiagnose],
+              ['profiles', 'Profiles', Layers, true],
+            ] as const).filter(([, , , visible]) => visible).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px ${
+                  tab === key ? 'border-primary text-primary font-medium' : 'border-transparent text-muted'
+                }`}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {tab === 'drifting' && (

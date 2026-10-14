@@ -43,7 +43,8 @@ class HeldItemAdminAlertServiceTest {
         when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "msg-1"));
 
         service = new HeldItemAdminAlertService(userRepository, importJobRepository,
-                heldStatementRepository, emailProvider, emailProperties);
+                heldStatementRepository, emailProvider, emailProperties,
+                mock(com.finora.imports.original.StatementOriginalViewRepository.class));
     }
 
     private User adminUser(String email) {

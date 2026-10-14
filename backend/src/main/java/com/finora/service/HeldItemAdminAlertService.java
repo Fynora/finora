@@ -4,6 +4,8 @@ import com.finora.config.EmailProperties;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportJob;
 import com.finora.entity.User;
+import com.finora.imports.original.StatementOriginalView;
+import com.finora.imports.original.StatementOriginalViewRepository;
 import com.finora.repository.HeldStatementRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.UserRepository;
@@ -52,15 +54,18 @@ public class HeldItemAdminAlertService {
     private final HeldStatementRepository heldStatementRepository;
     private final EmailProvider emailProvider;
     private final EmailProperties emailProperties;
+    private final StatementOriginalViewRepository originalViewRepository;
 
     public HeldItemAdminAlertService(UserRepository userRepository, ImportJobRepository importJobRepository,
                                       HeldStatementRepository heldStatementRepository, EmailProvider emailProvider,
-                                      EmailProperties emailProperties) {
+                                      EmailProperties emailProperties,
+                                      StatementOriginalViewRepository originalViewRepository) {
         this.userRepository = userRepository;
         this.importJobRepository = importJobRepository;
         this.heldStatementRepository = heldStatementRepository;
         this.emailProvider = emailProvider;
         this.emailProperties = emailProperties;
+        this.originalViewRepository = originalViewRepository;
     }
 
     /**
@@ -180,6 +185,53 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * An Admin or Super Admin opened a held statement's real pages (project 2 of
+     * {@code docs/superpowers/specs/2026-10-14-fixing-statements-without-the-real-statement-design.md}).
+     * Every active Super Admin is told, whoever holds the queue permission: the point is that
+     * opening a customer's statement is seen by the people who answer for it. The email names who
+     * opened it (their email), when, which item and the typed reason -- never the customer, the
+     * file name or anything from the statement. Every value is escaped; the reason is typed by staff.
+     *
+     * <p>Re-reads the view by id, as the other alerts re-read their item, so it is safe to call
+     * after the opening's transaction has committed. An import hold links to the held-imports queue
+     * (the portal has no page per held import) and names the job; a trust hold links to its own page.
+     */
+    public void alertOriginalOpened(UUID viewId) {
+        Optional<StatementOriginalView> found = originalViewRepository.findById(viewId);
+        if (found.isEmpty()) {
+            log.warn("Could not send an original-view alert for view {}: it no longer exists", viewId);
+            return;
+        }
+        StatementOriginalView view = found.get();
+        String openedBy = userRepository.findById(view.getViewerId()).map(User::getEmail).orElse("unknown");
+        boolean trust = "TRUST".equals(view.getQueue());
+        String itemLine = trust
+                ? "<li><strong>Held ID:</strong> " + escape(view.getItemRef()) + "</li>"
+                : "<li><strong>Job ID:</strong> " + escape(view.getItemRef()) + "</li>";
+        String link = trust
+                ? "<a href=\"" + adminBaseUrl() + "/held-statements/" + escape(view.getItemRef())
+                        + "\">Open this held statement</a>"
+                : "<a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a>";
+        String subject = "A held statement was opened — " + view.getItemRef();
+        String html = "<p>An administrator opened the real pages of a statement held for review.</p>"
+                + "<ul>"
+                + "<li><strong>Opened by:</strong> " + escape(openedBy) + "</li>"
+                + "<li><strong>When:</strong> " + escape(formatTimestamp(view.getOpenedAt())) + "</li>"
+                + itemLine
+                + "<li><strong>Pages:</strong> " + escape("PDF".equals(view.getFormat())
+                        ? String.valueOf(view.getPageCount()) : "CSV file") + "</li>"
+                + "<li><strong>Reason:</strong> " + escape(view.getReason()) + "</li>"
+                + "</ul>"
+                + "<p>" + link + "</p>";
+        List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);
+        if (superAdmins.isEmpty()) {
+            log.warn("No active Super Admin -- no original-view alert sent for view {}", viewId);
+            return;
+        }
+        send(superAdmins, subject, html);
+    }
+
+    /**
      * Deliberately reads {@code getAdminAppBaseUrl()} directly rather than going through {@link
      * EmailProperties#resolveBaseUrl}, even though that method already has a null-fallback: its
      * fallback is the USER-facing frontend's URL, chosen for password-reset links where a request
@@ -214,6 +266,11 @@ public class HeldItemAdminAlertService {
             log.warn("No admin holds {} -- no held-item alert sent for \"{}\"", permissionName, subject);
             return;
         }
+        send(recipients, subject, html);
+    }
+
+    /** One email each, so one failing address cannot stop the rest; addresses are masked in logs. */
+    private void send(List<User> recipients, String subject, String html) {
         for (User recipient : recipients) {
             try {
                 EmailResult result = emailProvider.send(EmailMessage.html(recipient.getEmail(), subject, html));

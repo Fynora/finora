@@ -35,6 +35,11 @@ public enum NotificationType {
     // statements are waiting ({{waiting}} carries the count). Template rows in V269. Keyed
     // "IMPORT_CONFIRM_REMINDER_" + user id + the earliest reminded expiry.
     IMPORT_STATEMENT_CONFIRM_REMINDER,
+    // Sent when an Admin or Super Admin opens the real pages of a statement held for review -- see
+    // OriginalViewNotices. Tells the customer the date and that it was to fix a reading problem,
+    // never who. Fixed copy, templates seeded in V272. Keyed "IMPORT_OPENED_FOR_FIX_" + job id +
+    // the India date, so a second opening the same day sends nothing new.
+    IMPORT_STATEMENT_OPENED_FOR_FIX,
     // Referral milestone rewards (design spec at docs/superpowers/specs/
     // 2026-09-14-referral-milestone-rewards-design.md). Template rows for all three, per channel,
     // were seeded in V207 alongside this addition -- see this enum's own class comment on why

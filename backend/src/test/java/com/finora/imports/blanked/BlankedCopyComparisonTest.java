@@ -258,15 +258,34 @@ class BlankedCopyComparisonTest {
     }
 
     /**
-     * KNOWN LIMIT, pinned so it cannot change unnoticed: a token holding a digit that the copy
-     * masked whole matches whatever same-shape token the real description has there. Here the copy
-     * hides an amount the real description shows; the check cannot tell whether the copy read the
-     * same amount or a different one of the same shape.
+     * KNOWN LIMIT, pinned so it cannot change unnoticed: a token of digits and punctuation only that
+     * the copy masked whole matches whatever same-shape token the real description has there. Here
+     * the copy hides an amount the real description shows; the check cannot tell whether the copy
+     * read the same amount or a different one of the same shape.
      */
     @Test
     void knownLimitAFullyMaskedDigitTokenMatchesAnySameShapeRealToken() {
         assertThat(descriptionOutcome("PAID 1,234.00", "PAID 9,999.99")).isNull();
         assertThat(descriptionOutcome("PAID 5,678.00", "PAID 9,999.99")).isNull();
+    }
+
+    /** The whole-token mask applies only to a token of digits and punctuation, or a month name: a
+     *  token that also holds letters, glued by punctuation to its digits, is not masked whole. */
+    @Test
+    void aTokenMixingLettersAndDigitsIsNotMaskedWhole() {
+        assertThat(PdfTraceRedactor.redactLine("UPI/1234/PAID")).isNotEqualTo("XXX/9999/XXXX");
+        assertThat(PdfTraceRedactor.redactLine("PAID-1,234.00")).isNotEqualTo("XXXX-9,999.99");
+        assertThat(descriptionOutcome("UPI/1234/PAID", "XXX/9999/XXXX")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("PAID-1,234.00", "XXXX-9,999.99")).isEqualTo(Field.DESCRIPTION);
+    }
+
+    /** The real text kept verbatim in the copy counts only for a token holding a digit (the
+     *  measured artifact is digit runs). A word the joined line masked, held in clear in the copy,
+     *  is not the same description. */
+    @Test
+    void aMaskedWordHeldInClearInTheCopyDiffers() {
+        assertThat(PdfTraceRedactor.redactLine("UPI Asha")).isEqualTo("UPI Xxxx");
+        assertThat(descriptionOutcome("UPI Asha", "UPI Asha")).isEqualTo(Field.DESCRIPTION);
     }
 
     /**

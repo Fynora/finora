@@ -100,20 +100,23 @@ public final class BlankedCopyComparison {
      * <ul>
      *   <li>the whitespace between tokens must be identical, and the token counts equal;</li>
      *   <li>each copy token must be ONE of: (a) the joined line's masking of that token; (b) the
-     *       real token itself, only where the joined line masked it -- the copy kept the run's text
-     *       verbatim, so it is the same text (two kept amounts printed with no space between form a
-     *       long digit run only when joined); (c) the whole token masked character by character
-     *       ({@link PdfTraceRedactor#maskOf}), only where the real token holds a digit or is a month
-     *       name -- a date split across a line break is kept joined and masked in pieces.</li>
+     *       real token itself, only where the joined line masked it AND the token holds a digit --
+     *       the copy kept the run's text verbatim (two kept amounts printed with no space between
+     *       form a long digit run only when joined; that digit-run artifact is the one measured, so a
+     *       letters-only word held in clear does not count); (c) the whole token masked character by
+     *       character ({@link PdfTraceRedactor#maskOf}), only where the real token is digits and
+     *       punctuation with no letter or mark, or is exactly a month name -- a date split across a
+     *       line break is kept joined and masked in pieces. A token mixing letters and digits (such
+     *       as "UPI/1234/PAID" or "PAID-1,234.00") is never masked whole.</li>
      * </ul>
      *
      * <p>Guaranteed: a missing, extra or reordered line, or a word grouped into another row, moves a
      * token or a space and differs; a word the joined line keeps can never be masked in the copy
      * unless it holds a digit or names a month; no token may be partly kept and partly masked.
      *
-     * <p>Not guaranteed (known limits, pinned by tests): under (c), a token holding a digit that the
-     * copy masked whole matches any same-shape real token at that position, so a different amount
-     * of the same shape there is not seen. And a token glued from a run the copy kept and a run it
+     * <p>Not guaranteed (known limits, pinned by tests): under (c), a token of digits and
+     * punctuation that the copy masked whole matches any same-shape real token at that position, so
+     * a different amount or date of the same shape there is not seen. And a token glued from a run the copy kept and a run it
      * masked is reported as a difference although it was read the same way.
      */
     static boolean sameDescription(String real, String copy) {
@@ -139,8 +142,9 @@ public final class BlankedCopyComparison {
             }
             String joinedToken = j.get(i);
             if (copyPart.equals(joinedToken)) continue;                                 // (a)
-            if (!joinedToken.equals(realPart) && copyPart.equals(realPart)) continue;  // (b)
-            if ((hasDigit(realPart) || isMonthName(realPart)) && copyPart.equals(maskWhole(realPart))) continue; // (c)
+            if (!joinedToken.equals(realPart) && hasDigit(realPart) && copyPart.equals(realPart)) continue; // (b)
+            if ((isDigitsAndPunctuation(realPart) || isMonthName(realPart))
+                    && copyPart.equals(maskWhole(realPart))) continue;                  // (c)
             return false;
         }
         return true;
@@ -165,6 +169,14 @@ public final class BlankedCopyComparison {
 
     private static boolean hasDigit(String token) {
         return token.codePoints().anyMatch(Character::isDigit);
+    }
+
+    /** A digit, and nothing that is a letter or a mark: a number, a date, an amount. */
+    private static boolean isDigitsAndPunctuation(String token) {
+        return hasDigit(token) && token.codePoints().noneMatch(cp -> Character.isLetter(cp)
+                || Character.getType(cp) == Character.NON_SPACING_MARK
+                || Character.getType(cp) == Character.COMBINING_SPACING_MARK
+                || Character.getType(cp) == Character.ENCLOSING_MARK);
     }
 
     private static boolean isMonthName(String token) {

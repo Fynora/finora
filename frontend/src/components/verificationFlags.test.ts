@@ -96,7 +96,7 @@ describe('flaggedRows', () => {
   });
 
   it('reads no other check, whatever it carries', () => {
-    // COLUMN_AMBIGUITY has its own rowIndex, into the rows before they were normalised.
+    // Only the two row checks are read. Another check's positions, whatever list they count, mark nothing here.
     expect(flaggedRows(report({
       rule: 'COLUMN_AMBIGUITY', outcome: 'WARNING',
       details: { ambiguities: [{ rowIndex: 3, displayIndex: 3 }], discrepancies: [{ displayIndex: 3 }] },

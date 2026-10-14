@@ -93,6 +93,70 @@ class PdfTraceRedactorTest {
         assertThat(redact(line)).isEqualTo(line.trim());
     }
 
+    /**
+     * Digit groups joined by single spaces, hyphens or dots are one number. A card, account or
+     * mobile number printed in groups is six or more digits however short each group is, so every
+     * group is masked; a short integer on its own is still kept. Every value is invented.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "4111 1111 1111 1111         | 9999 9999 9999 9999",       // synthetic-ok: a card number in groups
+            "1234 5678 9012              | 9999 9999 9999",            // synthetic-ok: an account number in groups
+            "98765 43210                 | 99999 99999",               // synthetic-ok: a mobile number with a space
+            "Call 98765-43210 now        | Xxxx 99999-99999 xxx",      // synthetic-ok: hyphenated
+            "123 456                     | 999 999",                   // six digits: the boundary
+            "Rs.1234 5678                | Xx.9999 9999",              // synthetic-ok: a prefix does not rescue a group
+            "12345 1234.56               | 99999 1234.56",             // the amount is kept, the joined integer is not
+    })
+    void digitGroupsThatFormSixOrMoreDigitsAreMaskedTogether(String input, String expected) {
+        assertThat(redact(input)).isEqualTo(expected.trim());
+        assertThat(PdfTraceRedactor.redactLine(input.trim())).isEqualTo(expected.trim());
+    }
+
+    /** Short integers that do not join into six digits keep behaving as before. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "Rs 500", "Page 2 of 5", "10:45", "12 345", "No 404", "1234  5678", "10:45 12:30",
+    })
+    void shortIntegersThatDoNotJoinAreStillKept(String line) {
+        assertThat(redact(line)).isEqualTo(line.trim());
+    }
+
+    /**
+     * A number split across runs on the same line is one number too: runs whose gap is at most one
+     * character's width (or whose width is unknown) join their edge digit groups. Runs in separate
+     * columns, or on another line, do not.
+     */
+    @Test
+    void digitGroupsSplitAcrossAdjacentRunsAreMaskedTogether() {
+        // synthetic-ok: an invented mobile number in two runs a space apart (5 chars over 25pt).
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 127.5f, 50f, 0, 25f)))))
+                .containsExactly("99999", "99999");
+        // Three touching two-digit runs: 6 digits only together.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("12", 100f, 50f, 0, 10f),
+                new PositionedText("34", 110f, 50f, 0, 10f),
+                new PositionedText("56", 120f, 50f, 0, 10f)))))
+                .containsExactly("99", "99", "99");
+        // A width that was never measured is treated as adjacent: masking more is the safe side.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0),
+                new PositionedText("43210", 140f, 50f, 0)))))
+                .containsExactly("99999", "99999");
+        // Separate columns, or separate lines: each stays a short kept integer.
+        assertThat(texts(PdfTraceRedactor.redact(List.of(
+                new PositionedText("98765", 100f, 50f, 0, 25f),
+                new PositionedText("43210", 300f, 50f, 0, 25f),
+                new PositionedText("12345", 100f, 70f, 0, 25f)))))
+                .containsExactly("98765", "43210", "12345");
+    }
+
+    private static List<String> texts(List<PositionedText> runs) {
+        return runs.stream().map(PositionedText::text).toList();
+    }
+
     /** What the version 5 keep rules still mask: six or more digits without grouping, a currency
      *  prefix on such a number, any glued suffix other than Cr/Dr, any other lone letter, a month
      *  name glued into a longer word, and a letter with punctuation that is not a lone token. */

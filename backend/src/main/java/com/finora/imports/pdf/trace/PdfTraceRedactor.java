@@ -59,7 +59,8 @@ public final class PdfTraceRedactor {
     // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers. (The
     // reader's own label words were added to the allowlist at the same time; the allowlist
     // fingerprint tracks that on its own.) A changed run keeps its width rounded to a whole point
-    // instead of losing it.
+    // instead of losing it. Digit groups that join into six or more digits (within a run, or across
+    // adjacent runs on a line) are one number and never kept as integers.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -314,12 +315,20 @@ public final class PdfTraceRedactor {
      * the width is kept rounded to a whole point: the run's right edge stays within half a point of
      * where it was printed, which is what those readers need, while letters, which differ in width
      * by fractions of a point, are far less constrained than by the measured value.
+     *
+     * <p><b>Why runs are not redacted one by one alone.</b> A short integer is kept, but a card,
+     * account or mobile number printed in groups is several short integers, in one run or split
+     * across neighbouring runs. Digit groups are therefore joined per printed line first (see
+     * {@link #digitGroupChainsByLine}), and an integer that is one group of six or more digits
+     * together is masked.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();
+        boolean[][] chained = digitGroupChainsByLine(runs);
         List<PositionedText> out = new ArrayList<>(runs.size());
-        for (PositionedText run : runs) {
-            String redacted = redactText(run.text(), vocabulary);
+        for (int r = 0; r < runs.size(); r++) {
+            PositionedText run = runs.get(r);
+            String redacted = redactText(run.text(), vocabulary, chained[r]);
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
             out.add(new PositionedText(redacted, run.x(), run.y(), run.pageIndex(),
                     unmasked ? run.width() : Math.round(run.width())));
@@ -353,6 +362,13 @@ public final class PdfTraceRedactor {
     }
 
     static String redactText(String text, Set<String> vocabulary) {
+        return redactText(text, vocabulary, text == null ? null : digitGroupChains(text));
+    }
+
+    /** {@code chained} marks, per char of {@code text}, the digits that belong to a number of six
+     *  or more digits printed in groups (see {@link #digitGroupChains}); an integer holding one is
+     *  never kept. */
+    static String redactText(String text, Set<String> vocabulary, boolean[] chained) {
         if (text == null || text.isBlank()) return text;
         // Spaced named-month dates first: they span several tokens, so the per-token loop below
         // cannot see them whole. Each span is copied verbatim and the text between spans is
@@ -362,18 +378,18 @@ public final class PdfTraceRedactor {
         int last = 0;
         while (spaced.find()) {
             if (joined == null) joined = new StringBuilder(text.length());
-            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary));
+            joined.append(redactTokens(text.substring(last, spaced.start()), vocabulary, chained, last));
             joined.append(spaced.group());
             last = spaced.end();
         }
         if (joined != null) {
-            joined.append(redactTokens(text.substring(last), vocabulary));
+            joined.append(redactTokens(text.substring(last), vocabulary, chained, last));
             return joined.toString();
         }
-        return redactTokens(text, vocabulary);
+        return redactTokens(text, vocabulary, chained, 0);
     }
 
-    private static String redactTokens(String text, Set<String> vocabulary) {
+    private static String redactTokens(String text, Set<String> vocabulary, boolean[] chained, int offset) {
         if (text.isEmpty()) return text;
         StringBuilder out = new StringBuilder(text.length());
         // Split keeping the separators, so every space and its exact position survives -- the
@@ -392,7 +408,8 @@ public final class PdfTraceRedactor {
                 // See TRAILING_CURRENCY_MARKER_LETTER's own doc comment -- checked ahead of the
                 // ordinary vocabulary/date/amount rules below, against what THIS SAME redaction
                 // pass has already appended for this run, not a separate lookup.
-                out.append(isTrailingCurrencyMarkerLetter(token, out) ? token : redactToken(token, vocabulary));
+                out.append(isTrailingCurrencyMarkerLetter(token, out) ? token
+                        : redactToken(token, vocabulary, chained, offset + start));
             } else {
                 out.appendCodePoint(cp);
                 i += Character.charCount(cp);
@@ -467,9 +484,10 @@ public final class PdfTraceRedactor {
         return text.chars().allMatch(c -> c < 128);
     }
 
-    private static String redactToken(String token, Set<String> vocabulary) {
+    private static String redactToken(String token, Set<String> vocabulary, boolean[] chained, int offset) {
         String bare = stripPunctuation(token);
         if (bare.isEmpty()) return token;
+        int bareStart = offset + token.indexOf(bare);
 
         var ifsc = IFSC.matcher(bare);
         if (ifsc.matches()) {
@@ -484,10 +502,15 @@ public final class PdfTraceRedactor {
         if (LONG_DIGIT_RUN.matcher(bare).find()) return mask(token);
         if (DATE_LIKE.matcher(bare).matches() || AMOUNT_LIKE.matcher(bare).matches()
                 || NAMED_MONTH_DATE_LIKE.matcher(bare).matches()
-                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()
-                || AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
+                || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()) return token;
+        if (AMOUNT_SHAPED_INTEGER_LIKE.matcher(bare).matches()
                 || AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches()
-                || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) return token;
+                || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) {
+            // An amount with decimals is an amount. An integer is kept only when it is not one
+            // group of a longer number printed in groups: a card, account or mobile number.
+            boolean decimal = DECIMAL_END.matcher(bare).find();
+            return decimal || !anyMarked(chained, bareStart, bareStart + bare.length()) ? token : mask(token);
+        }
         if (token.equals(bare) && DIRECTION_LETTER.matcher(bare).matches()) return token;
         // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
         // word spelled with one is not the vocabulary word.
@@ -503,7 +526,7 @@ public final class PdfTraceRedactor {
             int start = 0;
             for (int i = 0; i <= token.length(); i++) {
                 if (i == token.length() || token.charAt(i) == '/' || token.charAt(i) == '-') {
-                    rejoined.append(redactToken(token.substring(start, i), vocabulary));
+                    rejoined.append(redactToken(token.substring(start, i), vocabulary, chained, offset + start));
                     if (i < token.length()) rejoined.append(token.charAt(i));
                     start = i + 1;
                 }
@@ -511,6 +534,119 @@ public final class PdfTraceRedactor {
             return rejoined.toString();
         }
         return mask(token);
+    }
+
+    /** An amount whose number ends in one or two decimals, before an optional glued Cr/Dr. */
+    private static final Pattern DECIMAL_END = Pattern.compile("\\d\\.\\d{1,2}(?i:cr|dr)?$");
+
+    /** The separators that join digit groups into one printed number: one space, hyphen or dot. */
+    private static boolean isDigitGroupSeparator(char c) {
+        return c == ' ' || c == '-' || c == '.';
+    }
+
+    private static boolean anyMarked(boolean[] marks, int from, int to) {
+        if (marks == null) return false;
+        for (int k = Math.max(0, from); k < Math.min(to, marks.length); k++) if (marks[k]) return true;
+        return false;
+    }
+
+    /**
+     * Marks every digit of each number printed as digit groups joined by a single space, hyphen or
+     * dot ("4111 1111 1111 1111", "1234-5678-9012", "98765 43210") whose groups hold six or more
+     * digits between them. Each group alone is a short integer the keep rules would keep; together
+     * they are a card, account or mobile number, so an integer holding a marked digit is masked.
+     * Decimal amounts and dates are judged by their own rules and are not affected.
+     */
+    static boolean[] digitGroupChains(String text) {
+        boolean[] marks = new boolean[text.length()];
+        int chainStart = -1;
+        int chainDigits = 0;
+        int previousEnd = -2;
+        int i = 0;
+        while (i < text.length()) {
+            if (!Character.isDigit(text.charAt(i))) { i++; continue; }
+            int start = i;
+            while (i < text.length() && Character.isDigit(text.charAt(i))) i++;
+            boolean joins = previousEnd == start - 1 && isDigitGroupSeparator(text.charAt(start - 1));
+            if (!joins) {
+                markIfLong(text, marks, chainStart, previousEnd, chainDigits);
+                chainStart = start;
+                chainDigits = 0;
+            }
+            chainDigits += i - start;
+            previousEnd = i;
+        }
+        markIfLong(text, marks, chainStart, previousEnd, chainDigits);
+        return marks;
+    }
+
+    private static void markIfLong(String text, boolean[] marks, int from, int to, int digits) {
+        if (from < 0 || digits < 6) return;
+        for (int k = from; k < to; k++) if (Character.isDigit(text.charAt(k))) marks[k] = true;
+    }
+
+    /**
+     * {@link #digitGroupChains} over each printed line rather than each run, so a number split
+     * across runs is still one number. Runs on one page whose y differ by at most half a point are
+     * a line, read left to right. Two neighbours on a line are joined when the gap between them is
+     * at most one character of the left run (width over its length) -- a space, not a column gap --
+     * or when the left run's width was never measured, since masking more is the safe side. A join
+     * adds one space unless either side already ends or starts with a separator.
+     */
+    static boolean[][] digitGroupChainsByLine(List<PositionedText> runs) {
+        boolean[][] marks = new boolean[runs.size()][];
+        List<Integer> order = new ArrayList<>();
+        for (int r = 0; r < runs.size(); r++) {
+            String text = runs.get(r).text();
+            marks[r] = new boolean[text == null ? 0 : text.length()];
+            if (text != null && !text.isEmpty()) order.add(r);
+        }
+        order.sort(java.util.Comparator.<Integer>comparingInt(r -> runs.get(r).pageIndex())
+                .thenComparingDouble(r -> runs.get(r).y()));
+        int k = 0;
+        while (k < order.size()) {
+            PositionedText first = runs.get(order.get(k));
+            int end = k;
+            while (end < order.size() && runs.get(order.get(end)).pageIndex() == first.pageIndex()
+                    && Math.abs(runs.get(order.get(end)).y() - first.y()) <= 0.5f) end++;
+            List<Integer> line = new ArrayList<>(order.subList(k, end));
+            line.sort(java.util.Comparator.comparingDouble(r -> runs.get(r).x()));
+            markLine(runs, line, marks);
+            k = end;
+        }
+        return marks;
+    }
+
+    private static void markLine(List<PositionedText> runs, List<Integer> line, boolean[][] marks) {
+        StringBuilder joined = new StringBuilder();
+        List<int[]> origin = new ArrayList<>();
+        for (int n = 0; n < line.size(); n++) {
+            PositionedText run = runs.get(line.get(n));
+            if (n > 0) {
+                PositionedText left = runs.get(line.get(n - 1));
+                String joiner;
+                if (!adjacent(left, run)) joiner = "|";
+                else if (endsOrStartsWithSeparator(left.text(), run.text())) joiner = "";
+                else joiner = " ";
+                for (int c = 0; c < joiner.length(); c++) { joined.append(joiner.charAt(c)); origin.add(null); }
+            }
+            String text = run.text();
+            for (int c = 0; c < text.length(); c++) { joined.append(text.charAt(c)); origin.add(new int[] {line.get(n), c}); }
+        }
+        boolean[] chains = digitGroupChains(joined.toString());
+        for (int p = 0; p < chains.length; p++) {
+            if (chains[p] && origin.get(p) != null) marks[origin.get(p)[0]][origin.get(p)[1]] = true;
+        }
+    }
+
+    private static boolean adjacent(PositionedText left, PositionedText right) {
+        if (left.width() <= 0f) return true;
+        int length = Math.max(1, left.text().codePointCount(0, left.text().length()));
+        return right.x() - left.endX() <= left.width() / length;
+    }
+
+    private static boolean endsOrStartsWithSeparator(String left, String right) {
+        return isDigitGroupSeparator(left.charAt(left.length() - 1)) || isDigitGroupSeparator(right.charAt(0));
     }
 
     /** One character out per code point in: a number becomes 9, an upper-case letter X, any other

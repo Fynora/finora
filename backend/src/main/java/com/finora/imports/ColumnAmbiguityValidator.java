@@ -137,7 +137,11 @@ public class ColumnAmbiguityValidator {
         }
 
         if (rawRows == null || rawRows.isEmpty()) {
-            details.put("reason", "The rows were not available in their original column form, so "
+            // A caller that said where rows are shown did hand its rows over -- there were simply
+            // none -- so the "not available" reason would be untrue for it.
+            details.put("reason", rawRows != null && displayedPositionOf != null
+                    ? "The statement had no rows to check for ambiguity."
+                    : "The rows were not available in their original column form, so "
                     + "there was nothing to check for ambiguity.");
             return new ImportDto.VerificationFinding(RULE, "NOT_APPLICABLE", details);
         }

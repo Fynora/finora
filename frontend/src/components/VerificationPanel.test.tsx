@@ -437,7 +437,7 @@ describe('VerificationPanel', () => {
           },
         },
         label: 'Card purchases and payments', tag: /· not applicable/,
-        body: /does not print both a purchases total and a payments total/,
+        body: /^Only part of this statement's summary could be read\. A purchases total and a payments total were not both found, so the transactions could not be compared with it\.$/,
       },
       {
         name: 'no transaction read as a purchase or a payment',
@@ -471,6 +471,41 @@ describe('VerificationPanel', () => {
         label: 'Card purchases and payments', tag: /· needs review/,
         body: /do not add up to the purchases and payments totals in its summary/,
         note: /cannot tell which side is off\. Compare the transactions with your statement/,
+      },
+      // A summary printed as its own equation that leaves a refund out of its payments and credits
+      // (CardSummaryEquationReader, a real Axis card): the rows are checked against the balances.
+      {
+        name: 'transactions verified against the balances, the summary leaving a credit out',
+        finding: {
+          rule: FLOW, outcome: 'VERIFIED',
+          details: {
+            ...flowAmounts, observedIncomeAmount: 12500, differenceIncomeAmount: 500,
+            expectedChargesAmount: 8500.5, creditsNotCountedInSummary: 500, rowsCarryPreviousBalanceToTotalDue: true,
+          },
+        },
+        label: 'Card purchases and payments', tag: /· verified/,
+        body: /^Purchases match this statement's summary\. Its payments and credits figure leaves out a credit, such as a refund, that its total due includes\. Counting that credit, the transactions read from it take the previous balance exactly to the total due\.$/,
+      },
+      // The summary rule re-read in light of the row above: its gap is that credit, not a misread.
+      {
+        name: 'a summary that leaves a credit out, explained by the rows',
+        finding: {
+          rule: SUMMARY, outcome: 'NOT_APPLICABLE',
+          details: {
+            ...amountDue, extractionMethod: 'EQUATION_ROW', totalAmountDue: 8000.5, difference: -500,
+            reason: 'SUMMARY_LEAVES_OUT_A_CREDIT: the summary\'s payments and credits leave out a credit its own '
+              + 'total includes. The rows carry the previous balance to that total exactly.',
+          },
+        },
+        label: 'Card statement summary', tag: /· not applicable/,
+        body: /^The figures in this statement's summary do not add up to its total amount due, because its payments and credits leave out a credit, such as a refund, that the total includes\. The transactions read from it account for that credit exactly, so nothing was misread\.$/,
+      },
+      {
+        // Set aside for a reason this build does not know, with the summary's figures still on it.
+        name: 'a summary that was read, set aside for an unknown reason',
+        finding: { rule: SUMMARY, outcome: 'NOT_APPLICABLE', details: { ...amountDue, reason: 'SOME_FUTURE_LEVEL: x' } },
+        label: 'Card statement summary', tag: /· not applicable/,
+        body: /^This statement's summary was read, but this check could not be completed on it\.$/,
       },
       // Neither validator reports FAILED today. One that did would still mean a disagreement, so
       // it must not fall through to "could not be run".
@@ -567,6 +602,7 @@ describe('VerificationPanel', () => {
     it.each([
       'transactions add up once refunds and fees are allowed for',
       'transactions add up once one instalment is set aside',
+      'transactions verified against the balances, the summary leaving a credit out',
     ])('leaves the figures out when %s', async (name) => {
       // The two sides differ on purpose here, and unequal figures under "verified" read as a mistake.
       const { container } = await expand(cases.find((c) => c.name === name)!.finding);

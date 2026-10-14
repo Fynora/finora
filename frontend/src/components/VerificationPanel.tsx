@@ -392,11 +392,13 @@ const RULE_RENDERERS: Record<string, { label: string; render: (f: VerificationFi
         expectedIncomeAmount?: number; observedIncomeAmount?: number;
         expectedChargesAmount?: number;
       };
-      // Verified only after an allowance (refunds netted into purchases, instalments set aside):
+      // Verified only after an allowance (refunds netted into purchases, instalments set aside, a
+      // credit the summary left out):
       // the two columns then differ on purpose, and a table of unequal figures under "verified"
       // would read as a mistake. The sentence above says what was allowed for instead.
       const allowanceMade = finding.outcome === 'VERIFIED'
-        && ('creditsNettedIntoPurchases' in d || 'instalmentRowsSetAside' in d);
+        && ('creditsNettedIntoPurchases' in d || 'instalmentRowsSetAside' in d
+          || 'creditsNotCountedInSummary' in d);
       const rows = allowanceMade || d.observedExpenseAmount === undefined ? [] : [
         {
           // With fees and cash advances added in, the statement's figure is no longer purchases alone.

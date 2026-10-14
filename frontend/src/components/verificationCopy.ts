@@ -59,6 +59,21 @@ export function cardSummaryCopy(finding: VerificationFinding): CheckCopy {
   }
 
   if (finding.outcome === 'NOT_APPLICABLE') {
+    // Re-decided once the rows were checked (CreditCardStatementTotalsValidator.inLightOfTheRows):
+    // the summary does not add up because it leaves a credit out, and the rows prove which one.
+    // Keyed on the reason's code, the part before the colon, which is the backend's constant.
+    if (typeof d.reason === 'string' && d.reason.startsWith('SUMMARY_LEAVES_OUT_A_CREDIT')) {
+      return {
+        body: `The figures in this statement's summary do not add up to its ${total}, because its `
+          + 'payments and credits leave out a credit, such as a refund, that the total includes. '
+          + 'The transactions read from it account for that credit exactly, so nothing was misread.',
+      };
+    }
+    // A summary that was read, set aside for a reason this build does not know. "No summary was
+    // found" would be false here.
+    if ('totalAmountDue' in d || 'totalOutstanding' in d) {
+      return { body: "This statement's summary was read, but this check could not be completed on it." };
+    }
     return {
       body: 'No card summary with a previous balance, purchases, payments and a total was found on '
         + 'this statement, so there was nothing to check here.',
@@ -92,6 +107,15 @@ export function cardFlowCopy(finding: VerificationFinding): CheckCopy {
   const d = detailsOf(finding);
 
   if (finding.outcome === 'VERIFIED') {
+    // A summary printed as its own equation that leaves a credit out of its payments and credits
+    // (a real Axis card): the rows were checked against the two balances instead.
+    if ('creditsNotCountedInSummary' in d) {
+      return {
+        body: "Purchases match this statement's summary. Its payments and credits figure leaves out a "
+          + 'credit, such as a refund, that its total due includes. Counting that credit, the '
+          + 'transactions read from it take the previous balance exactly to the total due.',
+      };
+    }
     const instalments = typeof d.instalmentRowsSetAside === 'number' ? d.instalmentRowsSetAside : 0;
     if (instalments > 0) {
       return {
@@ -121,10 +145,12 @@ export function cardFlowCopy(finding: VerificationFinding): CheckCopy {
           body: 'No card summary was found on this statement, so there were no printed totals to '
             + 'compare the transactions with.',
         };
+      // Not "does not print": this also covers a summary that prints both but could only be read in
+      // part (CreditCardFlowEvidenceLevel's own comment).
       case 'PARTIAL_SUMMARY_ONLY':
         return {
-          body: "This statement's summary does not print both a purchases total and a payments total, "
-            + 'so the transactions could not be compared with it.',
+          body: "Only part of this statement's summary could be read. A purchases total and a payments "
+            + 'total were not both found, so the transactions could not be compared with it.',
         };
       case 'NO_CLASSIFIED_TRANSACTIONS':
         return {

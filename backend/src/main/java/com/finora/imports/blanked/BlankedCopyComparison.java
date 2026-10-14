@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Whether a blanked copy reads the same as the real statement it came from.
@@ -21,9 +22,9 @@ import java.util.Objects;
  * an amount. The only text a difference carries is the copy's own masked tokens, which the copy
  * already contains.
  *
- * <p>A description is compared position by position: each character of the copy's must be the
- * real one or the redactor's mask of it (see {@link #sameDescription}), so the two match exactly
- * when the same words were grouped into that row in the same order.
+ * <p>A description is compared with what the redactor would have written for the real one, token
+ * by token where a line break changed how the two were masked (see {@link #sameDescription}), so
+ * the two match only when the same words were grouped into that row in the same order.
  */
 public final class BlankedCopyComparison {
 
@@ -87,35 +88,94 @@ public final class BlankedCopyComparison {
     }
 
     /**
-     * Whether the copy's description is the real one with some of its characters masked: the same
-     * number of code points and, at every position, the copy's code point is the real one, the
-     * redactor's mask of it ({@link PdfTraceRedactor#maskOf}), or what the redactor writes at that
-     * position when it masks the real description as one line. Spaces, punctuation and symbols
-     * mask to themselves, so they must be equal.
+     * Whether the copy's description is what the redactor would have written for the real one.
      *
-     * <p>Why per position rather than masking the real description and comparing: the copy masks
-     * each run on its own, the real description is one joined line, and a date or a long digit run
-     * that only forms across a line break is kept by one and masked by the other. Neither is a
-     * difference in what was read. A different grouping of lines still differs, because it moves
-     * a space or a word to a position where neither rule allows it.
+     * <p>The copy masks each run on its own; the real description is one joined line. Where the
+     * two groupings of text into tokens agree, the copy's description is exactly
+     * {@link PdfTraceRedactor#redactLine} of the real one, and that is checked first. Where a token
+     * only forms across a line break or a run boundary, the two mask it differently, which is not a
+     * difference in what was read. So, failing exact equality, the two are compared token by token
+     * (a token is a run of non-whitespace):
      *
-     * <p>Why the joined line's own masking as well: one rule does not mask character by character.
-     * An IFSC's branch code is written as X whatever its characters, digits included, so the
-     * character-by-character mask of a branch digit (a 9) is not what the copy holds.
+     * <ul>
+     *   <li>the whitespace between tokens must be identical, and the token counts equal;</li>
+     *   <li>each copy token must be ONE of: (a) the joined line's masking of that token; (b) the
+     *       real token itself, only where the joined line masked it -- the copy kept the run's text
+     *       verbatim, so it is the same text (two kept amounts printed with no space between form a
+     *       long digit run only when joined); (c) the whole token masked character by character
+     *       ({@link PdfTraceRedactor#maskOf}), only where the real token holds a digit or is a month
+     *       name -- a date split across a line break is kept joined and masked in pieces.</li>
+     * </ul>
+     *
+     * <p>Guaranteed: a missing, extra or reordered line, or a word grouped into another row, moves a
+     * token or a space and differs; a word the joined line keeps can never be masked in the copy
+     * unless it holds a digit or names a month; no token may be partly kept and partly masked.
+     *
+     * <p>Not guaranteed (known limits, pinned by tests): under (c), a token holding a digit that the
+     * copy masked whole matches any same-shape real token at that position, so a different amount
+     * of the same shape there is not seen. And a token glued from a run the copy kept and a run it
+     * masked is reported as a difference although it was read the same way.
      */
     static boolean sameDescription(String real, String copy) {
         if (real == null || copy == null) return real == copy;
-        int[] r = real.codePoints().toArray();
-        int[] c = copy.codePoints().toArray();
-        if (r.length != c.length) return false;
-        int[] joined = PdfTraceRedactor.redactLine(real).codePoints().toArray();
-        boolean joinedAligned = joined.length == r.length;
-        for (int i = 0; i < r.length; i++) {
-            if (c[i] == r[i] || c[i] == PdfTraceRedactor.maskOf(r[i])) continue;
-            if (joinedAligned && c[i] == joined[i]) continue;
+        String joined = PdfTraceRedactor.redactLine(real);
+        if (copy.equals(joined)) return true;
+
+        List<String> r = parts(real);
+        List<String> c = parts(copy);
+        List<String> j = parts(joined);
+        if (r.size() != c.size()) return false;
+        if (j.size() != r.size()) {
+            // The joined line's masking does not line up with the real text token for token:
+            // compare against the masking alone, which exact equality above already did.
+            return false;
+        }
+        for (int i = 0; i < r.size(); i++) {
+            String realPart = r.get(i);
+            String copyPart = c.get(i);
+            if (isWhitespace(realPart) || isWhitespace(copyPart)) {
+                if (!copyPart.equals(realPart)) return false;
+                continue;
+            }
+            String joinedToken = j.get(i);
+            if (copyPart.equals(joinedToken)) continue;                                 // (a)
+            if (!joinedToken.equals(realPart) && copyPart.equals(realPart)) continue;  // (b)
+            if ((hasDigit(realPart) || isMonthName(realPart)) && copyPart.equals(maskWhole(realPart))) continue; // (c)
             return false;
         }
         return true;
+    }
+
+    private static final Pattern PART = Pattern.compile("\\s+|\\S+");
+    private static final Pattern MONTH_NAME = Pattern.compile(
+            "(?i)jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(tember)?"
+                    + "|oct(ober)?|nov(ember)?|dec(ember)?");
+
+    /** The text as alternating runs of whitespace and of non-whitespace, in order. */
+    private static List<String> parts(String text) {
+        List<String> out = new ArrayList<>();
+        var m = PART.matcher(text);
+        while (m.find()) out.add(m.group());
+        return out;
+    }
+
+    private static boolean isWhitespace(String part) {
+        return !part.isEmpty() && Character.isWhitespace(part.codePointAt(0));
+    }
+
+    private static boolean hasDigit(String token) {
+        return token.codePoints().anyMatch(Character::isDigit);
+    }
+
+    private static boolean isMonthName(String token) {
+        return MONTH_NAME.matcher(token).matches();
+    }
+
+    /** Every letter, number and mark of the token masked as the redactor masks it; punctuation kept. */
+    private static String maskWhole(String token) {
+        StringBuilder out = new StringBuilder(token.length());
+        token.codePoints().forEach(cp -> out.appendCodePoint(PdfTraceRedactor.maskOf(cp)));
+        return out.toString();
     }
 
     /** The copy's own tokens that were masked: they hold an X, x or 9 run the redactor wrote. */

@@ -202,13 +202,14 @@ class BlankedCopyComparisonTest {
         assertThat(descriptionOutcome("Asha 05 Jul", copy)).isNull();
     }
 
-    /** Joined, the digits after an amount form an 8-digit run and the whole token is masked; run by
-     *  run, the amount is kept and only the second run is masked. */
+    /** Joined, two amounts printed with no space between them form an 8-digit run and the whole
+     *  token is masked; run by run, each amount is kept, so the copy holds the real text. */
     @Test
     void aLongDigitRunThatFormsOnlyAcrossRunsMatches() {
-        String copy = PdfTraceRedactor.redactLine("12345.00") + PdfTraceRedactor.redactLine("123456");
-        assertThat(PdfTraceRedactor.redactLine("12345.00123456")).isNotEqualTo(copy);
-        assertThat(descriptionOutcome("12345.00123456", copy)).isNull();
+        String copy = PdfTraceRedactor.redactLine("12,345.00") + PdfTraceRedactor.redactLine("123456.78");
+        assertThat(copy).isEqualTo("12,345.00123456.78");
+        assertThat(PdfTraceRedactor.redactLine("12,345.00123456.78")).isNotEqualTo(copy);
+        assertThat(descriptionOutcome("12,345.00123456.78", copy)).isNull();
     }
 
     /** The redactor masks an IFSC's branch code to X whatever its characters; the copy's run does
@@ -217,6 +218,67 @@ class BlankedCopyComparisonTest {
     void aDescriptionHoldingAnIfscMatches() {
         String real = "NEFT HDFC0001234 Asha"; // synthetic-ok: invented branch code
         assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).isNull();
+    }
+
+    /** The redactor's IFSC rule drops the punctuation at the token's edges, so the masked token is
+     *  shorter than the real one. The copy's run is masked the same way, and still matches. */
+    @Test
+    void anIfscNextToPunctuationMatches() {
+        for (String real : List.of("NEFT HDFC0001234, Asha", "NEFT HDFC0001234. Asha")) { // synthetic-ok: invented branch code
+            assertThat(descriptionOutcome(real, PdfTraceRedactor.redactLine(real))).as(real).isNull();
+            assertThat(descriptionOutcome(real, "NEFT HDFC0XXXXXX Xxxx")).as(real).isNull();
+        }
+    }
+
+    /** A copy token that is neither the joined line's masking, nor the real text where that masked
+     *  it, nor a full mask of a token holding a digit or naming a month, is a difference: no mixing
+     *  of kept and masked characters within a token, and no masking of a word the joined line keeps. */
+    @Test
+    void aTokenTheRedactorWouldNotHaveWrittenDiffers() {
+        // A kept word masked in the copy ("UPI", "PAID", "on" are kept words).
+        assertThat(descriptionOutcome("UPI Asha", "XXX Xxxx")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("PAID 1,234.00", "XXXX 1,999.00")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("on 05/07/2026", "xx 99/99/9999")).isEqualTo(Field.DESCRIPTION);
+        // A word the joined line masked, held in the copy as a different word.
+        assertThat(descriptionOutcome("TAB 5", "TAX 5")).isEqualTo(Field.DESCRIPTION);
+        // A token partly kept and partly masked.
+        assertThat(descriptionOutcome("PAID 1,234.00", "PAID 1,999.00")).isEqualTo(Field.DESCRIPTION);
+        assertThat(descriptionOutcome("Asha Verma", "Xxxx Vxxxx")).isEqualTo(Field.DESCRIPTION);
+    }
+
+    /** Rule (c) on its own: a date's tokens fully masked in the copy match, and so does a month name. */
+    @Test
+    void aFullyMaskedDateOrMonthTokenMatches() {
+        assertThat(descriptionOutcome("on 05/07/2026", "on 99/99/9999")).isNull();
+        assertThat(descriptionOutcome("Asha 05 Jul", "Xxxx 99 Xxx")).isNull();
+        assertThat(descriptionOutcome("Asha 5 July", "Xxxx 9 Xxxx")).isNull();
+        // A word that is not a month and holds no digit is not covered.
+        assertThat(descriptionOutcome("Asha Juli", "Xxxx Xxxx")).isNull();   // the joined line masks it anyway
+        assertThat(descriptionOutcome("UPI Juli", "XXX Xxxx")).isEqualTo(Field.DESCRIPTION);
+    }
+
+    /**
+     * KNOWN LIMIT, pinned so it cannot change unnoticed: a token holding a digit that the copy
+     * masked whole matches whatever same-shape token the real description has there. Here the copy
+     * hides an amount the real description shows; the check cannot tell whether the copy read the
+     * same amount or a different one of the same shape.
+     */
+    @Test
+    void knownLimitAFullyMaskedDigitTokenMatchesAnySameShapeRealToken() {
+        assertThat(descriptionOutcome("PAID 1,234.00", "PAID 9,999.99")).isNull();
+        assertThat(descriptionOutcome("PAID 5,678.00", "PAID 9,999.99")).isNull();
+    }
+
+    /**
+     * KNOWN LIMIT in the other direction: a token glued from a run the copy kept and a run it
+     * masked (here an amount and a reference printed with no space between) is partly kept, which
+     * no rule allows, so the row is reported as a difference although it was read the same way.
+     */
+    @Test
+    void knownLimitATokenGluedFromAKeptAndAMaskedRunDiffers() {
+        String copy = PdfTraceRedactor.redactLine("12345.00") + PdfTraceRedactor.redactLine("123456");
+        assertThat(copy).isEqualTo("12345.00999999");
+        assertThat(descriptionOutcome("12345.00123456", copy)).isEqualTo(Field.DESCRIPTION);
     }
 
     @Test

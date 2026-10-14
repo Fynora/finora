@@ -9,6 +9,7 @@ import com.finora.imports.pdf.PositionedText;
 import com.finora.imports.pdf.TextSource;
 import com.finora.imports.pdf.acquisition.AcquiredDocument;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
+import com.finora.imports.pdf.trace.TraceFormat;
 import com.finora.observability.BlankedCopyMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -106,6 +107,21 @@ class BlankedCopyServiceTest {
         ArgumentCaptor<UUID> ids = ArgumentCaptor.forClass(UUID.class);
         verify(spy, times(2)).generateSectionsFromAcquired(ids.capture(), eq("statement.pdf"), any());
         assertThat(ids.getAllValues().get(0)).isEqualTo(ids.getAllValues().get(1));
+    }
+
+    /** The real side reads the acquired runs; the copy side reads the trace FILE's round trip, not
+     *  the redacted runs held in memory, because the file is what is handed over. */
+    @Test
+    void theCopySideReadsTheTraceFileItself() throws Exception {
+        PdfPreviewGenerator spy = spy(PdfGeneratorTestSupport.generator());
+        byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();
+        BlankedCopy copy = service(spy).make(new StaffStatementContent("HLD-2026-000004", "PDF", pdf));
+        ArgumentCaptor<AcquiredDocument> read = ArgumentCaptor.forClass(AcquiredDocument.class);
+        verify(spy, times(2)).generateSectionsFromAcquired(any(), any(), read.capture());
+        List<PositionedText> realRuns = PdfGeneratorTestSupport.generator().acquire(pdf, null).runs();
+        assertThat(realRuns).isNotEmpty();
+        assertThat(read.getAllValues().get(0).runs()).isEqualTo(realRuns);
+        assertThat(read.getAllValues().get(1).runs()).isEqualTo(TraceFormat.parse(copy.trace()));
     }
 
     @Test

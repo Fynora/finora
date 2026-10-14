@@ -32,8 +32,9 @@ import java.util.UUID;
  * refusal names kinds of data, never the data.
  *
  * <p>The copy side of the check reads the trace FILE's own round trip, not the redacted runs in
- * memory: the file is what Claude gets, and it carries no run's source, height or confidence, so a
- * scanned statement can honestly come back DIFFERS.
+ * memory: the file is what Claude gets, and it is not an exact copy of those runs. {@code
+ * TraceFormat} writes x, y and width rounded to two decimals and replaces a tab inside a run's text
+ * with a space, so a reading that depends on either can honestly come back DIFFERS.
  *
  * <p>Both readings use one fresh random user id, so no customer's rules, merchants, duplicates or
  * resolutions are read, and the two readings cannot differ because of them. Both are given the

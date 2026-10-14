@@ -139,6 +139,48 @@ class BlankedCopyServiceTest {
         assertThat(produced(BlankedCopy.Check.DIFFERS)).isEqualTo(1);
     }
 
+    /**
+     * End to end, a statement whose row grouping depends on words the copy masks. The locator keeps
+     * the footer lines "Generated on ..." and "Need help? Contact our support ..." out of the table
+     * by their words; masked, they no longer read as footers, so the copy's reading groups them
+     * into the last row's description. The check must name that row's DESCRIPTION, and its tokens
+     * must be the copy's own masked forms only -- never a word of the statement.
+     *
+     * <p>The same statement also differs in its dates (a year printed "'26" is masked), which is
+     * not what this test is about.
+     */
+    @Test
+    void aMaskedFooterGroupedIntoTheLastRowIsADescriptionDifference() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildSignedAmountLedgerWithSupportFooterSample();
+        // The real reading keeps both footer lines out of every description.
+        var real = PdfGeneratorTestSupport.generator()
+                .generateSectionsWithContext(UUID.randomUUID(), "statement.pdf", pdf).sections();
+        assertThat(real).hasSize(1);
+        assertThat(real.get(0).rows()).extracting(StagedRow::description).containsExactly(
+                "Account Transfer-Credit-SAMPLE", "Interest Cr. for 15-Sep-2026",
+                "UPI-Debit-SAMPLE GROCER", "UPI-Debit-SAMPLE STORE");
+
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000006", "PDF", pdf));
+
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.DIFFERS);
+        var description = copy.differences().stream()
+                .filter(d -> d.field() == BlankedCopyComparison.Field.DESCRIPTION).toList();
+        assertThat(description).singleElement().satisfies(d -> {
+            assertThat(d.section()).isZero();
+            assertThat(d.row()).isEqualTo(3);
+            // The footer's words, as the copy masked them.
+            assertThat(d.maskedTokens()).contains("Xxxxxxxxx", "Xxxx", "xxxx?", "xxxxxxx", "xxxx@xxxxxxx.xxx");
+            String copyText = String.join(" ", TraceFormat.parse(copy.trace()).stream().map(PositionedText::text).toList());
+            assertThat(d.maskedTokens()).allSatisfy(t -> {
+                assertThat(t).matches("[Xx9\\p{Punct}]+");
+                assertThat(copyText).contains(t);
+            });
+        });
+        assertThat(copy.differences().toString())
+                .doesNotContain("SAMPLE", "STORE", "Generated", "Need", "help", "support", "example");
+    }
+
     @Test
     void theReplayNeverUsesTheCustomersId() throws Exception {
         PdfPreviewGenerator spy = spy(PdfGeneratorTestSupport.generator());

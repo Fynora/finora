@@ -649,6 +649,44 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
     }
 
+    /** A hold the trust gate flagged as locked with its password not kept: refused before the
+     *  audit and before the read, as the trust queue's download and re-parse are. */
+    @Test
+    void theTrustQueueRefusesAHoldFlaggedLockedWithoutItsPassword(CapturedOutput output) {
+        HeldStatement held = seedHold("HLD-2026-610012", lockedPlantedPdf());
+        held.markLockedWithoutPassword();
+        heldStatementRepository.save(held);
+
+        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610012/blanked-copy",
+                createSupportUser("TRUST_REVIEW_MANAGE"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("HLD-2026-610012 cannot be copied: the statement is "
+                + "password-protected and its password was not kept");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .extracting(com.finora.entity.AuditLog::getAction)
+                .doesNotContain("HELD_STATEMENT_BLANKED_COPY", "HELD_STATEMENT_BLANKED_COPY_RESULT");
+        assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
+    }
+
+    /** A saved password on a file that was never locked: the copy is made as for any other. */
+    @Test
+    void anUnlockedPdfWithASavedPasswordIsCopied(CapturedOutput output) {
+        ImportJob job = heldJob();
+        statementPasswordService.saveForJob(job.getUserId(), job.getId(), PASSWORD);
+
+        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+                createSupportUser("IMPORT_TRIAGE_MANAGE"));
+
+        assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(copy.getBody()).contains("blanked-" + job.getId() + ".trace").contains("\"check\":\"MATCHES\"");
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .filteredOn(e -> e.getAction().equals("HELD_IMPORT_BLANKED_COPY"))
+                .singleElement()
+                .satisfies(e -> assertThat(e.getMetadata()).containsEntry("savedPasswordOnFile", true));
+        assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
+    }
+
     @Test
     void theTrustQueueCopiesALockedPdfWithItsSavedPassword(CapturedOutput output) {
         HeldStatement held = seedHold("HLD-2026-610007", lockedPlantedPdf());

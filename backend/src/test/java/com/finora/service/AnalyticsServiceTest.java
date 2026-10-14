@@ -199,6 +199,23 @@ class AnalyticsServiceTest {
         assertThat(result.get(0).totalSpend()).isEqualByComparingTo("1000");
     }
 
+    /** A card instalment line is not a merchant the user bought from; see InsightsServiceTest. */
+    @Test
+    void topMerchants_leavesOutCardInstalmentLines() {
+        UUID shop = UUID.randomUUID();
+        UUID instalment = UUID.randomUUID();
+        Transaction emi = expense(instalment, LocalDate.of(2026, 7, 1), new BigDecimal("4000"));
+        emi.setDescription("FP EMI 03/06(EXCL TAX 18.00)");
+        Transaction purchase = expense(shop, LocalDate.of(2026, 7, 2), new BigDecimal("400"));
+        purchase.setDescription("SAMPLE SHOP");
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(emi, purchase));
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(merchant(instalment, "fp emi 03 03"), merchant(shop, "Sample Shop")));
+
+        var result = analyticsService.topMerchants(userId, null);
+
+        assertThat(result).extracting(AnalyticsDto.TopMerchant::merchantName).containsExactly("Sample Shop");
+    }
+
     @Test
     void topMerchants_filtersToTheGivenMonth() {
         // BH-042 follow-up: a specific month is now itself the bounded query

@@ -162,6 +162,41 @@ class InsightsServiceTest {
         assertThat(result.sentences()).anyMatch(s -> s.contains("\"Cafe B\" at ₹700"));
     }
 
+    /**
+     * The bank's own lines -- an instalment of an earlier purchase, its interest, a charge, GST --
+     * are not a shop the user bought from this month. Measured before: insights named
+     * "fp emi 03 03", "emi principal" and "igst db 18 00" as the top merchant. They still count.
+     */
+    @Test
+    void topMerchant_isNeverTheBanksOwnLine_whichStillCountsAsSpend() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(4000), dining, "FP EMI 03/06(EXCL TAX 18.00)"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(900), dining, "INTEREST ON EMI"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(3000), dining, "EMI PRINCIPAL - 1/6, REF# 00000001"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(2000), dining, "SAMPLE STORE 05 MAR 2ND OF 3 INSTALLMENTS PRINCIPAL"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(800), dining, "IGST DB @ 18.00%"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(750), dining, "SMS CHARGES 0001"),
+                expense(LocalDate.of(2026, 7, 6), BigDecimal.valueOf(700), dining, "Cafe B")));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.topMerchant()).isNotNull();
+        assertThat(result.topMerchant().name()).isEqualTo("Cafe B");
+        assertThat(result.biggestCategory().amount()).isEqualByComparingTo(BigDecimal.valueOf(12150));
+    }
+
+    /** With nothing but instalment lines in the month, there is no merchant to name. */
+    @Test
+    void topMerchant_isOmitted_whenTheMonthHoldsOnlyCardInstalmentLines() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(4000), dining, "FP EMI 03/06(EXCL TAX 18.00)")));
+
+        var result = insightsService.build(userId);
+
+        assertThat(result.topMerchant()).isNull();
+        assertThat(result.sentences()).noneMatch(s -> s.contains("top merchant"));
+    }
+
     @Test
     void topMerchant_returnsTheStructuredHighlight() {
         givenTransactions(List.of(

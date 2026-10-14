@@ -68,6 +68,9 @@ public final class BankActivityCategory {
     /** A third issuer's wording for the same, "... 2ND OF 3 INSTALLMENTS PRINCIPAL" (2026-10-14, one
      *  row, "Other"). Also "Loan EMI", but kept apart from CARD_INSTALMENT: see isCardInstalment. */
     private static final Pattern CARD_INSTALMENT_NTH_OF_M = words("installments principal");
+    /** Every line of a card's instalment plan, its principal and its interest, in each wording above. */
+    private static final Pattern CARD_INSTALMENT_PLAN = words(
+            "emi principal", "fp emi", "installments principal", "emi interest", "interest on emi", "installments interest");
     private static final Pattern GST = words("gst", "igst", "cgst", "sgst");
     private static final Pattern RECURRING_DEPOSIT = words(
             "rd installment", "rd instalment", "recurring deposit");
@@ -160,6 +163,19 @@ public final class BankActivityCategory {
         if (description == null || description.isBlank() || direction != Transaction.Type.EXPENSE) return false;
         if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
         return CARD_INSTALMENT.matcher(CategoryRules.normalize(description)).find();
+    }
+
+    /**
+     * Whether the narration is the bank or card billing its own line: an instalment of an earlier
+     * purchase or its interest, a charge, or GST. Never a shop the user bought from, so the
+     * merchant rankings leave it out; it still counts as spend. Measured on the statement corpus
+     * (2026-10-14): 23 of 1,682 debits match, every one a charge, a tax or an instalment line.
+     * Before, insights named "fp emi 03 03" and then "igst db 18 00" the top merchant.
+     */
+    public static boolean namesBanksOwnCharge(String description) {
+        if (description == null) return false;
+        String text = CategoryRules.normalize(description);
+        return CARD_INSTALMENT_PLAN.matcher(text).find() || CHARGED.matcher(text).find() || GST.matcher(text).find();
     }
 
     /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */

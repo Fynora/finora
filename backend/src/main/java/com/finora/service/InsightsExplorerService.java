@@ -88,6 +88,8 @@ public class InsightsExplorerService {
     private InsightsExplorerDto.TopMerchant topMerchant(List<Transaction> currentMonthTxns, RefundNetting refunds) {
         Map<String, List<Transaction>> byMerchant = currentMonthTxns.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
+                // Nor the bank's own line -- see InsightsService's merchant totals.
+                .filter(t -> !com.finora.util.BankActivityCategory.namesBanksOwnCharge(t.getDescription()))
                 .collect(Collectors.groupingBy(this::merchantNameOf));
         Map.Entry<String, List<Transaction>> top = byMerchant.entrySet().stream()
                 .max(Comparator.comparing(e -> sumReportable(e.getValue(), refunds)))

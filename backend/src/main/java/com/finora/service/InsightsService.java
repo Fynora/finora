@@ -236,6 +236,10 @@ public class InsightsService {
         // Collectors.groupingBy as the DashboardService/BudgetService category-grouping bugs.
         Map<String, BigDecimal> merchantTotals = txns.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
+                // Nor is the bank's own line -- an instalment, its interest, a charge, GST. Measured with
+                // invented rows through the real import (2026-10-14): "fp emi 03 03" was named the top
+                // merchant, and "igst db 18 00" once instalments alone were left out.
+                .filter(t -> !com.finora.util.BankActivityCategory.namesBanksOwnCharge(t.getDescription()))
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
                 .collect(Collectors.groupingBy(
                         t -> Optional.ofNullable(t.getMerchant()).filter(s -> !s.isBlank())

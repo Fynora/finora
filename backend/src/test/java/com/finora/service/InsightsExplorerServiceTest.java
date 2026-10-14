@@ -142,6 +142,18 @@ class InsightsExplorerServiceTest {
         assertThat(trace.topMerchant().amount()).isEqualByComparingTo("500");
     }
 
+    /** A card instalment line is not a merchant the user bought from; see InsightsServiceTest. */
+    @Test
+    void trace_neverNamesACardInstalmentLineAsTheTopMerchant() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(
+                expense(new BigDecimal("4000"), "FP EMI 03/06(EXCL TAX 18.00)"), expense(new BigDecimal("500"), "Zomato")));
+
+        InsightsExplorerDto.Trace trace = service.trace(userId).orElseThrow();
+
+        assertThat(trace.topMerchant().merchant()).isEqualTo("Zomato");
+        assertThat(trace.topCategory().amount()).isEqualByComparingTo("4500");
+    }
+
     @Test
     void trace_reportsARefundNettedAmount_asWhatActuallyCounted_notTheRawAmount() {
         Transaction purchase = expense(new BigDecimal("500"), "Zomato");

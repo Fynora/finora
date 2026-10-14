@@ -365,20 +365,40 @@ describe('HeldImports', () => {
       expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
     });
 
-    it('is not offered for a CSV import, which the server cannot copy yet', async () => {
+    function mockCsvJob() {
       const csvRow: HeldImportRow = { ...heldRow, fileName: 'hdfc-june.csv', sourceFormat: 'CSV' };
       vi.mocked(adminHeldImportApi.list).mockResolvedValue({
         content: [csvRow], page: 0, size: 25, totalElements: 1, totalPages: 1,
       });
       vi.mocked(adminHeldImportApi.get).mockResolvedValue({ ...heldDetail, job: csvRow });
-      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
-      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+    }
+
+    async function openCsvDetails() {
       renderPage();
       await screen.findByText('hdfc-june.csv');
       await userEvent.click(screen.getByRole('button', { name: /details/i }));
       await screen.findByRole('button', { name: /download statement/i });
+    }
 
+    /** The server cannot copy a CSV yet; the operator is told so in place of a button that would
+     *  only ever answer 409. */
+    it('says a CSV import cannot be copied yet, in place of the button', async () => {
+      mockCsvJob();
+      vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+
+      expect(await screen.findByText('Blanked copy not available for CSV yet.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    });
+
+    it('says nothing about CSV when the switch is off', async () => {
+      mockCsvJob();
+      mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+      await openCsvDetails();
+      await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+
+      expect(screen.queryByText('Blanked copy not available for CSV yet.')).not.toBeInTheDocument();
     });
   });
 

@@ -279,10 +279,13 @@ function HeldImportDetailPanel({
       <div className="flex items-start justify-between">
         <h2 className="text-lg font-semibold text-ink">Held import</h2>
         <div className="flex items-start gap-3">
-          {/* PDF only, matching the server, which answers a CSV with 409. Same case-insensitive
-              comparison the server makes. */}
-          {detail && blankedStatus.data?.enabled && detail.job.sourceFormat?.toUpperCase() === 'PDF' && (
-            <BlankedCopyPanel fetchCopy={() => adminBlankedCopyApi.heldImport(detail.job.id)} />
+          {/* PDF only, matching the server, which answers a CSV with 409 -- so a CSV is told so in
+              place of a button that could only fail. Same case-insensitive comparison the server
+              makes. */}
+          {detail && blankedStatus.data?.enabled && (
+            detail.job.sourceFormat?.toUpperCase() === 'PDF'
+              ? <BlankedCopyPanel fetchCopy={() => adminBlankedCopyApi.heldImport(detail.job.id)} />
+              : <p className="text-xs text-muted py-1.5">Blanked copy not available for CSV yet.</p>
           )}
           {detail && canDownload && (
             <button

@@ -36,13 +36,22 @@ export default function BlankedCopyPanel({ fetchCopy }: { fetchCopy: () => Promi
     setError(null);
     // A second attempt that fails must not leave the first attempt's verdict on screen beside it.
     setResult(null);
+    let copy: BlankedCopy;
     try {
-      const copy = await fetchCopy();
-      downloadBlob(new Blob([copy.trace], { type: 'text/plain' }), copy.fileName);
-      setResult(copy);
+      copy = await fetchCopy();
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(message ?? 'The blanked copy could not be made.');
+      setBusy(false);
+      return;
+    }
+    // Past this point the copy exists and its making was audited server-side; only the browser's
+    // save can still fail, and the check's verdict on the copy stands either way.
+    setResult(copy);
+    try {
+      downloadBlob(new Blob([copy.trace], { type: 'text/plain' }), copy.fileName);
+    } catch {
+      setError('The blanked copy was made, but your browser could not save it. Try again.');
     } finally {
       setBusy(false);
     }

@@ -63,6 +63,19 @@ describe('BlankedCopyPanel', () => {
     expect(screen.queryByText('Matches the real statement')).not.toBeInTheDocument();
   });
 
+  /** The copy was made and its making audited; only the browser's save failed. Saying the copy
+   *  could not be made would be untrue. */
+  it('says the copy was made but not saved when the browser cannot save it', async () => {
+    vi.spyOn(download, 'downloadBlob').mockImplementation(() => { throw new Error('blocked'); });
+    render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy())} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The blanked copy was made, but your browser could not save it. Try again.');
+    expect(screen.queryByText('The blanked copy could not be made.')).not.toBeInTheDocument();
+    // The check did run on the copy, so its verdict still stands.
+    expect(screen.getByText('Matches the real statement')).toBeInTheDocument();
+  });
+
   it('falls back to a plain message when the server gives none', async () => {
     render(<BlankedCopyPanel fetchCopy={() => Promise.reject(new Error('Network Error'))} />);
     await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));

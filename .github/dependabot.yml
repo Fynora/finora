@@ -226,6 +226,19 @@ updates:
       # not support TS 7.0." Revisit when typescript-eslint supports TS 7 (and Expo SDK allows it).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # Expo packages share the SDK number as their major version (expo 57.x, expo-updates 57.x,
+      # expo-dev-client 57.x ...), so a major bump of any one of them is a piece of the next SDK, not
+      # an update. PR #2143 moved expo-updates 57.0.25 -> 58.0.15 on its own while expo stayed on
+      # ~57.0.27; Expo SDK 57's bundledNativeModules.json lists expo-updates ~57.0.21, and the 58
+      # release pulled 58-line expo-eas-client/expo-manifests/expo-structured-headers and a
+      # react-native 0.88 release-candidate package into the tree. Jest does not build the native
+      # app, so the mobile suite passed and nothing caught it. SDK upgrades are done deliberately,
+      # every Expo package together (`npx expo install --fix` after bumping expo). Minor and patch
+      # releases inside the SDK line still arrive through npm-minor-and-patch.
+      - dependency-name: "expo"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "expo-*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 

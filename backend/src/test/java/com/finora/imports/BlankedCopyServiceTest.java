@@ -13,6 +13,7 @@ import com.finora.imports.pdf.acquisition.AcquiredDocument;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import com.finora.imports.pdf.trace.TraceFormat;
+import com.finora.imports.pdf.trace.TraceMetadata;
 import com.finora.observability.BlankedCopyMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -86,6 +87,39 @@ class BlankedCopyServiceTest {
         assertThat(copy.trace()).startsWith("# finora-pdf-trace");
         assertThat(copy.notCheckedReason()).isNull();
         assertThat(produced(BlankedCopy.Check.MATCHES)).isEqualTo(1);
+    }
+
+    /**
+     * The metadata block is built by the server from ids, versions and the date only, so the
+     * privacy check scans the runs and not these lines (a job id is a random UUID, which matches
+     * the phone-number shape about once in 270). This pins exactly which lines and values it
+     * writes: a future change that adds free text to the metadata fails here and has to be
+     * scanned before it ships.
+     */
+    @Test
+    void theMetadataHoldsOnlyServerBuiltFields() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildSampleWithPlantedCustomerData();
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000008", "PDF", pdf));
+
+        List<String> commentLines = copy.trace().lines().filter(l -> l.startsWith("#")).toList();
+        assertThat(commentLines).containsExactly(
+                "# finora-pdf-trace v" + TraceMetadata.CURRENT_TRACE_VERSION,
+                "# traceVersion: " + TraceMetadata.CURRENT_TRACE_VERSION,
+                "# redactorVersion: " + PdfTraceRedactor.REDACTOR_VERSION,
+                "# allowlistFingerprint: " + PdfTraceRedactor.allowlistFingerprint(),
+                "# capturedAt: 2026-10-14",
+                "# generatedFrom: held item HLD-2026-000008",
+                "# capabilities: ",
+                "# regressions: ",
+                "# requiredHeaders: ",
+                "# motivation: ",
+                "# page\tx\ty\twidth\ttext");
+        TraceMetadata metadata = TraceMetadata.parse(copy.trace());
+        assertThat(metadata.capabilities()).isEmpty();
+        assertThat(metadata.regressions()).isEmpty();
+        assertThat(metadata.requiredHeaders()).isEmpty();
+        assertThat(metadata.motivation()).isEmpty();
     }
 
     @Test

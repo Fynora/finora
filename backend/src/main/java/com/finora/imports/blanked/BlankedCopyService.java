@@ -86,6 +86,9 @@ public class BlankedCopyService {
             metrics.refused();
             throw new BlankedCopyRefusedException(kinds);
         }
+        // Built from ids, versions and the date only, so the privacy check above scans the runs and
+        // not these lines. BlankedCopyServiceTest.theMetadataHoldsOnlyServerBuiltFields pins them:
+        // free text added here must be scanned before it ships.
         TraceMetadata metadata = new TraceMetadata(TraceMetadata.CURRENT_TRACE_VERSION,
                 PdfTraceRedactor.REDACTOR_VERSION, PdfTraceRedactor.allowlistFingerprint(),
                 LocalDate.now(clock).toString(), "held item " + content.reference(),

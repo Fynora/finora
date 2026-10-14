@@ -79,10 +79,50 @@ public class ImportVerifier {
      */
     public ImportDto.VerificationReport verify(List<StagedRow> rows, BigDecimal openingBalance,
                                                 BigDecimal closingBalance) {
-        // List.of()/null: the CSV path this overload serves has neither header-reconstruction
-        // findings (a PDF-only concept) nor OCR provenance (a PDF-acquisition-only concept).
+        // List.of()/null: the CSV path this overload serves (through verifyCsv below, which adds the
+        // column-ambiguity rule's rows) has neither header-reconstruction findings (a PDF-only
+        // concept) nor OCR provenance (a PDF-acquisition-only concept).
         return verify(rows, openingBalance, closingBalance, PrintedSummary.NONE, List.of(), List.of(), List.of(),
                 CreditCardSummaryEvidence.NONE, List.of(), null);
+    }
+
+    /**
+     * The CSV path, with the file's own rows for the column-ambiguity rule.
+     *
+     * <p>That rule used to answer "not applicable" on every CSV, because this path handed it no rows
+     * in their original column form -- and a CSV keeps exactly that form, cell by cell under its
+     * header. A deposit and a withdrawal both filled in on one line was therefore read one way on a
+     * CSV without a word, while the same line in a PDF was reported for checking.
+     *
+     * <p>Only that rule gets the rows. Every other rule receives exactly what the three-argument
+     * overload above gives it, so no other CSV outcome moves: the row-accounting and summary rules
+     * read the located-row count and the unparseable rows, and what they would make of a CSV's is a
+     * separate question from this one. The status is re-derived, because a warning here is a
+     * warning about the statement.
+     *
+     * @param locatedRows             the file's non-blank data rows, keyed by header, in file order
+     * @param unparseableRows         the rows among them that failed to normalise
+     * @param displayedPositionOfLocatedRow for each located row, its place among {@code rows} (the
+     *                                list the client is shown), or {@link
+     *                                ColumnAmbiguityValidator#NOT_SHOWN}
+     */
+    public ImportDto.VerificationReport verifyCsv(List<StagedRow> rows, BigDecimal openingBalance,
+                                                   BigDecimal closingBalance,
+                                                   List<java.util.Map<String, String>> locatedRows,
+                                                   List<UnparseableRow> unparseableRows,
+                                                   int[] displayedPositionOfLocatedRow) {
+        ImportDto.VerificationReport report = verify(rows, openingBalance, closingBalance);
+        ImportDto.VerificationFinding ambiguity =
+                columnAmbiguityValidator.check(locatedRows, unparseableRows, displayedPositionOfLocatedRow);
+        List<ImportDto.VerificationFinding> findings = new ArrayList<>();
+        for (ImportDto.VerificationFinding finding : report.findings()) {
+            findings.add(ColumnAmbiguityValidator.RULE.equals(finding.rule()) ? ambiguity : finding);
+        }
+        List<ImportDto.VerificationFinding> assembled = List.copyOf(findings);
+        TextSource textSource = report.textSource() == null ? null : TextSource.valueOf(report.textSource());
+        return new ImportDto.VerificationReport(assembled, report.headerReconstructionUncertain(),
+                report.textSource(), ImportReliabilityStatusDeriver.derive(assembled,
+                        report.headerReconstructionUncertain(), textSource));
     }
 
     /**

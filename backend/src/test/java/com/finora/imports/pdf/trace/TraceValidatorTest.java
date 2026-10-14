@@ -227,8 +227,12 @@ class TraceValidatorTest {
                 "\u00C0\u00C9\u00CE",   // synthetic-ok: accented Latin
                 "Xxxx \u093F")) {   // a mark left behind by itself
             List<String> kinds = TraceValidator.privacyKinds(List.of(new PositionedText(text, 0f, 0f, 0)));
+            // Ten digits in any script are also a long number to the number check.
+            List<String> expected = text.codePoints().filter(Character::isDigit).count() >= 6
+                    ? List.of("unmasked text in another script", "number split into groups")
+                    : List.of("unmasked text in another script");
             assertThat(kinds).as("code points %s", text.codePoints().boxed().toList())
-                    .containsExactly("unmasked text in another script");
+                    .containsExactlyElementsOf(expected);
         }
     }
 

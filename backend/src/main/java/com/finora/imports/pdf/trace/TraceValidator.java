@@ -172,6 +172,66 @@ public final class TraceValidator {
 
     static final String NUMBER_SPLIT_INTO_GROUPS = "number split into groups";
 
+    static final String UNMASKED_NUMBER = "unmasked number";
+    static final String COPY_DOES_NOT_LINE_UP = "copy does not line up with the statement";
+    private static final Pattern IFSC_IN_TEXT = Pattern.compile("(?<![A-Za-z0-9])([A-Z]{4})0[A-Z0-9]{6}(?![A-Za-z0-9])");
+
+    /**
+     * The exact backstop: compares a copy with the statement it came from, digit by digit, using
+     * only the statement's own text (read by {@link NumberGroups}, the redactor's token rules play
+     * no part). Refused, by kind name only:
+     * <ul>
+     *   <li>"number split into groups": a digit of a long number in the statement (six or more
+     *       digits joined by short separators, across runs and across a wrapped line) still shown
+     *       in the copy at the same place;</li>
+     *   <li>"unmasked number": any other digit shown in the copy that is not part of a value the
+     *       policy keeps (a date, an HH:MM time, an amount) -- the redactor keeps no plain integer,
+     *       so this includes digits glued to a slash, an at sign, a colon or an underscore;</li>
+     *   <li>"copy does not line up with the statement": a different number of runs or of code
+     *       points in a run, which a redactor that only substitutes characters never produces.</li>
+     * </ul>
+     * A '9' is never counted (it reads the same masked or not), and neither is the fixed fifth
+     * character '0' of an IFSC whose copy is the IFSC rule's own output: it is the format, not data.
+     */
+    public static List<String> copyLeaks(List<PositionedText> original, List<PositionedText> copy) {
+        if (original.size() != copy.size()) return List.of(COPY_DOES_NOT_LINE_UP);
+        NumberGroups.Kind[][] kinds = NumberGroups.scanByLine(original);
+        LinkedHashSet<String> found = new LinkedHashSet<>();
+        for (int r = 0; r < original.size(); r++) {
+            String o = original.get(r).text();
+            String c = copy.get(r).text();
+            if (o == null || c == null) {
+                if (o != c) found.add(COPY_DOES_NOT_LINE_UP);
+                continue;
+            }
+            int[] copyCps = c.codePoints().toArray();
+            if (copyCps.length != o.codePointCount(0, o.length())) {
+                found.add(COPY_DOES_NOT_LINE_UP);
+                continue;
+            }
+            boolean[] ifscZero = new boolean[o.length()];
+            var ifsc = IFSC_IN_TEXT.matcher(o);
+            while (ifsc.find()) {
+                int zero = ifsc.start() + 4;
+                int cpStart = o.codePointCount(0, ifsc.start());
+                String copied = new String(copyCps, cpStart, Math.min(11, copyCps.length - cpStart));
+                if (copied.equals(ifsc.group(1) + "0XXXXXX")) ifscZero[zero] = true;
+            }
+            int cpIndex = 0;
+            for (int i = 0; i < o.length(); ) {
+                int cp = o.codePointAt(i);
+                if (Character.isDigit(cp) && cp != '9' && copyCps[cpIndex] == cp && !ifscZero[i]) {
+                    NumberGroups.Kind kind = kinds[r][i];
+                    if (kind == NumberGroups.Kind.LONG) found.add(NUMBER_SPLIT_INTO_GROUPS);
+                    else if (kind != NumberGroups.Kind.UNIT) found.add(UNMASKED_NUMBER);
+                }
+                i += Character.charCount(cp);
+                cpIndex++;
+            }
+        }
+        return List.copyOf(found);
+    }
+
     /**
      * The fail-closed backstop behind the redactor's number rules. Printed lines are rebuilt from
      * the runs and read with the redactor's own model ({@link NumberGroups}), treating a group made

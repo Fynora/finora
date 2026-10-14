@@ -81,7 +81,10 @@ public class BlankedCopyService {
         }
 
         List<PositionedText> redacted = PdfTraceRedactor.redact(real.runs());
-        List<String> kinds = TraceValidator.privacyKinds(redacted);
+        // Two checks: the copy on its own, and the copy against the statement digit by digit.
+        java.util.LinkedHashSet<String> refused = new java.util.LinkedHashSet<>(TraceValidator.privacyKinds(redacted));
+        refused.addAll(TraceValidator.copyLeaks(real.runs(), redacted));
+        List<String> kinds = List.copyOf(refused);
         if (!kinds.isEmpty()) {
             metrics.refused();
             throw new BlankedCopyRefusedException(kinds);

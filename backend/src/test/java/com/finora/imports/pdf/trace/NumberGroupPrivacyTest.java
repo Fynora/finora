@@ -108,34 +108,119 @@ class NumberGroupPrivacyTest {
      *  refused when it reaches the check in clear. */
     @ParameterizedTest
     @ValueSource(strings = {
-            "Rs 500", "Page 2 of 5", "10:45", "10:45 12:30", "12 345", "1,234.00", "1,234.00 5,678.00",
+            "10:45", "10:45 12:30", "1,234.00", "1,234.00 5,678.00",
             "01/07/2026", "01/07/2026 31/07/2026", "30/06/2026 14:18", "2026-10-14", "12 Jul '26",
-            "0.00 538.00 25,000.00 24,462.00", "1,00,000", "12,345", "(500)", "-42", "Rs.1,234.00Dr",
+            "0.00 538.00 25,000.00 24,462.00", "1,00,000", "12,345", "(1,234.00)", "-500.00", "Rs.1,234.00Dr",
             "1,234.00 Cr", "12Jul2026", "16-Feb-2026", "01/07/2026-31/07/2026"})
     void valuesReadingNeedsAreKeptAndNotRefused(String text) {
         assertThat(PdfTraceRedactor.redactLine(text)).isEqualTo(text);
-        assertThat(TraceValidator.privacyKinds(List.of(run(text, 100f, 50f, 0f)))).as(text).isEmpty();
+        List<PositionedText> runs = List.of(run(text, 100f, 50f, 0f));
+        assertThat(TraceValidator.privacyKinds(runs)).as(text).isEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, runs)).as("values in clear are not leaks: " + text).isEmpty();
     }
 
-    /** Lines that only look wrapped stay as they are: fewer than six digits across the break, a
-     *  value at the break, a word at the break, or another page. */
+    /** A plain integer is not a value the copy keeps: production (redactor version 4) masked every
+     *  one, and keeping them cost no matches when measured, so they are masked again. */
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(delimiter = '|', value = {
+            "Rs 500      | Rs 999", "Page 2 of 5 | Page 9 of 9", "12 345      | 99 999", "(500)       | (999)",
+            "-42         | -99", "Rs.500      | Xx.999", "500Cr       | 999Xx", "No 404      | No 999",
+    })
+    void plainIntegersAreMasked(String input, String expected) {
+        assertThat(PdfTraceRedactor.redactLine(input.trim())).isEqualTo(expected.trim());
+    }
+
+    /** The reviewer's second round of probes. Each is fully masked by the redactor, and the exact
+     *  check -- which compares the copy with the statement -- refuses it when the redactor is
+     *  bypassed (the copy equal to the statement). */
+    static Stream<List<PositionedText>> secondRoundProbes() {
+        return Stream.of(
+                // synthetic-ok: a table row's narration cell wraps; amounts sit right of it on both lines
+                List.of(run("IMPS TO MOB 98765", 100f, 50f, 85f), run("1,234.00", 400f, 50f, 40f),
+                        run("43210 ASHA", 100f, 62f, 50f), run("5,000.00", 400f, 62f, 40f)),
+                List.of(run("98765\u200B43210", 100f, 50f, 50f)),              // synthetic-ok: zero-width space
+                List.of(run("98765\u00AD43210", 100f, 50f, 50f)),              // synthetic-ok: soft hyphen
+                List.of(run("98765\uDB40\uDC2D43210", 100f, 50f, 50f)),       // synthetic-ok: tag hyphen
+                List.of(run("98765\uE00043210", 100f, 50f, 50f)),              // synthetic-ok: private-use dash
+                List.of(run("98765 \uFF14\uFF13\uFF12\uFF11\uFF10", 100f, 50f, 55f)), // synthetic-ok: full-width half
+                // synthetic-ok: runs whose width was never measured, far apart
+                List.of(new PositionedText("98765", 100f, 50f, 0), new PositionedText("43210", 400f, 50f, 0)),
+                // synthetic-ok: y drifting 1.2pt per run
+                List.of(run("98765", 100f, 50f, 25f), run("43210", 127f, 51.2f, 25f), run("12345", 154f, 52.4f, 25f)),
+                List.of(run("98765 -- 43210", 100f, 50f, 70f)),                 // synthetic-ok: four-character separator
+                List.of(run("98765 / - 43210", 100f, 50f, 75f)),                // synthetic-ok: five-character separator
+                // synthetic-ok: a page break between the halves
+                List.of(new PositionedText("Mobile 98765", 100f, 700f, 0, 60f),
+                        new PositionedText("43210", 100f, 50f, 1, 25f)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("secondRoundProbes")
+    void secondRoundProbesAreMaskedAndTheExactCheckRefusesThemUnmasked(List<PositionedText> runs) {
+        List<PositionedText> redacted = PdfTraceRedactor.redact(runs);
+        for (int i = 0; i < runs.size(); i++) {
+            String original = runs.get(i).text();
+            String copy = redacted.get(i).text();
+            if (original.matches("[0-9,]+\\.[0-9]{2}")) {
+                assertThat(copy).as("an amount beside the narration").isIn(original, original.replaceAll("[0-9]", "9"));
+                continue;
+            }
+            assertThat(clearDigits(original, copy)).as(original + " -> " + copy).isZero();
+            assertThat(copy.codePoints().filter(cp -> cp > 127 && Character.isDigit(cp))).isEmpty();
+        }
+        assertThat(TraceValidator.copyLeaks(runs, redacted)).isEmpty();
+        assertThat(TraceValidator.privacyKinds(redacted)).isEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, runs)).isNotEmpty();
+    }
+
+    /** Every earlier probe too: the exact check refuses each unmasked, and passes each masked. */
+    @ParameterizedTest
+    @MethodSource("oneRunProbes")
+    void theExactCheckRefusesEveryOneRunProbeUnmasked(String text) {
+        List<PositionedText> runs = List.of(run(text, 100f, 50f, 0f));
+        assertThat(TraceValidator.copyLeaks(runs, runs)).as(text).isNotEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, PdfTraceRedactor.redact(runs))).as(text).isEmpty();
+    }
+
+    @ParameterizedTest
+    @MethodSource("multiRunProbes")
+    void theExactCheckRefusesEveryMultiRunProbeUnmasked(List<PositionedText> runs) {
+        assertThat(TraceValidator.copyLeaks(runs, runs)).isNotEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, PdfTraceRedactor.redact(runs))).isEmpty();
+    }
+
+    /** The IFSC rule keeps the bank prefix and the fixed fifth character, always '0' in an IFSC;
+     *  that digit is the format, not data, and is the one digit the exact check lets through. */
     @Test
-    void shortOrValueEndingLinesAreNotJoined() {
+    void anIfscsFixedZeroIsNotALeakButItsBranchDigitsAre() {
+        List<PositionedText> runs = List.of(run("IFSC HDFC0001234", 100f, 50f, 0f));   // synthetic-ok: invented branch code
+        assertThat(TraceValidator.copyLeaks(runs, PdfTraceRedactor.redact(runs))).isEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, runs)).isNotEmpty();
+    }
+
+    /** A copy that does not line up with the statement (a different number of runs or code points)
+     *  cannot be checked digit by digit, so it is refused. */
+    @Test
+    void aCopyThatDoesNotLineUpIsRefused() {
+        List<PositionedText> runs = List.of(run("Balance 1,234.00", 100f, 50f, 0f));
+        assertThat(TraceValidator.copyLeaks(runs, List.of(run("Balance 1,234.0", 100f, 50f, 0f)))).isNotEmpty();
+        assertThat(TraceValidator.copyLeaks(runs, List.of())).isNotEmpty();
+    }
+
+    /** At a line break where a value ends one line or starts the next, the value is kept and
+     *  nothing is refused. */
+    @Test
+    void valuesAtALineBreakAreKept() {
         List<List<PositionedText>> cases = List.of(
-                List.of(run("Total 12", 100f, 50f, 40f), run("345 items", 100f, 62f, 45f)),        // 5 digits
-                List.of(run("Page 2 of 5", 100f, 50f, 55f), run("1,234.00 Cr", 100f, 62f, 55f)),  // a value starts the next line
-                List.of(run("Balance 1,234.00", 100f, 50f, 80f), run("98765 Xxxx", 100f, 62f, 50f)), // a value ends the line
-                List.of(run("No 98765 here", 100f, 50f, 65f), run("43210", 100f, 62f, 25f)),     // a word at the break
-                List.of(new PositionedText("Page 98765", 100f, 50f, 0, 50f),
-                        new PositionedText("43210", 100f, 62f, 1, 25f)));                        // another page
+                List.of(run("Page 2 of 5", 100f, 50f, 55f), run("1,234.00 Cr", 100f, 62f, 55f)),
+                List.of(run("Balance 1,234.00", 100f, 50f, 80f), run("98765 Xxxx", 100f, 62f, 50f)),
+                List.of(run("Total 12", 100f, 50f, 40f), run("01/07/2026 UPI", 100f, 62f, 70f)));
         for (List<PositionedText> runs : cases) {
             List<PositionedText> redacted = PdfTraceRedactor.redact(runs);
-            for (int i = 0; i < runs.size(); i++) {
-                String original = runs.get(i).text();
-                String digitsKept = original.replaceAll("[^0-9]", "");
-                assertThat(redacted.get(i).text().replaceAll("[^0-9]", "")).as(original).isEqualTo(digitsKept);
-            }
-            assertThat(TraceValidator.privacyKinds(runs)).as(runs.toString()).isEmpty();
+            assertThat(String.join(" ", redacted.stream().map(PositionedText::text).toList()))
+                    .containsAnyOf("1,234.00", "01/07/2026");
+            assertThat(TraceValidator.copyLeaks(runs, redacted)).isEmpty();
+            assertThat(TraceValidator.privacyKinds(redacted)).isEmpty();
         }
     }
 

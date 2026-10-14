@@ -22,9 +22,10 @@ import java.util.regex.Pattern;
  *
  * <p>A <b>group</b> is any other run of ASCII digits. Units and groups <b>chain</b> when one to
  * {@value #MAX_SEPARATOR} characters with no word character separate them (a space of any width, a
- * dash, a slash, a colon, an underscore, a dot, a comma, a double space). A chain holding a group
- * and {@value #LONG_DIGITS} or more digits in all is one number -- a mobile, card, account or
- * Aadhaar number printed in pieces -- and its groups are {@link Kind#LONG}.
+ * dash, a slash, a colon, an underscore, a dot, a comma, a double space, a format or private-use
+ * character). A chain holding a group and {@value #LONG_DIGITS} or more digits in all is one number
+ * -- a mobile, card, account or Aadhaar number printed in pieces -- and every digit in it is
+ * {@link Kind#LONG}. Digits are any script's.
  */
 final class NumberGroups {
 
@@ -86,8 +87,16 @@ final class NumberGroups {
                 || Character.getType(cp) == Character.FORMAT;
     }
 
-    private static boolean isDigit(char c) {
-        return c >= '0' && c <= '9';
+    /** A digit in any script (a full-width or Devanagari digit counts as much as an ASCII one). */
+    private static boolean isDigit(int cp) {
+        return Character.isDigit(cp);
+    }
+
+    /** Inside a digit chain anything that is not a letter or a digit separates groups: spaces of
+     *  every width, dashes, symbols, and also format characters, marks, private-use characters and
+     *  surrogates, any of which can be slipped between the groups of a number. */
+    private static boolean isSeparator(int cp) {
+        return !Character.isLetterOrDigit(cp);
     }
 
     private static boolean isSpace(char c) {
@@ -131,26 +140,26 @@ final class NumberGroups {
                 int s = i;
                 while (i < n && unit[i]) i++;
                 elements.add(new int[] {s, i, 1});
-            } else if (isDigit(text.charAt(i))) {
+            } else if (isDigit(text.codePointAt(i))) {
                 int s = i;
-                while (i < n && isDigit(text.charAt(i)) && !unit[i]) i++;
+                while (i < n && !unit[i] && isDigit(text.codePointAt(i))) i += Character.charCount(text.codePointAt(i));
                 if (!(maskedAware && text.substring(s, i).chars().allMatch(c -> c == '9'))) {
                     elements.add(new int[] {s, i, 0});
                 }
             } else {
-                i++;
+                i += Character.charCount(text.codePointAt(i));
             }
         }
         List<Chain> chains = new ArrayList<>();
         int e = 0;
         while (e < elements.size()) {
             int end = e + 1;
-            while (end < elements.size() && links(text, elements.get(end - 1)[1], elements.get(end)[0])) end++;
+            while (end < elements.size() && links(text, elements.get(end - 1), elements.get(end))) end++;
             Chain chain = new Chain();
             for (int k = e; k < end; k++) {
                 int[] el = elements.get(k);
                 chain.elements.add(el);
-                for (int c = el[0]; c < el[1]; c++) if (isDigit(text.charAt(c))) chain.digits++;
+                chain.digits += (int) text.substring(el[0], el[1]).codePoints().filter(NumberGroups::isDigit).count();
                 if (el[2] == 0) chain.hasGroup = true;
             }
             chains.add(chain);
@@ -159,14 +168,24 @@ final class NumberGroups {
         return chains;
     }
 
+    /** Per char: UNIT for a value's digits, SHORT for a short chain's group digits, and LONG for
+     *  every digit of a long chain -- a value's too, since the copy must not show any digit of a
+     *  number that may identify someone. (A surrogate pair's two chars get the same kind.) */
     private static Kind[] kinds(String text, List<Chain> chains) {
         Kind[] kinds = new Kind[text.length()];
         java.util.Arrays.fill(kinds, Kind.NONE);
         for (Chain chain : chains) {
-            Kind groupKind = chain.isLong() ? Kind.LONG : Kind.SHORT;
+            boolean isLong = chain.isLong();
             for (int[] el : chain.elements) {
-                for (int c = el[0]; c < el[1]; c++) {
-                    if (isDigit(text.charAt(c))) kinds[c] = el[2] == 1 ? Kind.UNIT : groupKind;
+                int c = el[0];
+                while (c < el[1]) {
+                    int cp = text.codePointAt(c);
+                    int width = Character.charCount(cp);
+                    if (isDigit(cp)) {
+                        Kind kind = isLong ? Kind.LONG : el[2] == 1 ? Kind.UNIT : Kind.SHORT;
+                        for (int w = 0; w < width; w++) kinds[c + w] = kind;
+                    }
+                    c += width;
                 }
             }
         }
@@ -179,9 +198,10 @@ final class NumberGroups {
      * after it, the next line on the same page starts with a plain digit group with only whitespace
      * before it, and at most {@value #MAX_SEPARATOR} other non-word characters sit at the break
      * (a wrap hyphen), the two chains are one number; a run of such links over several lines is
-     * one number too. Six or more digits in all mask every plain group in it. Over-masking a table
-     * whose rows end and start in plain integers is accepted: an amount with decimals is a value
-     * and never links this way.
+     * one number too. Six or more digits in all make every digit in it long. Covered: consecutive
+     * printed lines on one page only, where the number ends the upper line and starts the lower one.
+     * Plain integers are masked anyway; this decides whether values in such a number are masked
+     * too, and lets the exact check see the number whole.
      */
     static List<Kind[]> scanLines(List<Line> lines, boolean maskedAware) {
         List<List<Chain>> perLine = new ArrayList<>();
@@ -224,24 +244,35 @@ final class NumberGroups {
         int[] start = first.elements.get(0);
         if (end[2] != 0 || start[2] != 0) return false;
         int others = 0;
-        for (int c = end[1]; c < above.length(); c++) {
-            char ch = above.charAt(c);
-            if (isWordChar(ch)) return false;
-            if (!isSpace(ch)) others++;
-        }
-        for (int c = 0; c < start[0]; c++) {
-            char ch = below.charAt(c);
-            if (isWordChar(ch)) return false;
-            if (!isSpace(ch)) others++;
+        for (int cp : (above.substring(end[1]) + below.substring(0, start[0])).codePoints().toArray()) {
+            if (!isSeparator(cp)) return false;
+            if (!(Character.isWhitespace(cp) || Character.isSpaceChar(cp))) others++;
         }
         return others <= MAX_SEPARATOR;
     }
 
     /** One to {@value #MAX_SEPARATOR} characters, none of them a word character. */
+    /**
+     * Whether two neighbouring elements are one number: separated by one to {@value #MAX_SEPARATOR}
+     * separator code points. A value does not link to a plain group of {@value #LONG_DIGITS} or more
+     * digits: such a group is a whole number on its own (and masked on its own), and an amount
+     * printed after a reference number is a separate value, not more digits of it.
+     */
+    private static boolean links(String text, int[] left, int[] right) {
+        if (left[2] != right[2]) {
+            int[] group = left[2] == 0 ? left : right;
+            if (text.substring(group[0], group[1]).codePoints().filter(NumberGroups::isDigit).count() >= LONG_DIGITS) {
+                return false;
+            }
+        }
+        return links(text, left[1], right[0]);
+    }
+
     private static boolean links(String text, int from, int to) {
-        int length = to - from;
-        if (length < 1 || length > MAX_SEPARATOR) return false;
-        for (int c = from; c < to; c++) if (isWordChar(text.charAt(c))) return false;
+        if (to <= from) return false;
+        int[] between = text.substring(from, to).codePoints().toArray();
+        if (between.length > MAX_SEPARATOR) return false;
+        for (int cp : between) if (!isSeparator(cp)) return false;
         return true;
     }
 
@@ -286,7 +317,7 @@ final class NumberGroups {
         int q = p + step;
         if (p < 0 || p >= text.length() || q < 0 || q >= text.length()) return false;
         char c = text.charAt(p);
-        return !isSpace(c) && !isWordChar(c) && isDigit(text.charAt(q)) && !in[q];
+        return !isSpace(c) && !isWordChar(c) && isDigit(text.codePointAt(q)) && !in[q];
     }
 
     private static void addMatches(List<int[]> out, Matcher m, String text, java.util.function.Predicate<String> valid) {
@@ -312,9 +343,7 @@ final class NumberGroups {
      *  from ({run index, char index}, or null for a joiner). */
     record Line(String text, List<int[]> origin, int page) {}
 
-    /** How each run's digits group on its line, and the line chars just before and after the run
-     *  ('\0' at the line's edge), so a token at a run's edge is judged in its line. */
-    record Scan(Kind[][] kinds, char[] before, char[] after) {}
+
 
     /**
      * Runs on one page whose y is within {@value #LINE_Y_TOLERANCE}pt of the line's first run, read
@@ -386,11 +415,9 @@ final class NumberGroups {
     }
 
     /** {@link #scan} over each printed line (joined with the redactor's margin), mapped back to
-     *  each run's chars, with each run's neighbouring line chars. */
-    static Scan scanByLine(List<PositionedText> runs) {
+     *  each run's chars. */
+    static Kind[][] scanByLine(List<PositionedText> runs) {
         Kind[][] kinds = new Kind[runs.size()][];
-        char[] before = new char[runs.size()];
-        char[] after = new char[runs.size()];
         for (int r = 0; r < runs.size(); r++) {
             String text = runs.get(r).text();
             kinds[r] = new Kind[text == null ? 0 : text.length()];
@@ -405,12 +432,8 @@ final class NumberGroups {
                 int[] o = line.origin().get(p);
                 if (o == null) continue;
                 kinds[o[0]][o[1]] = lineKinds[p];
-                if (o[1] == 0) before[o[0]] = p > 0 ? line.text().charAt(p - 1) : '\0';
-                if (o[1] == runs.get(o[0]).text().length() - 1) {
-                    after[o[0]] = p + 1 < line.text().length() ? line.text().charAt(p + 1) : '\0';
-                }
             }
         }
-        return new Scan(kinds, before, after);
+        return kinds;
     }
 }

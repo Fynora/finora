@@ -33,8 +33,9 @@ import java.util.regex.Pattern;
  * is what allows a trace to regression-test date parsing, running balances and (once it exists)
  * reconciliation against the statement's own arithmetic. Redacting them would leave a fixture that
  * can only ever test header detection. From version 5 the same holds for the value shapes reading
- * takes amounts and directions from: an amount with a rupee prefix or a glued Cr/Dr, an integer of
- * at most five digits or grouped with commas, a glued or apostrophe-year date, and a lone C or D.
+ * takes amounts and directions from: an amount with a rupee prefix or a glued Cr/Dr, a
+ * comma-grouped amount, a glued or apostrophe-year date, and a lone C or D as a whole run. A plain
+ * integer is masked, as it always was.
  */
 public final class PdfTraceRedactor {
 
@@ -56,15 +57,19 @@ public final class PdfTraceRedactor {
     // Version 5: an IFSC keeps the punctuation at its edges, so its masked token is as long as the
     // real one. An invisible format character inside a token is masked to x. Kept now: amounts with
     // a currency prefix or a glued Cr/Dr, glued day-month dates, apostrophe-year dates,
-    // amount-shaped integers (comma-grouped, or at most five digits) and lone C/D markers. (The
+    // comma-grouped amounts and lone C/D markers. (The
     // reader's own label words were added to the allowlist at the same time; the allowlist
     // fingerprint tracks that on its own.) A changed run keeps its width rounded to a whole point
     // instead of losing it. Digits are read per printed line (NumberGroups): groups joined by up to
     // three non-word characters of any kind are one number, and six or more digits together are
-    // masked; a short integer is kept only when it stands on its own; comma-grouped amounts keep at
-    // most eight integer digits; a numeric date must have real day/month parts. Every format
+    // masked, the values in such a number included; a number token is kept only when every digit
+    // is part of a value (a date, an HH:MM time, an amount), so no plain integer is kept (keeping
+    // integers of up to five digits was tried within this version and measured to win no
+    // matches); comma-grouped amounts keep at most eight integer digits; a numeric date must have
+    // real day/month parts. Every format
     // character is masked, a lone C/D is kept only as a whole run, and a changed run's x is rounded
-    // like its width. TraceValidator.privacyKinds refuses what these rules never keep.
+    // like its width. TraceValidator.privacyKinds refuses what these rules never keep, and
+    // TraceValidator.copyLeaks compares the copy with the statement digit by digit.
     public static final int REDACTOR_VERSION = 5;
 
     /**
@@ -140,12 +145,12 @@ public final class PdfTraceRedactor {
     /** Version 5: a day glued to its month, with or without a glued year ("12Jul", "12Jul2026"),
      *  which CsvParser reads by splitting at the letter-digit boundaries (MISSING_SEPARATOR). */
     static final Pattern GLUED_DAY_MONTH_DATE_LIKE = Pattern.compile(
-            "\\d{1,2}" + MONTH_NAME + "(?:\\d{2}|\\d{4})?", Pattern.CASE_INSENSITIVE);
+            "\\d{1,2}" + MONTH_NAME + "(?:\\d{4}|\\d{2})?", Pattern.CASE_INSENSITIVE);
     /**
-     * Version 5: an integer printed the way an amount is -- comma-grouped in the Indian or the
-     * western way ("1,00,000", "12,345"), or plain with at most five digits. Reading takes amounts
-     * printed without decimals from these. A plain integer of six or seven digits stays masked: six
-     * digits can be a PIN code, and eight or more are a reference (LONG_DIGIT_RUN, checked first).
+     * An integer shape a number rule recognises: comma-grouped in the Indian or the western way
+     * ("1,00,000", "12,345"), or plain. Matching it only makes a token a candidate: it is kept only
+     * when its digits are a value on the printed line (see {@link #allUnit}), which a comma-grouped
+     * amount within its cap can be and a plain integer never is.
      */
     private static final String AMOUNT_SHAPED_INTEGER =
             "(?:\\d{1,3}(?:,\\d{2})*,\\d{3}|\\d{1,3}(?:,\\d{3})+|\\d{1,5})";
@@ -322,21 +327,20 @@ public final class PdfTraceRedactor {
      * where it was printed, which is what those readers need, while letters, which differ in width
      * by fractions of a point, are far less constrained than by the measured value.
      *
-     * <p><b>Why runs are not redacted one by one alone.</b> A short integer is kept, but a card,
-     * account or mobile number printed in groups is several short integers, in one run or split
-     * across neighbouring runs. Digits are therefore read per printed line first (see
-     * {@link NumberGroups}): a group that chains into six or more digits is masked, and a short
-     * integer is kept only when it stands on its own. A changed run's x and width are rounded to a
-     * whole point.
+     * <p><b>Why runs are not redacted one by one alone.</b> Whether a date or an amount is a value
+     * depends on its neighbours, in the same run or the next one: glued to another number it is part
+     * of that number. Digits are therefore read per printed line first (see {@link NumberGroups}),
+     * and a token is kept only when its digits are a value that is not part of a long number. A
+     * changed run's x and width are rounded to a whole point.
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
         Set<String> vocabulary = vocabulary();
-        NumberGroups.Scan scan = NumberGroups.scanByLine(runs);
+        NumberGroups.Kind[][] kinds = NumberGroups.scanByLine(runs);
         List<PositionedText> out = new ArrayList<>(runs.size());
         for (int r = 0; r < runs.size(); r++) {
             PositionedText run = runs.get(r);
             String redacted = redactText(run.text(), vocabulary,
-                    new Context(run.text(), scan.kinds()[r], scan.before()[r], scan.after()[r]));
+                    new Context(run.text(), kinds[r]));
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
             // A changed run's x is rounded like its width: an exact x beside a rounded width would
             // let the width be recovered from the gap to the next run.
@@ -373,7 +377,7 @@ public final class PdfTraceRedactor {
 
     static String redactText(String text, Set<String> vocabulary) {
         return redactText(text, vocabulary,
-                text == null ? null : new Context(text, NumberGroups.scan(text), '\0', '\0'));
+                text == null ? null : new Context(text, NumberGroups.scan(text)));
     }
 
     /** {@code ctx} says, per char of {@code text}, how each digit groups into a number on its
@@ -406,10 +410,16 @@ public final class PdfTraceRedactor {
         return redactTokens(text, vocabulary, ctx, 0);
     }
 
-    /** The whole run being redacted, how its digits group, and the line chars just before and
-     *  after it ('\0' at a line edge), for judging one token in context. */
-    record Context(String text, NumberGroups.Kind[] kinds, char before, char after) {}
+    /** The whole run being redacted and how its digits group on the printed line. */
+    record Context(String text, NumberGroups.Kind[] kinds) {}
 
+    /**
+     * A token a number rule matched is kept only when every digit in it is part of a value that
+     * stands apart on its printed line (a date, an HH:MM time, a decimal amount, a comma-grouped
+     * amount within its cap) and not part of a long number (see {@link NumberGroups}). A plain
+     * integer is never kept: keeping integers of up to five digits was tried and measured to win no
+     * matches, while every way of printing a number in pieces leaked through it.
+     */
     private static boolean allUnit(Context ctx, int from, int to) {
         for (int k = from; k < to; k++) {
             char c = ctx.text().charAt(k);
@@ -539,7 +549,7 @@ public final class PdfTraceRedactor {
                 || GLUED_DAY_MONTH_DATE_LIKE.matcher(bare).matches()
                 || AMOUNT_WITH_DIRECTION_LIKE.matcher(bare).matches()
                 || CURRENCY_AMOUNT_LIKE.matcher(bare).matches()) {
-            return keepsNumber(ctx, bareStart, bareStart + bare.length(), integerShaped) ? token : mask(token);
+            return allUnit(ctx, bareStart, bareStart + bare.length()) ? token : mask(token);
         }
         // ASCII only: some characters lower-case into ASCII (the Kelvin sign becomes "k"), and a
         // word spelled with one is not the vocabulary word.
@@ -563,52 +573,6 @@ public final class PdfTraceRedactor {
             return rejoined.toString();
         }
         return mask(token);
-    }
-
-    /**
-     * Whether a token a number rule matched may be kept, judged by how its digits group on the
-     * printed line ({@link NumberGroups}): never when a digit is part of a six-or-more-digit chain;
-     * always when every digit is part of a value (a date, a time, an amount); otherwise, for an
-     * integer, only when it stands on its own -- bounded by whitespace, the run's edge, a bracket,
-     * a currency symbol or a leading sign, never glued to a slash, an at sign, a colon, an
-     * underscore, a letter or a comma, as an identifier's digits are.
-     */
-    private static boolean keepsNumber(Context ctx, int from, int to, boolean integerShaped) {
-        NumberGroups.Kind[] kinds = ctx.kinds();
-        boolean allUnit = true;
-        for (int k = Math.max(0, from); k < Math.min(to, kinds == null ? 0 : kinds.length); k++) {
-            if (kinds[k] == NumberGroups.Kind.LONG) return false;
-            if (kinds[k] == NumberGroups.Kind.SHORT) allUnit = false;
-        }
-        if (kinds == null) allUnit = false;
-        if (allUnit || !integerShaped) return true;
-        return standsAlone(ctx, from, to);
-    }
-
-    /** Judged in the printed line: at the run's edge, the neighbouring run's char counts. */
-    private static boolean standsAlone(Context ctx, int from, int to) {
-        String text = ctx.text();
-        char before = from > 0 ? text.charAt(from - 1) : ctx.before();
-        char beforeSign = from > 1 ? text.charAt(from - 2) : from == 1 ? ctx.before() : '\0';
-        char after = to < text.length() ? text.charAt(to) : ctx.after();
-        boolean left = before == '\0' || isOpening(before)
-                || (isSign(before) && (beforeSign == '\0' || isOpening(beforeSign)));
-        boolean right = after == '\0' || isClosing(after);
-        return left && right;
-    }
-
-    private static boolean isOpening(char c) {
-        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == '(' || c == '[' || c == '{'
-                || Character.getType(c) == Character.CURRENCY_SYMBOL;
-    }
-
-    private static boolean isClosing(char c) {
-        return Character.isWhitespace(c) || Character.isSpaceChar(c) || c == ')' || c == ']' || c == '}'
-                || Character.getType(c) == Character.CURRENCY_SYMBOL;
-    }
-
-    private static boolean isSign(char c) {
-        return c == '+' || c == '-' || c == '\u2212';
     }
 
     /** An amount whose number ends in one or two decimals, before an optional glued Cr/Dr. */

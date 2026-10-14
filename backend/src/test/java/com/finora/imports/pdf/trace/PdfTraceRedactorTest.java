@@ -63,16 +63,16 @@ class PdfTraceRedactorTest {
         assertThat(redact("Mayfair Stores")).isEqualTo("Xxxxxxx Xxxxxx");
         assertThat(redact("May Flowers")).isEqualTo("Xxx Xxxxxxx");
         // A word that merely begins with a month abbreviation is not a month.
-        assertThat(redact("Martin 12 Marketing")).isEqualTo("Xxxxxx 12 Xxxxxxxxx");
-        assertThat(redact("12 Marketing")).isEqualTo("12 Xxxxxxxxx");
+        assertThat(redact("Martin 12 Marketing")).isEqualTo("Xxxxxx 99 Xxxxxxxxx");
+        assertThat(redact("12 Marketing")).isEqualTo("99 Xxxxxxxxx");
     }
 
-    /** Up to version 4 every standalone number was masked, page numbers included. From version 5
-     *  an integer of up to five digits is kept: reading takes amounts printed without decimals from
-     *  them, and a six-digit integer (a PIN code) or longer still is masked. */
+    /** A plain integer is masked, page numbers included: keeping integers of up to five digits was
+     *  tried in redactor version 5 and measured to win no matches while letting numbers printed in
+     *  pieces through, so every standalone integer is masked as in version 4. */
     @Test
-    void aPageFooterKeepsItsNumbers() {
-        assertThat(redact("Page 1 of 2")).isEqualTo("Page 1 of 2");
+    void aPageFooterKeepsItsShapeThoughNotItsNumbers() {
+        assertThat(redact("Page 1 of 2")).isEqualTo("Page 9 of 9");
     }
 
     /**
@@ -82,11 +82,11 @@ class PdfTraceRedactorTest {
      */
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "Rs.1,234.00", "Rs 500", "INR 1,234.00", "\u20B9500.00", "Rs1,234.00", "INR1,234.00", "Rs.500",
+            "Rs.1,234.00", "INR 1,234.00", "\u20B9500.00", "Rs1,234.00", "INR1,234.00",
             "1,234.00Cr", "500.00DR", "1,234.00cr", "Rs.1,234.00Dr",
             "12Jul", "12Jul2026", "12jul26", "05Sept2026",
             "Jul '26", "12 Jul'26", "12 Jul '26", "12 Jul\u201926",
-            "1,00,000", "12,345", "1,234,567", "12345", "7", "(500)", "-42",
+            "1,00,000", "12,345", "1,234,567",
             "C", "d",
     })
     void aValueShapeReadingNeedsIsKept(String line) {
@@ -106,21 +106,13 @@ class PdfTraceRedactorTest {
             "Call 98765-43210 now        | Xxxx 99999-99999 xxx",      // synthetic-ok: hyphenated
             "123 456                     | 999 999",                   // six digits: the boundary
             "Rs.1234 5678                | Xx.9999 9999",              // synthetic-ok: a prefix does not rescue a group
-            "12345 1234.56               | 99999 1234.56",             // the amount is kept, the joined integer is not
+            "12345 1234.56               | 99999 9999.99",             // a value in a long chain is masked with it
     })
     void digitGroupsThatFormSixOrMoreDigitsAreMaskedTogether(String input, String expected) {
         assertThat(redact(input)).isEqualTo(expected.trim());
         assertThat(PdfTraceRedactor.redactLine(input.trim())).isEqualTo(expected.trim());
     }
 
-    /** Short integers that do not join into six digits keep behaving as before. */
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-            "Rs 500", "Page 2 of 5", "10:45", "12 345", "No 404", "10:45 12:30",
-    })
-    void shortIntegersThatDoNotJoinAreStillKept(String line) {
-        assertThat(redact(line)).isEqualTo(line.trim());
-    }
 
     /**
      * A number split across runs on the same line is one number too: runs whose gap is at most one
@@ -145,18 +137,18 @@ class PdfTraceRedactorTest {
                 new PositionedText("98765", 100f, 50f, 0),
                 new PositionedText("43210", 140f, 50f, 0)))))
                 .containsExactly("99999", "99999");
-        // Separate columns on one line: each stays a short kept integer.
+        // Separate columns on one line: plain integers are masked anyway.
         assertThat(texts(PdfTraceRedactor.redact(List.of(
                 new PositionedText("98765", 100f, 50f, 0, 25f),
                 new PositionedText("43210", 300f, 50f, 0, 25f)))))
-                .containsExactly("98765", "43210");
+                .containsExactly("99999", "99999");
         // A line that ends in a plain group followed by a line that starts with one is read as a
         // number wrapped at the line break, so both halves are masked (fail closed).
         assertThat(texts(PdfTraceRedactor.redact(List.of(
                 new PositionedText("98765", 100f, 50f, 0, 25f),
                 new PositionedText("43210", 300f, 50f, 0, 25f),
                 new PositionedText("12345", 100f, 70f, 0, 25f)))))
-                .containsExactly("98765", "99999", "99999");
+                .containsExactly("99999", "99999", "99999");
     }
 
     private static List<String> texts(List<PositionedText> runs) {

@@ -786,4 +786,96 @@ class ImportSessionServiceTest {
         assertThat(rows.get(0).description()).isEqualTo("Coffee Shop");
         assertThat(rows.get(0).amount()).isEqualByComparingTo("150.00");
     }
+
+    // ---------------------------------------------------------------- reports stored by an earlier build
+
+    private StagedRow shownRow(String description, int rowPosition) {
+        return new StagedRow(LocalDate.of(2026, 7, rowPosition), description, new BigDecimal("150.00"),
+                "EXPENSE", "Food & Dining", "rule", null, false, null, null).withRowPosition(rowPosition);
+    }
+
+    /** A COLUMN_AMBIGUITY finding exactly as builds before the numbering fix stored it: each
+     *  rowIndex a place among the LOCATED rows, and no rowIndexBasis key. */
+    private static VerificationFinding storedBeforeTheFix(int... locatedIndexes) {
+        List<java.util.Map<String, Object>> ambiguities = new java.util.ArrayList<>();
+        for (int located : locatedIndexes) {
+            java.util.Map<String, Object> a = new java.util.LinkedHashMap<>();
+            a.put("rowIndex", located);
+            a.put("kind", "BOTH_DIRECTIONS_HAVE_A_VALUE");
+            a.put("column", "Deposit / Withdrawal");
+            a.put("value", "50.00 / 300.00");
+            ambiguities.add(a);
+        }
+        java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("rowsChecked", 5);
+        details.put("ambiguousRows", locatedIndexes.length);
+        details.put("ambiguities", ambiguities);
+        return new VerificationFinding("COLUMN_AMBIGUITY", "WARNING", details);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<java.util.Map<String, Object>> ambiguitiesOf(VerificationReport report) {
+        return (List<java.util.Map<String, Object>>) report.findings().stream()
+                .filter(f -> "COLUMN_AMBIGUITY".equals(f.rule())).findFirst().orElseThrow()
+                .details().get("ambiguities");
+    }
+
+    @Test
+    void aReportStoredBeforeTheNumberingFixIsServedWithTheNumbersTheReviewListUses() {
+        // Located: an opening-balance line (never staged), then B, D, C, A as printed. Shown sorted:
+        // A, B, C, D. The stored numbers 2 and 3 meant the third and fourth located rows -- D and
+        // C -- and the opening line's 0 has no row in the list at all.
+        List<StagedRow> shown = List.of(shownRow("A", 5), shownRow("B", 2), shownRow("C", 4), shownRow("D", 3));
+        VerificationFinding balance = new VerificationFinding("BALANCE_CHAIN", "VERIFIED",
+                java.util.Map.of("rowsChecked", 4));
+        VerificationReport stored = new VerificationReport(List.of(balance, storedBeforeTheFix(2, 3, 0)));
+        ImportSession session = service.createSession(userId, "statement.pdf", new byte[] {1}, shown,
+                null, null, null, null, null, stored);
+
+        VerificationReport served = service.readVerification(session);
+
+        assertThat(ambiguitiesOf(served)).extracting(a -> a.get("rowIndex"))
+                .as("C is shown 3rd and D 4th, listed down the page; the opening line has no number")
+                .containsExactly(2, 3, null);
+        assertThat(ambiguitiesOf(served).get(2)).doesNotContainKey("rowIndex");
+        assertThat(served.findings().get(1).details())
+                .containsEntry(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN)
+                .containsEntry("ambiguousRows", 3);
+        assertThat(served.findings().get(0)).as("every other finding is carried through untouched")
+                .isEqualTo(balance);
+    }
+
+    @Test
+    void aReportStoredAfterTheFixIsServedExactlyAsStored() {
+        // Read as an old number, 1 would mean rowPosition 2 -- A, shown first -- and become 0. An
+        // unchanged 1 (B) therefore proves the marker stopped the conversion.
+        List<StagedRow> shown = List.of(shownRow("A", 2), shownRow("B", 5));
+        VerificationFinding fresh = storedBeforeTheFix(1);
+        fresh.details().put(ColumnAmbiguityValidator.ROW_INDEX_BASIS, ColumnAmbiguityValidator.ROWS_SHOWN);
+        ImportSession session = service.createSession(userId, "statement.pdf", new byte[] {1}, shown,
+                null, null, null, null, null, new VerificationReport(List.of(fresh)));
+
+        assertThat(ambiguitiesOf(service.readVerification(session))).extracting(a -> a.get("rowIndex"))
+                .containsExactly(1);
+    }
+
+    @Test
+    void eachSectionOfAStoredCompositeStatementIsRenumberedAgainstItsOwnRows() {
+        List<StagedRow> first = List.of(shownRow("A", 3), shownRow("B", 2));
+        List<StagedRow> second = List.of(shownRow("C", 2), shownRow("D", 1));
+        ImportSession session = service.createMultiSection(userId, "statement.pdf", new byte[] {1}, List.of(
+                new com.finora.dto.ImportDto.StagedAccountSection(null, first, 2, 0, List.of(),
+                        new VerificationReport(List.of(storedBeforeTheFix(1)))),
+                new com.finora.dto.ImportDto.StagedAccountSection(null, second, 2, 0, List.of(),
+                        new VerificationReport(List.of(storedBeforeTheFix(1)))),
+                new com.finora.dto.ImportDto.StagedAccountSection(null, second, 2, 0, List.of(), null)));
+
+        List<com.finora.dto.ImportDto.StagedAccountSection> served = service.readSections(session);
+
+        // Located index 1 is rowPosition 2: B, shown second in the first section; C, shown first in
+        // the second.
+        assertThat(ambiguitiesOf(served.get(0).verification())).extracting(a -> a.get("rowIndex")).containsExactly(1);
+        assertThat(ambiguitiesOf(served.get(1).verification())).extracting(a -> a.get("rowIndex")).containsExactly(0);
+        assertThat(served.get(2).verification()).isNull();
+    }
 }

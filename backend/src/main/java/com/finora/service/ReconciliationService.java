@@ -911,8 +911,16 @@ public class ReconciliationService {
             // that debit's refund.
             boolean nameCanShowARefund = isFromAnOrganisation(income)
                     && !com.finora.util.BankActivityCategory.isInterestEarned(income.getDescription(), income.getTxnType());
+            // A card crediting back a purchase it converted to instalments. A card issuer's own
+            // worked example prints it as "EMI CONVERSION OF PURCHASE ON <date>" for the purchase's
+            // whole amount, and it names no shop, so neither a refund word nor a merchant links it.
+            // Unlinked, it only gave spend back in its own month and category, which the purchase
+            // rarely shares, so the purchase stayed counted beside its instalments. Linked, it nets
+            // the purchase in the purchase's own month and category. Whole amount only.
+            boolean emiConversion = isCard(income, accountTypes) && FlowClassifier.namesEmiConversion(income.getDescription());
             Transaction bestMatch = null;
             boolean bestMatchSameMerchant = false;
+            boolean bestMatchConversion = false;
             String bestMatchSharedReference = null;
             long bestMatchDaysBetween = 0;
             // A refund lands at or after its purchase and within REFUND_WINDOW_DAYS of it, so the
@@ -944,7 +952,9 @@ public class ReconciliationService {
                 // refund word and no merchant in common, so nothing else here could link them.
                 String sharedReference = firstShared(references.get(income.getId()), references.get(expense.getId()));
                 boolean sameMerchantIsEvidence = sameMerchant && nameCanShowARefund;
-                if (!refundKeyword && !reversalKeyword && !sameMerchantIsEvidence && sharedReference == null) continue;
+                boolean convertsThisPurchase = emiConversion && expense.getAmount().compareTo(income.getAmount()) == 0;
+                if (!refundKeyword && !reversalKeyword && !sameMerchantIsEvidence && sharedReference == null
+                        && !convertsThisPurchase) continue;
 
                 // BH-007: capacity is what's LEFT of the expense, not its original amount -- an
                 // expense already fully claimed by an earlier match (this pass or a prior one) has
@@ -960,6 +970,7 @@ public class ReconciliationService {
                                 : isCloserRefundMatch(expense, bestMatch, income));
                 if (better) {
                     bestMatch = expense;
+                    bestMatchConversion = convertsThisPurchase;
                     bestMatchSharedReference = sharedReference;
                     // Carried out of the loop with the match it belongs to. sameMerchant is
                     // computed per candidate, so recomputing it after the loop would mean
@@ -980,9 +991,11 @@ public class ReconciliationService {
                 // money came back.
                 TransactionRelationship.RelationshipType edgeType;
                 Map<String, Object> explanation;
-                if (reversalKeyword) {
+                // A conversion is the card taking the purchase off its bill, so a reversal too.
+                if (reversalKeyword || bestMatchConversion) {
                     income.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
-                    explanation = ReconciliationExplanation.reversal(income, bestMatch, bestMatchSameMerchant, bestMatchSharedReference);
+                    explanation = ReconciliationExplanation.reversal(income, bestMatch, bestMatchSameMerchant,
+                            bestMatchSharedReference, reversalKeyword, bestMatchConversion);
                     income.setReconciliationExplanation(explanation);
                     newReversals++;
                     edgeType = TransactionRelationship.RelationshipType.REVERSAL;

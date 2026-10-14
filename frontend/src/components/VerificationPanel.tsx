@@ -324,9 +324,10 @@ const RULE_RENDERERS: Record<string, {
     render: (finding) => {
       const d = finding.details as {
         reason?: string; explanation?: string; rowsChecked?: number; ambiguousRows?: number;
-        // ROWS_SHOWN says each rowIndex is the row's place in the review list. Without it the
-        // numbers count the rows as located on the page, before any was dropped or sorted, and
-        // would name another row in the list's # column -- so they are not printed.
+        // ROWS_SHOWN says each rowIndex is the row's place in the review list, and the server leaves
+        // rowIndex out for a row that is not in it. Without the marker the numbers count the rows as
+        // located on the page, before any was dropped or sorted, and would name another row in the
+        // list's # column -- so they are not printed.
         rowIndexBasis?: string;
         ambiguities?: { rowIndex?: number; kind: string; column: string; value: string }[];
       };

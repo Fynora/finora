@@ -861,14 +861,35 @@ public class ImportSessionService {
         requireKind(session, ImportSession.KIND_SINGLE_ACCOUNT);
         String json = session.getVerificationReportJson();
         if (json == null) return null;
-        return readJson(json, VerificationReport.class);
+        return renumberStoredAmbiguities(readJson(json, VerificationReport.class), readStagedRows(session));
     }
 
     /** Multi-account equivalent of {@link #readStagedRows}/{@link #readDetectedAccount} -- see
      *  {@link #createMultiSection}. */
     public List<StagedAccountSection> readSections(ImportSession session) {
         requireKind(session, ImportSession.KIND_MULTI_ACCOUNT);
-        return readJson(session.getSectionsJson(), new TypeReference<List<StagedAccountSection>>() {});
+        List<StagedAccountSection> sections =
+                readJson(session.getSectionsJson(), new TypeReference<List<StagedAccountSection>>() {});
+        if (sections == null) return null;
+        // Replaced in place, so callers keep the mutable list they have always been given.
+        sections.replaceAll(s -> s == null || s.verification() == null ? s
+                : new StagedAccountSection(s.detectedAccount(), s.rows(), s.totalParsed(),
+                        s.flaggedDuplicates(), s.unparseableRows(),
+                        renumberStoredAmbiguities(s.verification(), s.rows())));
+        return sections;
+    }
+
+    /**
+     * A stored report is served again whenever the customer reopens the review, so a report staged
+     * by an earlier build must be read with today's numbering -- see {@link
+     * ColumnAmbiguityValidator#renumberStored}. Only that one finding can change; the rest of the
+     * report, its order and its status are carried through untouched.
+     */
+    private static VerificationReport renumberStoredAmbiguities(VerificationReport report, List<StagedRow> shown) {
+        if (report == null || report.findings() == null) return report;
+        return new VerificationReport(
+                report.findings().stream().map(f -> ColumnAmbiguityValidator.renumberStored(f, shown)).toList(),
+                report.headerReconstructionUncertain(), report.textSource(), report.reliabilityStatus());
     }
 
     /** Credit-card statement entity, roadmap item 6 follow-up (PR #451) -- {@link

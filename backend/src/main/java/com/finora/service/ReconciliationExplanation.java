@@ -195,10 +195,18 @@ final class ReconciliationExplanation {
      */
     static Map<String, Object> reversal(Transaction income, Transaction purchase, boolean sameMerchant,
                                         String sharedReference) {
+        return reversal(income, purchase, sameMerchant, sharedReference, true, false);
+    }
+
+    /** @param emiConversion the credit is the card converting this purchase to instalments -- see
+     *                       FlowClassifier.namesEmiConversion */
+    static Map<String, Object> reversal(Transaction income, Transaction purchase, boolean sameMerchant,
+                                        String sharedReference, boolean reversalKeyword, boolean emiConversion) {
         Map<String, Object> reason = new LinkedHashMap<>();
         reason.put("sameAccount", income.getAccountId().equals(purchase.getAccountId()));
         reason.put("dateDifferenceDays", daysBetween(purchase.getTxnDate(), income.getTxnDate()));
-        reason.put("reversalKeyword", true);
+        reason.put("reversalKeyword", reversalKeyword);
+        if (emiConversion) reason.put("emiConversion", true);
         reason.put("sameMerchant", sameMerchant);
         reason.put("reversalAmount", income.getAmount().toPlainString());
         reason.put("purchaseAmount", purchase.getAmount().toPlainString());

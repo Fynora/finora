@@ -62,7 +62,8 @@ class PdfTextExtractorSnapshotTest {
             Path.of("src", "test", "resources", "pdf", "separate_debit_credit_balance_sample.pdf");
 
     private static final Path GOLDEN =
-            Path.of("src", "test", "resources", "golden", "extractor-separate-debit-credit-balance.golden.txt");
+            Path.of(System.getProperty("finora.golden.dir", "src/test/resources/golden"),
+                    "extractor-separate-debit-credit-balance.golden.txt");
 
     @Test
     void theCommittedPdfExtractsToItsCommittedRuns() throws IOException {

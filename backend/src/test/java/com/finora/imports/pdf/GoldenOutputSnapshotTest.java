@@ -7,7 +7,6 @@ import com.finora.imports.pdf.fixtures.PdfTrace;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +42,10 @@ class GoldenOutputSnapshotTest {
             "card-dateless-fee-and-tax-row",
             "savings-ditto-posting-date-beside-value-date");
 
-    private static final Path GOLDEN_DIR = Path.of("src", "test", "resources", "golden");
+    /** The private repository's {@code golden/} under the backend's {@code private-traces} Maven
+     *  profile; see {@link PdfTrace#tracesDir()} for why. */
+    private static final Path GOLDEN_DIR =
+            Path.of(System.getProperty("finora.golden.dir", "src/test/resources/golden"));
 
     private final ProductDiscovery discovery = ProductDiscovery.standard();
 
@@ -148,12 +150,8 @@ class GoldenOutputSnapshotTest {
     @Test
     void everyListedTraceActuallyExists() {
         for (String trace : TRACES) {
-            try (InputStream in = GoldenOutputSnapshotTest.class
-                    .getResourceAsStream("/traces/" + trace + ".trace")) {
-                assertThat(in).as("trace fixture " + trace + " is listed but missing").isNotNull();
-            } catch (IOException e) {
-                throw new AssertionError("could not read trace " + trace, e);
-            }
+            assertThat(PdfTrace.tracesDir().resolve(trace + ".trace"))
+                    .as("trace fixture " + trace + " is listed but missing").isRegularFile();
         }
     }
 }

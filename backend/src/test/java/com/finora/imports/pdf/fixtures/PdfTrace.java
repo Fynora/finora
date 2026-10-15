@@ -6,9 +6,12 @@ import com.finora.imports.pdf.trace.TraceFormat;
 import com.finora.imports.pdf.trace.TraceMetadata;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -54,30 +57,38 @@ public final class PdfTrace {
         return TraceMetadata.parse(read(traceName));
     }
 
-    /** Loads a committed trace from {@code src/test/resources/traces/}. */
+    /** Loads a committed trace from {@link #tracesDir()}. */
     public static List<PositionedText> load(String traceName) {
         return parse(read(traceName));
     }
 
+    /** Where traces live: the private repository's {@code traces/} under the backend's
+     *  {@code private-traces} Maven profile, {@code src/test/resources/traces} otherwise -- empty in
+     *  the public repository since traces moved to Fynora/finora-statement-traces. Read on every
+     *  call rather than once, so a test can point it at a folder of its own. */
+    public static Path tracesDir() {
+        return Path.of(System.getProperty("finora.traces.dir", "src/test/resources/traces"));
+    }
+
     /** The raw file contents, metadata block included. */
     public static String read(String traceName) {
-        String path = "/traces/" + traceName + ".trace";
-        try (InputStream in = PdfTrace.class.getResourceAsStream(path)) {
-            if (in == null) throw new IllegalArgumentException("No such trace fixture: " + path);
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        Path path = tracesDir().resolve(traceName + ".trace");
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (NoSuchFileException e) {
+            throw new IllegalArgumentException("No such trace fixture: " + traceName);
         } catch (IOException e) {
-            throw new UncheckedIOException("Could not read trace fixture " + path, e);
+            throw new UncheckedIOException("Could not read trace fixture " + traceName, e);
         }
     }
 
     /** Every committed trace, by name. The corpus is small enough to enumerate from disk, and
      *  deriving it means a newly captured trace is covered by the corpus-health checks the moment
-     *  it lands rather than when someone adds it to a list. */
+     *  it lands rather than when someone adds it to a list. No folder means no traces. */
     public static List<String> committedTraceNames() {
-        java.io.File dir = new java.io.File("src/test/resources/traces");
-        String[] files = dir.list((d, name) -> name.endsWith(".trace"));
+        String[] files = tracesDir().toFile().list((d, name) -> name.endsWith(".trace"));
         if (files == null) return List.of();
-        return java.util.Arrays.stream(files)
+        return Arrays.stream(files)
                 .map(name -> name.substring(0, name.length() - ".trace".length()))
                 .sorted()
                 .toList();

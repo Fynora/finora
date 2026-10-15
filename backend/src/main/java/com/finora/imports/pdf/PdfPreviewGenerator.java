@@ -206,6 +206,16 @@ public class PdfPreviewGenerator {
      */
     public PdfGenerationResult generateSectionsFromAcquired(UUID userId, String filename,
             com.finora.imports.pdf.acquisition.AcquiredDocument acquired) {
+        return generateSectionsFromAcquired(userId, filename, acquired, null);
+    }
+
+    /**
+     * The same reading, also handing each staged section's row map to {@code rowMap} (see
+     * {@link RowMapSink}). Only the blanked copy passes a sink: the row map goes to it and nowhere
+     * else, and a null sink reads exactly as the overload above.
+     */
+    public PdfGenerationResult generateSectionsFromAcquired(UUID userId, String filename,
+            com.finora.imports.pdf.acquisition.AcquiredDocument acquired, RowMapSink rowMap) {
         DocumentContext ctx = new DocumentContext("PDF", "PdfPreviewGenerator");
         List<PositionedText> positioned = acquired.runs();
         // A count, never the text. Lets ExtractionCheck tell "the pages carry no text" from
@@ -376,7 +386,8 @@ public class PdfPreviewGenerator {
             // the contradiction -- printed activity, nothing staged -- with nothing to state it.
             StagedAccountSection section = buildLedgerSection(userId, filename, emptySection, unknown, ctx,
                     printedSummary, printedCreditCardSummary, printedDateRange, gridPaymentDueDate,
-                    gridCreditLimit, gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, 1);
+                    gridCreditLimit, gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, 1,
+                    rowMap == null ? null : lines -> rowMap.section(0, lines));
             return new PdfGenerationResult(List.of(surfaceUnrecognizedText(section, empty.preTableLines())), ctx,
                     printedCreditCardSummary);
         }
@@ -387,10 +398,15 @@ public class PdfPreviewGenerator {
             // Built with no summary regardless. Which section a document-level summary belongs to
             // is not answerable here -- see attributePrintedSummary below, which decides it once
             // every section exists.
+            // A located section can become several staged sections (see buildSections), so the row
+            // map is filed under the staged section's own index: the one a blanked-copy difference
+            // names. Every step after this loop keeps the staged sections' number and order.
+            int stagedIndex = result.size();
             List<StagedAccountSection> staged = buildSections(userId, filename, doc.sections().get(i),
                     i, doc.sections().size(), ctx, PrintedSummary.NONE, printedCreditCardSummary,
                     printedDateRange, gridPaymentDueDate, gridCreditLimit, gridAccountNumberMasked,
-                    gridAccountNumberIsCardLabelled, printedBalances);
+                    gridAccountNumberIsCardLabelled, printedBalances,
+                    rowMap == null ? null : lines -> rowMap.section(stagedIndex, lines));
             for (StagedAccountSection s : staged) unparseableAcrossDocument.addAll(s.unparseableRows());
             result.addAll(staged);
         }
@@ -431,7 +447,8 @@ public class PdfPreviewGenerator {
                                                       LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                       String gridAccountNumberMasked,
                                                       boolean gridAccountNumberIsCardLabelled,
-                                                      PrintedBalanceExtractor.PrintedBalances printedBalances) {
+                                                      PrintedBalanceExtractor.PrintedBalances printedBalances,
+                                                      java.util.function.Consumer<Map<Integer, RowLines>> rowMap) {
         // Every row's columns, not row 0's alone: a ledger's first row is often a brought-forward
         // or single-sided row missing the Withdrawals or Deposits cell, and judged on that row
         // alone a plain savings ledger classified UNKNOWN. Same reasoning as classifySectionAlone.
@@ -465,7 +482,7 @@ public class PdfPreviewGenerator {
         }
         return List.of(buildLedgerSection(userId, filename, section, product, ctx, printedSummary,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
-                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, sectionCount));
+                gridAccountNumberMasked, gridAccountNumberIsCardLabelled, printedBalances, sectionCount, rowMap));
     }
 
     /**
@@ -511,7 +528,8 @@ public class PdfPreviewGenerator {
                                                     LocalDate gridPaymentDueDate, BigDecimal gridCreditLimit,
                                                     String gridAccountNumberMasked,
                                                     boolean gridAccountNumberIsCardLabelled,
-                                                    PrintedBalanceExtractor.PrintedBalances printedBalances, int sectionCount) {
+                                                    PrintedBalanceExtractor.PrintedBalances printedBalances, int sectionCount,
+                                                    java.util.function.Consumer<Map<Integer, RowLines>> rowMap) {
         List<StagedRow> staged = new ArrayList<>();
         // "Never lose information" (see the engineering principles doc) -- a row that fails to
         // normalize is reported with WHY, not just silently absent from the row count. Real cost
@@ -717,6 +735,7 @@ public class PdfPreviewGenerator {
             displayedPositionOfLocatedRow[i] = stagedIndex == ColumnAmbiguityValidator.NOT_SHOWN
                     ? ColumnAmbiguityValidator.NOT_SHOWN : displayedPositionOf[stagedIndex];
         }
+        if (rowMap != null) rowMap.accept(rowMapOf(section, displayedPositionOfLocatedRow));
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
         // The card's billing summary is read once for the whole document, so it belongs only to a
@@ -848,6 +867,23 @@ public class PdfPreviewGenerator {
      * behind) is redundant work, not redundant risk: both calls are pure functions of the same
      * evidence, so the second call simply confirms what the first already found.
      */
+    /**
+     * Each shown row's printed lines, keyed by where the row is shown: the located row's lines
+     * under its displayed position, and nothing for a located row that did not stage. Empty when
+     * the section carries no row map aligned with its rows. Positions and line numbers only.
+     */
+    private static Map<Integer, RowLines> rowMapOf(PdfTableLocator.LocatedSection section,
+                                                   int[] displayedPositionOfLocatedRow) {
+        List<RowLines> rowLines = section.rowLines();
+        if (rowLines.size() != section.rows().size()) return Map.of();
+        Map<Integer, RowLines> byDisplayedRow = new java.util.TreeMap<>();
+        for (int i = 0; i < rowLines.size(); i++) {
+            int shownAt = displayedPositionOfLocatedRow[i];
+            if (shownAt != ColumnAmbiguityValidator.NOT_SHOWN) byDisplayedRow.put(shownAt, rowLines.get(i));
+        }
+        return byDisplayedRow;
+    }
+
     private List<PdfTableLocator.LocatedSection> mergeOrphanedInvestmentFragments(
             List<PdfTableLocator.LocatedSection> sections, DocumentContext ctx) {
         List<PdfTableLocator.LocatedSection> merged = new ArrayList<>(sections);
@@ -865,8 +901,16 @@ public class PdfPreviewGenerator {
                 List<PdfTableLocator.HeaderReconstructionFinding> mergedFindings =
                         new ArrayList<>(first.evidence().headerReconstructionFindings());
                 mergedFindings.addAll(second.evidence().headerReconstructionFindings());
+                // The row map follows the rows: concatenated when both halves carry one, and
+                // unknown otherwise, so it can never fall out of step with them.
+                List<RowLines> mergedRowLines = List.of();
+                if (first.rowLines().size() == first.rows().size()
+                        && second.rowLines().size() == second.rows().size()) {
+                    mergedRowLines = new ArrayList<>(first.rowLines());
+                    mergedRowLines.addAll(second.rowLines());
+                }
                 merged.set(i, new PdfTableLocator.LocatedSection(mergedAuxiliary, mergedRows,
-                        new PdfTableLocator.ExtractionEvidence(mergedDropped, mergedFindings)));
+                        new PdfTableLocator.ExtractionEvidence(mergedDropped, mergedFindings), mergedRowLines));
                 merged.remove(i + 1);
                 if (ctx != null) ctx.record("INVESTMENT_FRAGMENT_REMERGED");
                 // Re-check the same index: the section that just absorbed a fragment might itself

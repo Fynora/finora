@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react
 import { FinancialMemoryScreen } from './FinancialMemoryScreen';
 import { recurringApi, workspaceApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   workspaceApi: { dashboard: jest.fn() },
@@ -171,5 +172,23 @@ describe('FinancialMemoryScreen', () => {
 
     expect(await screen.findByLabelText('Accounts connected: 3')).toBeTruthy();
     expect(await screen.findByText(/Couldn't load your recurring payments/)).toBeTruthy();
+  });
+});
+
+describe('FinancialMemoryScreen first load', () => {
+  it('shows the memory skeleton, not a spinner', () => {
+    workspace.dashboard.mockReturnValue(never());
+    recurring.list.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('financial-memory-skeleton')).toBeTruthy();
+  });
+
+  it('shows a recurring-payments skeleton while only that section is still loading', async () => {
+    workspace.dashboard.mockResolvedValue(summary());
+    recurring.list.mockReturnValue(never());
+    renderScreen();
+    await screen.findByText('Recognized recurring payments');
+    expectSkeletonNotSpinner();
   });
 });

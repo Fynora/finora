@@ -5,6 +5,7 @@ import { InvestmentsScreen } from './InvestmentsScreen';
 import { accountsApi, categoriesApi, networthApi, transactionsApi } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { Account } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
@@ -332,5 +333,15 @@ describe('screen capture protection (Track D/D3)', () => {
     renderScreen();
 
     expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+});
+
+describe('InvestmentsScreen first load', () => {
+  it('shows the investments skeleton, not a spinner', () => {
+    accounts.list.mockReturnValue(never());
+    networth.current.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('investments-skeleton')).toBeTruthy();
   });
 });

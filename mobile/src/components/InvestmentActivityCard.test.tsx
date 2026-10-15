@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { InvestmentActivityCard } from './InvestmentActivityCard';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import type { Transaction } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   categoriesApi: { list: jest.fn() },
@@ -229,5 +230,14 @@ describe('InvestmentActivityCard', () => {
     it('goes back a full year for the 12 month period, across a year boundary', async () => {
       expect(await startFor(new Date(2026, 1, 28))).toBe('2025-02-28');
     });
+  });
+});
+
+describe('InvestmentActivityCard first load', () => {
+  it('shows a skeleton, not a spinner, while the activity first loads', () => {
+    categories.list.mockReset().mockResolvedValue([INVESTMENTS]);
+    transactions.search.mockReset().mockReturnValue(never());
+    renderCard();
+    expectSkeletonNotSpinner();
   });
 });

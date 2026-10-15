@@ -1,7 +1,9 @@
 import { StyleSheet, View } from 'react-native';
 import { spacing, useTheme } from '../../theme';
 import { Card } from '../Card';
-import { SkeletonGroup, SkeletonIcon, SkeletonText } from './Skeletons';
+import {
+  SkeletonChart, SkeletonGroup, SkeletonIcon, SkeletonLines, SkeletonListRow, SkeletonText,
+} from './Skeletons';
 
 /**
  * One skeleton per whole screen whose first load used to be a centred spinner. Each is built from
@@ -37,6 +39,59 @@ export function AccountsSkeleton() {
           </View>
         </Card>
       ))}
+    </SkeletonGroup>
+  );
+}
+
+export function FinancialMemorySkeleton() {
+  return (
+    <SkeletonGroup testID="financial-memory-skeleton" style={styles.columnMd}>
+      <SkeletonLines count={2} size="label" lastWidth="70%" />
+      <View style={styles.twoUpGrid}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <Card key={i} style={styles.twoUpTile}>
+            <SkeletonText size="value" width="50%" />
+            <SkeletonText size="meta" width="75%" />
+          </Card>
+        ))}
+      </View>
+      <Card>
+        <SkeletonText size="heading" width="60%" style={styles.stackSm} />
+        <SkeletonListRow />
+        <SkeletonListRow />
+        <SkeletonListRow divider={false} />
+      </Card>
+    </SkeletonGroup>
+  );
+}
+
+export function InvestmentsSkeleton() {
+  return (
+    <SkeletonGroup testID="investments-skeleton">
+      <View style={styles.headerEnd}>
+        <SkeletonText size="body" width="15%" />
+      </View>
+      <View style={styles.threeUp}>
+        {[0, 1, 2].map((i) => (
+          <Card key={i} style={styles.threeUpTile}>
+            <SkeletonText size="tiny" width="70%" />
+            <SkeletonText size="heading" width="85%" />
+          </Card>
+        ))}
+      </View>
+      <Card style={styles.gapMd}>
+        <SkeletonText size="heading" width="35%" style={styles.stackSm} />
+        <SkeletonChart variant="donut" />
+      </Card>
+      <Card style={styles.gapMd}>
+        <SkeletonText size="heading" width="45%" style={styles.stackSm} />
+        <SkeletonChart />
+      </Card>
+      <Card style={styles.gapMd}>
+        <SkeletonText size="heading" width="30%" style={styles.stackSm} />
+        <SkeletonListRow />
+        <SkeletonListRow divider={false} />
+      </Card>
     </SkeletonGroup>
   );
 }

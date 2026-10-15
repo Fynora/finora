@@ -52,8 +52,12 @@ description came from.
    alone:
    - a row whose lines span two pages;
    - a row that used more than 4 lines;
-   - a row that used a line below the last line the table's other rows used on that page (the
-     footer area).
+   - a row with a line far from the line before it in the same row: a gap more than 3 times the
+     median gap between consecutive printed lines of the table on that page. That is how a
+     swallowed footer or notice looks.
+
+     (Corrected while planning, 2026-10-15. The first wording, "a line below every other row's
+     lines on that page", would have flagged the last transaction on every page.)
 
    Each item reads like "Row 12 took 6 printed lines". These are counts and positions, never text.
 

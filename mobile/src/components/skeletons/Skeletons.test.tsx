@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react-native';
 import {
-  SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonKpiGrid, SkeletonTransactionRow,
+  SkeletonBarRow, SkeletonBox, SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonFormField,
+  SkeletonGroup, SkeletonKpiGrid, SkeletonLines, SkeletonListRow, SkeletonProfileHeader,
+  SkeletonSettingsRow, SkeletonText, SkeletonTransactionRow,
 } from './Skeletons';
 import { ThemeProvider } from '../../theme';
 
@@ -60,5 +62,73 @@ describe('SkeletonKpiGrid', () => {
     expect(grid.children).toHaveLength(4);
     // label, number and chip placeholders per tile
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(12);
+  });
+});
+
+describe('SkeletonGroup', () => {
+  it('is one element a screen reader reads as "Loading", with its pieces hidden', () => {
+    withTheme(
+      <SkeletonGroup>
+        <SkeletonLines count={2} />
+      </SkeletonGroup>
+    );
+    expect(screen.getAllByLabelText('Loading')).toHaveLength(1);
+    // The pieces exist but only as hidden placeholders.
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+    expect(screen.queryAllByTestId('shimmer-block')).toHaveLength(0);
+  });
+});
+
+describe('sized blocks', () => {
+  function heightOf(testID = 'shimmer-block') {
+    const style = screen.getByTestId(testID, { hidden: true }).props.style;
+    return (Array.isArray(style) ? Object.assign({}, ...style.flat(Infinity).filter(Boolean)) : style).height;
+  }
+
+  it('a text placeholder is as tall as the font size it stands in for', () => {
+    withTheme(<SkeletonText size="title" />);
+    expect(heightOf()).toBe(22);
+  });
+
+  it('a field placeholder is as tall as a TextField input row', () => {
+    withTheme(<SkeletonBox size="field" />);
+    expect(heightOf()).toBe(48);
+  });
+});
+
+describe('row and form blocks', () => {
+  it('SkeletonListRow: icon, two lines and an amount', () => {
+    withTheme(<SkeletonListRow icon="md" />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonListRow without an icon or amount is just the two lines', () => {
+    withTheme(<SkeletonListRow amount={false} />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+  });
+
+  it('SkeletonFormField: a label over a field', () => {
+    withTheme(<SkeletonFormField />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+  });
+
+  it('SkeletonProfileHeader: a circle and three lines', () => {
+    withTheme(<SkeletonProfileHeader />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonSettingsRow with a switch: two lines and the switch', () => {
+    withTheme(<SkeletonSettingsRow trailing="switch" />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3);
+  });
+
+  it('SkeletonLines draws the requested number of lines', () => {
+    withTheme(<SkeletonLines count={4} />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonBarRow: a label, a value and the bar track', () => {
+    withTheme(<SkeletonBarRow />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3);
   });
 });

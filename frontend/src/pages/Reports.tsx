@@ -1,34 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, PiggyBank, PieChart, UploadCloud, Loader2 } from 'lucide-react';
+import { PieChart, UploadCloud, Loader2 } from 'lucide-react';
 import { reportsApi, type ReportData } from '../api/endpoints';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { downloadBlob, toCsv } from '../lib/download';
-import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
+import { Button, FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { trackNavigation } from '../lib/trackNavigation';
-
-/** YYYY-MM-DD of a YYYY-MM month's last day. */
-function lastDayOf(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-}
-
-function fmt(n: number) {
-  // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
-  // not "₹-500" -- string concatenation put the currency symbol before the sign.
-  return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
-}
-
-// "2026-08" -> "August 2026", for naming a month inside a sentence (loading/empty-state copy
-// below). Explicit y/m/1 construction, not `new Date(monthStr)` -- a bare "YYYY-MM" parses as UTC
-// midnight, which renders as the prior month in any timezone behind UTC. Long form rather than
-// Dashboard's short `monthLabel` ("Jul 26"), which reads fine on a chart axis but is ambiguous
-// with a day-of-month inside prose.
-function monthLabelLong(monthStr: string) {
-  const [y, m] = monthStr.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
+import { fmt, monthLabelLong } from './reportSections/reportFormat';
+import { ReportHero } from './reportSections/ReportHero';
+import { ReportStatCards } from './reportSections/ReportStatCards';
+import { ReviewNotice } from './reportSections/ReviewNotice';
 
 function downloadCsv(report: ReportData) {
   // Category names are user-controlled and end up in the first column, so cells are escaped
@@ -65,8 +47,9 @@ function ToolbarSkeleton() {
 function ReportBodySkeleton() {
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
-        {[0, 1, 2].map((i) => <Skeleton.Card key={i} />)}
+      <Skeleton.Card />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {[0, 1].map((i) => <Skeleton.Card key={i} />)}
       </div>
       <FinoraCard>
         <SectionHeader title="Category Breakdown" />
@@ -219,17 +202,9 @@ export default function Reports() {
         </Skeleton.Region>
       ) : report && (
         <>
-          <div className="grid grid-cols-3 gap-4">
-            {/* Money in that is not counted as income (see FlowClassifier on the backend) -- said here
-                so a month's income dropping because a transfer from a person stopped counting is
-                explained where the number is, not only on the Dashboard. */}
-            <MetricCard
-              label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success"
-              caption={report.unresolvedInflow && report.unresolvedInflow > 0 ? `${fmt(report.unresolvedInflow)} not counted as income` : undefined}
-            />
-            <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
-            <MetricCard label="Net" value={fmt(report.income - report.expense)} icon={PiggyBank} iconBg="bg-primary-light" iconColor="text-primary" />
-          </div>
+          <ReportHero report={report} />
+          <ReviewNotice report={report} />
+          <ReportStatCards report={report} />
 
           {/* Plan 2: income split by what it was -- Family support and the user's own kinds get
               their own lines -- and a way to sort out what is not counted yet. */}
@@ -246,15 +221,6 @@ export default function Reports() {
               </ul>
             </FinoraCard>
           )}
-          {report.unresolvedInflow != null && report.unresolvedInflow > 0 && (
-            <Link
-              to={`/app/money-review?start=${report.month}-01&end=${lastDayOf(report.month)}`}
-              className="text-xs text-primary font-medium inline-block"
-            >
-              Review money not counted yet
-            </Link>
-          )}
-
           <FinoraCard>
             <SectionHeader title="Category Breakdown" />
             {report.categories.length === 0 ? (

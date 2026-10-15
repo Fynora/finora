@@ -167,11 +167,24 @@ describe('Reports — money not counted as income', () => {
     vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
   });
 
-  it('says how much came in but is not counted, under the income figure', async () => {
-    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 84500 }));
+  it('says how much came in but is not counted once, in one review notice', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 84500, unresolvedInflowCount: 3 }));
     renderPage();
 
-    expect(await screen.findByText('₹84,500 not counted as income')).toBeInTheDocument();
+    expect(await screen.findByTestId('review-notice')).toHaveTextContent("3 credits worth ₹84,500 aren't counted as income yet.");
+    // Not repeated in the hero: one place to read it, one button to act on it.
+    expect(screen.getAllByText(/not counted as income|counted as income yet/)).toHaveLength(1);
+  });
+
+  it('reads whole in the singular, and without a count from an older server', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 700, unresolvedInflowCount: 1 }));
+    const { unmount } = renderPage();
+    expect(await screen.findByTestId('review-notice')).toHaveTextContent("1 credit worth ₹700 isn't counted as income yet.");
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ unresolvedInflow: 700 }));
+    renderPage();
+    expect(await screen.findByTestId('review-notice')).toHaveTextContent("₹700 received isn't counted as income yet.");
   });
 
   it('lists income by kind and links to the review page for the month', async () => {
@@ -184,7 +197,7 @@ describe('Reports — money not counted as income', () => {
     expect(await screen.findByText('Income by kind')).toBeInTheDocument();
     expect(screen.getByText('Family support')).toBeInTheDocument();
     expect(screen.getByText('₹10,000')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Review money not counted yet' }))
+    expect(screen.getByRole('link', { name: 'Review money' }))
       .toHaveAttribute('href', '/app/money-review?start=2026-08-01&end=2026-08-31');
   });
 
@@ -206,5 +219,179 @@ describe('Reports — money not counted as income', () => {
     renderPage();
     await screen.findByText('₹1,00,000');
     expect(screen.queryByText(/not counted as income/)).not.toBeInTheDocument();
+  });
+});
+
+const comparison = (over: Partial<NonNullable<ReportData['comparison']>> = {}): NonNullable<ReportData['comparison']> => ({
+  previousMonth: '2026-07', reliable: true, gateReason: null, previousIncome: 90000, previousExpense: 70000,
+  incomeDeltaPct: 11.1, expenseDeltaPct: -42.9, netDelta: 40000, ...over,
+});
+
+describe('Reports — the hero', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it('says what share of income was kept, shows the net as a signed amount and draws the ring and the bar', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ savingsRatePct: 60, savingsRateGateReason: null }));
+    renderPage();
+
+    expect(await screen.findByTestId('hero-headline')).toHaveTextContent('You kept 60% of what you earned.');
+    expect(screen.getByTestId('hero-net')).toHaveTextContent('+₹60,000');
+    expect(screen.getByTestId('hero-ring')).toHaveAttribute('aria-label', 'Savings rate 60%');
+    expect(screen.getByRole('img', { name: 'Of ₹1,00,000 earned, ₹40,000 spent and ₹60,000 kept' })).toBeInTheDocument();
+  });
+
+  it('says so in words when spending outran income, and draws no bar for it', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 1000, expense: 1500, categories: [], savingsRatePct: -50 }));
+    renderPage();
+
+    expect(await screen.findByTestId('hero-headline')).toHaveTextContent('You spent 50% more than you earned.');
+    expect(screen.getByTestId('hero-net')).toHaveTextContent('-₹500');
+    expect(screen.queryByTestId('hero-bar')).not.toBeInTheDocument();
+  });
+
+  it('says it broke even rather than "kept 0%" or "spent 0% more"', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 1000, expense: 998, savingsRatePct: 0.2 }));
+    renderPage();
+    expect(await screen.findByTestId('hero-headline')).toHaveTextContent('You broke even this month.');
+  });
+
+  it('explains why there is no rate, instead of showing a figure unclassified money would decide', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      income: 500, expense: 100, savingsRatePct: null, savingsRateGateReason: 'UNRESOLVED_EXCEEDS_INCOME', unresolvedInflow: 3000,
+    }));
+    const { unmount } = renderPage();
+    expect(await screen.findByTestId('hero-headline'))
+      .toHaveTextContent("Money you received hasn't been sorted into income yet, so there is no savings rate.");
+    expect(screen.queryByTestId('hero-ring')).not.toBeInTheDocument();
+    // Nor the kept-vs-spent bar: it is the same doubtful share, drawn.
+    expect(screen.queryByTestId('hero-bar')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 0, expense: 800, savingsRatePct: null, savingsRateGateReason: 'NO_INCOME' }));
+    renderPage();
+    expect(await screen.findByTestId('hero-headline')).toHaveTextContent('No income was counted this month.');
+    expect(screen.getByTestId('hero-net')).toHaveTextContent('-₹800');
+  });
+
+  it('says nothing about a rate from an older server, and still shows the net', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+    renderPage();
+
+    expect(await screen.findByTestId('hero-net')).toHaveTextContent('+₹60,000');
+    expect(screen.queryByTestId('hero-headline')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hero-ring')).not.toBeInTheDocument();
+  });
+
+  it('says nothing for a month with no activity at all', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      income: 0, expense: 0, categories: [], savingsRatePct: null, savingsRateGateReason: 'NO_INCOME',
+    }));
+    renderPage();
+    expect(await screen.findByTestId('hero-net')).toHaveTextContent('₹0');
+    expect(screen.queryByTestId('hero-headline')).not.toBeInTheDocument();
+  });
+
+  it("states the net's change as an amount against the month before, never a percent", async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ savingsRatePct: 60, comparison: comparison() }));
+    renderPage();
+    expect(await screen.findByTestId('hero-compare')).toHaveTextContent('₹40,000 more than July.');
+  });
+
+  it("explains in one quiet line why there is no comparison, naming the months", async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      savingsRatePct: 60,
+      comparison: comparison({ reliable: false, gateReason: 'PARTIAL_PRIOR_MONTH', netDelta: null, incomeDeltaPct: null, expenseDeltaPct: null }),
+    }));
+    renderPage();
+    expect(await screen.findByTestId('hero-compare-note')).toHaveTextContent('July is only partly in your history, so it is not compared with August.');
+    expect(screen.queryByTestId('hero-compare')).not.toBeInTheDocument();
+  });
+
+  it('shows no comparison line at all for a user with no live account', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ savingsRatePct: 60, comparison: null }));
+    renderPage();
+    await screen.findByTestId('hero-net');
+    expect(screen.queryByTestId('hero-compare')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hero-compare-note')).not.toBeInTheDocument();
+  });
+
+  it('does not say a partly-in month twice: the comparison note already gives the reason', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      complete: false,
+      comparison: comparison({ reliable: false, gateReason: 'SELECTED_MONTH_PARTIAL', netDelta: null, incomeDeltaPct: null, expenseDeltaPct: null }),
+    }));
+    renderPage();
+
+    expect(await screen.findByTestId('hero-compare-note')).toHaveTextContent('August is only partly in your history');
+    expect(screen.queryByTestId('hero-partial')).not.toBeInTheDocument();
+  });
+
+  it('says a month that is only partly in may change, and only then', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ complete: false }));
+    const { unmount } = renderPage();
+    expect(await screen.findByTestId('hero-partial')).toHaveTextContent("Part of this month isn't in yet");
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ complete: true }));
+    renderPage();
+    await screen.findByTestId('hero-net');
+    expect(screen.queryByTestId('hero-partial')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — income and expense cards', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it("show how each moved since the month before, and the fall in expenses reads as good", async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ comparison: comparison() }));
+    renderPage();
+
+    expect(await screen.findByText('▲ 11.1%')).toHaveClass('text-success');
+    const fall = screen.getByText('▼ 42.9%');
+    expect(fall).toHaveClass('text-success');
+    expect(screen.getAllByText('vs July')).toHaveLength(2);
+  });
+
+  it('shows a rise in expenses as bad', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ comparison: comparison({ expenseDeltaPct: 30 }) }));
+    renderPage();
+    expect(await screen.findByText('▲ 30.0%')).toHaveClass('text-danger');
+  });
+
+  it('leaves the delta line off when the comparison is not trusted, and the hero says why once', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      comparison: comparison({ reliable: false, gateReason: 'TOO_FEW_PRIOR_TRANSACTIONS', netDelta: null, incomeDeltaPct: null, expenseDeltaPct: null }),
+    }));
+    renderPage();
+
+    expect(await screen.findByTestId('hero-compare-note')).toHaveTextContent('July has too few transactions to compare August with.');
+    expect(screen.queryByText(/▲|▼/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vs July/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Why?' })).not.toBeInTheDocument();
+  });
+
+  it('never shows a figure the server marked unreliable, even if it still sent one', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      comparison: comparison({ reliable: false, gateReason: 'COVERAGE_GAP', incomeDeltaPct: 900, expenseDeltaPct: -90, netDelta: 123 }),
+    }));
+    renderPage();
+
+    await screen.findByText('Total income');
+    expect(screen.queryByText(/▲|▼/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vs July/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('hero-compare')).not.toBeInTheDocument();
+  });
+
+  it('shows no comparison line for a user with no live account', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ comparison: null }));
+    renderPage();
+    await screen.findByText('Total income');
+    expect(screen.queryByText(/^(—\s)?vs /)).not.toBeInTheDocument();
   });
 });

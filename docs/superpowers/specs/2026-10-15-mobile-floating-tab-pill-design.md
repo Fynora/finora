@@ -189,6 +189,11 @@ deleted, edited, added, sent or answered there.
   have left "View in Ledger" under the pill with no way to reach it. The guard did not catch it
   because the same file scrolls in its other states; a scan of every non-scrolling state in the 35
   screens found no other such case (the rest are centred loading and error messages).
+- **A second tap on a tab scrolls its screen back to the top.** Added at the owner's request on
+  2026-10-15, for all four tabs. Home, Transactions, Insights and More hand their list to React
+  Navigation's `useScrollToTop`, which acts on the pill's `tabPress` event only when the tab is
+  already open. On More, a second tap first returns to the More menu (the stack pops), then scrolls
+  it. Seen working on the simulator for all four.
 - **Two Settings screens had no theme hook** to place the new hook after; it went after their first
   hook (`SettingsScreen`) or first in the component (`SettingsConnectedAppsScreen`, which has none).
 

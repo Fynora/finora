@@ -9400,6 +9400,8 @@ export interface components {
             unresolvedInflowCount?: number;
             comparison?: components["schemas"]["MonthComparison"];
             complete?: boolean;
+            savingsRatePct?: number;
+            savingsRateGateReason?: string;
         };
         ApiResponseListReportTrendPoint: {
             success?: boolean;

@@ -226,6 +226,21 @@ class ReportControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMonthReport_carriesTheSavingsRate_andWhyItIsWithheldWhenThereIsNoIncome() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+
+        JsonNode august = data(get("/api/v1/reports?month=2026-08", user));
+        // 1500 earned, 500 spent: 1000 kept of 1500 = 66.67%.
+        assertThat(august.get("savingsRatePct").decimalValue()).isEqualByComparingTo("66.67");
+        assertThat(august.get("savingsRateGateReason").isNull()).isTrue();
+
+        // June holds only a purchase: no income was counted, so there is no rate to show.
+        JsonNode june = data(get("/api/v1/reports?month=2026-06", user));
+        assertThat(june.get("savingsRatePct").isNull()).isTrue();
+        assertThat(june.get("savingsRateGateReason").asText()).isEqualTo("NO_INCOME");
+    }
+
+    @Test
     void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
         User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
 

@@ -123,10 +123,14 @@ public class ReportService {
         ReportDto.MonthComparison comparison = coverage == null ? null
                 : comparisonFor(userId, month, income, expense, txnsForTotals.size(), coverage);
 
+        BigDecimal unresolvedInflow = FlowTotals.unresolvedInflow(txnsForTotals, flow);
+        SavingsRate.Reading savings = SavingsRate.of(income, expense, unresolvedInflow);
+
         return new ReportDto(monthStr, income, expense, categories,
-                FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind,
+                unresolvedInflow, incomeByKind,
                 txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison,
-                coverage == null || coverage.completeFor(month));
+                coverage == null || coverage.completeFor(month),
+                savings.pct(), savings.gateReason());
     }
 
     /** What decides whether a month is a whole month: the span of the user's history, the holes

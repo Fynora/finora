@@ -22730,6 +22730,12 @@
                     },
                     "complete": {
                         "type": "boolean"
+                    },
+                    "savingsRatePct": {
+                        "type": "number"
+                    },
+                    "savingsRateGateReason": {
+                        "type": "string"
                     }
                 }
             },

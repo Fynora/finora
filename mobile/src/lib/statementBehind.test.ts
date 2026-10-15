@@ -15,22 +15,22 @@ describe('statementBehindNote', () => {
   });
 
   it('names the one account and the day its statement ends', () => {
-    expect(statementBehindNote({ accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 }, 'September'))
-      .toBe("September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+    expect(statementBehindNote({ accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 }, 'September'))
+      .toBe("September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet.");
   });
 
   it('counts the accounts when several are behind, and names the one reaching least far', () => {
-    expect(statementBehindNote({ accountName: 'Axis Card', statementEnd: '2026-08-20', accountCount: 3 }, 'September'))
-      .toBe("September is partial so far: 3 accounts' latest statements end before month-end, the earliest being Axis Card on Aug 20.");
+    expect(statementBehindNote({ accountName: 'Axis Card', coveredThrough: '2026-08-20', accountCount: 3 }, 'September'))
+      .toBe("September is partial so far: 3 accounts' data ends before month-end, the earliest being Axis Card on Aug 20.");
   });
 
   it('falls back to a plain word when the account has no name', () => {
-    expect(statementBehindNote({ accountName: '  ', statementEnd: '2026-09-11', accountCount: 1 }, 'September'))
-      .toContain("An account's latest statement ends Sep 11");
+    expect(statementBehindNote({ accountName: '  ', coveredThrough: '2026-09-11', accountCount: 1 }, 'September'))
+      .toContain("An account's latest data ends Sep 11");
   });
 
   it('does not shift the day by a timezone: the 1st stays the 1st and the last stays the last', () => {
-    expect(statementBehindNote({ accountName: 'X', statementEnd: '2026-09-01', accountCount: 1 }, 'September')).toContain('Sep 1,');
-    expect(statementBehindNote({ accountName: 'X', statementEnd: '2026-08-31', accountCount: 1 }, 'September')).toContain('Aug 31,');
+    expect(statementBehindNote({ accountName: 'X', coveredThrough: '2026-09-01', accountCount: 1 }, 'September')).toContain('Sep 1,');
+    expect(statementBehindNote({ accountName: 'X', coveredThrough: '2026-08-31', accountCount: 1 }, 'September')).toContain('Aug 31,');
   });
 });

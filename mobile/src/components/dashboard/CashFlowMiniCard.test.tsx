@@ -124,6 +124,22 @@ describe('CashFlowMiniCard', () => {
     expect(screen.getByTestId('cash-flow-trend-end', hidden)).toBeTruthy();
   });
 
+  it('stars a partial latest month on the axis, rings its end point, and explains the star', () => {
+    const pts = [{ label: 'Aug 26', income: 100, expense: 50 }, { label: 'Sep 26', income: 100, expense: 50, partial: true }];
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={pts} /></ThemeProvider>);
+    expect(screen.getByText('Sep*', hidden)).toBeTruthy();
+    expect(screen.getByText('Aug', hidden)).toBeTruthy();
+    expect(screen.getByTestId('cash-flow-trend-end', hidden).props.strokeWidth).toBe(2);
+    expect(screen.getByTestId('cash-flow-trend-partial-note')).toBeTruthy();
+  });
+
+  it('leaves a whole latest month as a solid point with no star or footnote', () => {
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={months(['Aug 26', 'Sep 26'])} /></ThemeProvider>);
+    expect(screen.queryByText('Sep*', hidden)).toBeNull();
+    expect(screen.getByTestId('cash-flow-trend-end', hidden).props.strokeWidth).toBe(0);
+    expect(screen.queryByTestId('cash-flow-trend-partial-note')).toBeNull();
+  });
+
   it('draws the trend even when every month nets to the same amount', () => {
     render(<ThemeProvider><CashFlowMiniCard points={[{ label: 'May', income: 100, expense: 50 }, { label: 'Jun', income: 100, expense: 50 }]} deltaPct={null} deltaLabel="vs last month" /></ThemeProvider>);
     expect(screen.getByTestId('cash-flow-trend-chart')).toBeTruthy();
@@ -137,7 +153,7 @@ describe('CashFlowMiniCard', () => {
   });
 
   const POINTS = [{ label: 'Jun', income: 40000, expense: 20000 }];
-  const NOTE = "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.";
+  const NOTE = "September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet.";
 
   it('says the month is "so far" beside the net change it labels, and keeps the figures', () => {
     render(<ThemeProvider><CashFlowMiniCard deltaPct={22} deltaLabel="vs last month" points={POINTS} note={NOTE} /></ThemeProvider>);

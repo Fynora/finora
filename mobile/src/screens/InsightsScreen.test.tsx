@@ -253,15 +253,51 @@ describe('InsightsScreen', () => {
       monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
       netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798, 'Food & Dining': 900 },
       reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     } as any);
     renderScreen();
 
     // The banner says why the month is partial, instead of "You're on track! ... Keep it up!".
-    expect(await screen.findByText(/September is partial so far: HDFC Card's latest statement ends Sep 11/)).toBeTruthy();
+    expect(await screen.findByText(/September is partial so far: HDFC Card's latest data ends Sep 11/)).toBeTruthy();
     expect(screen.queryByText("You're on track!")).toBeNull();
     expect(screen.queryByText(/Keep it up/)).toBeNull();
     expect(screen.queryByText(/22% lower/)).toBeNull();
+  });
+
+  it('says on the glance card itself that its changes compare a partial month', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByTestId('glance-so-far-note')).toBeTruthy();
+    expect(screen.getByText(/compare a partial month with a full one/)).toBeTruthy();
+  });
+
+  it('puts no partial-month note on the glance card for a whole month, or when it has no change to qualify', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
+      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+    } as any);
+    renderScreen();
+    await screen.findByText('This Month at a Glance');
+    expect(screen.queryByTestId('glance-so-far-note')).toBeNull();
+  });
+
+  it('puts no change-note on the glance card when a partial month has no change figures at all', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: null, expenseDeltaPct: null,
+      netCashFlow: 60000, netDeltaPct: null, spendByCategory: { Shopping: 40000 },
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
+    } as any);
+    renderScreen();
+    await screen.findByText('This Month at a Glance');
+    expect(screen.queryByTestId('glance-so-far-note')).toBeNull();
   });
 
   it('gives a month that is "so far" no warning either when spending looks higher', async () => {
@@ -269,7 +305,7 @@ describe('InsightsScreen', () => {
       monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
       netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
       reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     } as any);
     renderScreen();
 

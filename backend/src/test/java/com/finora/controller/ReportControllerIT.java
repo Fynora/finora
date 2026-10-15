@@ -218,6 +218,21 @@ class ReportControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMonthReport_saysWhetherTheMonthIsWhole_soAChartCanMarkAPartialOne() throws Exception {
+        User user = userWithACardBehind(Account.PrimarySource.MANUAL);
+
+        assertThat(data(get("/api/v1/reports?month=2026-08", user)).get("complete").asBoolean()).isTrue();
+        assertThat(data(get("/api/v1/reports?month=2026-09", user)).get("complete").asBoolean()).isFalse();
+    }
+
+    @Test
+    void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+
+        assertThat(data(get("/api/v1/reports?month=2026-09", user)).get("complete").asBoolean()).isTrue();
+    }
+
+    @Test
     void aStatementThatHasBeenSupersededDoesNotCountAsCoverage() throws Exception {
         User user = userWithACardBehind(Account.PrimarySource.MANUAL);
         UUID card = accountRepository.findByUserId(user.getId()).stream()

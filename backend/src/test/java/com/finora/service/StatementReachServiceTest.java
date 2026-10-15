@@ -45,7 +45,7 @@ class StatementReachServiceTest {
         hdfc = account("HDFC Card");
         axis = account("Axis Card");
         when(accounts.findByUserId(userId)).thenReturn(List.of(hdfc, axis));
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of());
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of());
     }
 
     private Account account(String name) {
@@ -70,7 +70,7 @@ class StatementReachServiceTest {
 
     @Test
     void aMonthOlderThanTheNewestTwo_isNotJudged_andNoQueryIsRun() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 5, 11)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 5, 11)));
 
         assertThat(service.behindFor(userId, YearMonth.of(2026, 7), SEP)).isEmpty();
 
@@ -82,7 +82,7 @@ class StatementReachServiceTest {
         // A custom Dashboard range can end after the user's last transaction. That month has no data
         // to be "so far" about; without this the card active in the newest month would be reported
         // as behind a month that has not happened yet.
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
         activeInWindow(hdfc);
 
         assertThat(service.behindFor(userId, YearMonth.of(2026, 10), SEP)).isEmpty();
@@ -92,7 +92,7 @@ class StatementReachServiceTest {
 
     @Test
     void anActiveAccountWhoseStatementEndsBeforeTheMonth_isReportedByNameAndDate() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
         activeInWindow(hdfc);
 
         Optional<StatementBehindDto> behind = service.behindFor(userId, SEP, SEP);
@@ -102,7 +102,7 @@ class StatementReachServiceTest {
 
     @Test
     void severalAccountsBehind_reportsTheOneReachingTheLeastFar_andCountsAll() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(
                 hdfc.getId(), LocalDate.of(2026, 9, 11),
                 axis.getId(), LocalDate.of(2026, 8, 20)));
         activeInWindow(hdfc, axis);
@@ -110,14 +110,14 @@ class StatementReachServiceTest {
         StatementBehindDto behind = service.behindFor(userId, SEP, SEP).orElseThrow();
 
         assertThat(behind.accountName()).isEqualTo("Axis Card");
-        assertThat(behind.statementEnd()).isEqualTo(LocalDate.of(2026, 8, 20));
+        assertThat(behind.coveredThrough()).isEqualTo(LocalDate.of(2026, 8, 20));
         assertThat(behind.accountCount()).isEqualTo(2);
     }
 
     @Test
     void whenTwoAccountsReachEquallyFar_theNameBreaksTheTie_soTheAnswerIsStable() {
         LocalDate same = LocalDate.of(2026, 9, 11);
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), same, axis.getId(), same));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), same, axis.getId(), same));
         activeInWindow(hdfc, axis);
 
         assertThat(service.behindFor(userId, SEP, SEP).orElseThrow().accountName()).isEqualTo("Axis Card");
@@ -125,7 +125,7 @@ class StatementReachServiceTest {
 
     @Test
     void anAccountBehindButNotActive_isNotTheCause() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
         activeInWindow(); // nothing in the month or the one before
 
         assertThat(service.behindFor(userId, SEP, SEP)).isEmpty();
@@ -133,7 +133,7 @@ class StatementReachServiceTest {
 
     @Test
     void aStatementReachingMonthEnd_isNotBehind() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 30)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 30)));
         activeInWindow(hdfc);
 
         assertThat(service.behindFor(userId, SEP, SEP)).isEmpty();
@@ -141,7 +141,7 @@ class StatementReachServiceTest {
 
     @Test
     void theActivityWindowIsTheMonthAndTheOneBefore() {
-        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
+        when(coverage.latestCoverageEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
         activeInWindow(hdfc);
 
         service.behindFor(userId, SEP, SEP);
@@ -158,6 +158,6 @@ class StatementReachServiceTest {
         service.behindFor(userId, SEP, SEP, ends);
         service.behindFor(userId, YearMonth.of(2026, 8), SEP, ends);
 
-        verify(coverage, never()).latestStatementEnds(any());
+        verify(coverage, never()).latestCoverageEnds(any());
     }
 }

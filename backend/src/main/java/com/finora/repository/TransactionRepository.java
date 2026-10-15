@@ -389,6 +389,24 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                                       @Param("accountIds") java.util.Collection<UUID> accountIds,
                                                       @Param("from") LocalDate from, @Param("to") LocalDate to);
 
+    /** One row per account: the newest date it has any transaction. */
+    interface LatestTxnDate {
+        UUID getAccountId();
+        LocalDate getLatestDate();
+    }
+
+    /** The newest transaction date of each of these accounts -- an account with none has no row.
+     *  Backs the Account Aggregator fallback in {@code AccountCoverageService.latestCoverageEnds}: a
+     *  linked account whose last sync failed is only known to be covered as far as its newest row. */
+    @Query("""
+           SELECT t.accountId AS accountId, MAX(t.txnDate) AS latestDate
+             FROM Transaction t
+            WHERE t.userId = :userId AND t.accountId IN :accountIds
+            GROUP BY t.accountId
+           """)
+    List<LatestTxnDate> findLatestTxnDatesByAccount(@Param("userId") UUID userId,
+                                                     @Param("accountIds") java.util.Collection<UUID> accountIds);
+
     /** The newest date this user has any transaction -- DashboardRangeService's anchor for the
      *  preset ranges (3/6/12/24 months), mirroring ReportingPeriod's "newest month with data"
      *  reporting-period philosophy rather than the real calendar date. */

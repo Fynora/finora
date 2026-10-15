@@ -9399,6 +9399,7 @@ export interface components {
             /** Format: int32 */
             unresolvedInflowCount?: number;
             comparison?: components["schemas"]["MonthComparison"];
+            complete?: boolean;
         };
         ApiResponseListReportTrendPoint: {
             success?: boolean;
@@ -10030,7 +10031,7 @@ export interface components {
         StatementBehindDto: {
             accountName?: string;
             /** Format: date */
-            statementEnd?: string;
+            coveredThrough?: string;
             /** Format: int32 */
             accountCount?: number;
         };

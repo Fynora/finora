@@ -244,7 +244,7 @@ export function DashboardScreen() {
       monthlyReportsQ
         .map((q) => q.data)
         .filter((d): d is NonNullable<typeof d> => !!d)
-        .map((d) => ({ label: monthLabel(d.month), income: d.income, expense: d.expense })),
+        .map((d) => ({ label: monthLabel(d.month), income: d.income, expense: d.expense, partial: d.complete === false })),
     [monthlyReportsQ]
   );
 

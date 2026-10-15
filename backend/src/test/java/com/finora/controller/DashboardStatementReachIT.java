@@ -7,6 +7,10 @@ import com.finora.entity.Account;
 import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
+import com.finora.integrations.setu.AccountAggregatorLink;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.integrations.setu.AccountAggregatorLinkStatus;
+import com.finora.integrations.setu.FiType;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.StatementImportRepository;
@@ -26,6 +30,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -43,6 +48,7 @@ class DashboardStatementReachIT extends AbstractIntegrationTest {
     @Autowired private AccountRepository accountRepository;
     @Autowired private TransactionRepository transactionRepository;
     @Autowired private StatementImportRepository statementImportRepository;
+    @Autowired private AccountAggregatorLinkRepository aaLinks;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
@@ -129,7 +135,7 @@ class DashboardStatementReachIT extends AbstractIntegrationTest {
         assertThat(summary.get("reportingMonth").asText()).isEqualTo("2026-09");
         JsonNode behind = summary.get("statementBehind");
         assertThat(behind.get("accountName").asText()).isEqualTo("Dashboard IT Card");
-        assertThat(behind.get("statementEnd").asText()).isEqualTo("2026-09-11");
+        assertThat(behind.get("coveredThrough").asText()).isEqualTo("2026-09-11");
         assertThat(behind.get("accountCount").asInt()).isEqualTo(1);
         // Labelled, not withheld: September's own spend is there.
         assertThat(summary.get("monthlyExpense").decimalValue()).isGreaterThan(BigDecimal.ZERO);
@@ -171,10 +177,43 @@ class DashboardStatementReachIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void anAccountAggregatorCard_hasNoStatementReachToBeBehindOn() throws Exception {
+    void anAccountAggregatorCardWithNoActiveLink_isNeverJudged() throws Exception {
         User user = userWithACard(Account.PrimarySource.ACCOUNT_AGGREGATOR, LocalDate.of(2026, 9, 11));
 
         assertThat(data("/api/v1/dashboard/summary", user).get("statementBehind").isNull()).isTrue();
+    }
+
+    private void link(User user, String accountName, AccountAggregatorLink.SyncStatus status, Instant syncedAt) {
+        UUID accountId = accountRepository.findByUserId(user.getId()).stream()
+                .filter(a -> accountName.equals(a.getName())).findFirst().orElseThrow().getId();
+        AccountAggregatorLink link = new AccountAggregatorLink();
+        link.setUserId(user.getId());
+        link.setAccountId(accountId);
+        link.setFiType(FiType.CREDIT_CARD);
+        link.setStatus(AccountAggregatorLinkStatus.ACTIVE);
+        link.setLinkIdempotencyKey("dashboard-reach-it-" + UUID.randomUUID());
+        link.setLastSyncStatus(status);
+        link.setLastSyncedAt(syncedAt);
+        aaLinks.save(link);
+    }
+
+    @Test
+    void aLinkedCardThatIsSyncingNormally_isUpToDate_soItDoesNotLabelTheMonth() throws Exception {
+        User user = userWithACard(Account.PrimarySource.ACCOUNT_AGGREGATOR, LocalDate.of(2026, 9, 11));
+        link(user, "Dashboard IT Card", AccountAggregatorLink.SyncStatus.SUCCESS, Instant.now());
+
+        assertThat(data("/api/v1/dashboard/summary", user).get("statementBehind").isNull()).isTrue();
+    }
+
+    @Test
+    void aLinkedCardWhoseLastSyncFailed_labelsTheMonthByItsNewestTransaction() throws Exception {
+        User user = userWithACard(Account.PrimarySource.ACCOUNT_AGGREGATOR, LocalDate.of(2026, 9, 11));
+        link(user, "Dashboard IT Card", AccountAggregatorLink.SyncStatus.FAILED, Instant.now());
+
+        JsonNode behind = data("/api/v1/dashboard/summary", user).get("statementBehind");
+
+        assertThat(behind.get("accountName").asText()).isEqualTo("Dashboard IT Card");
+        assertThat(behind.get("coveredThrough").asText()).isEqualTo("2026-09-05"); // its newest transaction
     }
 
     @Test

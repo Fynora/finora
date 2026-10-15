@@ -24,9 +24,9 @@ export function longMonthName(yearMonthOrDate: string): string {
 export function statementBehindNote(behind: StatementBehind | null | undefined, monthName: string): string | null {
   if (!behind) return null;
   const name = behind.accountName.trim() || 'An account';
-  const day = dayLabel(behind.statementEnd);
+  const day = dayLabel(behind.coveredThrough);
   if (behind.accountCount > 1) {
-    return `${monthName} is partial so far: ${behind.accountCount} accounts' latest statements end before month-end, the earliest being ${name} on ${day}.`;
+    return `${monthName} is partial so far: ${behind.accountCount} accounts' data ends before month-end, the earliest being ${name} on ${day}.`;
   }
-  return `${monthName} is partial so far: ${name}'s latest statement ends ${day}, so its last days aren't in yet.`;
+  return `${monthName} is partial so far: ${name}'s latest data ends ${day}, so its last days aren't in yet.`;
 }

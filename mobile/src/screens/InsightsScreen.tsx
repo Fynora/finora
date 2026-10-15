@@ -392,6 +392,14 @@ export function InsightsScreen() {
               </View>
             ))}
           </View>
+          {/* The chips are this month against last month's, and this month is only part of one: said
+              on the card itself, since the banner above explaining it is a separate surface. Only
+              when there is a chip to qualify. */}
+          {soFarNote && [summary.incomeDeltaPct, summary.expenseDeltaPct, summary.netDeltaPct].some((d) => d !== null) ? (
+            <Text testID="glance-so-far-note" style={[styles.glanceNote, { color: c.mutedInk }]}>
+              These changes compare a partial month with a full one, so they may shift once the rest comes in.
+            </Text>
+          ) : null}
         </GlassSurface>
       ) : null}
 
@@ -907,6 +915,7 @@ const styles = StyleSheet.create({
   glanceValue: { fontSize: 15, fontWeight: '700' },
   glanceLabel: { fontSize: 10, marginTop: 2 },
   glanceDelta: { fontSize: 10, fontWeight: '600', marginTop: 2 },
+  glanceNote: { fontSize: 10, marginTop: spacing.sm },
   notice: {
     borderLeftWidth: 3,
     borderRadius: radius.md,

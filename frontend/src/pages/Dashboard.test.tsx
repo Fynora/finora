@@ -41,7 +41,17 @@ vi.mock('../lib/features', () => features);
 // Dashboard.tsx -- passing these straight through to the underlying <canvas>, since react-chartjs-2's
 // ChartProps extends CanvasHTMLAttributes -- is actually observable in tests, not silently dropped.
 vi.mock('react-chartjs-2', () => ({
-  Line: (props: any) => <div data-testid="cash-flow-chart" role={props.role} aria-label={props['aria-label']} />,
+  Line: (props: any) => (
+    <div
+      data-testid="cash-flow-chart"
+      role={props.role}
+      aria-label={props['aria-label']}
+      data-labels={(props.data?.labels ?? []).join('|')}
+      data-point-radii={(props.data?.datasets?.[0]?.pointRadius ?? []).join('|')}
+      data-dash={(props.data?.labels ?? []).map((_: unknown, i: number) =>
+        JSON.stringify(props.data?.datasets?.[0]?.segment?.borderDash?.({ p1DataIndex: i }) ?? null)).join('|')}
+    />
+  ),
   Doughnut: (props: any) => <div data-testid="spending-breakdown-chart" aria-hidden={props['aria-hidden']} />,
 }));
 
@@ -2252,12 +2262,12 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
   it("says the month is partial so far, names the account, and keeps the month's figures", async () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
       reportingMonth: '2026-09', monthlyExpense: 91000,
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     }));
     renderDashboard();
 
     expect(await screen.findByTestId('so-far-note')).toHaveTextContent(
-      "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+      "September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet.");
     // Labelled, not withheld: the expense card still shows the month's own number.
     expect(screen.getByText('Expenses (This Month)')).toBeInTheDocument();
     expect(screen.getByText('₹91,000')).toBeInTheDocument();
@@ -2282,22 +2292,61 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
   it("names the month the range ends in, from the range summary's own note", async () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       endDate: '2026-09-30',
-      statementBehind: { accountName: 'Axis Card', statementEnd: '2026-08-20', accountCount: 2 },
+      statementBehind: { accountName: 'Axis Card', coveredThrough: '2026-08-20', accountCount: 2 },
     }));
     await renderOnRange();
 
     expect(await screen.findByTestId('so-far-note')).toHaveTextContent(
-      "September is partial so far: 2 accounts' latest statements end before month-end, the earliest being Axis Card on Aug 20.");
+      "September is partial so far: 2 accounts' data ends before month-end, the earliest being Axis Card on Aug 20.");
   });
 
   it('does not let the month summary note leak onto a range that has none', async () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     }));
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({ statementBehind: null }));
     await renderOnRange();
 
     await screen.findByText(/^Income \(/);
     expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
+  });
+
+  describe('cash-flow chart marks a partial month', () => {
+    const report = (month: string, complete?: boolean) => ({
+      month, income: 80000, expense: 45000, categories: [], ...(complete === undefined ? {} : { complete }),
+    });
+
+    beforeEach(() => {
+      vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+      vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08', '2026-09']);
+    });
+
+    it('stars the label, hollows the point, dashes the segment into it, and says why beneath the chart', async () => {
+      vi.mocked(reportsApi.forMonth).mockImplementation(async (m: string) => report(m, m === '2026-09' ? false : true));
+      renderDashboard();
+
+      const chart = await screen.findByTestId('cash-flow-chart');
+      await waitFor(() => expect(chart.dataset.labels).toMatch(/\*$/));
+      const labels = chart.dataset.labels!.split('|');
+      expect(labels[0]).not.toContain('*');
+      expect(labels[1]).toMatch(/Sep.*\*$/);
+      expect(chart.dataset.pointRadii).toBe('0|4');
+      expect(chart.dataset.dash).toBe('null|[6,4]');
+      expect(chart.getAttribute('aria-label')).toMatch(/Only part of Sep.* is in/);
+      expect(screen.getByTestId('cash-flow-partial-note')).toHaveTextContent('A starred month is only partly in');
+    });
+
+    it('plots complete months and an older server (no flag) as ordinary points, with no caption', async () => {
+      vi.mocked(reportsApi.forMonth).mockImplementation(async (m: string) => report(m));
+      renderDashboard();
+
+      const chart = await screen.findByTestId('cash-flow-chart');
+      await waitFor(() => expect(chart.dataset.labels!.split('|')).toHaveLength(2));
+      expect(chart.dataset.labels).not.toContain('*');
+      expect(chart.dataset.pointRadii).toBe('0|0');
+      expect(chart.dataset.dash).toBe('null|null');
+      expect(chart.getAttribute('aria-label')).not.toMatch(/Only part/);
+      expect(screen.queryByTestId('cash-flow-partial-note')).not.toBeInTheDocument();
+    });
   });
 });

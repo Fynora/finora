@@ -117,12 +117,40 @@ public class ReportService {
                 .map(e -> new ReportDto.IncomeLine(e.getKey(), e.getValue()))
                 .toList();
 
-        ReportDto.MonthComparison comparison = liveAccountIds.isEmpty() ? null
-                : comparisonFor(userId, month, income, expense, txnsForTotals.size(), liveAccountIds);
+        // Fetched once and shared: the comparison needs these to decide whether it can be trusted,
+        // and the month's own `complete` flag is the same question asked about the month itself.
+        MonthCoverage coverage = liveAccountIds.isEmpty() ? null : coverageFor(userId, month, liveAccountIds);
+        ReportDto.MonthComparison comparison = coverage == null ? null
+                : comparisonFor(userId, month, income, expense, txnsForTotals.size(), coverage);
 
         return new ReportDto(monthStr, income, expense, categories,
                 FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind,
-                txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison);
+                txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison,
+                coverage == null || coverage.completeFor(month));
+    }
+
+    /** What decides whether a month is a whole month: the span of the user's history, the holes
+     *  between statements, and whether an account's data stops short of it. */
+    private record MonthCoverage(LocalDate earliest, LocalDate latest,
+                                 List<AccountCoverageService.DateRange> gaps, boolean accountBehind) {
+
+        /** False when the month is a partial slice of the user's history, overlaps a missing
+         *  statement, or is missing an account's last days -- the same three tests as
+         *  {@link ReportTrendPoint#complete}. A user with no history has no month to be partial. */
+        boolean completeFor(YearMonth month) {
+            if (earliest == null || latest == null) return true;
+            return !MonthComparisonGate.isPartialBoundaryMonth(month.toString(), earliest, latest)
+                    && !MonthComparisonGate.overlapsGap(month, gaps)
+                    && !accountBehind;
+        }
+    }
+
+    private MonthCoverage coverageFor(UUID userId, YearMonth month, List<UUID> liveAccountIds) {
+        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        boolean behind = latest != null
+                && statementReach.behindFor(userId, month, YearMonth.from(latest)).isPresent();
+        return new MonthCoverage(earliest, latest, accountCoverageService.gapsForUser(userId), behind);
     }
 
     /**
@@ -133,15 +161,11 @@ public class ReportService {
      * Dashboard applies -- this method only gathers its inputs and does the arithmetic.
      */
     private ReportDto.MonthComparison comparisonFor(UUID userId, YearMonth month, BigDecimal income, BigDecimal expense,
-                                               int transactionCount, List<UUID> liveAccountIds) {
+                                               int transactionCount, MonthCoverage coverage) {
         YearMonth prior = month.minusMonths(1);
         RangeTotals previous = forRange(userId, prior.atDay(1), prior.atEndOfMonth());
-        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
-        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
-        boolean awaiting = latest != null
-                && statementReach.behindFor(userId, month, YearMonth.from(latest)).isPresent();
-        String reason = MonthComparisonGate.reason(month, prior, earliest, latest,
-                accountCoverageService.gapsForUser(userId), awaiting,
+        String reason = MonthComparisonGate.reason(month, prior, coverage.earliest(), coverage.latest(),
+                coverage.gaps(), coverage.accountBehind(),
                 transactionCount, previous.transactionCount());
         if (reason != null) {
             return new ReportDto.MonthComparison(prior.toString(), false, reason, null, null, null, null, null);
@@ -191,7 +215,7 @@ public class ReportService {
         if (start.isAfter(end)) return List.of();
 
         List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
-        Map<UUID, LocalDate> statementEnds = accountCoverageService.latestStatementEnds(userId);
+        Map<UUID, LocalDate> statementEnds = accountCoverageService.latestCoverageEnds(userId);
         java.util.ArrayList<ReportTrendPoint> points = new java.util.ArrayList<>();
         for (YearMonth m = start; !m.isAfter(end); m = m.plusMonths(1)) {
             RangeTotals totals = forRange(userId, m.atDay(1), m.atEndOfMonth());

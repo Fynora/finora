@@ -22727,6 +22727,9 @@
                     },
                     "comparison": {
                         "$ref": "#/components/schemas/MonthComparison"
+                    },
+                    "complete": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -24337,7 +24340,7 @@
                     "accountName": {
                         "type": "string"
                     },
-                    "statementEnd": {
+                    "coveredThrough": {
                         "type": "string",
                         "format": "date"
                     },

@@ -84,7 +84,7 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     const balanceKpi = kpis.find((k) => k.label === 'Total Balance') ?? null;
     const snapshotKpis = kpis.filter((k) => k.label !== 'Total Balance');
 
-    // "So far": an account's latest statement ends before the reporting month does. The KPIs above
+    // "So far": an account's latest data ends before the reporting month does. The KPIs above
     // stay as they are -- this is the one line that says what they describe. The month comes from
     // the server (reportingMonth), like every other label here.
     const soFarNote = summary?.reportingMonth

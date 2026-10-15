@@ -772,6 +772,35 @@ describe('Cash flow trend and balance cards', () => {
   });
 });
 
+describe('cash flow marks a partial month', () => {
+  it('stars the month the server says is incomplete, on the chart and the trend card', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockImplementation((month: string) =>
+      Promise.resolve({ month, income: 100, expense: 50, categories: [], complete: month !== '2026-08' }));
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    expect(await screen.findByTestId('cash-flow-trend-partial-note')).toBeTruthy();
+    expect(await screen.findByTestId('cash-flow-partial-note')).toBeTruthy();
+    expect(screen.getByText('Aug*', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('plots every month as whole when the server sends no flag', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    reports.availableMonths.mockResolvedValue(['2026-07', '2026-08']);
+    reports.forMonth.mockImplementation((month: string) => Promise.resolve({ month, income: 100, expense: 50, categories: [] }));
+    accounts.list.mockResolvedValue([]);
+
+    renderScreen();
+
+    await screen.findByText('Cash Flow Trend');
+    expect(screen.queryByTestId('cash-flow-trend-partial-note')).toBeNull();
+    expect(screen.queryByTestId('cash-flow-partial-note')).toBeNull();
+  });
+});
+
 describe('story-layer order (card redesign)', () => {
   afterEach(() => onlineManager.setOnline(true));
 
@@ -1828,14 +1857,14 @@ describe('a month that is "so far" because a statement stops short of it', () =>
   it('says so once under the month card, naming the account', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({
       reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     }));
 
     renderScreen();
 
     const note = await screen.findByTestId('so-far-note');
     expect(note.props.children).toBe(
-      "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+      "September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet.");
   });
 
   it('shows no note when every active statement reaches the end of the month', async () => {

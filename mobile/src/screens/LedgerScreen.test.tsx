@@ -1598,7 +1598,7 @@ describe('LedgerScreen "This Month" summary', () => {
       monthlyIncome: 145000, monthlyExpense: 18672, incomeDeltaPct: 12, expenseDeltaPct: -8,
       netCashFlow: 126328, netDeltaPct: 15, savingsRatePct: 87, currentBalance: 50000,
       reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
     } as never);
     renderScreen();
 

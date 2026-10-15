@@ -60,7 +60,7 @@ describe('LedgerMonthCard', () => {
   });
 
   it('says the month is "so far" when it is, and still shows both figures', () => {
-    show({ note: "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet." });
+    show({ note: "September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet." });
     expect(screen.getByTestId('so-far-note').props.children).toContain('partial so far');
     expect(screen.getByTestId('kpi-Income')).toBeTruthy();
     expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();

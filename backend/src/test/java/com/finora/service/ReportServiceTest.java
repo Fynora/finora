@@ -664,6 +664,64 @@ class ReportServiceTest {
         assertThat(c.netDelta()).isNull();
     }
 
+    // --- complete: the month's own "is this a whole month" flag, for charts ---
+
+    @Test
+    void complete_isTrueForAWholeMonthInTheMiddleOfHistory() {
+        stubTwoComparableMonths();
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isTrue();
+    }
+
+    @Test
+    void complete_isFalseForTheRaggedNewestMonth() {
+        stubTwoComparableMonths();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 26)); // data ends on the 26th
+        stubMonth(2026, 9, txnOn(LocalDate.of(2026, 9, 5), "900.00", Transaction.Type.EXPENSE));
+
+        assertThat(reportService.forMonth(userId, "2026-09").complete()).isFalse();
+    }
+
+    @Test
+    void complete_isFalseForAMonthSharingADayWithAMissingStatement() {
+        stubTwoComparableMonths();
+        when(accountCoverageService.gapsForUser(userId)).thenReturn(List.of(
+                new AccountCoverageService.DateRange(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 20))));
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isFalse();
+    }
+
+    @Test
+    void complete_isFalseWhenAnActiveAccountsDataStopsShortOfTheMonth() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11));
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isFalse();
+    }
+
+    @Test
+    void complete_doesNotDependOnWhetherTheComparisonCouldBeMade() {
+        // July is a whole month with only two transactions, so its COMPARISON is withheld (too few
+        // in the month before it) -- but the month itself is complete, and a chart must not hatch it.
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE));
+
+        ReportDto july = reportService.forMonth(userId, "2026-07");
+
+        assertThat(july.comparison().reliable()).isFalse();
+        assertThat(july.complete()).isTrue();
+    }
+
+    @Test
+    void complete_isTrueForAUserWithNoLiveAccount() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        assertThat(reportService.forMonth(userId, "2026-07").complete()).isTrue();
+    }
+
     @Test
     void comparison_forTheFirstMonthOfHistory_hasNothingToCompareWith() {
         stubNothingByDefault();
@@ -866,7 +924,7 @@ class ReportServiceTest {
     // --- an account whose latest statement stops short of the month ---
 
     private void givenTheAccountsLatestStatementEnds(LocalDate end) {
-        when(accountCoverageService.latestStatementEnds(userId)).thenReturn(java.util.Map.of(liveAccount.getId(), end));
+        when(accountCoverageService.latestCoverageEnds(userId)).thenReturn(java.util.Map.of(liveAccount.getId(), end));
         when(transactionRepository.findAccountIdsWithTransactionsBetween(eq(userId), any(), any(), any()))
                 .thenReturn(List.of(liveAccount.getId()));
     }
@@ -902,7 +960,7 @@ class ReportServiceTest {
 
     @Test
     void comparison_withNoStatementBackedAccount_doesNotRunTheActivityQuery() {
-        stubTwoComparableMonths(); // latestStatementEnds is empty by default
+        stubTwoComparableMonths(); // latestCoverageEnds is empty by default
 
         reportService.forMonth(userId, "2026-08");
 

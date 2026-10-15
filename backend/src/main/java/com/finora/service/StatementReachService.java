@@ -39,11 +39,11 @@ public class StatementReachService {
 
     @Transactional(readOnly = true)
     public Optional<StatementBehindDto> behindFor(UUID userId, YearMonth month, YearMonth newestDataMonth) {
-        return behindFor(userId, month, newestDataMonth, accountCoverageService.latestStatementEnds(userId));
+        return behindFor(userId, month, newestDataMonth, accountCoverageService.latestCoverageEnds(userId));
     }
 
-    /** For a caller judging several months, which fetches the statement ends once and passes them
-     *  in -- the same map {@link AccountCoverageService#latestStatementEnds} returns. */
+    /** For a caller judging several months, which fetches the coverage ends once and passes them
+     *  in -- the same map {@link AccountCoverageService#latestCoverageEnds} returns. */
     @Transactional(readOnly = true)
     public Optional<StatementBehindDto> behindFor(UUID userId, YearMonth month, YearMonth newestDataMonth,
                                                   Map<UUID, LocalDate> latestStatementEnds) {

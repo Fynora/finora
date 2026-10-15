@@ -123,7 +123,7 @@ describe('LedgerSnapshotCard', () => {
       <ThemeProvider>
         <LedgerSnapshotCard
           kpis={KPIS} title="This Month" deltaLabel="vs last month" deltaSpokenLabel="versus last month"
-          note="September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet."
+          note="September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet."
         />
       </ThemeProvider>
     );

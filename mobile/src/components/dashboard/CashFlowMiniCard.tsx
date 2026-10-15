@@ -112,11 +112,20 @@ export function CashFlowMiniCard({
             <Path d={area} fill="url(#cashFlowTrendFill)" />
             <Path d={line} fill="none" stroke={c.success} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             {/* The latest month: says which end of the line is "now". */}
-            <Circle testID="cash-flow-trend-end" cx={xAt(last)} cy={yAt(series[last].net)} r={3} fill={c.success} />
+            {/* A partial latest month is a hollow ring, not a solid dot: it is only part of a month. */}
+            <Circle
+              testID="cash-flow-trend-end"
+              cx={xAt(last)} cy={yAt(series[last].net)} r={3}
+              fill={series[last].partial ? c.card : c.success} stroke={c.success} strokeWidth={series[last].partial ? 2 : 0}
+            />
           </>
         ) : (
           // One month is a point, not a line; a path with a single "M" draws nothing at all.
-          <Circle testID="cash-flow-trend-dot" cx={xAt(0)} cy={yAt(series[0].net)} r={3} fill={c.success} />
+          <Circle
+            testID="cash-flow-trend-dot"
+            cx={xAt(0)} cy={yAt(series[0].net)} r={3}
+            fill={series[0].partial ? c.card : c.success} stroke={c.success} strokeWidth={series[0].partial ? 2 : 0}
+          />
         )}
       </Svg>
       {/* The months, each under its own point. For sighted readers only: the full Cash Flow card
@@ -141,12 +150,17 @@ export function CashFlowMiniCard({
           return (
             <View key={`${s.label}-${i}`} testID={`cash-flow-trend-month-${s.label}`} style={[styles.axisSlot, position]}>
               <Text style={[typography.caption, { color: c.mutedInk }]} numberOfLines={1} maxFontSizeMultiplier={AXIS_MAX_FONT_SCALE}>
-                {monthOnly(s.label)}
+                {s.partial ? `${monthOnly(s.label)}*` : monthOnly(s.label)}
               </Text>
             </View>
           );
         })}
       </View>
+      {series.some((s) => s.partial) ? (
+        <Text testID="cash-flow-trend-partial-note" style={[typography.caption, { color: c.mutedInk }]}>
+          * A starred month is only partly in.
+        </Text>
+      ) : null}
     </DashboardCard>
   );
 }

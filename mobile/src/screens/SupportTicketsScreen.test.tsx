@@ -126,4 +126,11 @@ describe('SupportTicketsScreen first load', () => {
     renderScreen();
     expectSkeletonNotSpinner();
   });
+
+  it('the skeleton is ticket cards: number and tag, subject, dates, and the status badge', () => {
+    api.list.mockReset().mockReturnValue(never());
+    renderScreen();
+    expect(screen.getAllByTestId('skeleton-ticket-card', { hidden: true })).toHaveLength(3);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3 * 5);
+  });
 });

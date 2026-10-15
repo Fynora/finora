@@ -334,6 +334,29 @@ export function StatementGroupCardsSkeleton() {
   );
 }
 
+/** SupportTicketsScreen's ticket cards: the ticket number and category tag, the subject, the dates,
+ *  and the status badge on the right, in a bordered card. Three stand in for "some". */
+export function SupportTicketCardsSkeleton() {
+  const c = useTheme();
+  return (
+    <>
+      {[0, 1, 2].map((i) => (
+        <View key={i} testID="skeleton-ticket-card" style={[styles.ticketCard, { borderColor: c.border }]}>
+          <View style={styles.flexFillOnly}>
+            <View style={styles.ticketTop}>
+              <SkeletonText size="caption" width="25%" />
+              <SkeletonBox size="chip" width="20%" />
+            </View>
+            <SkeletonText size="body" width="70%" style={styles.ticketLine} />
+            <SkeletonText size="caption" width="80%" style={styles.ticketLine} />
+          </View>
+          <SkeletonBox size="badge" width="18%" />
+        </View>
+      ))}
+    </>
+  );
+}
+
 export function SettingsSecuritySkeleton() {
   return (
     <SkeletonGroup testID="settings-security-skeleton">
@@ -500,6 +523,15 @@ const styles = StyleSheet.create({
   // under the title; rows padded 8 with a hairline under each.
   inflowCard: { gap: spacing.sm, marginTop: spacing.md },
   statementCard: { marginBottom: spacing.md },
+  // SupportTicketsScreen's row: a 1pt-bordered card padded 16, 4 apart; the subject and dates 3 below
+  // the line above; the number and tag 4 apart.
+  ticketCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
+    borderWidth: 1, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.xs,
+  },
+  flexFillOnly: { flex: 1 },
+  ticketTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  ticketLine: { marginTop: 3 },
   // DeviceSessionsSection's own spacing: the blurb 2 under the title and 8 above the cards; each card
   // padded 10 by 12 inside a 1pt border, 4 apart, its detail lines 2 apart.
   sessionsBlurb: { marginTop: 2, marginBottom: spacing.sm },

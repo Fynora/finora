@@ -10,7 +10,8 @@ import { supportApi, type SupportTicketCategory, type SupportTicketStatus } from
 import { fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import { useGlassSurfaceStyle } from '../components/GlassSurface';
-import { SkeletonGroup, SkeletonListRow } from '../components/skeletons/Skeletons';
+import { SupportTicketCardsSkeleton } from '../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup } from '../components/skeletons/Skeletons';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
@@ -85,7 +86,7 @@ export function SupportTicketsScreen() {
         ListEmptyComponent={
           ticketsQuery.isLoading ? (
             <SkeletonGroup>
-              {[0, 1, 2].map((i) => <SkeletonListRow key={i} amount={false} />)}
+              <SupportTicketCardsSkeleton />
             </SkeletonGroup>
           ) : ticketsQuery.isError ? (
             // Distinct from "no tickets" on purpose -- see frontend's identical fix and its own

@@ -132,3 +132,32 @@ describe('row and form blocks', () => {
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3);
   });
 });
+
+// Measured on the simulator (iPhone 17 Pro, 2026-10-16): a line of the system font is 1.19 times
+// its font size tall (12 -> 14.0, 14 -> 16.6, 11 -> 13.1, 17 -> 20.1). A placeholder only as tall
+// as the font size made the loaded Profile about 60 pt taller than its skeleton, so content jumped.
+describe('placeholders take the room the real text takes', () => {
+  function flat(style: unknown): Record<string, unknown> {
+    return Array.isArray(style) ? Object.assign({}, ...(style as unknown[]).flat(Infinity).filter(Boolean)) : ((style ?? {}) as Record<string, unknown>);
+  }
+
+  it('a text line occupies a line of text, with the bar at the font size inside it', () => {
+    withTheme(<SkeletonText size="title" />);
+    const bar = screen.getByTestId('shimmer-block', { hidden: true });
+    expect(flat(bar.props.style).height).toBe(22);
+    expect(flat(screen.getByTestId('skeleton-line', { hidden: true }).props.style).height).toBe(Math.round(22 * 1.19));
+  });
+
+  it('a paragraph is one line of text per line, with no extra gap between them', () => {
+    withTheme(<SkeletonLines count={3} size="body" />);
+    const lines = screen.getAllByTestId('skeleton-line', { hidden: true });
+    expect(lines).toHaveLength(3);
+    lines.forEach((l) => expect(flat(l.props.style).height).toBe(Math.round(14 * 1.19)));
+    expect(flat(screen.getByTestId('skeleton-lines', { hidden: true }).props.style).gap).toBeUndefined();
+  });
+
+  it('a form field keeps the slot TextField reserves under its input for an error', () => {
+    withTheme(<SkeletonFormField />);
+    expect(screen.getByTestId('skeleton-field-message', { hidden: true })).toBeTruthy();
+  });
+});

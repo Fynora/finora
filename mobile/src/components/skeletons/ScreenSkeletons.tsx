@@ -1,5 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import { radius, spacing, useTheme } from '../../theme';
+import { skeletonTokens } from '../../theme/skeleton';
 import { Card } from '../Card';
 import {
   SkeletonBox, SkeletonChart, SkeletonFormField, SkeletonGroup, SkeletonHero, SkeletonIcon, SkeletonLines,
@@ -44,15 +45,21 @@ export function AccountsSkeleton() {
   );
 }
 
+/** FinancialMemoryScreen's seven tiles, in order, and which of them carry a caption line under the
+ *  label (History, Completeness, Merchants identified, Manual corrections). Without the captions the
+ *  loaded screen came out about 43 pt taller than its skeleton on the simulator (2026-10-16). */
+const MEMORY_TILE_HAS_CAPTION = [true, true, false, false, true, false, true];
+
 export function FinancialMemorySkeleton() {
   return (
     <SkeletonGroup testID="financial-memory-skeleton" style={styles.columnMd}>
       <SkeletonLines count={2} size="label" lastWidth="70%" />
       <View style={styles.twoUpGrid}>
-        {Array.from({ length: 7 }).map((_, i) => (
-          <Card key={i} style={styles.twoUpTile}>
+        {MEMORY_TILE_HAS_CAPTION.map((hasCaption, i) => (
+          <Card key={i} style={styles.memoryTile}>
             <SkeletonText size="value" width="50%" />
             <SkeletonText size="meta" width="75%" />
+            {hasCaption ? <SkeletonText size="caption" width="85%" /> : null}
           </Card>
         ))}
       </View>
@@ -174,7 +181,12 @@ export function ProfileSkeleton() {
               <SkeletonText size="body" width="55%" style={styles.tight} />
             </View>
           ))}
-          <SkeletonBox size="button" style={styles.gapSm} />
+          {/* ProfileScreen's save-status row: empty until the name is edited, but it holds its room. */}
+          <View
+            testID="skeleton-save-status"
+            style={[styles.stackSm, { height: skeletonTokens.control.saveStatus }]}
+          />
+          <SkeletonBox size="button" />
         </View>
       </Card>
       <Card style={styles.stackMd}>
@@ -193,9 +205,13 @@ export function ProfileSkeleton() {
 export function ReferralsSkeleton({ heroAspectRatio }: { heroAspectRatio: number }) {
   return (
     <SkeletonGroup testID="referrals-skeleton" style={styles.columnMd}>
+      {/* The real title and subtitle are separate children of the content's gap column, with the
+          subtitle pulled up 4 -- so the subtitle starts one gap minus 4 below the title. */}
       <View>
         <SkeletonText size="hero" width="50%" />
-        <SkeletonLines count={2} size="body" lastWidth="75%" />
+        <View style={styles.referralSubtitle}>
+          <SkeletonLines count={2} size="body" lastWidth="75%" />
+        </View>
       </View>
       <SkeletonHero aspectRatio={heroAspectRatio} />
       <Card>
@@ -204,6 +220,7 @@ export function ReferralsSkeleton({ heroAspectRatio }: { heroAspectRatio: number
             <View key={i} style={styles.centredColumn}>
               <SkeletonIcon size="sm" round />
               <SkeletonText size="caption" width="70%" />
+              <SkeletonText size="tiny" width="80%" />
             </View>
           ))}
         </View>
@@ -213,7 +230,12 @@ export function ReferralsSkeleton({ heroAspectRatio }: { heroAspectRatio: number
         <SkeletonBox size="codeRow" />
         <SkeletonBox size="button" />
         <View style={styles.spacedRow}>
-          {[0, 1, 2, 3, 4].map((i) => <SkeletonIcon key={i} size="lg" round />)}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View key={i} style={styles.channel}>
+              <SkeletonIcon size="lg" round />
+              <SkeletonText size="tiny" width="80%" />
+            </View>
+          ))}
         </View>
       </Card>
       <View style={styles.threeUp}>
@@ -346,7 +368,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.sm, paddingTop: spacing.sm,
   },
   twoUpGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  twoUpTile: { flexBasis: '47%', flexGrow: 1, padding: spacing.sm, gap: spacing.xs },
+  // FinancialMemoryScreen's tile: label and caption each sit 2 below the line above.
+  memoryTile: { flexBasis: '47%', flexGrow: 1, padding: spacing.sm, gap: 2 },
   threeUp: { flexDirection: 'row', gap: spacing.sm },
   threeUpTile: { flex: 1, paddingHorizontal: spacing.sm, gap: spacing.xs },
   columnSmRow: { gap: spacing.sm },
@@ -355,5 +378,8 @@ const styles = StyleSheet.create({
   gapSmStackMd: { marginTop: spacing.sm, marginBottom: spacing.md },
   centredColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
   spacedRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
+  referralSubtitle: { marginTop: spacing.md - 4 },
+  // ReferralsScreen's share channel: the icon, then its label 6 below.
+  channel: { alignItems: 'center', gap: 6, width: '18%' },
   wrappedCard: { borderRadius: radius.xl, padding: spacing.lg },
 });

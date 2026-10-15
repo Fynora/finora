@@ -36,13 +36,23 @@ export function SkeletonGroup({ children, style, testID = 'skeleton-group' }: {
   );
 }
 
-/** A line of text: as tall as the font size of the text it stands in for. */
-export function SkeletonText({ size, width = '100%', style }: {
+/**
+ * A line of text. It takes the room a real line of that font size takes (skeletonTokens.lineHeight,
+ * measured), so nothing below it moves when the text lands; the bar drawn inside is the font size
+ * tall, or `bar` times it inside a paragraph.
+ */
+export function SkeletonText({ size, width = '100%', style, bar = 1 }: {
   size: SkeletonTextSize;
   width?: DimensionValue;
   style?: ViewStyle;
+  bar?: number;
 }) {
-  return <Shimmer width={width} height={T.text[size]} style={style} />;
+  const fontSize = T.text[size];
+  return (
+    <View testID="skeleton-line" style={[styles.lineBox, { width, height: Math.round(fontSize * T.lineHeight) }, style]}>
+      <Shimmer width="100%" height={Math.round(fontSize * bar)} />
+    </View>
+  );
 }
 
 /** A fixed-height control: a field, a button, a chip, a progress bar. */
@@ -73,9 +83,9 @@ export function SkeletonLines({ count = 3, size = 'meta', lastWidth = '60%' }: {
   lastWidth?: DimensionValue;
 }) {
   return (
-    <View style={styles.lines}>
+    <View testID="skeleton-lines">
       {Array.from({ length: count }).map((_, i) => (
-        <SkeletonText key={i} size={size} width={i === count - 1 ? lastWidth : '100%'} />
+        <SkeletonText key={i} size={size} width={i === count - 1 ? lastWidth : '100%'} bar={T.paragraphBar} />
       ))}
     </View>
   );
@@ -102,12 +112,14 @@ export function SkeletonListRow({ icon = null, roundIcon = false, amount = true,
   );
 }
 
-/** TextField's shape: a label line over the 48pt input row. */
+/** TextField's shape: a label line over the 48pt input row, and the slot it keeps under the input
+ *  for an error message, so the fields below do not move when the real form lands. */
 export function SkeletonFormField() {
   return (
     <View style={styles.formField}>
-      <SkeletonText size="meta" width="30%" />
+      <SkeletonText size="meta" width="30%" style={styles.fieldLabel} />
       <SkeletonBox size="field" />
+      <View testID="skeleton-field-message" style={[styles.fieldMessage, { height: T.control.fieldMessage }]} />
     </View>
   );
 }
@@ -242,10 +254,13 @@ export function SkeletonChart({ variant = 'bar', width = '100%' }: { variant?: '
 const styles = StyleSheet.create({
   heading: { marginBottom: spacing.sm },
   line: { marginBottom: spacing.sm },
-  lines: { gap: spacing.sm },
+  lineBox: { justifyContent: 'center' },
   listRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 10 },
   listRowMain: { flex: 1, gap: spacing.xs },
-  formField: { gap: 6, marginBottom: spacing.xs },
+  // TextField's own spacing: label 6 above the input, error slot 2 below it, 4 under the field.
+  formField: { marginBottom: spacing.xs },
+  fieldLabel: { marginBottom: 6 },
+  fieldMessage: { marginTop: 2 },
   profileHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   profileHeaderText: { flex: 1, gap: spacing.xs },
   settingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },

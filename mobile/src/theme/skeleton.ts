@@ -18,12 +18,23 @@ export const skeletonTokens = {
   /** The shared pulse: opacity sweeps low -> high -> low, each half taking halfCycleMs. */
   pulse: { low: 0.35, high: 1, halfCycleMs: 700, reducedMotion: 0.7 },
   radius: { line: radius.md, block: radius.md, card: radius.lg },
+  /** A line of the system font is this many times its font size tall -- measured on the simulator
+   *  (iPhone 17 Pro, 2026-10-16: 11 -> 13.1, 12 -> 14.0, 14 -> 16.6, 17 -> 20.1). A text placeholder
+   *  takes a whole line of room so the screen does not jump when the real text lands. */
+  lineHeight: 1.19,
+  /** Inside a paragraph the lines sit on top of each other, so each bar is drawn thinner than its
+   *  line to stay visibly separate from the next. */
+  paragraphBar: 0.7,
   text: {
     tiny: 10, caption: 11, meta: 12, label: 13, body: 14, heading: 15, subheading: 16,
     subject: 17, amount: 18, value: 20, title: 22, hero: 28, display: 36,
   },
   control: {
     field: 48, button: 48, touch: 44, codeRow: 52,
+    /** The slot TextField keeps under its input for an error message (minHeight 16). */
+    fieldMessage: 16,
+    /** The row ProfileScreen keeps for SaveStatus above its Save button (saveRow, minHeight 16). */
+    saveStatus: 16,
     switchHeight: 31, chip: 18, badge: 20, bar: 8, barTrack: 6,
   },
   /** Widths that are fixed in the real layout, not a share of the row. */

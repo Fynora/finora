@@ -1,5 +1,7 @@
 package com.finora.observability;
 
+import io.sentry.DataCollection;
+import io.sentry.KeyValueCollectionBehavior;
 import io.sentry.Sentry;
 import io.sentry.SentryOptions;
 import org.slf4j.Logger;
@@ -7,6 +9,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Set;
 
 /**
  * Backend error monitoring.
@@ -30,7 +34,7 @@ import org.springframework.context.annotation.Configuration;
  * the ones whose accidental flip would be most damaging, and an inherited default is one nobody
  * reviews. {@link SentryScrubber} then removes what configuration alone cannot.
  *
- * <p><b>This is defence in depth, not belt-and-braces.</b> {@code sendDefaultPii=false} stops
+ * <p><b>This is defence in depth, not belt-and-braces.</b> Switching every kind of data collection off stops
  * Sentry attaching identity itself; the scrubber stops the application's own exception messages
  * carrying statement contents. Neither substitutes for the other.
  */
@@ -77,9 +81,13 @@ public class MonitoringConfig {
                 options.setRelease(release);
             }
 
-            // Never attach IP address, cookies, headers or user identity. Sentry's own default is
-            // already false; stated here because this is the flag whose flip would be worst.
-            options.setSendDefaultPii(false);
+            // Never attach IP address, cookies, headers or user identity. Every kind of data the SDK
+            // can collect is switched off by name: SentryOptions#setSendDefaultPii is deprecated in
+            // favour of this model, and it left URL query parameters, request and response headers
+            // and outgoing-request / incoming-response bodies on at the SDK's defaults, which the
+            // sentence above says we never send. MonitoringConfigTest reads the resolved answers
+            // back from the SDK, so a build that stops protecting any of them fails.
+            options.setDataCollection(noDataCollection());
 
             // Crash reporting only. Performance spans are keyed by URL, which would reintroduce the
             // account and transaction identifiers SentryScrubber strips -- and there is no
@@ -104,5 +112,26 @@ public class MonitoringConfig {
             log.info("Backend error monitoring enabled (environment={}, release={})",
                     environment, release == null || release.isBlank() ? "unset" : release);
         };
+    }
+
+    /**
+     * Every category of data the Sentry SDK can attach, switched off: user identity (which carries
+     * the IP address), cookies, URL query parameters, request and response headers, request and
+     * response bodies in both directions, database query text, file paths and GraphQL documents
+     * and variables. Package-visible so the test builds the same object the bean does.
+     */
+    static DataCollection noDataCollection() {
+        DataCollection none = new DataCollection();
+        none.setUserInfo(false);
+        none.setCookies(KeyValueCollectionBehavior.off());
+        none.setUrlQueryParams(KeyValueCollectionBehavior.off());
+        none.setHttpBodies(Set.of());
+        none.setDatabaseQueryData(false);
+        none.setFilePaths(false);
+        none.getHttpHeaders().setRequest(KeyValueCollectionBehavior.off());
+        none.getHttpHeaders().setResponse(KeyValueCollectionBehavior.off());
+        none.getGraphql().setDocument(false);
+        none.getGraphql().setVariables(false);
+        return none;
     }
 }

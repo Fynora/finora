@@ -1,5 +1,7 @@
 package com.finora.observability;
 
+import io.sentry.DataCollectionResolver;
+import io.sentry.KeyValueCollectionBehavior;
 import io.sentry.SentryEvent;
 import io.sentry.SentryOptions;
 import io.sentry.protocol.SentryException;
@@ -48,9 +50,26 @@ class MonitoringConfigTest {
     void withADsnThePiiProtectionsAreAllOn() {
         SentryOptions options = optionsFrom("https://key@example.invalid/1", "production", "abc123");
 
-        assertThat(options.isSendDefaultPii())
-                .as("would attach IP address, cookies and headers")
-                .isFalse();
+        // Read back through the resolver, the object the SDK asks at send time, so this fails if
+        // the configuration is ever dropped or loosened -- not just if one field was assigned.
+        DataCollectionResolver sdk = options.getDataCollectionResolver();
+        assertThat(sdk.isDataCollectionConfigured()).as("explicit, not inherited defaults").isTrue();
+        assertThat(sdk.isUserInfo()).as("user identity and IP address").isFalse();
+        assertThat(sdk.getCookies().getMode()).as("cookies").isEqualTo(KeyValueCollectionBehavior.Mode.OFF);
+        assertThat(sdk.getUrlQueryParams().getMode()).as("URL query parameters")
+                .isEqualTo(KeyValueCollectionBehavior.Mode.OFF);
+        assertThat(sdk.getHttpRequestHeaders().getMode()).as("request headers")
+                .isEqualTo(KeyValueCollectionBehavior.Mode.OFF);
+        assertThat(sdk.getHttpResponseHeaders().getMode()).as("response headers")
+                .isEqualTo(KeyValueCollectionBehavior.Mode.OFF);
+        assertThat(sdk.isIncomingRequestBody()).as("incoming request body").isFalse();
+        assertThat(sdk.isOutgoingRequestBody()).as("outgoing request body").isFalse();
+        assertThat(sdk.isIncomingResponseBody()).as("incoming response body").isFalse();
+        assertThat(sdk.isOutgoingResponseBody()).as("outgoing response body").isFalse();
+        assertThat(sdk.isDatabaseQueryData()).as("database query text").isFalse();
+        assertThat(sdk.isFilePaths()).as("file paths").isFalse();
+        assertThat(sdk.isGraphqlDocument()).as("GraphQL documents").isFalse();
+        assertThat(sdk.isGraphqlVariables()).as("GraphQL variables").isFalse();
         assertThat(options.getMaxRequestBodySize())
                 .as("a registration body holds email, phone and a plaintext password; "
                         + "an import body is a bank statement")

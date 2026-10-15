@@ -28,10 +28,14 @@ public class ReportService {
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
     private final InflowChoiceService inflowChoices;
 
+    /** Which months overlap a hole between two imported statements -- see MonthComparisonGate. */
+    private final AccountCoverageService accountCoverageService;
+
     public ReportService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                           CategoryRepository categoryRepository, TransactionGraphService transactionGraphService,
-                         InflowChoiceService inflowChoices) {
+                         InflowChoiceService inflowChoices, AccountCoverageService accountCoverageService) {
         this.inflowChoices = inflowChoices;
+        this.accountCoverageService = accountCoverageService;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -108,9 +112,98 @@ public class ReportService {
                 .map(e -> new ReportDto.IncomeLine(e.getKey(), e.getValue()))
                 .toList();
 
+        ReportDto.MonthComparison comparison = liveAccountIds.isEmpty() ? null
+                : comparisonFor(userId, month, income, expense, txnsForTotals.size(), liveAccountIds);
+
         return new ReportDto(monthStr, income, expense, categories,
-                FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind);
+                FlowTotals.unresolvedInflow(txnsForTotals, flow), incomeByKind,
+                txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison);
     }
+
+    /**
+     * This month against the calendar month before it. The prior month's figures come from
+     * {@link #forRange}, the same refund-netted, deleted-account-safe computation the selected
+     * month's own totals use, so the two sides of the comparison are built identically. Whether the
+     * comparison is trustworthy is decided by {@link MonthComparisonGate}, the same rule the
+     * Dashboard applies -- this method only gathers its inputs and does the arithmetic.
+     */
+    private ReportDto.MonthComparison comparisonFor(UUID userId, YearMonth month, BigDecimal income, BigDecimal expense,
+                                               int transactionCount, List<UUID> liveAccountIds) {
+        YearMonth prior = month.minusMonths(1);
+        RangeTotals previous = forRange(userId, prior.atDay(1), prior.atEndOfMonth());
+        String reason = MonthComparisonGate.reason(month, prior,
+                transactionRepository.findEarliestTxnDate(userId, liveAccountIds),
+                transactionRepository.findLatestTxnDate(userId, liveAccountIds),
+                accountCoverageService.gapsForUser(userId),
+                transactionCount, previous.transactionCount());
+        if (reason != null) {
+            return new ReportDto.MonthComparison(prior.toString(), false, reason, null, null, null, null, null);
+        }
+        BigDecimal net = income.subtract(expense);
+        BigDecimal previousNet = previous.income().subtract(previous.expense());
+        return new ReportDto.MonthComparison(prior.toString(), true, null, previous.income(), previous.expense(),
+                deltaPct(income, previous.income()), deltaPct(expense, previous.expense()),
+                net.subtract(previousNet));
+    }
+
+    /** Percent change from {@code prior} to {@code current}, null when the prior is zero (a change
+     *  from nothing has no percentage). Same arithmetic as DashboardRangeService's pct. */
+    private static Double deltaPct(BigDecimal current, BigDecimal prior) {
+        if (prior.signum() == 0) return null;
+        return current.subtract(prior).divide(prior.abs(), 6, java.math.RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100)).doubleValue();
+    }
+
+    private static final int TREND_MAX_MONTHS = 12;
+
+    /**
+     * Income and expense for each of the last {@code months} calendar months up to {@code anchor}
+     * (the newest month with data when null), oldest first. Every point is {@link #forRange} for
+     * that month, so a point equals the totals the report itself shows for the same month.
+     *
+     * <p>No months before the user's history began, and none after their last transaction: a new
+     * account with two months of data gets two points, never fabricated zeros. A month inside the
+     * history with no transactions is a real zero, but is marked incomplete when it, or a statement
+     * gap, makes that figure a partial picture -- see {@link ReportTrendPoint#complete}.
+     */
+    @Transactional(readOnly = true)
+    public List<ReportTrendPoint> trend(UUID userId, YearMonth anchor, int months) {
+        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
+                .map(com.finora.entity.Account::getId).toList();
+        if (liveAccountIds.isEmpty()) return List.of();
+        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        if (earliest == null || latest == null) return List.of();
+
+        int window = Math.max(1, Math.min(months, TREND_MAX_MONTHS));
+        YearMonth newest = YearMonth.from(latest);
+        YearMonth end = anchor == null || anchor.isAfter(newest) ? newest : anchor;
+        YearMonth first = YearMonth.from(earliest);
+        YearMonth start = end.minusMonths(window - 1L);
+        if (start.isBefore(first)) start = first;
+        if (start.isAfter(end)) return List.of();
+
+        List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
+        java.util.ArrayList<ReportTrendPoint> points = new java.util.ArrayList<>();
+        for (YearMonth m = start; !m.isAfter(end); m = m.plusMonths(1)) {
+            RangeTotals totals = forRange(userId, m.atDay(1), m.atEndOfMonth());
+            boolean complete = !MonthComparisonGate.isPartialBoundaryMonth(m.toString(), earliest, latest)
+                    && !MonthComparisonGate.overlapsGap(m, gaps);
+            points.add(new ReportTrendPoint(m.toString(), totals.income(), totals.expense(),
+                    totals.transactionCount(), complete));
+        }
+        return points;
+    }
+
+    /** Named for the report, not just "TrendPoint": Analytics already has a record of that name, and
+     *  OpenAPI schemas are keyed by simple name, so a second one silently replaces the first in the
+     *  generated spec and the client types.
+     *
+     *  @param complete false when the month is the ragged edge of the user's imported history or
+     *                  shares a day with a missing-statement gap, so its figures describe only part
+     *                  of the month. */
+    public record ReportTrendPoint(String month, BigDecimal income, BigDecimal expense,
+                                   int transactionCount, boolean complete) {}
 
     /**
      * Income/expense totals for an arbitrary date range -- the same refund-netted,

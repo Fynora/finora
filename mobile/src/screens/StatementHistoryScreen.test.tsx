@@ -6,6 +6,8 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
 import { detail as jobDetail, label as jobLabel } from '../lib/importJob';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
+import { AppAlert } from '../lib/appAlert';
 
 // Scoped to re-importing a password-protected statement -- the one flow here where the server's
 // answer changes what the screen DOES rather than only what it says.
@@ -155,6 +157,8 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
     // The nonce is what lets the Import tab tell a fresh arrival from a stale param it has
     // already consumed -- without it, tapping Import later would re-enter this same re-import.
     expect(typeof params.reimport.nonce).toBe('number');
+    // Import fires on its own confirm; handing the rows over is not the outcome.
+    expectHaptics({});
   });
 
   it('prompts for the password when the stored file turns out to be protected', async () => {
@@ -377,6 +381,35 @@ describe('StatementHistoryScreen — re-importing a password-protected statement
  * rejected import could not be found again on this app at all once the Import tab's progress card
  * was gone.
  */
+describe('StatementHistoryScreen — deleting a statement import', () => {
+  beforeEach(() => {
+    api.listGroupedByAccount.mockReset().mockResolvedValue(groups);
+    api.remove.mockReset().mockResolvedValue(undefined as never);
+  });
+
+  async function deleteConfirmed() {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Delete'));
+    expectHaptics({});
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Delete')!.onPress!(); });
+    alertSpy.mockRestore();
+  }
+
+  it('gives one success once the server deletes it, and nothing on the tap that asks', async () => {
+    await deleteConfirmed();
+    await waitFor(() => expect(api.remove).toHaveBeenCalledWith('stmt-1'));
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('gives one error when the server refuses', async () => {
+    api.remove.mockRejectedValueOnce(new Error('down'));
+    await deleteConfirmed();
+    expect(await screen.findByText('Could not delete this statement import.')).toBeTruthy();
+    expectHaptics({ error: 1 });
+  });
+});
+
 describe('StatementHistoryScreen — recent imports', () => {
   const jobs = importJobsApi as jest.Mocked<typeof importJobsApi>;
 
@@ -439,9 +472,13 @@ describe('StatementHistoryScreen — recent imports', () => {
     fireEvent.press(await screen.findByLabelText('Dismiss rejected.pdf'));
     await settle();
 
-    expect(screen.queryByText('rejected.pdf')).toBeNull();
+    // Waited for, not read after one flush: the list re-renders on React Query's setTimeout(0)
+    // notify, which under a busy parallel run can land after one flush. And not with toBeNull,
+    // whose failure message pretty-prints the whole fiber on every poll and starves that timer.
+    await waitFor(() => expect(screen.queryByText('rejected.pdf')).not.toBeOnTheScreen());
     expect(jobs.dismiss).toHaveBeenCalledWith('job-failed');
     expect(screen.getByText('held.pdf')).toBeOnTheScreen();
+    expectHaptics({ success: 1 });
   });
 
   // Gate 1 spec §4: an overdue hold's apology offers uploading a different statement meanwhile, so
@@ -488,6 +525,7 @@ describe('StatementHistoryScreen — recent imports', () => {
 
     expect(screen.getByText("Couldn't dismiss rejected.pdf. Please try again.")).toBeOnTheScreen();
     expect(screen.getByText('rejected.pdf')).toBeOnTheScreen();
+    expectHaptics({ error: 1 });
   });
 
   it('leaves completed imports to the statement list', async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { AppSwitch } from '../../components/AppSwitch';
 import { LoadFailed } from '../../components/LoadFailed';
 import { NotificationPreferencesRowsSkeleton } from '../../components/skeletons/ScreenSkeletons';
 import { SkeletonGroup } from '../../components/skeletons/Skeletons';
@@ -80,7 +81,7 @@ export function NotificationPreferencesSection() {
                   <Text style={[styles.rowTitle, { color: c.ink }]}>{copy.label}</Text>
                   <Text style={[styles.meta, { color: c.mutedInk }]}>{copy.description}</Text>
                 </View>
-                <Switch
+                <AppSwitch
                   value={pref.enabled}
                   onValueChange={(next) => void toggle(pref, next)}
                   disabled={saving}

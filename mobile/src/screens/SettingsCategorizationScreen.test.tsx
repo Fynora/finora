@@ -4,6 +4,7 @@ import { SettingsCategorizationScreen } from './SettingsCategorizationScreen';
 import { workspaceApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   workspaceApi: { getSettings: jest.fn(), updateSettings: jest.fn() },
@@ -28,6 +29,25 @@ test('increments the threshold via the accessible stepper', async () => {
   await screen.findByText('90%');
   fireEvent.press(screen.getByLabelText('Decrease threshold'));
   await waitFor(() => expect(screen.getByText('85%')).toBeTruthy());
+});
+
+test('saving the threshold gives one success, and a refused save one error', async () => {
+  (workspaceApi.getSettings as jest.Mock).mockResolvedValue({ autoApplyConfidenceThreshold: 90 });
+  (workspaceApi.updateSettings as jest.Mock)
+    .mockResolvedValueOnce({ autoApplyConfidenceThreshold: 85 })
+    .mockRejectedValueOnce(new Error('down'));
+  renderScreen();
+  await screen.findByText('90%');
+
+  fireEvent.press(screen.getByLabelText('Decrease threshold'));
+  fireEvent.press(screen.getByText('Save setting'));
+  await waitFor(() => expect(workspaceApi.updateSettings).toHaveBeenCalledWith({ autoApplyConfidenceThreshold: 85 }));
+  await waitFor(() => expectHaptics({ success: 1 }));
+
+  fireEvent.press(screen.getByLabelText('Decrease threshold'));
+  fireEvent.press(screen.getByText('Save setting'));
+  expect(await screen.findByText('Could not save this setting.')).toBeTruthy();
+  expectHaptics({ success: 1, error: 1 });
 });
 
 test('shows an error message, not a silent 90% default, when workspace settings fail to load', async () => {

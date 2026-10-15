@@ -7,6 +7,7 @@ import type { Transaction } from '../types';
 import { Button } from './Button';
 import { Card, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
 import { spacing, useTheme } from '../theme';
@@ -55,8 +56,10 @@ export function BankCorrectionModal({
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.acknowledgeBankCorrection(transaction!.id);
+      hapticSuccess();
       onAcknowledged();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'bank-correction:acknowledge', startedAt);
       setError(toUserMessage(e, 'Could not acknowledge this correction.'));
     } finally {

@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RecurringQuestion } from './RecurringQuestion';
 import { categoriesApi, recurringApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { CategoryPickerModal } from './CategoryPickerModal';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   recurringApi: { categorize: jest.fn() },
@@ -70,6 +72,24 @@ describe('RecurringQuestion', () => {
     await waitFor(() => expect(invalidateFinancialData).toHaveBeenCalledTimes(1));
     expect(recurringApi.categorize).toHaveBeenCalledTimes(1);
     expect(recurringApi.categorize).toHaveBeenCalledWith('sample owner', 'Rent');
+    expectHaptics({ success: 1 });
+  });
+
+  it('a save that fails gives one error', async () => {
+    jest.mocked(recurringApi.categorize).mockRejectedValue(new Error('offline'));
+    renderQuestion();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Rent' }));
+
+    expect(await screen.findByText("Couldn't save — try again.")).toBeOnTheScreen();
+    expectHaptics({ error: 1 });
+  });
+
+  // "Something else" is a pick that saves at once: the save's outcome is its one haptic.
+  it('asks the picker for no tick of its own', async () => {
+    renderQuestion();
+    fireEvent.press(await screen.findByRole('button', { name: 'Something else' }));
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.silent).toBe(true);
   });
 
   it('disables the chips while a save is in flight', async () => {

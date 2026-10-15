@@ -8,6 +8,7 @@ import { UsageSection } from '../components/UsageSection';
 import { restorePurchases } from '../lib/revenueCat';
 import { fmtDate } from '../lib/format';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTheme } from '../theme';
@@ -88,9 +89,11 @@ export function MySubscriptionScreen() {
       const startedAt = requestStartedAt();
       try {
         await billingApi.pause();
+        hapticSuccess();
         await queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
         await queryClient.invalidateQueries({ queryKey: ['entitlements'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'my-subscription:pause', startedAt);
         setError(toUserMessage(e, 'Could not pause this subscription. Try again.'));
       }
@@ -117,9 +120,11 @@ export function MySubscriptionScreen() {
       const startedAt = requestStartedAt();
       try {
         await billingApi.resume();
+        hapticSuccess();
         await queryClient.invalidateQueries({ queryKey: ['my-subscription'] });
         await queryClient.invalidateQueries({ queryKey: ['entitlements'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'my-subscription:resume', startedAt);
         setError(toUserMessage(e, 'Could not resume this subscription. Try again.'));
       }

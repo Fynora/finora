@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
 import { categoriesApi, type CategoryOption, type CategoryUsage } from '../api/endpoints';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   categoriesApi: { usage: jest.fn(), delete: jest.fn(), list: jest.fn(), options: jest.fn() },
@@ -58,6 +59,7 @@ describe('CategoryDeleteSheet', () => {
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('c-1', undefined));
     expect(onDeleted).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
   });
 
   it('shows what a delete would touch', async () => {
@@ -95,6 +97,8 @@ describe('CategoryDeleteSheet', () => {
     await settle();
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('c-1', 'c-2'));
+    // The reassignment pick ticked; the delete gives one success.
+    expectHaptics({ selection: 1, success: 1 });
   });
 
   it('excludes the category being deleted from its own reassignment picker', async () => {
@@ -135,5 +139,6 @@ describe('CategoryDeleteSheet', () => {
 
     expect(await screen.findByText('This category still has dependents.')).toBeTruthy();
     expect(onDeleted).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 });

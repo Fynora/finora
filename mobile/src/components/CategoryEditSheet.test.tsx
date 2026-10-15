@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryEditSheet } from './CategoryEditSheet';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   categoriesApi: { options: jest.fn(), create: jest.fn(), update: jest.fn() },
@@ -50,6 +51,7 @@ describe('CategoryEditSheet — create mode', () => {
 
     await waitFor(() => expect(api.create).toHaveBeenCalledWith('Subscriptions', 'tag', 'gray'));
     expect(onSaved).toHaveBeenCalledWith(saved);
+    expectHaptics({ success: 1 });
   });
 
   it('creates with a picked icon and color', async () => {
@@ -66,6 +68,18 @@ describe('CategoryEditSheet — create mode', () => {
     await settle();
 
     await waitFor(() => expect(api.create).toHaveBeenCalledWith('Subscriptions', 'home', 'blue'));
+  });
+
+  it('ticks only when the icon or the colour changes', async () => {
+    renderSheet({ mode: 'create', initialName: 'Subscriptions', onClose, onSaved });
+    await settle();
+    fireEvent.press(await screen.findByLabelText('Tag'));
+    fireEvent.press(await screen.findByLabelText('gray'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Home'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByLabelText('blue'));
+    expectHaptics({ selection: 2 });
   });
 
   it('disables Save for a blank (whitespace-only) name', async () => {
@@ -90,6 +104,7 @@ describe('CategoryEditSheet — create mode', () => {
 
     expect(await screen.findByText('A category with this name already exists.')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 });
 
@@ -116,6 +131,7 @@ describe('CategoryEditSheet — edit mode', () => {
       expect(api.update).toHaveBeenCalledWith('c-1', { name: 'Groceries & Home', icon: 'home', color: 'blue' })
     );
     expect(onSaved).toHaveBeenCalledWith(saved);
+    expectHaptics({ success: 1 });
   });
 
   it('shows why Fynora created this category', async () => {

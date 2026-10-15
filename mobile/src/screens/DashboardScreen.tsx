@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -199,7 +201,10 @@ export function DashboardScreen() {
         (items ?? []).filter((item) => item.merchant !== merchant));
       return { previous };
     },
+    // The row leaving the screen (onMutate) is not the outcome; the server's answer is.
+    onSuccess: () => hapticSuccess(),
     onError: (_err, _merchant, context) => {
+      hapticError();
       if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
     },
   });
@@ -415,7 +420,7 @@ export function DashboardScreen() {
     <ScrollView
       ref={scrollRef}
       contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       {/* No persistent in-app header exists on mobile today -- BrandMark only renders on
           AuthScreenLayout (login/register). This mirrors web Sidebar.tsx's brand+badge placement
@@ -1008,7 +1013,7 @@ export function DashboardScreen() {
               {(Object.keys(RANGE_MONTHS) as CashFlowRange[]).map((r) => (
                 <Pressable
                   key={r}
-                  onPress={() => setCashFlowRange(r)}
+                  onPress={() => { hapticSelectionIfChanged(cashFlowRange, r); setCashFlowRange(r); }}
                   accessibilityRole="button"
                   accessibilityState={{ selected: cashFlowRange === r }}
                   accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}

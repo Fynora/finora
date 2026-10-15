@@ -23,6 +23,7 @@ import { LoadFailed } from '../components/LoadFailed';
 import { StatementGroupCardsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { apiErrorCode, toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -174,9 +175,11 @@ export function StatementHistoryScreen() {
     const startedAt = requestStartedAt();
     try {
       await statementImportsApi.remove(statement.id);
+      hapticSuccess();
       await queryClient.invalidateQueries({ queryKey: ['statement-imports'] });
       invalidateFinancialData(queryClient);
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'statement-history:delete', startedAt);
       setError(toUserMessage(e, 'Could not delete this statement import.'));
     } finally {
@@ -289,10 +292,12 @@ function RecentImportsCard({ jobs, onUploadAnother }: { jobs: ImportJobProgress[
     const startedAt = requestStartedAt();
     try {
       await importJobsApi.dismiss(job.jobId);
+      hapticSuccess();
       queryClient.setQueryData<ImportJobProgress[]>(['import-jobs-recent'],
         (current) => current?.filter((j) => j.jobId !== job.jobId));
       void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'statement-history:dismiss-import', startedAt);
       setDismissError(toUserMessage(e, `Couldn't dismiss ${job.fileName}. Please try again.`));
     } finally {

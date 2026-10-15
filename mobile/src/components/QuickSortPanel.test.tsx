@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QuickSortPanel } from './QuickSortPanel';
+import { CategoryPickerModal } from './CategoryPickerModal';
 import { transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { QuickSortBatch, QuickSortQuestion } from '../types';
@@ -100,6 +101,14 @@ describe('QuickSortPanel', () => {
     fireEvent.press(await screen.findByText('More…'));
     fireEvent.press(await screen.findByText('Pick Rent'));
     await waitFor(() => expect(tx.quickSortAnswer).toHaveBeenCalledWith('txn-1', 'Rent', 'SHOP'));
+  });
+
+  // The pick is the answer, and the answer's success or error is its one haptic.
+  it('asks the picker for no tick of its own', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('More…'));
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.silent).toBe(true);
   });
 
   it('a guess offers Correct', async () => {

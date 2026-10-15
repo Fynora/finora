@@ -6,6 +6,7 @@ import { AppModal } from './AppModal';
 import { useAuth } from '../context/AuthContext';
 import { referralsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
 
@@ -43,10 +44,14 @@ export function ReferralCodePrompt() {
     mutationFn: (value: string) => referralsApi.applyCode(value),
     onMutate: () => setError(null),
     onSuccess: () => {
+      hapticSuccess();
       dismissReferralPrompt();
       void queryClient.invalidateQueries({ queryKey: ['referrals-mine'] });
     },
-    onError: (err) => setError(toUserMessage(err, 'Could not add this code. Try again.')),
+    onError: (err) => {
+      hapticError();
+      setError(toUserMessage(err, 'Could not add this code. Try again.'));
+    },
   });
 
   if (!referralPromptPending || !data?.canApplyCode) return null;

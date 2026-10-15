@@ -1,10 +1,11 @@
 import { AppAlert } from '../../lib/appAlert';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DeviceSessionsSection } from './DeviceSessionsSection';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { ThemeProvider } from '../../theme';
 import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   devicesApi: { list: jest.fn(), revoke: jest.fn() },
@@ -89,6 +90,26 @@ describe('DeviceSessionsSection', () => {
       expect.stringContaining('This Phone'),
       expect.anything()
     );
+    expectHaptics({});
+    alertSpy.mockRestore();
+  });
+
+  it('signing a device out gives one success once confirmed, and one error when refused', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    devices.list.mockResolvedValue([session({ device: 'Old Laptop', browser: null })]);
+    renderSection();
+    await screen.findByText('Old Laptop');
+
+    fireEvent.press(screen.getByLabelText('Sign out Old Laptop'));
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Sign out')!.onPress!(); });
+    expect(devices.revoke).toHaveBeenCalledWith('dev-1');
+    expectHaptics({ success: 1 });
+
+    devices.revoke.mockRejectedValueOnce(new Error('down'));
+    fireEvent.press(screen.getByLabelText('Sign out Old Laptop'));
+    await act(async () => { alertSpy.mock.calls[1][2]!.find((b) => b.text === 'Sign out')!.onPress!(); });
+    expect(await screen.findByText('Could not sign out that device.')).toBeTruthy();
+    expectHaptics({ success: 1, error: 1 });
     alertSpy.mockRestore();
   });
 });

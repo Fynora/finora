@@ -7,6 +7,7 @@ import { passwordChangeApi } from '../../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../../lib/phoneAuth';
 import { safeStorage } from '../../lib/safeStorage';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 
 const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
 
@@ -110,6 +111,8 @@ describe('ChangePasswordSheet', () => {
     expect(await screen.findByLabelText('Verification code')).toBeTruthy();
     // Masked, never the full number.
     expect(screen.getByText(new RegExp(MASKED_PHONE.replace('+', '\\+')))).toBeTruthy();
+    // A step toward one action: nothing yet.
+    expectHaptics({});
   });
 
   it('stays on the first step and explains when the current password is rejected', async () => {
@@ -128,6 +131,7 @@ describe('ChangePasswordSheet', () => {
     expect(await screen.findByText('Current password is incorrect.')).toBeTruthy();
     expect(screen.queryByLabelText('Verification code')).toBeNull();
     expect(sendCode).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('sends the Firebase ID token to the backend, never the code itself', async () => {
@@ -141,6 +145,7 @@ describe('ChangePasswordSheet', () => {
     await settle();
 
     await waitFor(() => expect(api.verifyOtp).toHaveBeenCalledWith('sess-1', 'firebase-id-token'));
+    expectHaptics({});
   });
 
   it('clears a rejected code so the field is ready for another attempt', async () => {
@@ -156,6 +161,7 @@ describe('ChangePasswordSheet', () => {
 
     expect(await screen.findByText(/doesn't match/i)).toBeTruthy();
     expect(screen.getByLabelText('Verification code').props.value).toBe('');
+    expectHaptics({ error: 1 });
   });
 
   it('completes with the session, the choice about other devices, and this device’s refresh token', async () => {
@@ -172,6 +178,21 @@ describe('ChangePasswordSheet', () => {
     );
     expect(onSuccess).toHaveBeenCalled();
     expect(await screen.findByText('Password updated')).toBeTruthy();
+    // The whole change, felt once at the end.
+    expectHaptics({ success: 1 });
+  });
+
+  it('a final step the server refuses gives one error', async () => {
+    api.complete.mockReset().mockRejectedValue(new Error('down'));
+    renderSheet();
+    await reachNewPasswordStep();
+
+    fireEvent.changeText(screen.getByLabelText('New password'), 'BrandNewPw1!');
+    fireEvent.changeText(screen.getByLabelText('Confirm new password'), 'BrandNewPw1!');
+    fireEvent.press(screen.getByRole('button', { name: /Update Password/ }));
+
+    expect(await screen.findByText('Could not update your password. Please try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('will not submit until both new-password fields match', async () => {
@@ -184,6 +205,16 @@ describe('ChangePasswordSheet', () => {
 
     expect(screen.getByRole('button', { name: /Update Password/ }).props.accessibilityState.disabled).toBe(true);
     expect(screen.getByText("Passwords don't match.")).toBeTruthy();
+  });
+
+  it('ticks only when the other-devices choice changes', async () => {
+    renderSheet();
+    await reachNewPasswordStep();
+    resetHapticCalls();
+    fireEvent.press(screen.getByLabelText('Sign out other devices (Recommended) — this device stays signed in.'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Keep other devices signed in'));
+    expectHaptics({ selection: 1 });
   });
 
   it('lets the user keep other devices signed in', async () => {
@@ -213,6 +244,8 @@ describe('ChangePasswordSheet', () => {
 
     expect(await screen.findByText(/session information is missing/i)).toBeTruthy();
     expect(api.complete).not.toHaveBeenCalled();
+    // Not the person's form that is incomplete: no warning, and nothing failed on the server.
+    expectHaptics({});
   });
 
   it('starts over back at the current-password step', async () => {

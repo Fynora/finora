@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ExportDataSheet } from './ExportDataSheet';
 import { accountLifecycleApi } from '../../api/endpoints';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   accountLifecycleApi: { exportData: jest.fn() },
@@ -73,6 +74,7 @@ describe('ExportDataSheet', () => {
 
     await waitFor(() => expect(lifecycleApi.exportData).toHaveBeenCalledWith('CurrentPw1!', null));
     expect(onClose).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
   });
 
   it('shows an error and stays open when the export fails', async () => {
@@ -90,5 +92,6 @@ describe('ExportDataSheet', () => {
 
     expect(await screen.findByText('Current password is incorrect.')).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 });

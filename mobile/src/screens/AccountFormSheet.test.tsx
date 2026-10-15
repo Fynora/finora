@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccountFormSheet } from './AccountFormSheet';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { create: jest.fn(), update: jest.fn(), remove: jest.fn() },
@@ -81,6 +82,16 @@ describe('AccountFormSheet -- add mode', () => {
 
     expect(api.create).toHaveBeenCalledWith({ name: 'New Wallet', accountType: 'WALLET', balance: 1500 });
     expect(onSaved).toHaveBeenCalled();
+    // The type chip ticked; the save gives one success after the server confirms.
+    expectHaptics({ selection: 1, success: 1 });
+  });
+
+  it('ticks only when the account type changes', () => {
+    renderSheet();
+    fireEvent.press(screen.getByRole('button', { name: 'Savings' }));
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: 'Wallet' }));
+    expectHaptics({ selection: 1 });
   });
 
   it('sends no opening balance at all when left blank, rather than coercing it to zero', async () => {
@@ -122,6 +133,7 @@ describe('AccountFormSheet -- add mode', () => {
 
     expect(await screen.findByText("You've reached the account limit for your plan.")).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('closes via Cancel without saving', () => {
@@ -131,6 +143,7 @@ describe('AccountFormSheet -- add mode', () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(api.create).not.toHaveBeenCalled();
+    expectHaptics({});
   });
 });
 
@@ -154,6 +167,20 @@ describe('AccountFormSheet -- edit mode', () => {
     await settle();
 
     expect(api.update).toHaveBeenCalledWith('a-9', { name: 'HDFC Savings Account', accountType: 'SAVINGS' });
+    expectHaptics({ success: 1 });
+  });
+
+  it('gives one error when the update fails', async () => {
+    api.update.mockRejectedValueOnce(new Error('down'));
+    renderSheet(account({ id: 'a-9', name: 'HDFC Savings', balance: 5000 }));
+    fireEvent.changeText(screen.getByLabelText('Account name'), 'HDFC Savings Account');
+
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(await screen.findByText('Could not update this account.')).toBeTruthy();
+    expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('includes balance in the update only when it actually changed', async () => {

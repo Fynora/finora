@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryReviewScreen } from './CategoryReviewScreen';
+import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
@@ -224,6 +225,14 @@ describe('resolving a one-off transaction', () => {
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Food', 'SIMILAR'));
     await waitFor(() => expect(screen.queryByText('IMPS transfer to a person')).toBeNull());
     expect(invalidateFinancialData).toHaveBeenCalled();
+  });
+
+  // The pick is the save; the save's success or error is the action's one haptic.
+  it('asks the picker for no tick of its own', async () => {
+    transactions.needsReview.mockResolvedValue([txn()]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.silent).toBe(true);
   });
 
   it('puts the row back and explains itself when the save fails', async () => {

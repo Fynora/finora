@@ -16,6 +16,7 @@ import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
 import { ToastProvider } from './src/context/ToastContext';
 import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
+import { primeHapticsSetting } from './src/lib/haptics';
 import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
 import { primeReduceTransparency } from './src/lib/useReduceTransparency';
@@ -46,6 +47,9 @@ SplashScreen.setOptions({ duration: 0, fade: false });
 // bootstrapping). Until it answers, GlassScreen/GlassSurface paint their solid fallback -- a
 // user with the setting on never sees a frame of glass. See src/lib/useReduceTransparency.ts.
 primeReduceTransparency();
+// Same idea for the Haptics switch: read it now, so a tap during start-up already knows. Until it
+// is read, no haptic fires. See src/lib/haptics.ts.
+primeHapticsSetting();
 
 // AuthProvider sits inside QueryClientProvider because auth calls go through the same API client
 // every query does, and outside RootNavigator because the navigator picks its stack from auth

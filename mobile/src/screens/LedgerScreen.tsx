@@ -3,6 +3,7 @@ import {
   ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View,
   type NativeScrollEvent, type NativeSyntheticEvent, type TextInput,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -385,6 +386,7 @@ export function LedgerScreen() {
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.remove(t.id);
+      hapticSuccess();
       // Editing/deleting shifts category totals, the account balance, budget progress, goals, and
       // any insight built from spend patterns -- see invalidateFinancialData's own comment.
       invalidateFinancialData(queryClient);
@@ -432,6 +434,7 @@ export function LedgerScreen() {
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.unmarkTransfer(t.id);
+      hapticSuccess();
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'ledger:unmark-transfer', startedAt);
@@ -523,8 +526,7 @@ export function LedgerScreen() {
           if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
         }}
         onEndReachedThreshold={0.4}
-        refreshing={isFetching && !isFetchingNextPage}
-        onRefresh={() => void refetch()}
+        refreshControl={<AppRefreshControl refreshing={isFetching && !isFetchingNextPage} onRefresh={() => void refetch()} tintColor={c.primary} />}
         contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         ListHeaderComponent={
           <View style={styles.header}>
@@ -706,6 +708,8 @@ export function LedgerScreen() {
       <CategoryPickerModal
         visible={recategorizing !== null}
         title="Change category"
+        // The pick saves at once; applyCategory's success or error is its one haptic.
+        silent
         selectedName={recategorizing?.categoryName ?? null}
         onSelect={(category) => {
           const target = recategorizing;

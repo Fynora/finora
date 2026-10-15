@@ -8,6 +8,7 @@ import {
   type BottomTabBarProps,
 } from '@react-navigation/bottom-tabs';
 import { GlassSurface } from '../components/GlassSurface';
+import { hapticSelection } from '../lib/haptics';
 import { useKeyboardVisible } from '../lib/useKeyboardVisible';
 import { shadows, typography, useTheme } from '../theme';
 import { PILL_HEIGHT, TAB_LABEL_MAX_SCALE, pillCoverHeight, pillFrame, pillHideDuration } from './tabBarLayout';
@@ -75,6 +76,9 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
           const color = focused ? options.tabBarActiveTintColor ?? c.primary : options.tabBarInactiveTintColor ?? c.muted;
 
           const onPress = () => {
+            // The one navigation control with a haptic. A press on the open tab is the same tap,
+            // so it ticks too.
+            hapticSelection();
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,

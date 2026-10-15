@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { hapticSelection } from '../lib/haptics';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
@@ -44,6 +44,13 @@ interface Props {
    * is not just wrong, it would name a category that no longer exists at all.
    */
   onSelectedCategoryDeleted?: () => void;
+  /**
+   * For a caller whose pick is itself the save (the ledger's category correction, Category Review,
+   * Quick Sort, the recurring question): that save's success or error is the action's one haptic,
+   * so the pick gives none. Without it a pick there was felt twice, the tick and then the outcome.
+   * @default false
+   */
+  silent?: boolean;
 }
 
 /**
@@ -61,7 +68,7 @@ interface Props {
  */
 export function CategoryPickerModal({
   visible, selectedName, onSelect, onClose, title = 'Category', excludeCategoryId, allowManage = true,
-  onSelectedCategoryDeleted,
+  onSelectedCategoryDeleted, silent = false,
 }: Props) {
   const c = useTheme();
   const largeText = useLargeFontScale();
@@ -113,10 +120,15 @@ export function CategoryPickerModal({
     onClose();
   }
 
-  function handleSelect(category: CategoryOption) {
-    hapticSelection();
+  function choose(category: CategoryOption) {
     onSelect(category);
     close();
+  }
+
+  /** A row tapped: one tick when it changes the selection, unless the caller's save owns it. */
+  function handleSelect(category: CategoryOption) {
+    if (!silent) hapticSelectionIfChanged(selectedName, category.name);
+    choose(category);
   }
 
   function afterCategoriesChanged() {
@@ -265,7 +277,8 @@ export function CategoryPickerModal({
             // close the picker out from under them.
             const shouldSelect = editing.mode === 'create' || editing.category.name === selectedName;
             setEditing(null);
-            if (shouldSelect) handleSelect(saved);
+            // No tick: the sheet's save already gave this action its one haptic.
+            if (shouldSelect) choose(saved);
           }}
         />
       ) : null}

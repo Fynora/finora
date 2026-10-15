@@ -5,6 +5,7 @@ import { AccountsScreen } from './AccountsScreen';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 import { __activeShimmerCountForTests } from '../components/skeletons/Shimmer';
 
 jest.mock('../api/endpoints', () => ({
@@ -87,6 +88,20 @@ describe('AccountsScreen', () => {
     expect(screen.getByLabelText('Account name').props.value).toBe('HDFC Savings');
   });
 
+  // Two "none" rows of the haptics table: opening something from a row, and cancelling a sheet.
+  it('gives nothing for opening the edit sheet from a row, or for cancelling it', async () => {
+    renderScreen();
+    await screen.findByText('HDFC Savings');
+
+    fireEvent.press(screen.getByLabelText('Edit HDFC Savings'));
+    expect(await screen.findByLabelText('Account name')).toBeTruthy();
+    expectHaptics({});
+
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Account name')).not.toBeOnTheScreen();
+    expectHaptics({});
+  });
+
   it('refetches the account list once the form sheet reports a save', async () => {
     renderScreen();
     await screen.findByText('HDFC Savings');
@@ -118,6 +133,8 @@ describe('AccountsScreen', () => {
       expect.anything()
     );
     expect(api.remove).not.toHaveBeenCalled();
+    // A tap that opens the confirmation is not the outcome.
+    expectHaptics({});
     alertSpy.mockRestore();
   });
 
@@ -133,6 +150,7 @@ describe('AccountsScreen', () => {
 
     expect(api.remove).toHaveBeenCalledWith('a-1');
     expect(await screen.findByText(/Import a statement or add one manually/)).toBeTruthy();
+    expectHaptics({ success: 1 });
     alertSpy.mockRestore();
   });
 
@@ -153,6 +171,7 @@ describe('AccountsScreen', () => {
 
     expect(await screen.findByText('This account still has open transfers.')).toBeTruthy();
     expect(screen.getByText('HDFC Savings')).toBeTruthy();
+    expectHaptics({ error: 1 });
     alertSpy.mockRestore();
   });
 });

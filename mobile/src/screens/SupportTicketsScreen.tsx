@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -60,7 +61,7 @@ export function SupportTicketsScreen() {
         keyExtractor={(t) => t.id}
         contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         refreshControl={
-          <RefreshControl
+          <AppRefreshControl
             refreshing={ticketsQuery.isFetching && !ticketsQuery.isLoading}
             onRefresh={() => void ticketsQuery.refetch()}
             tintColor={c.primary}

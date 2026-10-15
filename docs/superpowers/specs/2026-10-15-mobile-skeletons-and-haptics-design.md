@@ -200,13 +200,13 @@ This table is the one contract; every call in the code traces to a row.
 | Tapping a tab in the floating pill, or "+" | selection | always (the tab bar is the one navigation control that gets a haptic) |
 | Tapping the tab that is already open | selection | it is the same tap as above, so one haptic, whether or not the screen was scrolled |
 | Opening a screen from a row, card or link | none | |
-| Choosing a segment (All / Income / Expense, the Insights tabs, the Theme setting, the Spending Tracking question), a filter chip or a picker option | selection | the selected value changes; tapping the one already selected gives nothing |
-| Turning a switch on or off | selection | the value changes |
+| Choosing a segment (All / Income / Expense, the Insights tabs, the Theme setting, the Spending Tracking question), a filter chip or a picker option | selection | the selected value changes; tapping the one already selected gives nothing (the two picker pop-ups, which fire on every tap today, change to match) |
+| Turning a switch on or off | selection | the value changes; a switch that saves at once gets this one haptic and no outcome haptic (one action, one haptic) |
 | Pull to refresh | impact | once, when the refresh is committed (React Native's `onRefresh` call; there is no earlier "threshold reached" event to hook) |
 | A long press that opens a menu or a delete confirmation | impact | the person pressed (Transactions already does) |
 | A save, add, import or delete | success | once, after the server confirmed it; never on the tap or when the request starts |
 | The same, refused by the server or failed on the network | error | once, for an action the person started; not for a failed background refresh or for browsing offline |
-| A form that cannot be sent yet (a missing amount, a required field) | warning | the person tried to send it |
+| A form that cannot be sent yet (a missing amount, a required field) | warning | the person tried to send it; only where the form checks on press -- a Save that is disabled until the form is valid cannot be pressed, so nothing fires |
 | Copying the referral code | success | the copy worked |
 | Cancelling a sheet or a confirmation | none | |
 
@@ -232,12 +232,17 @@ Into shared pieces first, so new screens inherit them:
 - Every `Switch` in the app (Ledger filters, app lock, notification preferences, inflow kinds,
   statement refresh, Import, the new Haptics switch): selection on change. The switch for haptics
   itself fires after it is turned on, not after it is turned off.
-- Pull to refresh: one impact from the `onRefresh` handlers of the 13 screens that have it.
+- Pull to refresh: one impact on every pull to refresh, through a shared `AppRefreshControl` (14
+  screens have one today).
 
 Then the save, delete and failure outcomes in each sheet and screen that does not already fire one:
 Add Transaction, Edit Transaction, Account form, Category edit and delete, Change Email, Change
 Password, Feedback, New Ticket, Amount prompt, Referral code prompt, account delete, goal create,
 referral code copy. The nine places that already fire keep what they do.
+
+The rule in the table applies to every action a person starts that saves, adds or deletes their data
+or settings; the build plan lists which actions that covers and which are left out, with the reason
+(sign-in and verification steps, chat, sharing, outside flows, actions that already fire).
 
 ### Guard
 
@@ -291,6 +296,27 @@ a simulator; their calls are checked through the tests and a debug log.
 `expo-haptics` 57 maps each of the five kinds onto Android vibration is read from its source during
 the plan and recorded, not assumed. Android is tested by the owner on a build after both pull
 requests merge (owner's decision, 2026-10-15), using an Android section of the same checklist.
+
+Read from source (expo-haptics 57.0.3, 2026-10-16): in `HapticsModule.kt` the three functions the
+app calls (`notificationAsync`, `selectionAsync`, `impactAsync`) drive the vibrator directly,
+`Vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))` on API 26 and up and a
+plain pattern below. Only the library's separate Android-only `performHapticsAsync` goes through
+`View.performHapticFeedback`, the path Android's touch-feedback setting governs, and the app does not
+call it. The library declares `android.permission.VIBRATE` in its own manifest. The waveforms the app
+gets (milliseconds, amplitude 0–255; impact is the medium style `lib/haptics.ts` asks for):
+
+| Kind | Timings | Amplitudes |
+|---|---|---|
+| selection | 0, 50 | 0, 30 |
+| impact (medium) | 0, 43 | 0, 50 |
+| success | 0, 40, 100, 40 | 0, 50, 0, 60 |
+| warning | 0, 40, 120, 60 | 0, 40, 0, 60 |
+| error | 0, 60, 100, 40, 80, 50 | 0, 50, 0, 40, 0, 50 |
+
+So on Android every kind is a short buzz; success, warning and error differ by rhythm, not by
+texture. Whether the phone's touch-feedback setting silences them is **not established**: the code
+path suggests it does not, and the owner's Android checklist answers it on a real phone. If it does
+not silence them, that is reported, not worked around.
 
 ## Not covered by me
 
@@ -431,3 +457,100 @@ show it only when there is nothing to show.
 - Real phones: needs the owner to connect them.
 - `StatementRefreshBanner.test.tsx` failed once in a full parallel run (a lookup timing out) and
   passed on its own six times out of six and in every later full run.
+
+## Build record (haptics, 2026-10-16)
+
+### What was built
+
+- **The switch.** Settings › General › Haptics, the last row of the screen (it applies at once, like
+  Retake Tour, so it sits outside the block "Save preferences" saves). Stored on the phone under
+  `finora_haptics`; not yet read, on and off as specified. The General skeleton gained a matching
+  row.
+- **Shared pieces.** `AppSwitch` (every switch; a tick on change), `AppRefreshControl` (every pull to
+  refresh, 14 screens; one impact on the committed pull), `hapticSelectionIfChanged` (segments, chips,
+  pickers). A source scan keeps `expo-haptics`, `Switch` and `RefreshControl` behind those doors.
+- **Outcomes.** Success after the server confirms and error on a refused or failed request, in the
+  one handler that learns the outcome, for every action in the plan's list, plus two the plan had on
+  neither list and that save the person's data: the Money Review choice (and its undo), and Bank Sync's
+  confirm-existing / confirm-new account step.
+
+Found and fixed on the way:
+
+- Creating a category from inside the category picker gave two haptics (the sheet's success, then
+  the picker's selection tick when it selected the new category). The picker now selects a saved
+  category without a tick.
+- A failed referral-code copy left a rejected promise unhandled. It is now caught: nothing is shown
+  and nothing fires.
+
+Found in the bug pass after the pull request opened:
+
+- **A pick that is itself the save was felt twice** (the picker's tick, then the save's outcome):
+  the ledger's category correction, Category Review, Quick Sort and the recurring question's
+  "Something else". The category picker takes `silent` for these callers, so the save's success or
+  error is the one haptic. Mark as Transfer ticked on the tap and gave nothing for the outcome; it
+  now gives the outcome instead.
+- **Saves and deletes that gave no outcome:** deleting a transaction and unmarking a transfer (the
+  ledger gave an error but no success), discarding an unfinished import, removing a saved statement
+  password (one or all), the recurring question's answer, and the statement-refresh banner's
+  "Update" (only when something was updated) and its password update (a refused password is an
+  error).
+
+### The table, row by row, and the tests that pin it
+
+| Row | Tests |
+|---|---|
+| Tab or "+" | `FloatingTabBar.test.tsx` (one per press, off = none, long press = none); `AppTabs.test.tsx` ("+" once, the quick-action row that opens a screen adds none) |
+| The tab already open | `FloatingTabBar.test.tsx` (second press on the open tab = one more) |
+| Opening a screen from a row, card or link | `AccountsScreen.test.tsx` (Edit opens the sheet: none); `AppTabs.test.tsx` (quick-action row: none) |
+| Segments, chips, pickers | the "ticks only when … changes" tests in 16 files (Ledger type filter and status chips, Insights tabs, Cash Flow range, Multi-Year mode, investment period, account type, transaction type ×2, Import's three choices, other devices, feedback type, category icon and colour, money kind and its income question, Spending Tracking question, the category picker); `OptionPickerModal.test.tsx` (tapping the chosen option: none); `SettingsGeneralScreen.test.tsx` (Theme) |
+| Switches | `AppSwitch.test.tsx`; `LedgerFiltersSheet.test.tsx` (International row); `SettingsGeneralScreen.test.tsx` (Haptics: on = one tick, off = none); `InflowKindsSettings.test.tsx` (a switch that saves at once: one tick, no outcome haptic even when the save fails) |
+| Pull to refresh | `AppRefreshControl.test.tsx`; `DashboardScreen.test.tsx`; `LedgerScreen.test.tsx`; guard: no list uses its own `onRefresh` |
+| Long press | `LedgerScreen.test.tsx` (impact 1, twice) |
+| Save, add, import or delete: success | the success test beside each action's existing one, in 36 test files |
+| Refused or failed: error | the failure test beside each, same files; `ChangeEmailSheet.test.tsx` (fails then succeeds: error, then success) |
+| Blocked send: warning | Goals ×3, Investments ×2 (four bad values = four warnings), Profile, Settings › General |
+| Referral code copy | `ReferralsScreen.test.tsx` (copied = success; copy fails = none) |
+| Cancel | `AccountsScreen.test.tsx`, `AccountFormSheet.test.tsx`, `NewTicketSheet.test.tsx`, Bank Sync disconnect Cancel, subscription pause dismissed, Change Password's missing-session stop |
+| Never while scrolling | `LedgerScreen.test.tsx` (scrolling, including past the pull point: none) |
+| Never for what the person did not do | `DashboardScreen.test.tsx` (a background refresh finishing: none); Gmail sync (hands off to a job: none) |
+| One action, one haptic | double press on Add Transaction and on Add Goal (one request, one success); optimistic dismiss on Home and Insights (none as the row leaves; one success, or one error with the row back); a pick that saves at once (ledger correction and Mark as Transfer: success only; Category Review, Quick Sort, recurring question: the picker is `silent`) |
+| The switch itself | `haptics.test.ts` (not yet read, missing, failed read, stored off, on/off, fast toggling, a failed save, restart, a rejecting native call) |
+
+### On the simulator
+
+Pending: the simulator's dev client was signed out when this pass was due, and signing in is the
+owner's. The read-only rows to drive once signed in, watching Metro for `[haptics]` lines: tabs and
+"+"; the Transactions type filter; the Insights tabs; the Theme segment; pull to refresh on Home;
+then the Haptics switch off and the same rows again, expecting no lines.
+
+### Owner's checklist (real phones)
+
+Feel only a person can judge; the calls themselves are pinned by the tests above. On each phone, with
+the app's Haptics switch on unless a step says otherwise. Record what each step did.
+
+**iPhone**
+
+1. Tap a tab in the floating pill: a light tick.
+2. Tap "+": a light tick. Close the sheet: nothing.
+3. Transactions: change All / Income / Expense: a tick. Tap the one already chosen: nothing.
+4. Home: pull to refresh: one firmer thud as it commits.
+5. Transactions: long-press a transaction: a thud.
+6. Settings › General › Theme: change it: a tick.
+7. Settings › General: turn a notification switch on: a tick.
+8. More › Goals › + New goal: press Add Goal with no name: a warning (a double buzz).
+9. Settings › General › Haptics off, then repeat 1–3: nothing.
+10. Haptics back on; the phone's Settings › Sounds & Haptics › System Haptics off; repeat 1–3. The
+    spec expects nothing; record what is felt.
+
+**Android** (the same ten; step 10 uses the phone's touch-feedback setting)
+
+Read from the library's source (see Platforms): every kind is a short buzz, and success, warning and
+error differ by rhythm, not texture. Whether touch feedback off silences them is not established; the
+code path suggests it does not. If it does not, that is reported, not worked around.
+
+### Not checked, and why
+
+- Feel, on any phone, and whether the phones' own settings silence the app's haptics: the owner's
+  checklist above, on a build after merge.
+- The simulator pass: pending the owner's sign-in (above).
+- Saves, deletes and failures are driven only in tests, never on the production account.

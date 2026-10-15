@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../components/Button';
@@ -9,6 +10,7 @@ import { ReadOnlyField, SaveStatus, SectionCard, VerifiedBadge } from '../compon
 import { TextField } from '../components/TextField';
 import { userApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtMonthYear, fmtRelativeTime, initials } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
@@ -62,6 +64,7 @@ export function ProfileScreen({ navigation }: Props) {
   async function save() {
     if (!dirty) return;
     if (!nameValid) {
+      hapticWarning();
       setError('Enter a name using letters, spaces, hyphens or apostrophes.');
       return;
     }
@@ -71,6 +74,7 @@ export function ProfileScreen({ navigation }: Props) {
       const startedAt = requestStartedAt();
       try {
         const updated = await userApi.update({ fullName: trimmed });
+        hapticSuccess();
         // Writes straight into the cache rather than only invalidating: the More menu and the
         // Dashboard greeting both read this name, and a refetch round-trip would leave them
         // showing the old one for a beat after the field already updated.
@@ -82,6 +86,7 @@ export function ProfileScreen({ navigation }: Props) {
         setNameDraft(null);
         confirmSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'profile:save-name', startedAt);
         setError(toUserMessage(e, 'Could not save your name. Try again.'));
       } finally {
@@ -118,7 +123,7 @@ export function ProfileScreen({ navigation }: Props) {
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
-        <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
+        <AppRefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
       {/* Shows the SAVED name, never the in-progress edit, so it can't contradict the "Unsaved

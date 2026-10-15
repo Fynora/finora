@@ -5,6 +5,7 @@ import { inflowApi } from '../api/endpoints';
 import { Button } from './Button';
 import { InflowKindPicker } from './InflowKindPicker';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { CountsAs, InflowKind } from '../types';
 import { spacing, useTheme } from '../theme';
@@ -29,11 +30,13 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
     setError(null);
     try {
       const next = await action();
+      hapticSuccess();
       queryClient.setQueryData(['counts-as', transactionId], next);
       setEditing(false);
       setPicked(null);
       invalidateFinancialData(queryClient);
     } catch (e) {
+      hapticError();
       setError(toUserMessage(e, 'Could not save this choice.'));
     } finally {
       setBusy(false);

@@ -452,4 +452,8 @@ beforeEach(() => {
   // stray alert fails the rest of the file.
   require('../lib/appAlert').__resetAppAlertForTests();
   jest.clearAllMocks();
+  // Module state, like the alert queue above. Every screen test starts with haptics on (the
+  // default for a person who never touched the switch); haptics.test.ts resets it to 'unread'
+  // itself to test start-up.
+  require('../lib/haptics').__setHapticsStateForTests('on');
 });

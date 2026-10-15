@@ -4,6 +4,7 @@ import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtRelativeFutureTime, fmtRelativeTime } from '../../lib/format';
 import { useSingleFlight } from '../../lib/useSingleFlight';
@@ -62,8 +63,10 @@ export function DeviceSessionsSection() {
       const startedAt = requestStartedAt();
       try {
         await devicesApi.revoke(session.id);
+        hapticSuccess();
         void queryClient.invalidateQueries({ queryKey: ['devices'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'device-sessions:revoke', startedAt);
         setError(toUserMessage(e, 'Could not sign out that device.'));
       } finally {

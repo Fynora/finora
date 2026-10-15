@@ -5,6 +5,7 @@ import { gmailApi, type GmailConnectionStatus } from '../../api/endpoints';
 import { connectGmail } from '../../lib/gmailAuth';
 import { ThemeProvider } from '../../theme';
 import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   gmailApi: { status: jest.fn(), syncNow: jest.fn(), disconnect: jest.fn() },
@@ -190,6 +191,8 @@ describe('GmailConnectionSection', () => {
 
     expect(api.syncNow).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
+    // Sync hands off to a background job whose outcome is not known here: no haptic.
+    expectHaptics({});
   });
 
   it('shows a sync error without disturbing the rest of the card', async () => {
@@ -203,6 +206,7 @@ describe('GmailConnectionSection', () => {
     await act(async () => fireEvent.press(screen.getByLabelText('Sync Gmail now')));
 
     expect(await screen.findByText('Gmail was synced recently -- try again in a moment.')).toBeTruthy();
+    expectHaptics({});
   });
 
   it('disconnects and refreshes the status', async () => {
@@ -215,6 +219,19 @@ describe('GmailConnectionSection', () => {
 
     expect(api.disconnect).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
+    expectHaptics({ success: 1 });
+  });
+
+  it('a disconnect the server refuses gives one error', async () => {
+    api.status.mockResolvedValue(CONNECTED);
+    api.disconnect.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    await screen.findByText('me@example.com');
+
+    await act(async () => fireEvent.press(screen.getByText('Disconnect')));
+
+    expect(await screen.findByText("Couldn't disconnect Gmail -- please try again.")).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 });
 

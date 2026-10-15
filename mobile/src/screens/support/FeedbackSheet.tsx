@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { feedbackApi, type FeedbackContext, type FeedbackType } from '../../api/endpoints';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
@@ -68,8 +69,10 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
       const startedAt = requestStartedAt();
       try {
         await feedbackApi.submit({ type, context, message: message.trim() });
+        hapticSuccess();
         setSent(true);
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'feedback:save', startedAt);
         setError(toUserMessage(e, 'Could not send this feedback.'));
       } finally {
@@ -106,7 +109,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
                     return (
                       <Pressable
                         key={t.value}
-                        onPress={() => setType(t.value)}
+                        onPress={() => { hapticSelectionIfChanged(type, t.value); setType(t.value); }}
                         style={[styles.typeChip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.primaryLight : c.inputBg }]}
                         // radio/checked, not button/selected -- matches ChangePasswordSheet's
                         // "Other devices" row, the established pattern for a mutually-exclusive

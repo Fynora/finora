@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { SpendingTrackingQuestionScreen, SPENDING_TRACKING_OPTIONS } from './SpendingTrackingQuestionScreen';
+import { expectHaptics } from '../test/haptics';
 
 describe('SpendingTrackingQuestionScreen', () => {
   it('lists every answer, and Continue does nothing until one is chosen', () => {
@@ -24,6 +25,16 @@ describe('SpendingTrackingQuestionScreen', () => {
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('ticks only when the answer changes', () => {
+    render(<SpendingTrackingQuestionScreen onSubmit={jest.fn()} onSignOut={jest.fn()} />);
+    fireEvent.press(screen.getByText('Roughly, in my head'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText('Roughly, in my head'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText('In a spreadsheet (Excel, Google Sheets)'));
+    expectHaptics({ selection: 2 });
   });
 
   it('submits the chosen answer', async () => {

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text,
+  Pressable, ScrollView, StyleSheet, Text,
   useWindowDimensions, View
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -15,6 +16,7 @@ import { InvestmentActivityCard, INVESTMENT_ACTIVITY_QUERY_KEY } from '../compon
 import { TextField } from '../components/TextField';
 import { accountsApi, networthApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -123,10 +125,12 @@ export function InvestmentsScreen() {
   async function addHolding() {
     const currentValue = parsePositiveAmount(value);
     if (!name.trim()) {
+      hapticWarning();
       setError('Give this holding a name.');
       return;
     }
     if (currentValue === null) {
+      hapticWarning();
       setError('Current value must be a number greater than zero.');
       return;
     }
@@ -141,12 +145,14 @@ export function InvestmentsScreen() {
           balance: currentValue,
           investmentKind: kind,
         });
+        hapticSuccess();
         setName(''); setValue('');
         setFormOpen(false);
         refresh();
         // A new holding changes total assets, so the Dashboard's net worth and health score move.
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'investments:add-holding', startedAt);
         setError(toUserMessage(e, 'Could not add this holding.'));
       } finally {
@@ -168,9 +174,11 @@ export function InvestmentsScreen() {
       const startedAt = requestStartedAt();
       try {
         await accountsApi.remove(h.id);
+        hapticSuccess();
         refresh();
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'investments:remove-holding', startedAt);
         setError(toUserMessage(e, 'Could not delete this holding.'));
       }
@@ -188,8 +196,10 @@ export function InvestmentsScreen() {
       const startedAt = requestStartedAt();
       try {
         await networthApi.saveSnapshot();
+        hapticSuccess();
         void queryClient.invalidateQueries({ queryKey: ['networth'] });
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'investments:save-snapshot', startedAt);
         setError(toUserMessage(e, 'Could not save today’s snapshot.'));
       } finally {
@@ -218,7 +228,7 @@ export function InvestmentsScreen() {
     <ScrollView
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={styles.header}>
         <Pressable

@@ -44,6 +44,7 @@ import { SupportTicketDetailScreen } from '../screens/SupportTicketDetailScreen'
 import { SupportTicketsScreen } from '../screens/SupportTicketsScreen';
 import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeScreen';
 import { useTheme } from '../theme';
+import { hapticSelection } from '../lib/haptics';
 import { trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList, MoreStackParamList } from './types';
 import { FloatingTabBar } from './FloatingTabBar';
@@ -143,7 +144,7 @@ function ImportFabButton({ onPress, register }: { onPress: () => void; register:
           once TourOverlay's own spotlight follow-up (see its file's doc comment) reads it. */}
       <View ref={register}>
         <Pressable
-          onPress={onPress}
+          onPress={() => { hapticSelection(); onPress(); }}
           style={[styles.fab, { backgroundColor: c.primary }]}
           accessibilityRole="button"
           accessibilityLabel="Quick actions"

@@ -1,5 +1,6 @@
 package com.finora.rules;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.CategoryRule;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -40,6 +41,7 @@ public record RuleDto(
 
     // Always creates a USER-scope rule — see RuleService.create(). GLOBAL rules are seed data
     // only for this milestone (docs/rule-engine-relationship-engine-eds.md §6 Non-goals).
+    @Schema(name = "RuleCreateRequest")
     public record CreateRequest(
             @NotNull(message = "Field is required") String field,
             @NotNull(message = "Operator is required") String operator,
@@ -61,6 +63,7 @@ public record RuleDto(
      *  {@code @Size} here matches {@code category_rules.field/operator/action_type VARCHAR(20)}
      *  (V17 migration) so an oversized value fails validation with a specific message instead of
      *  relying on that manual checking staying correct through a future refactor. */
+    @Schema(name = "RuleUpdateRequest")
     public record UpdateRequest(
             @Size(max = 20) String field, @Size(max = 20) String operator, String comparisonValue,
             @Size(max = 20) String actionType, String actionValue, Integer priority, Boolean enabled,

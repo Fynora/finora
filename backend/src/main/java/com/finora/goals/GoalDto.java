@@ -1,5 +1,6 @@
 package com.finora.goals;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -14,6 +15,7 @@ public record GoalDto(UUID id, String name, BigDecimal targetAmount, BigDecimal 
     // create a goal with a zero/negative target or a blank name. currentAmount is intentionally
     // left nullable (a brand-new goal legitimately starts with none saved yet) but still can't
     // be negative if provided.
+    @Schema(name = "GoalCreateRequest")
     public record CreateRequest(
             @NotBlank(message = "Goal name is required") String name,
             @NotNull(message = "Target amount is required") @DecimalMin(value = "0.01", message = "Target amount must be greater than zero") BigDecimal targetAmount,

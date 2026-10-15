@@ -1,5 +1,6 @@
 package com.finora.accounts;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.Account;
 import com.finora.util.BankRegistry;
 import jakarta.validation.constraints.NotBlank;
@@ -95,6 +96,7 @@ public record AccountDto(
                     bank.getIfscPrefix(), java.util.List.of("SAVINGS", "CREDIT_CARD"));
         }
 
+        @Schema(name = "BankCreateRequest")
         public record CreateRequest(
                 // Case-insensitive on purpose -- BankManagementService.createCustom uppercases
                 // this before storing/comparing it, so an admin typing "iob" shouldn't be
@@ -115,6 +117,7 @@ public record AccountDto(
 
         /** Every field optional -- only supplied ones change (id is immutable once created, same
          *  reasoning as every other entity's primary key in this codebase). */
+        @Schema(name = "BankUpdateRequest")
         public record UpdateRequest(String officialName, String shortName, String colorHex, String initials,
                                      String category,
                                      // Same stored-XSS fix as CreateRequest.websiteUrl above --
@@ -174,6 +177,7 @@ public record AccountDto(
     // reject it" gap against its own column width. accountType is deliberately NOT annotated here
     // -- AccountService already hand-validates it with a clean 400 via parseAccountType(), and
     // that's a closed, known enum, not a free-text length concern.
+    @Schema(name = "AccountCreateRequest")
     public record CreateRequest(@NotBlank @Size(max = 120) String name, String accountType, BigDecimal balance,
                                  BigDecimal creditLimit, LocalDate dueDate,
                                  @Size(max = 40) String investmentKind,

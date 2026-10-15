@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -18,6 +19,7 @@ public class PhoneChangeDtos {
 
     /** newPhoneNumber uses the same pattern registration validates against (RegisterRequest's own
      *  field) -- accepts either a leading "+" or a bare 10-15 digit string. */
+    @Schema(name = "PhoneChangeStartRequest")
     public record StartRequest(
             @NotBlank @Pattern(regexp = AuthDtos.PHONE_REGEXP, message = AuthDtos.PHONE_MESSAGE)
             String newPhoneNumber
@@ -27,18 +29,23 @@ public class PhoneChangeDtos {
      *  back the new number (masked) for on-screen confirmation -- unlike PasswordChangeDtos'
      *  StartResponse there's no unmasked phoneNumber field to return: the frontend already has the
      *  unmasked value itself, since the user just typed it in. */
+    @Schema(name = "PhoneChangeStartResponse")
     public record StartResponse(String sessionId, String maskedPhone) {}
 
     /** firebaseIdToken proves control of the number this session is trying to move to -- by the
      *  time a token exists at all, Firebase has already confirmed the code client-side against
      *  THAT number. */
+    @Schema(name = "PhoneChangeVerifyOtpRequest")
     public record VerifyOtpRequest(@NotBlank String sessionId, @NotBlank String firebaseIdToken) {}
 
+    @Schema(name = "PhoneChangeVerifyOtpResponse")
     public record VerifyOtpResponse(String message) {}
 
+    @Schema(name = "PhoneChangeCompleteRequest")
     public record CompleteRequest(@NotBlank String sessionId) {}
 
     /** phoneNumber echoes back the number now on the account, so the frontend can update its own
      *  local state without a second GET /users/me round trip. */
+    @Schema(name = "PhoneChangeCompleteResponse")
     public record CompleteResponse(String message, String phoneNumber) {}
 }

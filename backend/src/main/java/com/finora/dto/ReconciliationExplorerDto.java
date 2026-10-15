@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.Transaction;
 import com.finora.entity.TransactionRelationship;
 
@@ -22,6 +23,7 @@ public final class ReconciliationExplorerDto {
         // Namespace for the nested records, per CODING_STANDARDS' DTO convention.
     }
 
+    @Schema(name = "ReconciliationExplorerTrace")
     public record Trace(Raw raw, Normalized normalized, List<Edge> edges, Classification classification) {}
 
     /** The transaction exactly as parsed/entered, before any reconciliation or categorization. */
@@ -47,6 +49,7 @@ public final class ReconciliationExplorerDto {
      *  Transaction.reconciliationExplanation}'s own comment for why this is separate from each
      *  edge's own {@code explanation}: one transaction, one classification, but potentially many
      *  edges (a CC payment settling many spends has one edge per spend). */
+    @Schema(name = "ReconciliationExplorerClassification")
     public record Classification(Transaction.ReconciliationStatus reconciliationStatus,
                                   Map<String, Object> transactionExplanation) {}
 }

@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
@@ -18,6 +19,7 @@ public class EmailChangeDtos {
      *  depends on the account's own User.signInMethod, known only server-side. See
      *  GoogleReauthVerifier and PasswordChangeDtos.StartRequest's identical field, copied here
      *  rather than shared since each DTO class already keeps its own field set self-contained. */
+    @Schema(name = "EmailChangeStartRequest")
     public record StartRequest(
             String currentPassword, String googleIdToken, String appleIdToken,
             @NotBlank @Email String newEmail
@@ -33,6 +35,7 @@ public class EmailChangeDtos {
      *  when no email provider is configured (this environment has none wired up), so the flow
      *  stays genuinely testable rather than a dead end with no way to reach verify(). Null once
      *  a real provider is configured. */
+    @Schema(name = "EmailChangeStartResponse")
     public record StartResponse(String sessionId, String devVerifyLink) {}
 
     /** token proves control of the NEW address -- the raw value from the link this flow emailed
@@ -41,10 +44,12 @@ public class EmailChangeDtos {
 
     public record VerifyResponse(String message) {}
 
+    @Schema(name = "EmailChangeCompleteRequest")
     public record CompleteRequest(@NotBlank String sessionId) {}
 
     /** email echoes back the address now on the account, so the frontend can update its own
      *  local state without a second GET /users/me round trip -- same reasoning as
      *  PhoneChangeDtos.CompleteResponse.phoneNumber. */
+    @Schema(name = "EmailChangeCompleteResponse")
     public record CompleteResponse(String message, String email) {}
 }

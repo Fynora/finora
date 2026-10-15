@@ -39,7 +39,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/WorkspaceSettingsUpdateRequest"
                             }
                         }
                     },
@@ -87,7 +87,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/UserSettingsUpdateRequest"
                             }
                         }
                     },
@@ -128,7 +128,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/TransactionUpdateRequest"
                             }
                         }
                     },
@@ -385,7 +385,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/RuleUpdateRequest"
                             }
                         }
                     },
@@ -473,7 +473,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/RelationshipUpdateRequest"
                             }
                         }
                     },
@@ -561,7 +561,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/AccountCreateRequest"
                             }
                         }
                     },
@@ -869,7 +869,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/RuleUpdateRequest"
                             }
                         }
                     },
@@ -1349,7 +1349,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/BankUpdateRequest"
                             }
                         }
                     },
@@ -1418,7 +1418,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/AccountCreateRequest"
                             }
                         }
                     },
@@ -1592,7 +1592,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/VerifyOtpRequest"
+                                "$ref": "#/components/schemas/PhoneChangeVerifyOtpRequest"
                             }
                         }
                     },
@@ -1604,7 +1604,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseVerifyOtpResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePhoneChangeVerifyOtpResponse"
                                 }
                             }
                         }
@@ -1622,7 +1622,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/StartRequest"
+                                "$ref": "#/components/schemas/PhoneChangeStartRequest"
                             }
                         }
                     },
@@ -1634,7 +1634,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStartResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePhoneChangeStartResponse"
                                 }
                             }
                         }
@@ -1652,7 +1652,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CompleteRequest"
+                                "$ref": "#/components/schemas/PhoneChangeCompleteRequest"
                             }
                         }
                     },
@@ -1664,7 +1664,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseCompleteResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePhoneChangeCompleteResponse"
                                 }
                             }
                         }
@@ -1682,7 +1682,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/VerifyOtpRequest"
+                                "$ref": "#/components/schemas/PasswordChangeVerifyOtpRequest"
                             }
                         }
                     },
@@ -1694,7 +1694,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseVerifyOtpResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePasswordChangeVerifyOtpResponse"
                                 }
                             }
                         }
@@ -1712,7 +1712,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/StartRequest"
+                                "$ref": "#/components/schemas/PasswordChangeStartRequest"
                             }
                         }
                     },
@@ -1724,7 +1724,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStartResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePasswordChangeStartResponse"
                                 }
                             }
                         }
@@ -1742,7 +1742,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CompleteRequest"
+                                "$ref": "#/components/schemas/PasswordChangeCompleteRequest"
                             }
                         }
                     },
@@ -1754,7 +1754,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseCompleteResponse"
+                                    "$ref": "#/components/schemas/ApiResponsePasswordChangeCompleteResponse"
                                 }
                             }
                         }
@@ -1802,7 +1802,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/StartRequest"
+                                "$ref": "#/components/schemas/EmailChangeStartRequest"
                             }
                         }
                     },
@@ -1814,7 +1814,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStartResponse"
+                                    "$ref": "#/components/schemas/ApiResponseEmailChangeStartResponse"
                                 }
                             }
                         }
@@ -1832,7 +1832,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CompleteRequest"
+                                "$ref": "#/components/schemas/EmailChangeCompleteRequest"
                             }
                         }
                     },
@@ -1844,7 +1844,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseCompleteResponse"
+                                    "$ref": "#/components/schemas/ApiResponseEmailChangeCompleteResponse"
                                 }
                             }
                         }
@@ -2133,7 +2133,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/TransactionCreateRequest"
                             }
                         }
                     },
@@ -2461,7 +2461,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSupportTicketSummary"
                                 }
                             }
                         }
@@ -2520,7 +2520,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseDetail"
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketDetail"
                                 }
                             }
                         }
@@ -2650,7 +2650,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ConfirmRequest"
+                                "$ref": "#/components/schemas/ImportConfirmRequest"
                             }
                         }
                     },
@@ -2662,7 +2662,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseConfirmResponse"
+                                    "$ref": "#/components/schemas/ApiResponseImportConfirmResponse"
                                 }
                             }
                         }
@@ -2942,7 +2942,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStatusResponse"
+                                    "$ref": "#/components/schemas/ApiResponseOnboardingStatusResponse"
                                 }
                             }
                         }
@@ -2992,7 +2992,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStatusResponse"
+                                    "$ref": "#/components/schemas/ApiResponseOnboardingStatusResponse"
                                 }
                             }
                         }
@@ -3689,7 +3689,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ConfirmRequest"
+                                "$ref": "#/components/schemas/ImportConfirmRequest"
                             }
                         }
                     },
@@ -3701,7 +3701,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseConfirmResponse"
+                                    "$ref": "#/components/schemas/ApiResponseImportConfirmResponse"
                                 }
                             }
                         }
@@ -3737,7 +3737,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/GoalCreateRequest"
                             }
                         }
                     },
@@ -3895,7 +3895,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/FeedbackCreateRequest"
                             }
                         }
                     },
@@ -3907,7 +3907,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseFeedbackSummary"
                                 }
                             }
                         }
@@ -4807,7 +4807,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/RuleCreateRequest"
                             }
                         }
                     },
@@ -4953,7 +4953,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/RelationshipCreateRequest"
                             }
                         }
                     },
@@ -5003,7 +5003,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/MergeRequest"
+                                "$ref": "#/components/schemas/RelationshipMergeRequest"
                             }
                         }
                     },
@@ -5183,7 +5183,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/MergeRequest"
+                                "$ref": "#/components/schemas/MerchantMergeRequest"
                             }
                         }
                     },
@@ -5253,7 +5253,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/AccountCreateRequest"
                             }
                         }
                     },
@@ -5403,7 +5403,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/TrustedSenderCreateRequest"
                             }
                         }
                     },
@@ -5547,7 +5547,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketSummary"
                                 }
                             }
                         }
@@ -5576,7 +5576,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketSummary"
                                 }
                             }
                         }
@@ -5665,7 +5665,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/RuleCreateRequest"
                             }
                         }
                     },
@@ -6511,7 +6511,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/MergeRequest"
+                                "$ref": "#/components/schemas/MerchantReviewMergeRequest"
                             }
                         }
                     },
@@ -7481,7 +7481,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/BankCreateRequest"
                             }
                         }
                     },
@@ -7561,7 +7561,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ConfirmRequest"
+                                "$ref": "#/components/schemas/AdminMfaConfirmRequest"
                             }
                         }
                     },
@@ -7573,7 +7573,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseConfirmResponse"
+                                    "$ref": "#/components/schemas/ApiResponseAdminMfaConfirmResponse"
                                 }
                             }
                         }
@@ -7609,7 +7609,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/CreateRequest"
+                                "$ref": "#/components/schemas/AccountCreateRequest"
                             }
                         }
                     },
@@ -7931,7 +7931,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpdateRequest"
+                                "$ref": "#/components/schemas/MerchantUpdateRequest"
                             }
                         }
                     },
@@ -7984,7 +7984,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketSummary"
                                 }
                             }
                         }
@@ -8577,7 +8577,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseDetail"
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketDetail"
                                 }
                             }
                         }
@@ -8758,7 +8758,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseStatementImportSummary"
                                 }
                             }
                         }
@@ -9060,7 +9060,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStatusResponse"
+                                    "$ref": "#/components/schemas/ApiResponseOnboardingStatusResponse"
                                 }
                             }
                         }
@@ -9780,7 +9780,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseListTopMerchant"
+                                    "$ref": "#/components/schemas/ApiResponseListAnalyticsTopMerchant"
                                 }
                             }
                         }
@@ -9810,7 +9810,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseListTopCategory"
+                                    "$ref": "#/components/schemas/ApiResponseListAnalyticsTopCategory"
                                 }
                             }
                         }
@@ -10265,7 +10265,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseLearningSummary"
                                 }
                             }
                         }
@@ -10436,7 +10436,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseListTopMerchant"
+                                    "$ref": "#/components/schemas/ApiResponseListAnalyticsTopMerchant"
                                 }
                             }
                         }
@@ -10475,7 +10475,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseListTopCategory"
+                                    "$ref": "#/components/schemas/ApiResponseListAnalyticsTopCategory"
                                 }
                             }
                         }
@@ -10657,7 +10657,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSupportTicketSummary"
                                 }
                             }
                         }
@@ -10892,7 +10892,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseTrace"
+                                    "$ref": "#/components/schemas/ApiResponseReconciliationExplorerTrace"
                                 }
                             }
                         }
@@ -11099,7 +11099,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseNotificationAdminSummary"
                                 }
                             }
                         }
@@ -11442,7 +11442,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseTrace"
+                                    "$ref": "#/components/schemas/ApiResponseInsightsExplorerTrace"
                                 }
                             }
                         }
@@ -11473,7 +11473,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseTrace"
+                                    "$ref": "#/components/schemas/ApiResponseImportTrace"
                                 }
                             }
                         }
@@ -11503,7 +11503,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseTrace"
+                                    "$ref": "#/components/schemas/ApiResponseImportTrace"
                                 }
                             }
                         }
@@ -11523,7 +11523,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseImportTelemetrySummary"
                                 }
                             }
                         }
@@ -11554,7 +11554,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseTrace"
+                                    "$ref": "#/components/schemas/ApiResponseImportRowTrace"
                                 }
                             }
                         }
@@ -12245,7 +12245,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponseHeldImportSummary"
                                 }
                             }
                         }
@@ -12321,7 +12321,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseFeedbackSummary"
                                 }
                             }
                         }
@@ -12659,7 +12659,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseStatusResponse"
+                                    "$ref": "#/components/schemas/ApiResponseAdminMfaStatusResponse"
                                 }
                             }
                         }
@@ -12925,7 +12925,7 @@
     },
     "components": {
         "schemas": {
-            "UpdateRequest": {
+            "WorkspaceSettingsUpdateRequest": {
                 "type": "object",
                 "properties": {
                     "autoApplyConfidenceThreshold": {
@@ -12972,6 +12972,29 @@
                     "updatedAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "UserSettingsUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "lowBalanceThreshold": {
+                        "type": "number",
+                        "minimum": 0.0
+                    },
+                    "theme": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "minLength": 0
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 0
+                    },
+                    "fullName": {
+                        "type": "string",
+                        "pattern": "^\\s*\\p{L}[\\p{L}\\s.'-]{0,98}\\p{L}\\s*$"
                     }
                 }
             },
@@ -13040,6 +13063,56 @@
                     },
                     "onboardingCompleted": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "TransactionUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "minLength": 0
+                    },
+                    "merchant": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "categoryName": {
+                        "type": "string"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 5000,
+                        "minLength": 0
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255,
+                            "minLength": 0
+                        },
+                        "maxItems": 20,
+                        "minItems": 0
+                    },
+                    "applyTo": {
+                        "type": "string",
+                        "enum": [
+                            "SIMILAR",
+                            "ONLY_THIS"
+                        ]
                     }
                 }
             },
@@ -13421,6 +13494,45 @@
                     }
                 }
             },
+            "RuleUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "minLength": 0
+                    },
+                    "operator": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "minLength": 0
+                    },
+                    "comparisonValue": {
+                        "type": "string"
+                    },
+                    "actionType": {
+                        "type": "string",
+                        "maxLength": 20,
+                        "minLength": 0
+                    },
+                    "actionValue": {
+                        "type": "string"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "amountMin": {
+                        "type": "number"
+                    },
+                    "amountMax": {
+                        "type": "number"
+                    }
+                }
+            },
             "ApiResponseRuleDto": {
                 "type": "object",
                 "properties": {
@@ -13503,6 +13615,43 @@
                     }
                 }
             },
+            "IdentifierRequest": {
+                "type": "object",
+                "properties": {
+                    "identifierType": {
+                        "type": "string"
+                    },
+                    "identifierValue": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "identifierType",
+                    "identifierValue"
+                ]
+            },
+            "RelationshipUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "relationshipType": {
+                        "type": "string"
+                    },
+                    "linkedAccountId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "identifiers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/IdentifierRequest"
+                        }
+                    }
+                }
+            },
             "ApiResponseRelationshipDto": {
                 "type": "object",
                 "properties": {
@@ -13571,7 +13720,7 @@
                     }
                 }
             },
-            "CreateRequest": {
+            "AccountCreateRequest": {
                 "type": "object",
                 "properties": {
                     "name": {
@@ -14691,6 +14840,35 @@
                     }
                 }
             },
+            "BankUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "officialName": {
+                        "type": "string"
+                    },
+                    "shortName": {
+                        "type": "string"
+                    },
+                    "colorHex": {
+                        "type": "string"
+                    },
+                    "initials": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "websiteUrl": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0,
+                        "pattern": "\\A(?:(?i:https?)://[^\\s]+)?\\z"
+                    },
+                    "ifscPrefix": {
+                        "type": "string"
+                    }
+                }
+            },
             "ApiResponseBankDto": {
                 "type": "object",
                 "properties": {
@@ -14719,7 +14897,7 @@
                     }
                 }
             },
-            "VerifyOtpRequest": {
+            "PhoneChangeVerifyOtpRequest": {
                 "type": "object",
                 "properties": {
                     "sessionId": {
@@ -14736,7 +14914,7 @@
                     "sessionId"
                 ]
             },
-            "ApiResponseVerifyOtpResponse": {
+            "ApiResponsePhoneChangeVerifyOtpResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -14746,7 +14924,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/VerifyOtpResponse"
+                        "$ref": "#/components/schemas/PhoneChangeVerifyOtpResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -14764,7 +14942,7 @@
                     }
                 }
             },
-            "VerifyOtpResponse": {
+            "PhoneChangeVerifyOtpResponse": {
                 "type": "object",
                 "properties": {
                     "message": {
@@ -14772,7 +14950,7 @@
                     }
                 }
             },
-            "StartRequest": {
+            "PhoneChangeStartRequest": {
                 "type": "object",
                 "properties": {
                     "newPhoneNumber": {
@@ -14785,7 +14963,7 @@
                     "newPhoneNumber"
                 ]
             },
-            "ApiResponseStartResponse": {
+            "ApiResponsePhoneChangeStartResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -14795,7 +14973,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/StartResponse"
+                        "$ref": "#/components/schemas/PhoneChangeStartResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -14813,7 +14991,7 @@
                     }
                 }
             },
-            "StartResponse": {
+            "PhoneChangeStartResponse": {
                 "type": "object",
                 "properties": {
                     "sessionId": {
@@ -14824,7 +15002,7 @@
                     }
                 }
             },
-            "CompleteRequest": {
+            "PhoneChangeCompleteRequest": {
                 "type": "object",
                 "properties": {
                     "sessionId": {
@@ -14836,7 +15014,7 @@
                     "sessionId"
                 ]
             },
-            "ApiResponseCompleteResponse": {
+            "ApiResponsePhoneChangeCompleteResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -14846,7 +15024,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/CompleteResponse"
+                        "$ref": "#/components/schemas/PhoneChangeCompleteResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -14864,7 +15042,7 @@
                     }
                 }
             },
-            "CompleteResponse": {
+            "PhoneChangeCompleteResponse": {
                 "type": "object",
                 "properties": {
                     "message": {
@@ -14872,6 +15050,178 @@
                     },
                     "phoneNumber": {
                         "type": "string"
+                    }
+                }
+            },
+            "PasswordChangeVerifyOtpRequest": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "firebaseIdToken": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "firebaseIdToken",
+                    "sessionId"
+                ]
+            },
+            "ApiResponsePasswordChangeVerifyOtpResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PasswordChangeVerifyOtpResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PasswordChangeVerifyOtpResponse": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PasswordChangeStartRequest": {
+                "type": "object",
+                "properties": {
+                    "currentPassword": {
+                        "type": "string"
+                    },
+                    "googleIdToken": {
+                        "type": "string"
+                    },
+                    "appleIdToken": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponsePasswordChangeStartResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PasswordChangeStartResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PasswordChangeStartResponse": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string"
+                    },
+                    "phoneNumber": {
+                        "type": "string"
+                    },
+                    "maskedPhone": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PasswordChangeCompleteRequest": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "newPassword": {
+                        "type": "string",
+                        "maxLength": 72,
+                        "minLength": 8
+                    },
+                    "signOutOtherDevices": {
+                        "type": "boolean"
+                    },
+                    "currentRefreshToken": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "newPassword",
+                    "sessionId"
+                ]
+            },
+            "ApiResponsePasswordChangeCompleteResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PasswordChangeCompleteResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PasswordChangeCompleteResponse": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    },
+                    "otherDevicesSignedOut": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -14924,6 +15274,118 @@
                 "type": "object",
                 "properties": {
                     "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "EmailChangeStartRequest": {
+                "type": "object",
+                "properties": {
+                    "currentPassword": {
+                        "type": "string"
+                    },
+                    "googleIdToken": {
+                        "type": "string"
+                    },
+                    "appleIdToken": {
+                        "type": "string"
+                    },
+                    "newEmail": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "newEmail"
+                ]
+            },
+            "ApiResponseEmailChangeStartResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EmailChangeStartResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "EmailChangeStartResponse": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string"
+                    },
+                    "devVerifyLink": {
+                        "type": "string"
+                    }
+                }
+            },
+            "EmailChangeCompleteRequest": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "sessionId"
+                ]
+            },
+            "ApiResponseEmailChangeCompleteResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EmailChangeCompleteResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "EmailChangeCompleteResponse": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    },
+                    "email": {
                         "type": "string"
                     }
                 }
@@ -15050,6 +15512,48 @@
                 "properties": {
                     "message": {
                         "type": "string"
+                    }
+                }
+            },
+            "TransactionCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "accountId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "categoryName": {
+                        "type": "string"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "minLength": 0
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 255,
+                            "minLength": 0
+                        },
+                        "maxItems": 20,
+                        "minItems": 0
+                    },
+                    "idempotencyKey": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0
                     }
                 }
             },
@@ -15223,7 +15727,7 @@
                     "ids"
                 ]
             },
-            "ApiResponseDetail": {
+            "ApiResponseSupportTicketDetail": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -15233,7 +15737,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/Detail"
+                        "$ref": "#/components/schemas/SupportTicketDetail"
                     },
                     "timestamp": {
                         "type": "string",
@@ -15270,7 +15774,7 @@
                     }
                 }
             },
-            "Detail": {
+            "SupportTicketDetail": {
                 "type": "object",
                 "properties": {
                     "id": {
@@ -15967,64 +16471,6 @@
                     }
                 }
             },
-            "ConfirmRequest": {
-                "type": "object",
-                "properties": {
-                    "sessionId": {
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    "rows": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ConfirmedRow"
-                        }
-                    },
-                    "existingAccountId": {
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    "newAccount": {
-                        "$ref": "#/components/schemas/NewAccountRequest"
-                    },
-                    "statementOpeningBalance": {
-                        "type": "number"
-                    },
-                    "statementClosingBalance": {
-                        "type": "number"
-                    },
-                    "password": {
-                        "type": "string"
-                    },
-                    "statementPeriodStart": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "statementPeriodEnd": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "totalAmountDue": {
-                        "type": "number"
-                    },
-                    "paymentDueDate": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "userConfirmedContinue": {
-                        "type": "boolean"
-                    },
-                    "idempotencyKey": {
-                        "type": "string"
-                    },
-                    "holderIsMine": {
-                        "type": "boolean"
-                    }
-                },
-                "required": [
-                    "rows"
-                ]
-            },
             "ConfirmedRow": {
                 "type": "object",
                 "properties": {
@@ -16088,6 +16534,64 @@
                         "minimum": 0
                     }
                 }
+            },
+            "ImportConfirmRequest": {
+                "type": "object",
+                "properties": {
+                    "sessionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ConfirmedRow"
+                        }
+                    },
+                    "existingAccountId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "newAccount": {
+                        "$ref": "#/components/schemas/NewAccountRequest"
+                    },
+                    "statementOpeningBalance": {
+                        "type": "number"
+                    },
+                    "statementClosingBalance": {
+                        "type": "number"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "statementPeriodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "statementPeriodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "totalAmountDue": {
+                        "type": "number"
+                    },
+                    "paymentDueDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "userConfirmedContinue": {
+                        "type": "boolean"
+                    },
+                    "idempotencyKey": {
+                        "type": "string"
+                    },
+                    "holderIsMine": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "rows"
+                ]
             },
             "NewAccountRequest": {
                 "type": "object",
@@ -16170,7 +16674,7 @@
                     "name"
                 ]
             },
-            "ApiResponseConfirmResponse": {
+            "ApiResponseImportConfirmResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -16180,7 +16684,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/ConfirmResponse"
+                        "$ref": "#/components/schemas/ImportConfirmResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -16198,7 +16702,7 @@
                     }
                 }
             },
-            "ConfirmResponse": {
+            "ImportConfirmResponse": {
                 "type": "object",
                 "properties": {
                     "imported": {
@@ -16528,7 +17032,7 @@
                     }
                 }
             },
-            "ApiResponseStatusResponse": {
+            "ApiResponseOnboardingStatusResponse": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -16538,7 +17042,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/StatusResponse"
+                        "$ref": "#/components/schemas/OnboardingStatusResponse"
                     },
                     "timestamp": {
                         "type": "string",
@@ -16556,7 +17060,7 @@
                     }
                 }
             },
-            "StatusResponse": {
+            "OnboardingStatusResponse": {
                 "type": "object",
                 "properties": {
                     "onboardingCompleted": {
@@ -17085,7 +17589,7 @@
                     "perAccount": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/ConfirmResponse"
+                            "$ref": "#/components/schemas/ImportConfirmResponse"
                         }
                     }
                 }
@@ -17270,6 +17774,31 @@
                     }
                 }
             },
+            "GoalCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "targetAmount": {
+                        "type": "number",
+                        "minimum": 0.01
+                    },
+                    "currentAmount": {
+                        "type": "number",
+                        "minimum": 0.0
+                    },
+                    "targetDate": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "name",
+                    "targetAmount"
+                ]
+            },
             "ApiResponseGoalDto": {
                 "type": "object",
                 "properties": {
@@ -17393,7 +17922,45 @@
                     }
                 }
             },
-            "ApiResponseSummary": {
+            "FeedbackCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "BUG",
+                            "FEATURE_REQUEST",
+                            "IMPROVEMENT",
+                            "GENERAL"
+                        ]
+                    },
+                    "context": {
+                        "type": "string",
+                        "enum": [
+                            "DASHBOARD",
+                            "TRANSACTIONS",
+                            "REPORTS",
+                            "BUDGETS",
+                            "GOALS",
+                            "IMPORT_FLOW",
+                            "ACCOUNTS",
+                            "SETTINGS",
+                            "HELP",
+                            "OTHER"
+                        ]
+                    },
+                    "message": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "context",
+                    "message",
+                    "type"
+                ]
+            },
+            "ApiResponseFeedbackSummary": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -17403,7 +17970,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/Summary"
+                        "$ref": "#/components/schemas/FeedbackSummary"
                     },
                     "timestamp": {
                         "type": "string",
@@ -17421,7 +17988,7 @@
                     }
                 }
             },
-            "Summary": {
+            "FeedbackSummary": {
                 "type": "object",
                 "properties": {
                     "id": {
@@ -18278,7 +18845,72 @@
                     "idToken"
                 ]
             },
-            "MergeRequest": {
+            "RuleCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "operator": {
+                        "type": "string"
+                    },
+                    "comparisonValue": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "actionType": {
+                        "type": "string"
+                    },
+                    "actionValue": {
+                        "type": "string"
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "amountMin": {
+                        "type": "number"
+                    },
+                    "amountMax": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "actionType",
+                    "comparisonValue",
+                    "field",
+                    "operator"
+                ]
+            },
+            "RelationshipCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "relationshipType": {
+                        "type": "string"
+                    },
+                    "linkedAccountId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "identifiers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/IdentifierRequest"
+                        },
+                        "minItems": 1
+                    }
+                },
+                "required": [
+                    "identifiers",
+                    "label",
+                    "relationshipType"
+                ]
+            },
+            "RelationshipMergeRequest": {
                 "type": "object",
                 "properties": {
                     "mergeFromRelationshipId": {
@@ -18382,6 +19014,18 @@
                     }
                 }
             },
+            "MerchantMergeRequest": {
+                "type": "object",
+                "properties": {
+                    "mergeFromMerchantId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "mergeFromMerchantId"
+                ]
+            },
             "AdminReactivateRequest": {
                 "type": "object",
                 "properties": {
@@ -18389,6 +19033,17 @@
                         "type": "string",
                         "maxLength": 500,
                         "minLength": 0
+                    }
+                }
+            },
+            "TrustedSenderCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "domain": {
+                        "type": "string"
+                    },
+                    "merchantName": {
+                        "type": "string"
                     }
                 }
             },
@@ -18447,6 +19102,85 @@
                         "type": "string"
                     },
                     "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseSupportTicketSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SupportTicketSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SupportTicketSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "ticketNumber": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "STATEMENT_IMPORT",
+                            "CATEGORIZATION",
+                            "ACCOUNT_LINKING",
+                            "DATA_ACCURACY",
+                            "TECHNICAL_ISSUE",
+                            "OTHER"
+                        ]
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "OPEN",
+                            "IN_PROGRESS",
+                            "RESOLVED",
+                            "CLOSED"
+                        ]
+                    },
+                    "claimedByAdminId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
                         "type": "string",
                         "format": "date-time"
                     }
@@ -19127,6 +19861,18 @@
                     }
                 }
             },
+            "MerchantReviewMergeRequest": {
+                "type": "object",
+                "properties": {
+                    "survivingMerchantId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "survivingMerchantId"
+                ]
+            },
             "ApiResponseMapStringInteger": {
                 "type": "object",
                 "properties": {
@@ -19806,6 +20552,47 @@
                     }
                 }
             },
+            "BankCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[A-Za-z0-9_]{2,30}$"
+                    },
+                    "officialName": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "shortName": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "colorHex": {
+                        "type": "string"
+                    },
+                    "initials": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "websiteUrl": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0,
+                        "pattern": "\\A(?:(?i:https?)://[^\\s]+)?\\z"
+                    },
+                    "ifscPrefix": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "officialName",
+                    "shortName"
+                ]
+            },
             "ApiResponseEnrollResponse": {
                 "type": "object",
                 "properties": {
@@ -19862,6 +20649,57 @@
                     }
                 }
             },
+            "AdminMfaConfirmRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "code"
+                ]
+            },
+            "AdminMfaConfirmResponse": {
+                "type": "object",
+                "properties": {
+                    "recoveryCodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "ApiResponseAdminMfaConfirmResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AdminMfaConfirmResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
             "UpdateKindRequest": {
                 "type": "object",
                 "properties": {
@@ -19894,6 +20732,22 @@
                     },
                     "color": {
                         "type": "string"
+                    }
+                }
+            },
+            "MerchantUpdateRequest": {
+                "type": "object",
+                "properties": {
+                    "canonicalName": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 0
+                    },
+                    "website": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "minLength": 0,
+                        "pattern": "\\A(?:(?i:https?)://[^\\s]+)?\\z"
                     }
                 }
             },
@@ -21119,7 +21973,7 @@
                     }
                 }
             },
-            "ApiResponsePagedResponseSummary": {
+            "ApiResponsePagedResponseSupportTicketSummary": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -21129,7 +21983,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/PagedResponseSummary"
+                        "$ref": "#/components/schemas/PagedResponseSupportTicketSummary"
                     },
                     "timestamp": {
                         "type": "string",
@@ -21147,13 +22001,13 @@
                     }
                 }
             },
-            "PagedResponseSummary": {
+            "PagedResponseSupportTicketSummary": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Summary"
+                            "$ref": "#/components/schemas/SupportTicketSummary"
                         }
                     },
                     "page": {
@@ -21386,7 +22240,7 @@
                     "statements": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Summary"
+                            "$ref": "#/components/schemas/StatementImportSummary"
                         }
                     },
                     "deleted": {
@@ -21415,6 +22269,87 @@
                         "items": {
                             "$ref": "#/components/schemas/AccountGroup"
                         }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementImportSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "statementPeriodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "statementPeriodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "openingBalance": {
+                        "type": "number"
+                    },
+                    "closingBalance": {
+                        "type": "number"
+                    },
+                    "totalAmountDue": {
+                        "type": "number"
+                    },
+                    "paymentDueDate": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "transactionsImported": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "transactionsSkipped": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "importedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "duplicateCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "storedSize": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseStatementImportSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementImportSummary"
                     },
                     "timestamp": {
                         "type": "string",
@@ -22240,24 +23175,6 @@
                     }
                 }
             },
-            "CategoryMover": {
-                "type": "object",
-                "properties": {
-                    "category": {
-                        "type": "string"
-                    },
-                    "current": {
-                        "type": "number"
-                    },
-                    "priorAverage": {
-                        "type": "number"
-                    },
-                    "pctChange": {
-                        "type": "number",
-                        "format": "double"
-                    }
-                }
-            },
             "CoverageCaveat": {
                 "type": "object",
                 "properties": {
@@ -22285,6 +23202,24 @@
                     }
                 }
             },
+            "InsightsCategoryMover": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string"
+                    },
+                    "current": {
+                        "type": "number"
+                    },
+                    "priorAverage": {
+                        "type": "number"
+                    },
+                    "pctChange": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                }
+            },
             "InsightsDto": {
                 "type": "object",
                 "properties": {
@@ -22297,7 +23232,7 @@
                     "movers": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/CategoryMover"
+                            "$ref": "#/components/schemas/InsightsCategoryMover"
                         }
                     },
                     "coverageCaveat": {
@@ -22899,6 +23834,24 @@
                     }
                 }
             },
+            "DashboardSummaryCategoryMover": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string"
+                    },
+                    "currentAmount": {
+                        "type": "number"
+                    },
+                    "priorAmount": {
+                        "type": "number"
+                    },
+                    "pctChange": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                }
+            },
             "DashboardSummaryDto": {
                 "type": "object",
                 "properties": {
@@ -23051,7 +24004,7 @@
                     "expenseCategoryMovers": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/CategoryMover"
+                            "$ref": "#/components/schemas/DashboardSummaryCategoryMover"
                         }
                     },
                     "duplicateTransactionCount": {
@@ -23728,38 +24681,7 @@
                     }
                 }
             },
-            "ApiResponseListTopMerchant": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/TopMerchant"
-                        }
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "TopMerchant": {
+            "AnalyticsTopMerchant": {
                 "type": "object",
                 "properties": {
                     "merchantId": {
@@ -23778,7 +24700,7 @@
                     }
                 }
             },
-            "ApiResponseListTopCategory": {
+            "ApiResponseListAnalyticsTopMerchant": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -23790,7 +24712,7 @@
                     "data": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/TopCategory"
+                            "$ref": "#/components/schemas/AnalyticsTopMerchant"
                         }
                     },
                     "timestamp": {
@@ -23809,7 +24731,7 @@
                     }
                 }
             },
-            "TopCategory": {
+            "AnalyticsTopCategory": {
                 "type": "object",
                 "properties": {
                     "categoryId": {
@@ -23825,6 +24747,37 @@
                     "transactionCount": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseListAnalyticsTopCategory": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AnalyticsTopCategory"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },
@@ -24566,6 +25519,55 @@
                     "createdAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseLearningSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/LearningSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LearningSummary": {
+                "type": "object",
+                "properties": {
+                    "learnedMerchants": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalConfirmations": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "correctedCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "resetCount": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },
@@ -25453,7 +26455,7 @@
                     }
                 }
             },
-            "ApiResponseTrace": {
+            "ApiResponseReconciliationExplorerTrace": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -25463,7 +26465,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/Trace"
+                        "$ref": "#/components/schemas/ReconciliationExplorerTrace"
                     },
                     "timestamp": {
                         "type": "string",
@@ -25476,27 +26478,6 @@
                         "type": "string"
                     },
                     "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "Classification": {
-                "type": "object",
-                "properties": {
-                    "reconciliationStatus": {
-                        "type": "string",
-                        "enum": [
-                            "OK",
-                            "DUPLICATE",
-                            "TRANSFER",
-                            "REFUND",
-                            "REVERSAL",
-                            "INVESTMENT_TRANSFER",
-                            "SUPERSEDED"
-                        ]
-                    },
-                    "transactionExplanation": {
                         "type": "object",
                         "additionalProperties": {}
                     }
@@ -25607,7 +26588,28 @@
                     }
                 }
             },
-            "Trace": {
+            "ReconciliationExplorerClassification": {
+                "type": "object",
+                "properties": {
+                    "reconciliationStatus": {
+                        "type": "string",
+                        "enum": [
+                            "OK",
+                            "DUPLICATE",
+                            "TRANSFER",
+                            "REFUND",
+                            "REVERSAL",
+                            "INVESTMENT_TRANSFER",
+                            "SUPERSEDED"
+                        ]
+                    },
+                    "transactionExplanation": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ReconciliationExplorerTrace": {
                 "type": "object",
                 "properties": {
                     "raw": {
@@ -25623,7 +26625,7 @@
                         }
                     },
                     "classification": {
-                        "$ref": "#/components/schemas/Classification"
+                        "$ref": "#/components/schemas/ReconciliationExplorerClassification"
                     }
                 }
             },
@@ -26032,6 +27034,69 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/AttemptDto"
+                        }
+                    }
+                }
+            },
+            "ApiResponseNotificationAdminSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/NotificationAdminSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ChannelSummary": {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "type": "string"
+                    },
+                    "sent": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "failed": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "NotificationAdminSummary": {
+                "type": "object",
+                "properties": {
+                    "sent": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "failed": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "byChannel": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChannelSummary"
                         }
                     }
                 }
@@ -26558,6 +27623,530 @@
                     },
                     "description": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseInsightsExplorerTrace": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/InsightsExplorerTrace"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "InsightsExplorerTopCategory": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "transactions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TracedTransaction"
+                        }
+                    }
+                }
+            },
+            "InsightsExplorerTopMerchant": {
+                "type": "object",
+                "properties": {
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "transactions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TracedTransaction"
+                        }
+                    }
+                }
+            },
+            "InsightsExplorerTrace": {
+                "type": "object",
+                "properties": {
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "reportingMonth": {
+                        "type": "string"
+                    },
+                    "reportingMonthIsCurrent": {
+                        "type": "boolean"
+                    },
+                    "totalSpend": {
+                        "$ref": "#/components/schemas/TotalSpend"
+                    },
+                    "topCategory": {
+                        "$ref": "#/components/schemas/InsightsExplorerTopCategory"
+                    },
+                    "topMerchant": {
+                        "$ref": "#/components/schemas/InsightsExplorerTopMerchant"
+                    }
+                }
+            },
+            "TotalSpend": {
+                "type": "object",
+                "properties": {
+                    "amount": {
+                        "type": "number"
+                    },
+                    "categoryCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "transactions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TracedTransaction"
+                        }
+                    }
+                }
+            },
+            "TracedTransaction": {
+                "type": "object",
+                "properties": {
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "rawAmount": {
+                        "type": "number"
+                    },
+                    "reportableAmount": {
+                        "type": "number"
+                    },
+                    "txnDate": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                }
+            },
+            "ApiResponseImportTrace": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ImportTrace"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Completion": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "transactionsImported": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "transactionsSkipped": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "importedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "sessionConfirmedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "Finding": {
+                "type": "object",
+                "properties": {
+                    "sectionIndex": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rule": {
+                        "type": "string"
+                    },
+                    "outcome": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "recordedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ImportTrace": {
+                "type": "object",
+                "properties": {
+                    "analysisReference": {
+                        "type": "string"
+                    },
+                    "importJobId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "importSessionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "correlationId": {
+                        "type": "string"
+                    },
+                    "analysis": {
+                        "$ref": "#/components/schemas/AnalysisView"
+                    },
+                    "job": {
+                        "$ref": "#/components/schemas/Job"
+                    },
+                    "stages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Stage"
+                        }
+                    },
+                    "verification": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Finding"
+                        }
+                    },
+                    "learning": {
+                        "$ref": "#/components/schemas/Learning"
+                    },
+                    "completion": {
+                        "$ref": "#/components/schemas/Completion"
+                    }
+                }
+            },
+            "Job": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "attemptCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsTotal": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsProcessed": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "lastError": {
+                        "type": "string"
+                    },
+                    "queuedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "startedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finishedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "totalDurationMs": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "Learning": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "byStatus": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    },
+                    "outstanding": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LearningEvent"
+                        }
+                    }
+                }
+            },
+            "LearningEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "attemptCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "Stage": {
+                "type": "object",
+                "properties": {
+                    "stage": {
+                        "type": "string"
+                    },
+                    "attempt": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "outcome": {
+                        "type": "string"
+                    },
+                    "startedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "endedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "durationMs": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseImportTelemetrySummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ImportTelemetrySummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ImportTelemetrySummary": {
+                "type": "object",
+                "properties": {
+                    "completedJobs": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "withTelemetry": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "predatesTelemetry": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "notCompleted": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "byReliabilityStatus": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    "byTextSource": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    "headerReconstructionUncertain": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "withFailedFindings": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "withWarningFindings": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "byParserVersion": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ParserVersionBreakdown"
+                        }
+                    }
+                }
+            },
+            "ParserVersionBreakdown": {
+                "type": "object",
+                "properties": {
+                    "parserVersion": {
+                        "type": "string"
+                    },
+                    "jobs": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "clean": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "reviewRecommended": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "needsAttention": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseImportRowTrace": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ImportRowTrace"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ImportRowTrace": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RowOutcome"
+                        }
+                    }
+                }
+            },
+            "RowOutcome": {
+                "type": "object",
+                "properties": {
+                    "rowPosition": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "txnDate": {
+                        "type": "string",
+                        "format": "date"
                     }
                 }
             },
@@ -27626,6 +29215,102 @@
                     }
                 }
             },
+            "ApiResponseHeldImportSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/HeldImportSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "HeldImportSummary": {
+                "type": "object",
+                "properties": {
+                    "held": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "reprocessing": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseFeedbackSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseFeedbackSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PagedResponseFeedbackSummary": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FeedbackSummary"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "ApiResponseBreakdown": {
                 "type": "object",
                 "properties": {
@@ -28534,6 +30219,42 @@
                     },
                     "classification": {
                         "type": "string"
+                    }
+                }
+            },
+            "AdminMfaStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseAdminMfaStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AdminMfaStatusResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

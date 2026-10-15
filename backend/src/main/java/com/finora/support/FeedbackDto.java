@@ -1,5 +1,6 @@
 package com.finora.support;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.FeedbackEntry;
 import com.finora.repository.FeedbackEntryRepository;
@@ -20,12 +21,14 @@ public final class FeedbackDto {
 
     private FeedbackDto() {}
 
+    @Schema(name = "FeedbackCreateRequest")
     public record CreateRequest(
             @NotNull(message = "type is required") FeedbackEntry.Type type,
             @NotNull(message = "context is required") FeedbackEntry.Context context,
             @NotBlank(message = "message is required") String message
     ) {}
 
+    @Schema(name = "FeedbackSummary")
     public record Summary(
             UUID id,
             UUID userId,

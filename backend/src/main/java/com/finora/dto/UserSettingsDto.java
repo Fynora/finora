@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -42,6 +43,7 @@ public record UserSettingsDto(
      * validates it against the real option list, next to the timezone check, because both are
      * questions about a value's meaning rather than its shape.
      */
+    @Schema(name = "UserSettingsUpdateRequest")
     public record UpdateRequest(
             @jakarta.validation.constraints.DecimalMin(value = "0.0", message = "Low balance threshold can't be negative")
             @jakarta.validation.constraints.Digits(integer = 12, fraction = 2, message = "Low balance threshold must be a money amount")

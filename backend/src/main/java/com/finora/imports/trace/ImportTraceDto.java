@@ -1,5 +1,6 @@
 package com.finora.imports.trace;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.imports.analysis.StatementAnalysisReportService.AnalysisView;
 
 import java.time.Instant;
@@ -53,6 +54,7 @@ public final class ImportTraceDto {
      * @param verification every rule that ran, with what it found. Empty means no verification was
      *                   recorded, which is not the same as every rule passing.
      */
+    @Schema(name = "ImportTrace")
     public record Trace(
             String analysisReference,
             UUID importJobId,

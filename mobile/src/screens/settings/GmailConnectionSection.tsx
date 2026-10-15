@@ -14,6 +14,8 @@ import { connectGmail } from '../../lib/gmailAuth';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import type { MoreStackParamList } from '../../navigation/types';
 import { radius, spacing, useTheme } from '../../theme';
+import { LoadFailed } from '../../components/LoadFailed';
+import { SkeletonBox, SkeletonGroup, SkeletonLines } from '../../components/skeletons/Skeletons';
 
 // D-19 Step 1 parity (Trust Center): mirrors frontend/src/pages/Settings.tsx's identical
 // SCOPE_LABELS -- `openid` has no user-meaningful description of its own (it's what makes `sub`
@@ -76,7 +78,7 @@ export function GmailConnectionSection() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
-  const { data: status, isLoading, isError } = useQuery({
+  const { data: status, isLoading, isError, refetch } = useQuery({
     queryKey: ['gmail-status'],
     queryFn: () => gmailApi.status(),
   });
@@ -147,13 +149,16 @@ export function GmailConnectionSection() {
   }
 
   if (isLoading) {
-    return <ActivityIndicator color={c.primary} style={styles.loader} />;
+    return (
+      <SkeletonGroup style={styles.loader}>
+        <SkeletonLines count={2} size="label" />
+        <SkeletonBox size="button" style={styles.skeletonButton} />
+      </SkeletonGroup>
+    );
   }
   if (isError && !status) {
     return (
-      <Text style={[styles.error, { color: c.dangerInk }]}>
-        Couldn&apos;t load your Gmail connection — please try again later.
-      </Text>
+      <LoadFailed message="Couldn't load your Gmail connection — please try again later." tone="danger" onRetry={() => void refetch()} />
     );
   }
   if (!status?.available) {
@@ -261,6 +266,7 @@ export function GmailConnectionSection() {
 
 const styles = StyleSheet.create({
   loader: { paddingVertical: spacing.sm },
+  skeletonButton: { marginTop: spacing.sm },
   error: { fontSize: 12, marginTop: spacing.xs },
   notice: { fontSize: 12, marginTop: spacing.xs },
   italic: { fontSize: 12, fontStyle: 'italic' },

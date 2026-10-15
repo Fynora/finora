@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsBankSyncScreen } from './SettingsBankSyncScreen';
 import { accountAggregatorApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   accountAggregatorApi: { list: jest.fn(), initiate: jest.fn(), disconnect: jest.fn() },
@@ -71,3 +72,22 @@ async function openURLCalledWith(spy: jest.SpyInstance, url: string): Promise<bo
   await new Promise((resolve) => setImmediate(resolve));
   return spy.mock.calls.some((call) => call[0] === url);
 }
+
+describe('SettingsBankSyncScreen loading states', () => {
+  beforeEach(() => jest.mocked(accountAggregatorApi.list).mockReset());
+
+  it('shows link skeletons, not a spinner, on first load', () => {
+    jest.mocked(accountAggregatorApi.list).mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches the links', async () => {
+    jest.mocked(accountAggregatorApi.list).mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText(/Couldn't load your linked bank accounts/)).toBeTruthy();
+    jest.mocked(accountAggregatorApi.list).mockResolvedValueOnce([]);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('No bank accounts linked yet.')).toBeTruthy();
+  });
+});

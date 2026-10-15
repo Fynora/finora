@@ -6,6 +6,10 @@ import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoi
 import { ScreenshotTooLargeError, pickFynScreenshot } from '../lib/fynScreenshot';
 import * as StoreReview from 'expo-store-review';
 import { ThemeProvider } from '../theme';
+import { TabBarSpaceContext } from '../navigation/useTabBarSpace';
+import { useKeyboardVisible } from '../lib/useKeyboardVisible';
+
+jest.mock('../lib/useKeyboardVisible', () => ({ useKeyboardVisible: jest.fn(() => false) }));
 
 jest.mock('../api/endpoints', () => ({
   fynChatApi: { send: jest.fn(), history: jest.fn(), sendScreenshot: jest.fn(), setFeedback: jest.fn() },
@@ -48,6 +52,20 @@ function renderScreen() {
   );
 }
 
+// Inside the tabs, where the floating pill covers 92 pt (a 34 pt home-indicator inset).
+function renderInTabs() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  return render(
+    <TabBarSpaceContext.Provider value={92}>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <FynScreen />
+        </ThemeProvider>
+      </QueryClientProvider>
+    </TabBarSpaceContext.Provider>
+  );
+}
+
 describe('FynScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -56,6 +74,22 @@ describe('FynScreen', () => {
     // that DO care override this explicitly.
     fynChat.history.mockResolvedValue({ conversationId: null, turns: [] });
     storeReview.hasAction.mockResolvedValue(false);
+    (useKeyboardVisible as jest.Mock).mockReturnValue(false);
+  });
+
+  it('keeps the message box above the tab pill while the keyboard is down', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderInTabs();
+    // 92 cover + 12 clearance.
+    expect(await screen.findByTestId('fyn-composer')).toHaveStyle({ paddingBottom: 104 });
+  });
+
+  it('puts the message box right above the keyboard while typing, as before', async () => {
+    (useKeyboardVisible as jest.Mock).mockReturnValue(true);
+    entitlements.mine.mockResolvedValue(granted());
+    renderInTabs();
+    // Safe-area insets are 0 under the test setup; spacing.sm is 8.
+    expect(await screen.findByTestId('fyn-composer')).toHaveStyle({ paddingBottom: 8 });
   });
 
   it('shows the upgrade prompt, not the chat, when the user lacks FYN_CHAT', async () => {

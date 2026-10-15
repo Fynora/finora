@@ -9,6 +9,9 @@ import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminBlankedCopyApi, adminHeldImportApi, adminOriginalViewApi } from '../api/endpoints';
 import type { HeldImportRow, HeldImportDetail } from '../types';
 
+/** A view that is still open: the viewer takes pages down once expiresAt passes. */
+const LATER = new Date(Date.now() + 30 * 60_000).toISOString();
+
 // Same reason Notifications.test.tsx mocks these two: AdminLayout renders ThemeToggle (calls
 // useTheme()) and there's no real ThemeProvider mounted here.
 vi.mock('../context/ThemeContext', () => ({
@@ -263,7 +266,7 @@ describe('HeldImports', () => {
    *  pages as images. */
   it('lets an operator with an admin role view the held statement after typing a reason', async () => {
     vi.mocked(adminOriginalViewApi.openImport).mockResolvedValue(
-      { viewId: 'v1', format: 'PDF', pageCount: 1, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v1', format: 'PDF', pageCount: 1, expiresAt: LATER });
     vi.mocked(adminOriginalViewApi.pageBlob).mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
     renderPage();

@@ -19,6 +19,17 @@ function errorText(err: unknown, fallback: string): string {
   return response?.data?.message ?? fallback;
 }
 
+/** The server's view lifetime (StatementOriginalView.LIFETIME). */
+const LIFETIME_MS = 30 * 60_000;
+
+/** How long until the view ends, from the server's expiresAt. The view has only just opened, so
+ *  anything outside 0..30 minutes is this computer's clock being off, not the view: the lifetime
+ *  is used instead, rather than taking the pages down at once or leaving them up for hours. */
+function msUntilEnd(expiresAt: string): number {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  return Number.isFinite(ms) && ms > 0 && ms <= LIFETIME_MS ? ms : LIFETIME_MS;
+}
+
 function untilTime(expiresAt: string): string {
   const date = new Date(expiresAt);
   return Number.isNaN(date.getTime())
@@ -46,8 +57,10 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
   const [pages, setPages] = useState<string[]>([]);
   const [lines, setLines] = useState<string[] | null>(null);
   const [viewError, setViewError] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
   // Every object URL made, freed on unmount -- a ref, so the cleanup sees the latest list.
   const urls = useRef<string[]>([]);
+  const endedRef = useRef(false);
   const trimmed = reason.trim();
   const reasonOk = trimmed.length >= MIN_REASON && trimmed.length <= MAX_REASON;
 
@@ -63,12 +76,12 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
       try {
         if (opened.format === 'CSV') {
           const csv = await adminOriginalViewApi.csv(opened.viewId);
-          if (!stopped) setLines(csv);
+          if (!stopped && !endedRef.current) setLines(csv);
           return;
         }
         for (let n = 1; n <= opened.pageCount; n++) {
           const blob = await adminOriginalViewApi.pageBlob(opened.viewId, n);
-          if (stopped) return;
+          if (stopped || endedRef.current) return;
           const url = URL.createObjectURL(blob);
           urls.current.push(url);
           setPages((current) => [...current, url]);
@@ -79,6 +92,22 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
     }
     void load(view);
     return () => { stopped = true; };
+  }, [view]);
+
+  // The server stops serving pages when the view ends; the ones already fetched leave the screen
+  // then too, rather than staying up for as long as the dialog is open.
+  useEffect(() => {
+    if (!view) return;
+    const timer = setTimeout(() => {
+      urls.current.forEach((url) => URL.revokeObjectURL(url));
+      urls.current = [];
+      setPages([]);
+      setLines(null);
+      endedRef.current = true;
+      setEnded(true);
+      setViewError(ENDED);
+    }, msUntilEnd(view.expiresAt));
+    return () => clearTimeout(timer);
   }, [view]);
 
   useEffect(() => {
@@ -172,7 +201,7 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
                   className="mx-auto block w-full max-w-[900px] h-auto border border-border bg-white"
                 />
               ))}
-              {pages.length < view.pageCount && !viewError && (
+              {pages.length < view.pageCount && !viewError && !ended && (
                 <p className="text-xs text-muted text-center">Loading page {pages.length + 1} of {view.pageCount}…</p>
               )}
             </div>

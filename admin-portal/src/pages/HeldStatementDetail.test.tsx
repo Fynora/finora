@@ -8,6 +8,9 @@ import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminBlankedCopyApi, adminHeldStatementApi, adminOriginalViewApi } from '../api/endpoints';
 import type { HeldStatementDetail as HeldStatementDetailDto, HeldStatementRow } from '../types';
 
+/** A view that is still open: the viewer takes pages down once expiresAt passes. */
+const LATER = new Date(Date.now() + 30 * 60_000).toISOString();
+
 vi.mock('../context/ThemeContext', () => ({
   useTheme: () => ({ theme: 'system', resolvedTheme: 'light', setTheme: vi.fn() }),
 }));
@@ -349,7 +352,7 @@ describe('HeldStatementDetail', () => {
   /** The real statement is viewed in the browser through the trust queue, after a typed reason. */
   it('opens this hold through the trust queue after a reason, and shows its pages', async () => {
     vi.mocked(adminOriginalViewApi.openTrust).mockResolvedValue(
-      { viewId: 'v1', format: 'PDF', pageCount: 2, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v1', format: 'PDF', pageCount: 2, expiresAt: LATER });
     vi.mocked(adminOriginalViewApi.pageBlob).mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     renderPage();

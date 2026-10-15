@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event';
 import OriginalStatementViewer from './OriginalStatementViewer';
 import { adminOriginalViewApi } from '../api/endpoints';
 
+/** A view that is still open: the viewer takes pages down once expiresAt passes. */
+const LATER = new Date(Date.now() + 30 * 60_000).toISOString();
+
 const REASON = 'Rows on page 2 are missing';
 
 /** jsdom has no object URLs; each blob gets its own, so the test can count what is freed. */
@@ -61,7 +64,7 @@ describe('OriginalStatementViewer', () => {
 
   it('shows each page as an image and offers no download', async () => {
     vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
-      { viewId: 'v1', format: 'PDF', pageCount: 2, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v1', format: 'PDF', pageCount: 2, expiresAt: LATER });
     const pageBlob = vi.spyOn(adminOriginalViewApi, 'pageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     render(<OriginalStatementViewer queue="IMPORT" itemId="job-1" onClose={vi.fn()} />);
 
@@ -81,7 +84,7 @@ describe('OriginalStatementViewer', () => {
 
   it('opens a trust hold through the trust queue', async () => {
     vi.spyOn(adminOriginalViewApi, 'openTrust').mockResolvedValue(
-      { viewId: 'v2', format: 'PDF', pageCount: 1, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v2', format: 'PDF', pageCount: 1, expiresAt: LATER });
     vi.spyOn(adminOriginalViewApi, 'pageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     const openImport = vi.spyOn(adminOriginalViewApi, 'openImport');
     render(<OriginalStatementViewer queue="TRUST" itemId="HLD-2026-000001" onClose={vi.fn()} />);
@@ -95,7 +98,7 @@ describe('OriginalStatementViewer', () => {
 
   it('shows a CSV as lines', async () => {
     vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
-      { viewId: 'v3', format: 'CSV', pageCount: 0, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v3', format: 'CSV', pageCount: 0, expiresAt: LATER });
     vi.spyOn(adminOriginalViewApi, 'csv').mockResolvedValue(['a,b', 'c,d']);
     const pageBlob = vi.spyOn(adminOriginalViewApi, 'pageBlob');
     render(<OriginalStatementViewer queue="IMPORT" itemId="job-1" onClose={vi.fn()} />);
@@ -134,7 +137,7 @@ describe('OriginalStatementViewer', () => {
 
   it('says the view has ended on a 404 and frees the image URLs on close', async () => {
     vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
-      { viewId: 'v4', format: 'PDF', pageCount: 3, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v4', format: 'PDF', pageCount: 3, expiresAt: LATER });
     vi.spyOn(adminOriginalViewApi, 'pageBlob')
       .mockResolvedValueOnce(new Blob(['1'], { type: 'image/png' }))
       .mockResolvedValueOnce(new Blob(['2'], { type: 'image/png' }))
@@ -155,9 +158,38 @@ describe('OriginalStatementViewer', () => {
     expect(revoke).toHaveBeenCalledWith('blob:page-2');
   });
 
+  it('takes the pages off the screen when the view ends, and frees them', async () => {
+    vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
+      { viewId: 'v6', format: 'PDF', pageCount: 1, expiresAt: new Date(Date.now() + 1500).toISOString() });
+    vi.spyOn(adminOriginalViewApi, 'pageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
+    render(<OriginalStatementViewer queue="IMPORT" itemId="job-1" onClose={vi.fn()} />);
+
+    await openWithReason();
+    expect(await screen.findByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+
+    expect(await screen.findByText('This view has ended. Open the statement again.', {}, { timeout: 4000 }))
+      .toBeInTheDocument();
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(revoke).toHaveBeenCalledWith('blob:page-1');
+  });
+
+  it('does not take the pages down at once when this computer\'s clock is ahead of the server', async () => {
+    vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
+      { viewId: 'v7', format: 'PDF', pageCount: 1, expiresAt: new Date(Date.now() - 60_000).toISOString() });
+    vi.spyOn(adminOriginalViewApi, 'pageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
+    render(<OriginalStatementViewer queue="IMPORT" itemId="job-1" onClose={vi.fn()} />);
+
+    await openWithReason();
+
+    expect(await screen.findByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(screen.getByRole('img', { name: 'Page 1 of 1' })).toBeInTheDocument();
+    expect(screen.queryByText('This view has ended. Open the statement again.')).toBeNull();
+  });
+
   it('blocks the context menu on the pages', async () => {
     vi.spyOn(adminOriginalViewApi, 'openImport').mockResolvedValue(
-      { viewId: 'v5', format: 'PDF', pageCount: 1, expiresAt: '2026-10-15T05:30:00Z' });
+      { viewId: 'v5', format: 'PDF', pageCount: 1, expiresAt: LATER });
     vi.spyOn(adminOriginalViewApi, 'pageBlob').mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     render(<OriginalStatementViewer queue="IMPORT" itemId="job-1" onClose={vi.fn()} />);
 

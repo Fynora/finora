@@ -57,14 +57,16 @@ const PORTAL_SCOPE = 'ADMIN';
  * applies to error responses too, so on a 4xx/5xx `error.response.data` is a Blob rather than the
  * parsed envelope, and client.ts's own interceptor finds no `.message` on it to surface.
  */
-async function withBlobErrorMessage(err: unknown): Promise<unknown> {
+async function withBlobErrorMessage(
+  err: unknown, fallback = 'The download failed and the server did not explain why.',
+): Promise<unknown> {
   const response = (err as { response?: { data?: unknown } })?.response;
   if (!(response?.data instanceof Blob)) return err;
   try {
     const parsed = JSON.parse(await response.data.text());
     response.data = { message: parsed?.message, errorCode: parsed?.errorCode };
   } catch {
-    response.data = { message: 'The download failed and the server did not explain why.' };
+    response.data = { message: fallback };
   }
   return err;
 }
@@ -498,7 +500,7 @@ export const adminOriginalViewApi = {
       const res = await api.get(`/admin/original-views/${viewId}/pages/${n}`, { responseType: 'blob' });
       return res.data as Blob;
     } catch (err) {
-      throw await withBlobErrorMessage(err);
+      throw await withBlobErrorMessage(err, 'This page could not be shown, and the server did not explain why.');
     }
   },
   csv: (viewId: string) =>

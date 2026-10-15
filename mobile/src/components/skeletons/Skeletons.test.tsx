@@ -127,9 +127,9 @@ describe('row and form blocks', () => {
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
   });
 
-  it('SkeletonBarRow: a label, a value and the bar track', () => {
+  it('SkeletonBarRow: the label and count, the bar track, and the amount under it', () => {
     withTheme(<SkeletonBarRow />);
-    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
   });
 });
 
@@ -165,6 +165,11 @@ describe('placeholders take the room the real text takes', () => {
     withTheme(<SkeletonLines count={2} size="caption" line={16} />);
     screen.getAllByTestId('skeleton-line', { hidden: true })
       .forEach((l) => expect(flat(l.props.style).height).toBe(16));
+  });
+
+  it('a bar row stacks its parts 2 apart, as HorizontalBarList does', () => {
+    withTheme(<SkeletonBarRow />);
+    expect(flat(screen.getByTestId('skeleton-bar-row', { hidden: true }).props.style).gap).toBe(2);
   });
 
   it('a settings row puts its description 2 under its title, as every real settings row does', () => {

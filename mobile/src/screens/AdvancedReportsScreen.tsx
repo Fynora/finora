@@ -37,7 +37,7 @@ const NO_RATIO = -1;
 /** Four bar-list rows: the shape of a HorizontalBarList while its first load is in flight. */
 function SectionSkeleton() {
   return (
-    <SkeletonGroup style={styles.sectionSkeleton}>
+    <SkeletonGroup style={styles.barListSkeleton}>
       {[0, 1, 2, 3].map((i) => <SkeletonBarRow key={i} />)}
     </SkeletonGroup>
   );
@@ -475,4 +475,6 @@ const styles = StyleSheet.create({
   modeButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6 },
   panelHint: { fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
   sectionSkeleton: { gap: spacing.sm, paddingVertical: spacing.sm },
+  // HorizontalBarList's own list: rows 8 apart, no padding around them.
+  barListSkeleton: { gap: spacing.sm },
 });

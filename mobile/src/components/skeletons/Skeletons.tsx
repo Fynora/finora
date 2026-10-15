@@ -167,15 +167,17 @@ export function SkeletonSettingsRow({ trailing = 'none', divider = true, metaLin
   );
 }
 
-/** HorizontalBarList's row: label and value on one line, the bar track under them. */
+/** HorizontalBarList's row: the label and its count on one line, the bar track, then the amount
+ *  on the right under it -- each 2 apart, as the real row stacks them. */
 export function SkeletonBarRow() {
   return (
-    <View style={styles.barRow}>
+    <View testID="skeleton-bar-row" style={styles.barRow}>
       <View style={styles.barRowTop}>
         <SkeletonText size="body" width="50%" />
-        <SkeletonText size="meta" width="15%" />
+        <SkeletonText size="caption" width="15%" />
       </View>
       <SkeletonBox size="barTrack" round />
+      <SkeletonText size="meta" width="25%" style={styles.barRowValue} />
     </View>
   );
 }
@@ -272,7 +274,8 @@ const styles = StyleSheet.create({
   settingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
   // Every real settings row (Security, App Lock, notifications, Profile) puts its meta 2 under the title.
   settingsRowMain: { flex: 1, marginRight: spacing.sm, gap: 2 },
-  barRow: { gap: spacing.xs },
+  barRow: { gap: 2 },
+  barRowValue: { alignSelf: 'flex-end' },
   barRowTop: { flexDirection: 'row', justifyContent: 'space-between' },
   hero: { width: '100%' },
   txnRow: {

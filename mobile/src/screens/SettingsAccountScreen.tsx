@@ -59,7 +59,9 @@ export function SettingsAccountScreen({ navigation }: Props) {
   // Bug found in a fresh review pass: same issue as SettingsSecurityScreen -- collapsing
   // isLoading and !userQ.data into one branch meant a load failure looked identical to
   // still-loading, spinning forever instead of showing the pre-redesign monolith's error message.
-  if (userQ.isError || !userQ.data) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!userQ.data) {
     return (
       <GlassScreen style={styles.centered}>
         <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />

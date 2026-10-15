@@ -48,7 +48,7 @@ export function ProfileScreen({ navigation }: Props) {
   const [justSaved, confirmSaved] = useTransientFlag();
   const [error, setError] = useState<string | null>(null);
 
-  const { data: user, isLoading, isError, isFetching, refetch } = useQuery({
+  const { data: user, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['user-settings'],
     queryFn: () => userApi.get(),
   });
@@ -100,7 +100,9 @@ export function ProfileScreen({ navigation }: Props) {
     );
   }
 
-  if (isError || !user) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!user) {
     return (
       <GlassScreen style={styles.centered}>
         <LoadFailed variant="screen" message="Couldn't load your profile — please try again later." onRetry={() => void refetch()} />

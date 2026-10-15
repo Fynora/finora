@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsSecurityScreen } from './SettingsSecurityScreen';
 import { userApi } from '../api/endpoints';
@@ -20,11 +20,12 @@ const MASKED_PHONE = '+•••••••••210';
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider><SettingsSecurityScreen /></ThemeProvider>
     </QueryClientProvider>
   );
+  return { ...utils, queryClient };
 }
 
 test('shows the masked phone number once loaded', async () => {
@@ -62,4 +63,22 @@ describe('SettingsSecurityScreen first load', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByTestId('settings-security-skeleton')).toBeTruthy();
   });
+});
+
+test('a failed refetch keeps showing the security settings already loaded', async () => {
+  jest.mocked(userApi.get).mockReset()
+    .mockResolvedValueOnce({
+      email: 'a@example.com', fullName: 'Amy', phoneNumber: PHONE, phoneVerified: true,
+      passwordChangedAt: null, signInMethod: 'PASSWORD', lowBalanceThreshold: 2000, theme: 'system',
+      timezone: 'Asia/Kolkata', createdAt: '2026-01-01T00:00:00Z',
+    } as never)
+    .mockRejectedValueOnce(new Error('down'));
+  const { queryClient } = renderScreen();
+  await screen.findByText(MASKED_PHONE);
+  await act(() => queryClient.refetchQueries({ queryKey: ['user-settings'] }));
+  // React Query delivers the result on a setTimeout(0) batch; let it land before asserting.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  expect(queryClient.getQueryState(['user-settings'])?.status).toBe('error');
+  expect(screen.getByText(MASKED_PHONE)).toBeTruthy();
+  expect(screen.queryByText(/Couldn.t load your settings/)).toBeNull();
 });

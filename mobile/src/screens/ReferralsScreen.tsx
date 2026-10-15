@@ -314,7 +314,7 @@ export function ReferralsScreen() {
   const largeText = useLargeFontScale();
   const [copied, triggerCopied] = useTransientFlag();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['referrals-mine'],
     queryFn: () => referralsApi.mine(),
   });
@@ -398,7 +398,9 @@ export function ReferralsScreen() {
     );
   }
 
-  if (isError || !data) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!data) {
     return (
       <GlassScreen style={styles.centered}>
         <Text style={[styles.message, { color: c.muted }]}>Couldn&apos;t load your referral code.</Text>

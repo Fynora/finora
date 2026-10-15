@@ -40,7 +40,9 @@ export function SettingsSecurityScreen() {
   // genuine load failure (isError, data stays undefined) looked identical to still-loading --
   // the spinner never stopped and no error was ever shown. The pre-redesign monolith showed an
   // explicit message here instead.
-  if (userQ.isError || !user) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!user) {
     return (
       <GlassScreen style={styles.centered}>
         <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />

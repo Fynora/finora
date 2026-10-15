@@ -164,3 +164,17 @@ describe('ProfileScreen first load', () => {
     expect(await screen.findByText('Personal Information')).toBeTruthy();
   });
 });
+
+describe('ProfileScreen after a failed refresh', () => {
+  it('keeps showing the profile already loaded', async () => {
+    user.get.mockReset().mockResolvedValueOnce(settings).mockRejectedValueOnce(new Error('down'));
+    const { queryClient } = renderScreen();
+    await screen.findAllByText(MASKED_PHONE);
+    await act(() => queryClient.refetchQueries({ queryKey: ['user-settings'] }));
+    // React Query delivers the result on a setTimeout(0) batch; let it land before asserting.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(queryClient.getQueryState(['user-settings'])?.status).toBe('error');
+    expect(screen.getAllByText(MASKED_PHONE).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Couldn.t load your profile/)).toBeNull();
+  });
+});

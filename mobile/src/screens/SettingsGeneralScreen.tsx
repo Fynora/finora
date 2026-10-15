@@ -126,7 +126,9 @@ export function SettingsGeneralScreen() {
   // form below with `user` undefined -- every field silently rendered blank (via the `?? ''`
   // fallbacks in savedLowBalance/savedTimezone) with no indication anything had gone wrong,
   // instead of the explicit error message the pre-redesign monolith showed for this exact case.
-  if (userQ.isError || !user) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!user) {
     return (
       <GlassScreen style={styles.centered}>
         <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />

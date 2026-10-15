@@ -303,6 +303,32 @@ class ReportControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMonthReport_listsTheBiggestPurchasesAndSpendPerDay_fromTheSameRowsAsTheCategories() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+
+        JsonNode july = data(get("/api/v1/reports?month=2026-07", user));
+
+        JsonNode biggest = july.get("biggestSpends");
+        assertThat(biggest).hasSize(2);
+        assertThat(biggest.get(0).get("amount").decimalValue()).isEqualByComparingTo("300.00");
+        assertThat(biggest.get(0).get("date").asText()).isEqualTo("2026-07-10");
+        assertThat(biggest.get(0).get("label").asText()).isEqualTo("Report IT purchase");
+        assertThat(biggest.get(0).get("id").asText()).isNotBlank();
+        assertThat(biggest.get(1).get("amount").decimalValue()).isEqualByComparingTo("100.00");
+
+        JsonNode days = july.get("dailySpend");
+        assertThat(days).hasSize(2);
+        assertThat(days.get(0).get("date").asText()).isEqualTo("2026-07-10");
+        assertThat(days.get(1).get("date").asText()).isEqualTo("2026-07-20");
+        BigDecimal daySum = BigDecimal.ZERO;
+        for (JsonNode d : days) daySum = daySum.add(d.get("amount").decimalValue());
+        BigDecimal categorySum = BigDecimal.ZERO;
+        for (JsonNode c : july.get("categories")) categorySum = categorySum.add(c.get("amount").decimalValue());
+        assertThat(daySum).isEqualByComparingTo(categorySum);
+        assertThat(daySum).isEqualByComparingTo(july.get("expense").decimalValue());
+    }
+
+    @Test
     void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
         User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
 

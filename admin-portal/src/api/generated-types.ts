@@ -9380,8 +9380,22 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        BiggestSpend: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date */
+            date?: string;
+            label?: string;
+            category?: string;
+            amount?: number;
+        };
         CategoryAmount: {
             category?: string;
+            amount?: number;
+        };
+        DailySpend: {
+            /** Format: date */
+            date?: string;
             amount?: number;
         };
         IncomeLine: {
@@ -9415,6 +9429,8 @@ export interface components {
             complete?: boolean;
             savingsRatePct?: number;
             savingsRateGateReason?: string;
+            biggestSpends?: components["schemas"]["BiggestSpend"][];
+            dailySpend?: components["schemas"]["DailySpend"][];
         };
         ApiResponseListReportTrendPoint: {
             success?: boolean;

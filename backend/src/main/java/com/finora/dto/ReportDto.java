@@ -1,7 +1,9 @@
 package com.finora.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 public record ReportDto(
         String month,
@@ -34,9 +36,22 @@ public record ReportDto(
         BigDecimal savingsRatePct,
         /* Why savingsRatePct is null (NO_INCOME, UNRESOLVED_EXCEEDS_INCOME), or null when it is not.
          * Same values and meaning as DashboardSummaryDto.savingsRateGateReason. */
-        String savingsRateGateReason
+        String savingsRateGateReason,
+        /* The month's largest single purchases, biggest first, at most three. They come from the
+         * same rows and refund netting as the category list, so each is something the report
+         * counted as spend (a transfer or a card-bill payment the report leaves out is never here).
+         * Empty when nothing was spent. */
+        List<BiggestSpend> biggestSpends,
+        /* Spending per day, oldest first, for the days that have any. Same rows and refund netting
+         * as the category list. A day whose refunds cancel its purchases has no entry. A category
+         * whose refunds exceed its purchases is floored at zero in the category list but not here,
+         * so in that one case the days can add to slightly less than the category total. */
+        List<DailySpend> dailySpend
 ) {
     public record CategoryAmount(String category, BigDecimal amount) {}
+    /** @param label the merchant, or the description when there is none */
+    public record BiggestSpend(UUID id, LocalDate date, String label, String category, BigDecimal amount) {}
+    public record DailySpend(LocalDate date, BigDecimal amount) {}
     public record IncomeLine(String label, BigDecimal amount) {}
 
     /**

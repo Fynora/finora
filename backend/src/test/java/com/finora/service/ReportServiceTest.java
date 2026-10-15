@@ -600,6 +600,119 @@ class ReportServiceTest {
         return t;
     }
 
+    // ---- biggest purchases and spend per day: the category list's own rows and netting ----
+
+    private Transaction purchase(String amount, LocalDate date, String merchant, String description) {
+        Transaction t = txn(new BigDecimal(amount), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        t.setAccountId(liveAccount.getId());
+        t.setTxnDate(date);
+        t.setMerchant(merchant);
+        t.setDescription(description);
+        return t;
+    }
+
+    private ReportDto reportOf(Transaction... rows) {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(rows));
+        return reportService.forMonth(userId, "2026-07");
+    }
+
+    @Test
+    void biggestSpends_areTheThreeLargestPurchases_biggestFirst_labelledByMerchantElseDescription() {
+        ReportDto report = reportOf(
+                purchase("500.00", LocalDate.of(2026, 7, 2), "Small Shop", "POS SMALL"),
+                purchase("9000.00", LocalDate.of(2026, 7, 5), "Big Mart", "POS BIG"),
+                purchase("2500.00", LocalDate.of(2026, 7, 9), null, "ELECTRICITY BILL JULY"),
+                purchase("4000.00", LocalDate.of(2026, 7, 12), "  ", "  RENT PAYMENT  "),
+                purchase("100.00", LocalDate.of(2026, 7, 20), "Tiny", "POS TINY"));
+
+        assertThat(report.biggestSpends()).extracting(ReportDto.BiggestSpend::label)
+                .containsExactly("Big Mart", "RENT PAYMENT", "ELECTRICITY BILL JULY");
+        assertThat(report.biggestSpends()).extracting(s -> s.amount().intValue()).containsExactly(9000, 4000, 2500);
+        assertThat(report.biggestSpends().get(0).date()).isEqualTo(LocalDate.of(2026, 7, 5));
+        assertThat(report.biggestSpends().get(0).category()).isEqualTo("Uncategorized");
+        assertThat(report.biggestSpends().get(0).id()).isNotNull();
+    }
+
+    @Test
+    void biggestSpends_neverListsATransferOrIncome_andFallsBackToAPlainLabel() {
+        Transaction transfer = purchase("50000.00", LocalDate.of(2026, 7, 3), "Own account", "TRANSFER TO SELF");
+        transfer.setTransfer(true);
+        Transaction salary = txn(new BigDecimal("80000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction unnamed = purchase("700.00", LocalDate.of(2026, 7, 8), null, null);
+
+        ReportDto report = reportOf(transfer, salary, unnamed);
+
+        assertThat(report.biggestSpends()).singleElement().satisfies(s -> {
+            assertThat(s.label()).isEqualTo("Transaction");
+            assertThat(s.amount()).isEqualByComparingTo("700.00");
+        });
+        // The category list leaves the transfer out too: the two agree on what counts as spend.
+        assertThat(report.categories()).singleElement().satisfies(c -> assertThat(c.amount()).isEqualByComparingTo("700.00"));
+        assertThat(report.dailySpend()).singleElement().satisfies(d -> assertThat(d.amount()).isEqualByComparingTo("700.00"));
+    }
+
+    @Test
+    void biggestSpends_breakTiesByTheLaterDate_soTheOrderNeverShuffles() {
+        ReportDto report = reportOf(
+                purchase("1000.00", LocalDate.of(2026, 7, 4), "Earlier", null),
+                purchase("1000.00", LocalDate.of(2026, 7, 18), "Later", null));
+
+        assertThat(report.biggestSpends()).extracting(ReportDto.BiggestSpend::label).containsExactly("Later", "Earlier");
+    }
+
+    @Test
+    void biggestSpends_areFewerThanThreeWhenThereAreFewer_andEmptyWhenNothingWasSpent() {
+        assertThat(reportOf(purchase("10.00", LocalDate.of(2026, 7, 1), "A", null)).biggestSpends()).hasSize(1);
+        assertThat(reportOf().biggestSpends()).isEmpty();
+    }
+
+    @Test
+    void dailySpend_sumsEachDay_oldestFirst_andSkipsDaysWithNoSpend() {
+        ReportDto report = reportOf(
+                purchase("300.00", LocalDate.of(2026, 7, 20), "A", null),
+                purchase("200.00", LocalDate.of(2026, 7, 4), "B", null),
+                purchase("50.00", LocalDate.of(2026, 7, 4), "C", null));
+
+        assertThat(report.dailySpend()).extracting(ReportDto.DailySpend::date)
+                .containsExactly(LocalDate.of(2026, 7, 4), LocalDate.of(2026, 7, 20));
+        assertThat(report.dailySpend().get(0).amount()).isEqualByComparingTo("250.00");
+        assertThat(report.dailySpend().get(1).amount()).isEqualByComparingTo("300.00");
+    }
+
+    @Test
+    void dailySpend_addsUpToTheCategoryTotal() {
+        ReportDto report = reportOf(
+                purchase("300.00", LocalDate.of(2026, 7, 20), "A", null),
+                purchase("200.00", LocalDate.of(2026, 7, 4), "B", null),
+                purchase("125.50", LocalDate.of(2026, 7, 4), "C", null));
+
+        BigDecimal days = report.dailySpend().stream().map(ReportDto.DailySpend::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal categories = report.categories().stream().map(ReportDto.CategoryAmount::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(days).isEqualByComparingTo(categories);
+        assertThat(days).isEqualByComparingTo("625.50");
+    }
+
+    @Test
+    void dailySpend_aDayWhoseRefundCancelsItsPurchases_hasNoEntry_andTheRefundIsNeverABiggestSpend() {
+        Transaction bought = purchase("300.00", LocalDate.of(2026, 7, 15), "Shop", null);
+        Transaction refund = unlinkedRefund("300.00");
+        refund.setTxnDate(LocalDate.of(2026, 7, 15));
+
+        ReportDto report = reportOf(bought, refund);
+
+        assertThat(report.dailySpend()).isEmpty();
+        assertThat(report.biggestSpends()).extracting(ReportDto.BiggestSpend::label).containsExactly("Shop");
+    }
+
+    @Test
+    void dailySpend_isEmptyForAMonthWithNoSpend() {
+        assertThat(reportOf().dailySpend()).isEmpty();
+    }
+
     @Test
     void forMonth_unlinkedRefund_reducesExpenseAndItsCategory_notIncome() {
         liveAccount.setAccountType(Account.Type.SAVINGS);

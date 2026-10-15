@@ -2773,6 +2773,13 @@ npx -y node@22 /Users/sid/Downloads/finora/.claude/worktrees/mobile-skeletons-ha
 
   Also measure the fill: for one skeleton per theme, take a screenshot of a placeholder over a card and over the backdrop, then read the pixel colours (as for `glassContrast.test.ts`) and compute the contrast ratio. Record these numbers; there is no floor, but the placeholder must be visible. **No screenshot of real data goes into the pull request.** Record findings as text only.
 
+- [ ] **Step 6b: Real iPhone pass, done by me.** This needs the owner to connect the iPhone by USB and sign in; ask when this step is reached, and do not block the pull request on it.
+  - Install the dev-client build of this branch on the phone.
+  - Walk each converted screen's first load right after a fresh install. A screen whose data is already cached shows content at once; record it as "cached, first load not seen" rather than forcing it.
+  - Look for content jumping when it lands.
+
+  Read only; record as text. Android is the owner's, after merge (spec, Platforms).
+
 - [ ] **Step 7: Write the build record** into the spec under a new heading "Build record (skeletons, 2026-10-…)":
   - speed before and after;
   - the background result;

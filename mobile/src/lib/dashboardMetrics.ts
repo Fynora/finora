@@ -3,13 +3,15 @@ import type { CashFlowPoint } from '../components/charts/CashFlowChart';
 export interface NetSavingsPoint {
   label: string;
   net: number;
+  /** Only part of the month is in (see CashFlowPoint.partial). */
+  partial: boolean;
 }
 
 /** Cash Flow Mini card's sparkline series -- income minus expense, per month, client-derived
  *  from the same per-month report queries the full Cash Flow chart already fetches. No new
  *  backend field: the two numbers this subtracts are already on CashFlowPoint. */
 export function deriveNetSavingsSeries(points: CashFlowPoint[]): NetSavingsPoint[] {
-  return points.map((p) => ({ label: p.label, net: p.income - p.expense }));
+  return points.map((p) => ({ label: p.label, net: p.income - p.expense, partial: p.partial === true }));
 }
 
 /** Cash Flow Mini card's "Average Monthly Savings" figure -- mean net savings over the same

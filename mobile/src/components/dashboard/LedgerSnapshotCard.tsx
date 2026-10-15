@@ -35,8 +35,13 @@ const display = (k: KpiItem) =>
  * comparison period is named once, beside the section title, instead of after every figure.
  */
 export function LedgerSnapshotCard({
-  kpis, title, deltaLabel, deltaSpokenLabel,
-}: { kpis: KpiItem[]; title: string; deltaLabel: string; deltaSpokenLabel: string }) {
+  kpis, title, deltaLabel, deltaSpokenLabel, note,
+}: {
+  kpis: KpiItem[]; title: string; deltaLabel: string; deltaSpokenLabel: string;
+  /** Said once for the whole grid when the month is "so far" -- an account's statements stop short
+   *  of it. Built from the server's own month and account (lib/statementBehind), never here. */
+  note?: string | null;
+}) {
   const c = useTheme();
   const largeText = useLargeFontScale();
   const anyDelta = kpis.some((k) => k.delta !== null && k.delta !== undefined);
@@ -46,6 +51,9 @@ export function LedgerSnapshotCard({
   return (
     <View style={styles.wrap}>
       <DashboardSectionHeader title={title} caption={anyDelta ? deltaLabel : undefined} />
+      {note ? (
+        <Text testID="so-far-note" style={[typography.caption, { color: c.mutedInk }]}>{note}</Text>
+      ) : null}
       <View style={styles.grid}>
         {kpis.map((k) => {
           const displayValue = display(k);

@@ -18,7 +18,7 @@ import java.util.UUID;
  * transaction across every account together, and the gap rule sees holes between two statements of
  * one account. Neither sees an account whose statements simply stop earlier than the others: a card
  * cycle ending on the 11th while a bank account runs to month-end makes September look complete
- * while the card's last weeks are missing. {@link #awaitingStatement} covers that, for statement
+ * while the card's last weeks are missing. {@link #behindAccountIds} covers that, for statement
  * imported accounts only (an Account Aggregator account has no "statement reaches until" date).
  *
  * <p>An account the user has stopped using would, judged naively, block every comparison forever.
@@ -26,7 +26,12 @@ import java.util.UUID;
  * the month before counts, and only the newest {@value #RECENT_MONTHS} months are judged at all. A
  * closed card therefore holds comparisons back for about two months after its last statement, then
  * stops mattering. The cost is the reverse: a month older than that is never flagged for a missed
- * import, which is the gap rule's job. The Dashboard does not apply this rule.
+ * import, which is the gap rule's job.
+ *
+ * <p>Both readers use it through {@code StatementReachService}, differently on purpose. Reports
+ * withholds the month-over-month comparison. The Dashboard keeps its figures and labels the month
+ * "so far", because its newest month is almost always partial for anyone with a card and a blank
+ * headline would be the common case.
  */
 final class MonthComparisonGate {
 
@@ -46,7 +51,7 @@ final class MonthComparisonGate {
     static final String ACCOUNT_STATEMENT_BEHIND = "ACCOUNT_STATEMENT_BEHIND";
     static final String TOO_FEW_PRIOR_TRANSACTIONS = "TOO_FEW_PRIOR_TRANSACTIONS";
 
-    /** How many of the newest months {@link #awaitingStatement} judges: the newest month with data
+    /** How many of the newest months {@link #behindAccountIds} judges: the newest month with data
      *  and the one before it. */
     static final int RECENT_MONTHS = 2;
 
@@ -71,23 +76,24 @@ final class MonthComparisonGate {
     }
 
     /**
-     * Whether an account's statements stop short of {@code month}, so the month is missing that
-     * account's last weeks (or all of it). True when, among the newest {@value #RECENT_MONTHS}
-     * months, some account that was active in {@code month} or the month before has a latest
-     * statement ending before {@code month} does.
+     * The accounts whose statements stop short of {@code month}, so the month is missing their last
+     * weeks (or all of it). An account counts when it was active (had a transaction) in
+     * {@code month} or the month before AND its latest statement ends before {@code month} does.
+     * Empty when {@code month} is not one of the newest {@value #RECENT_MONTHS} months with data:
+     * an older month is never judged, so a closed account stops mattering.
      *
      * @param newestDataMonth   the month of the user's newest transaction
      * @param latestStatementEnd statement-backed accounts only, mapped to their newest period end
      * @param activeAccountIds  accounts with a transaction in {@code month} or the month before it
      */
-    static boolean awaitingStatement(YearMonth month, YearMonth newestDataMonth,
-                                     Map<UUID, LocalDate> latestStatementEnd, Set<UUID> activeAccountIds) {
-        if (month.isBefore(newestDataMonth.minusMonths(RECENT_MONTHS - 1L))) return false;
+    static List<UUID> behindAccountIds(YearMonth month, YearMonth newestDataMonth,
+                                       Map<UUID, LocalDate> latestStatementEnd, Set<UUID> activeAccountIds) {
+        if (month.isBefore(newestDataMonth.minusMonths(RECENT_MONTHS - 1L))) return List.of();
         LocalDate monthEnd = month.atEndOfMonth();
-        return activeAccountIds.stream().anyMatch(id -> {
+        return activeAccountIds.stream().filter(id -> {
             LocalDate statementEnd = latestStatementEnd.get(id);
             return statementEnd != null && statementEnd.isBefore(monthEnd);
-        });
+        }).toList();
     }
 
     /**
@@ -97,7 +103,8 @@ final class MonthComparisonGate {
      * prior month is too thin to be a baseline.
      *
      * @param selectedTransactionCount transactions the selected month's totals were built from
-     * @param selectedAwaitingStatement {@link #awaitingStatement} for the selected month
+     * @param selectedAwaitingStatement whether {@link #behindAccountIds} found any account behind the
+     *                                  selected month
      * @param priorTransactionCount    the same count, for the prior month
      */
     static String reason(YearMonth selected, YearMonth prior, LocalDate earliest, LocalDate latest,

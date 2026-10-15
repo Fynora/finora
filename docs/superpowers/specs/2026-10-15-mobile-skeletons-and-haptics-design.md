@@ -90,10 +90,17 @@ Two facts from the code (checked 2026-10-15):
 - A skeleton can never be left on screen by a failure. React Query's `isLoading` turns false when a
   first load fails, and stays false for a query paused offline with nothing cached; the screens
   already handle that case with `isPausedCold` (`lib/refreshingIndicator.ts`).
-- All 13 whole-screen spinner screens already show a failure message. Seven of them give no way to
-  try again: no button and no pull to refresh (Accounts, Year in Review, Ticket Detail, Settings ›
-  General, Security, Categorization, Account). Each of those gets a "Try again" button that refetches
-  the same query. The wording of the existing messages stays.
+- All 13 whole-screen spinner screens already show a failure message. Eight of them give no way to
+  try again: no button and no pull to refresh (Accounts, Year in Review, Ticket Detail, Profile,
+  Settings › General, Security, Categorization, Account). Each of those gets a "Try again" button
+  that refetches the same query. The wording of the existing messages stays.
+
+Sections are not all as safe (checked 2026-10-15 while planning). Advanced Reports' six sections,
+the statement-detail pop-up and Mark as Transfer show their "nothing here" message when the fetch
+fails. Statement History's list asks for a pull to refresh that the screen does not have. Bank Sync
+links, device sessions, Gmail connection, "counts as", notification preferences, and the source,
+explanation and Bank Correction pop-ups show a failure with no way to retry. Each gets the fourth
+state properly: its failure message and "Try again".
 
 A background refresh that fails keeps the cached content on screen, as all of these screens already
 do; nothing here changes that.
@@ -129,7 +136,7 @@ the skeleton, so the content does not jump from the middle to the top when it la
 **No artificial delay.** The skeleton shows exactly as long as the first load takes. No minimum time
 is added; if a very fast load is seen to flash on the device, that is raised with the owner then.
 
-### Section spinners become section skeletons (16)
+### Section spinners become section skeletons (16 sections and 5 pop-ups)
 
 The same rule at section size, inside a screen that is otherwise drawn:
 

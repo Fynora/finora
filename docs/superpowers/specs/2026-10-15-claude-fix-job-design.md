@@ -85,8 +85,16 @@ GitHub ever calls production.
    - **public:** the reader change;
    - **private:** the trace and its test.
 
-   Each body carries the copy's before and after reading (field values of the copy's own masked
-   text, row by row), the tests run, and `Fixes held item <reference>`. When Finora is private,
+   - The **private** PR's body carries the copy's before and after reading (field values of the
+     copy's own masked text, row by row).
+   - The **public** PR's body carries only counts and field names ("rows read: 12 → 14; fields
+     that changed: AMOUNT on 2 rows"), plus a link to the private PR.
+   - A workflow guard refuses to open the public PR if its diff or body contains any amount or
+     date string present in the copy.
+   - Both carry the tests run and `Fixes held item <reference>`.
+
+   Corrected while planning, 2026-10-15: the copy's amounts and dates must never reach a public
+   PR. When Finora is private,
    the bot adds the `full-ci` label to its public PR, so that PR's checks run.
 4. Deletes the `incoming/` pair in a final commit, whatever the result.
 
@@ -113,9 +121,8 @@ These are owner settings changes, listed as prerequisites. The job's switch must
 they are done:
 - The `main branch protection` ruleset on `Fynora/finora` requires **1 approval**, with the owner
   as a bypass actor. The bot can't approve its own PR, and the owner can still merge his own work.
-- The private repo's `main` gets a ruleset requiring a PR. The production token's direct commits
-  go only to `incoming/`. Allowing that may need a path-scoped exception, or `incoming` may move
-  to a dedicated branch; the plan settles which from what GitHub's rulesets allow.
+- The private repo's `main` gets a ruleset requiring a PR. Production writes only to a dedicated,
+  unprotected branch named `incoming`, never to `main`. That is settled in the plan.
 
 ### 6. The owner still checks every fix
 

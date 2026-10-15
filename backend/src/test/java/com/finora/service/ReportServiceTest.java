@@ -862,6 +862,68 @@ class ReportServiceTest {
                 .findLatestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
     }
 
+    // --- an account whose latest statement stops short of the month ---
+
+    private void givenTheAccountsLatestStatementEnds(LocalDate end) {
+        when(accountCoverageService.latestStatementEnds(userId)).thenReturn(java.util.Map.of(liveAccount.getId(), end));
+        when(transactionRepository.findAccountIdsWithTransactionsBetween(eq(userId), any(), any(), any()))
+                .thenReturn(List.of(liveAccount.getId()));
+    }
+
+    @Test
+    void comparison_whenAnActiveAccountsStatementEndsBeforeTheMonthDoes_isHeldBack() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11)); // August ends on the 31st
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
+    }
+
+    @Test
+    void comparison_whenTheStatementReachesPastTheMonth_isMade() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 9, 11)); // the next cycle covers August
+
+        assertThat(reportService.forMonth(userId, "2026-08").comparison().reliable()).isTrue();
+    }
+
+    @Test
+    void comparison_forAMonthOlderThanTheTwoNewest_doesNotEvenAskWhichAccountsWereActive() {
+        stubTwoComparableMonths(); // newest month with data is September, so July is not recent
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 6, 1));
+
+        reportService.forMonth(userId, "2026-07");
+
+        verify(transactionRepository, never()).findAccountIdsWithTransactionsBetween(any(), any(), any(), any());
+    }
+
+    @Test
+    void comparison_withNoStatementBackedAccount_doesNotRunTheActivityQuery() {
+        stubTwoComparableMonths(); // latestStatementEnds is empty by default
+
+        reportService.forMonth(userId, "2026-08");
+
+        verify(transactionRepository, never()).findAccountIdsWithTransactionsBetween(any(), any(), any(), any());
+    }
+
+    @Test
+    void trend_marksTheRecentMonthsAnAccountsStatementDoesNotReachAsIncomplete() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11));
+
+        List<ReportService.ReportTrendPoint> points = reportService.trend(userId, null, 6);
+
+        assertThat(points).extracting(ReportService.ReportTrendPoint::month, ReportService.ReportTrendPoint::complete)
+                .containsExactly(
+                        org.assertj.core.api.Assertions.tuple("2026-06", true),
+                        org.assertj.core.api.Assertions.tuple("2026-07", true),   // too old to be judged
+                        org.assertj.core.api.Assertions.tuple("2026-08", false),
+                        org.assertj.core.api.Assertions.tuple("2026-09", false));
+    }
+
     @Test
     void trend_isEmptyWithNoLiveAccount_andWithNoTransactionHistory() {
         stubHistory(null, null);

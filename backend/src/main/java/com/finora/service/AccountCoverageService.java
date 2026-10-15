@@ -79,6 +79,24 @@ public class AccountCoverageService {
      *  StatementCoverageAnalyzer.CoverageGap's own gapStart/gapEnd, which are both inclusive). */
     public record DateRange(LocalDate start, LocalDate end) {}
 
+    /**
+     * How far each statement-backed live account's statements reach: its newest active period end.
+     * Only accounts whose data comes from imported statements appear. An Account Aggregator account
+     * syncs continuously and has no "statement reaches until" date, and an account with no
+     * statement states no coverage to be behind, so neither is judged by this.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, LocalDate> latestStatementEnds(UUID userId) {
+        List<UUID> statementBackedIds = accountRepository.findByUserId(userId).stream()
+                .filter(a -> a.getPrimarySource() != Account.PrimarySource.ACCOUNT_AGGREGATOR)
+                .map(Account::getId).toList();
+        if (statementBackedIds.isEmpty()) return java.util.Map.of();
+        java.util.Map<UUID, LocalDate> ends = new java.util.HashMap<>();
+        statementImportRepository.findLatestPeriodEndsByAccount(userId, statementBackedIds)
+                .forEach(row -> ends.put(row.getAccountId(), row.getLatestEnd()));
+        return ends;
+    }
+
     /** Every gap across every live account, for a caller (Multi-Year Comparison, issue #1455)
      *  that needs to know which calendar months are missing data at the USER level, not one
      *  account's own coverage page. A day only ever becomes a gap here because some live account

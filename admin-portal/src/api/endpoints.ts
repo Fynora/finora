@@ -468,10 +468,11 @@ export const adminHeldStatementApi = {
       .then((r) => r.data),
   rerunParser: (heldId: string) =>
     api.post<HeldStatementRerunResult>(`/admin/held-statements/${heldId}/rerun-parser`).then((r) => r.data),
-  /** The rows this hold staged. Audited server-side on every call, so it is fetched only when an
-   *  operator asks for it, never on page load. */
-  stagedRows: (heldId: string) =>
-    api.get<HeldStatementStagedRows>(`/admin/held-statements/${heldId}/staged-rows`).then((r) => r.data),
+  /** The rows this hold staged. Statement content, so it takes the same rules as the original
+   *  view: a typed reason (in the body), audited, the Super Admins emailed, the customer told. Fetched
+   *  only when an operator asks for it, never on page load. */
+  stagedRows: (heldId: string, reason: string) =>
+    api.post<HeldStatementStagedRows>(`/admin/held-statements/${heldId}/staged-rows`, { reason }).then((r) => r.data),
   suggestDiagnosis: (heldId: string) =>
     api.post<HeldStatementDetail>(`/admin/held-statements/${heldId}/suggest-diagnosis`).then((r) => r.data),
   telemetry: () =>

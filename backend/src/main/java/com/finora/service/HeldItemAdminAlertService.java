@@ -206,6 +206,7 @@ public class HeldItemAdminAlertService {
         StatementOriginalView view = found.get();
         String openedBy = userRepository.findById(view.getViewerId()).map(User::getEmail).orElse("unknown");
         boolean trust = "TRUST".equals(view.getQueue());
+        boolean rows = "ROWS".equals(view.getFormat());
         String itemLine = trust
                 ? "<li><strong>Held ID:</strong> " + escape(view.getItemRef()) + "</li>"
                 : "<li><strong>Job ID:</strong> " + escape(view.getItemRef()) + "</li>";
@@ -213,14 +214,22 @@ public class HeldItemAdminAlertService {
                 ? "<a href=\"" + adminBaseUrl() + "/held-statements/" + escape(view.getItemRef())
                         + "\">Open this held statement</a>"
                 : "<a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a>";
-        String subject = "A held statement was opened — " + view.getItemRef();
-        String html = "<p>An administrator opened the real pages of a statement held for review.</p>"
+        // A trust hold's staged rows are the statement's content as much as its pages are (V273);
+        // the email says which was opened.
+        String subject = (rows ? "A held statement's rows were opened — " : "A held statement was opened — ")
+                + view.getItemRef();
+        String what = rows
+                ? "<li><strong>What:</strong> the staged rows (" + view.getPageCount() + " rows)</li>"
+                : "<li><strong>Pages:</strong> " + escape("PDF".equals(view.getFormat())
+                        ? String.valueOf(view.getPageCount()) : "CSV file") + "</li>";
+        String html = "<p>An administrator opened "
+                + (rows ? "the staged rows of a statement held for review, which are the statement's content."
+                        : "the real pages of a statement held for review.") + "</p>"
                 + "<ul>"
                 + "<li><strong>Opened by:</strong> " + escape(openedBy) + "</li>"
                 + "<li><strong>When:</strong> " + escape(formatTimestamp(view.getOpenedAt())) + "</li>"
                 + itemLine
-                + "<li><strong>Pages:</strong> " + escape("PDF".equals(view.getFormat())
-                        ? String.valueOf(view.getPageCount()) : "CSV file") + "</li>"
+                + what
                 + "<li><strong>Reason:</strong> " + escape(reason) + "</li>"
                 + "</ul>"
                 + "<p>" + link + "</p>";

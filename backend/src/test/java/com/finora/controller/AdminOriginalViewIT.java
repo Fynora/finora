@@ -494,11 +494,19 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
      */
     @Test
     void aSlowEmailProviderDoesNotHoldTheOpening() {
+        // The suite shares one database, and other classes leave active Super Admins in it; every
+        // one of them is emailed, one after another, in no set order. Twenty more here make that
+        // explicit.
+        for (int i = 0; i < 20; i++) createUser("SUPER_ADMIN");
         User superAdmin = createUser("SUPER_ADMIN");
         ImportJob job = heldJobWithPdf(pdfWithPages(1));
         User admin = createUser("ADMIN");
+        // Only this test's Super Admin is slow. Were every send slow, how long the email took to
+        // arrive would depend on where this Super Admin falls in an unordered list of them --
+        // which is what failed main's CI on 2026-10-15 (5 others were emailed first, 3 s each).
         when(emailProvider.send(any())).thenAnswer(invocation -> {
-            Thread.sleep(3000);
+            EmailMessage message = invocation.getArgument(0);
+            if (message != null && superAdmin.getEmail().equals(message.to())) Thread.sleep(3000);
             return EmailResult.success(ProviderType.RESEND, "slow");
         });
 

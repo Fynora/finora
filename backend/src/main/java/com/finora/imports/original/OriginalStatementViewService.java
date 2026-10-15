@@ -3,6 +3,8 @@ package com.finora.imports.original;
 import com.finora.exception.ApiException;
 import com.finora.service.AdminHeldImportService;
 import com.finora.service.HeldStatementService;
+import com.finora.service.StatementStatusNotifier;
+import com.finora.util.UserZone;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -10,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,9 +25,14 @@ import java.util.UUID;
  * opened, so a release ends every open view.
  *
  * <p>The reason is checked first, before the queue is asked: a refused reason writes no audit
- * entry and reads nothing. A view row is saved, and {@link OriginalViewOpened} published, only once
- * the bytes were read and (for a PDF) the page count is known, so a failed opening tells nobody it
- * happened -- though its audit entry stays, written in its own transaction by the queue.
+ * entry and reads nothing. A view row is saved only once the bytes were read and (for a PDF) the
+ * page count is known, so a failed opening tells nobody it happened -- though its audit entry
+ * stays, written in its own transaction by the queue.
+ *
+ * <p>The customer's notice is written into the notification outbox in the same transaction as the
+ * view row, so the two commit together: an opening that happened always reaches the customer, and
+ * one that rolled back never does. The Super Admin email goes after commit, off the request (see
+ * {@link OriginalViewNotices}).
  */
 @Service
 public class OriginalStatementViewService {
@@ -36,29 +45,44 @@ public class OriginalStatementViewService {
     private final StatementOriginalViewRepository views;
     private final OriginalStatementRenderer renderer;
     private final ApplicationEventPublisher events;
+    private final StatementStatusNotifier notifier;
     private final Clock clock;
 
     @Autowired
     public OriginalStatementViewService(AdminHeldImportService heldImports, HeldStatementService heldStatements,
                                         StatementOriginalViewRepository views, OriginalStatementRenderer renderer,
-                                        ApplicationEventPublisher events) {
-        this(heldImports, heldStatements, views, renderer, events, Clock.systemUTC());
+                                        ApplicationEventPublisher events, StatementStatusNotifier notifier) {
+        this(heldImports, heldStatements, views, renderer, events, notifier, Clock.systemUTC());
     }
 
     OriginalStatementViewService(AdminHeldImportService heldImports, HeldStatementService heldStatements,
                                  StatementOriginalViewRepository views, OriginalStatementRenderer renderer,
-                                 ApplicationEventPublisher events, Clock clock) {
+                                 ApplicationEventPublisher events, StatementStatusNotifier notifier, Clock clock) {
         this.heldImports = heldImports;
         this.heldStatements = heldStatements;
         this.views = views;
         this.renderer = renderer;
         this.events = events;
+        this.notifier = notifier;
         this.clock = clock;
     }
 
-    /** Trimmed, 15 to 500 characters, or a 400 naming the rule. */
+    /** The day the customer is told: the opening's date in India, where the customer is. */
+    public static LocalDate noticeDay(Instant openedAt) {
+        return openedAt.atZone(UserZone.DEFAULT).toLocalDate();
+    }
+
+    /**
+     * Cleaned, trimmed, then 15 to 500 characters, or a 400 naming the rule. The reason lands in an
+     * audit entry and in the Super Admins' inboxes, so control characters other than line breaks
+     * are removed, and so are bidirectional overrides and isolates, which make text display
+     * differently from how it is stored -- the same cleaning a held import's resolve message gets.
+     */
     public static String validReason(String raw) {
-        String reason = raw == null ? "" : raw.strip();
+        String reason = raw == null ? "" : raw
+                .replaceAll("[\\p{Cntrl}&&[^\\n]]", "")
+                .replaceAll("[\\u202A-\\u202E\\u2066-\\u2069]", "")
+                .strip();
         if (reason.length() < MIN_REASON || reason.length() > MAX_REASON) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Type a reason of 15 to 500 characters.");
         }
@@ -81,8 +105,9 @@ public class OriginalStatementViewService {
         int pages = "PDF".equals(content.format()) ? renderer.pageCount(content.content()) : 0;
         StatementOriginalView view = views.save(StatementOriginalView.open(content.jobId(),
                 content.subjectUserId(), viewerId, content.queue(), content.itemRef(), content.format(),
-                pages, reason, clock.instant()));
-        events.publishEvent(new OriginalViewOpened(view));
+                pages, clock.instant()));
+        notifier.notifyOpenedForFix(view.getSubjectUserId(), view.getJobId(), noticeDay(view.getOpenedAt()));
+        events.publishEvent(new OriginalViewOpened(view, reason));
         return new OriginalView(view.getId(), view.getFormat(), view.getPageCount(), view.getExpiresAt());
     }
 

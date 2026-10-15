@@ -690,11 +690,11 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
         assertThat(none).isEqualTo("[]");
 
         originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
-                jobId.toString(), "CSV", 0, "Rows on page 2 are missing", Instant.parse("2026-10-15T09:00:00Z")));
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-15T09:00:00Z")));
         originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
-                jobId.toString(), "CSV", 0, "Second look at page 2 rows", Instant.parse("2026-10-14T20:00:00Z")));
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-14T20:00:00Z")));
         originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
-                jobId.toString(), "CSV", 0, "Third look at page 2 rows", Instant.parse("2026-10-16T05:00:00Z")));
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-16T05:00:00Z")));
 
         ResponseEntity<String> timeline = restTemplate.exchange(
                 "/api/v1/import/jobs/" + jobId + "/timeline", HttpMethod.GET,

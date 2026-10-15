@@ -15,6 +15,7 @@ import org.springframework.test.context.TestPropertySource;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +32,7 @@ class StatementOriginalViewRepositoryIT extends AbstractIntegrationTest {
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private StatementStorage storage;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private static final byte[] PDF_BYTES = "%PDF-1.4 original-view fixture bytes".getBytes(StandardCharsets.UTF_8);
 
@@ -63,9 +65,9 @@ class StatementOriginalViewRepositoryIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         Instant t0 = Instant.parse("2026-10-15T05:00:00Z");
         views.save(StatementOriginalView.open(job.getId(), job.getUserId(), UUID.randomUUID(), "IMPORT",
-                job.getId().toString(), "PDF", 3, "Rows on page 2 are missing", t0.plusSeconds(60)));
+                job.getId().toString(), "PDF", 3, t0.plusSeconds(60)));
         views.save(StatementOriginalView.open(job.getId(), job.getUserId(), UUID.randomUUID(), "IMPORT",
-                job.getId().toString(), "PDF", 3, "Second look at page 2 rows", t0));
+                job.getId().toString(), "PDF", 3, t0));
 
         assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId()))
                 .extracting(StatementOriginalView::getOpenedAt)
@@ -75,12 +77,26 @@ class StatementOriginalViewRepositoryIT extends AbstractIntegrationTest {
         assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId())).isEmpty();
     }
 
+    /**
+     * The typed reason lives on the audit entry only, under the audit's own retention (details
+     * redacted after app.audit.redaction.retention-days, 730 by default). A copy here would outlive
+     * it: these rows last as long as the import job, which is until the account is deleted.
+     */
+    @Test
+    void theTableKeepsNoCopyOfTheReason() {
+        List<String> columns = jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'statement_original_views'
+                """, String.class);
+        assertThat(columns).contains("viewer_id", "opened_at", "expires_at").doesNotContain("reason");
+    }
+
     @Test
     void aViewIsLiveOnlyForItsViewerAndOnlyForThirtyMinutes() {
         UUID viewer = UUID.randomUUID();
         Instant now = Instant.parse("2026-10-15T05:00:00Z");
         StatementOriginalView v = StatementOriginalView.open(UUID.randomUUID(), UUID.randomUUID(), viewer,
-                "IMPORT", "x", "PDF", 1, "Rows on page 2 are missing", now);
+                "IMPORT", "x", "PDF", 1, now);
 
         assertThat(v.isLiveFor(viewer, now.plus(Duration.ofMinutes(29)))).isTrue();
         assertThat(v.isLiveFor(viewer, now.plus(Duration.ofMinutes(30)))).isFalse();

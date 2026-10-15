@@ -61,7 +61,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -344,10 +347,12 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
         }
         assertThat(actionsOn(job.getId())).containsOnlyOnce("HELD_IMPORT_ORIGINAL_VIEWED");
         assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId())).singleElement()
-                .satisfies(v -> {
-                    assertThat(v.getViewerId()).isEqualTo(admin.getId());
-                    assertThat(v.getReason()).isEqualTo(REASON);
-                });
+                .satisfies(v -> assertThat(v.getViewerId()).isEqualTo(admin.getId()));
+        // The reason is on the audit entry, and only there (V271).
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
+                .filteredOn(e -> e.getAction().equals("HELD_IMPORT_ORIGINAL_VIEWED"))
+                .singleElement()
+                .satisfies(e -> assertThat(e.getMetadata()).containsEntry("reason", REASON));
     }
 
     @Test
@@ -392,7 +397,12 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
 
         heldImports.resolve(createUser("ADMIN").getId(), job.getId(), "We fixed the reader; please re-upload.");
 
-        assertThat(page(viewId, 2, admin).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        ResponseEntity<byte[]> refused = page(viewId, 2, admin);
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        // The viewer shows the server's own words for a 409, so the JSON message must survive an
+        // endpoint that otherwise only produces image/png.
+        assertThat(new String(refused.getBody(), StandardCharsets.UTF_8))
+                .contains("Only a held import can be opened");
     }
 
     @Test
@@ -428,6 +438,10 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
             assertThat(e.getAction()).isEqualTo("TRUST_REVIEW_ORIGINAL_VIEWED");
             assertThat(e.getMetadata()).containsEntry("heldId", "HLD-2026-910003").containsEntry("reason", REASON);
         });
+        // The trust hold's customer is told too, on the job behind the hold.
+        assertThat(openedNoticesFor(held.getUserId())).hasSize(2)
+                .allSatisfy(n -> assertThat(n.getCategory())
+                        .isEqualTo(com.finora.notification.domain.NotificationCategory.SECURITY));
 
         held.reject(admin.getId(), Instant.now());
         heldStatementRepository.save(held);
@@ -452,7 +466,7 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
     // ------------------------------------------------------------------------- who is told
 
     @Test
-    void anOpeningSendsTheSuperAdminEmailAndTheCustomerNoticeAfterCommit() {
+    void anOpeningTellsTheCustomerAndEmailsTheSuperAdmins() {
         User superAdmin = createUser("SUPER_ADMIN");
         ImportJob job = heldJobWithPdf(pdfWithPages(1));
         User admin = createUser("ADMIN");
@@ -460,6 +474,8 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
 
         assertThat(openImport(job, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
 
+        // Sent after commit, off the request: wait for it.
+        verify(emailProvider, timeout(10_000)).send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
         List<EmailMessage> toSuperAdmin = sent().stream().filter(m -> m.to().equals(superAdmin.getEmail())).toList();
         assertThat(toSuperAdmin).singleElement().satisfies(m -> {
             assertThat(m.subject()).isEqualTo("A held statement was opened — " + job.getId());
@@ -469,6 +485,49 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
         assertThat(openedNoticesFor(owner.getId())).hasSize(2)
                 .allSatisfy(n -> assertThat(n.getMessage()).contains("our team").contains("fix a")
                         .doesNotContain(admin.getEmail()));
+    }
+
+    /**
+     * The Super Admin email is sent off the request: the opening runs under one of the import slots
+     * customers' uploads share, and an email provider can take seconds per recipient. The email still
+     * goes, afterwards.
+     */
+    @Test
+    void aSlowEmailProviderDoesNotHoldTheOpening() {
+        User superAdmin = createUser("SUPER_ADMIN");
+        ImportJob job = heldJobWithPdf(pdfWithPages(1));
+        User admin = createUser("ADMIN");
+        when(emailProvider.send(any())).thenAnswer(invocation -> {
+            Thread.sleep(3000);
+            return EmailResult.success(ProviderType.RESEND, "slow");
+        });
+
+        long started = System.nanoTime();
+        assertThat(openImport(job, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(elapsedMs).as("the opening waited for the email").isLessThan(2500);
+        verify(emailProvider, timeout(15_000)).send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
+    }
+
+    /** Review focus 4: the same admin opens the same item twice in a day. Two view rows, two audit
+     *  entries, two Super Admin emails -- one customer notice (a push and an email). */
+    @Test
+    void twoOpeningsOnOneDayAreBothRecordedButTellTheCustomerOnce() {
+        User superAdmin = createUser("SUPER_ADMIN");
+        ImportJob job = heldJobWithPdf(pdfWithPages(1));
+        User admin = createUser("ADMIN");
+
+        assertThat(openImport(job, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(openImport(job, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId())).hasSize(2);
+        assertThat(actionsOn(job.getId())).filteredOn("HELD_IMPORT_ORIGINAL_VIEWED"::equals).hasSize(2);
+        verify(emailProvider, timeout(10_000).times(2))
+                .send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
+        assertThat(openedNoticesFor(job.getUserId())).extracting(Notification::getChannel)
+                .containsExactlyInAnyOrder(com.finora.notification.domain.NotificationChannel.PUSH,
+                        com.finora.notification.domain.NotificationChannel.EMAIL);
     }
 
     @Test
@@ -483,7 +542,8 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
         assertThat(actionsOn(job.getId())).contains("HELD_IMPORT_ORIGINAL_VIEWED");
         assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId())).isEmpty();
         assertThat(openedNoticesFor(job.getUserId())).isEmpty();
-        assertThat(sent()).noneMatch(m -> m.to().equals(superAdmin.getEmail()));
+        // Long enough for the off-request email to have gone, had there been one to send.
+        verify(emailProvider, after(1_500).never()).send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
     }
 
     @Test
@@ -499,6 +559,7 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
         assertThat(actionsOn(job.getId())).contains("HELD_IMPORT_ORIGINAL_VIEWED");
         assertThat(views.findByJobIdOrderByOpenedAtAsc(job.getId())).isEmpty();
         assertThat(openedNoticesFor(job.getUserId())).isEmpty();
-        assertThat(sent()).noneMatch(m -> m.to().equals(superAdmin.getEmail()));
+        // Long enough for the off-request email to have gone, had there been one to send.
+        verify(emailProvider, after(1_500).never()).send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
     }
 }

@@ -3,6 +3,7 @@ package com.finora.imports.original;
 import com.finora.exception.ApiException;
 import com.finora.service.AdminHeldImportService;
 import com.finora.service.HeldStatementService;
+import com.finora.service.StatementStatusNotifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +37,7 @@ class OriginalStatementViewServiceTest {
     @Mock StatementOriginalViewRepository views;
     @Mock OriginalStatementRenderer renderer;
     @Mock ApplicationEventPublisher events;
+    @Mock StatementStatusNotifier notifier;
     Clock clock = Clock.fixed(Instant.parse("2026-10-15T05:00:00Z"), ZoneOffset.UTC);
     OriginalStatementViewService service;
 
@@ -46,7 +48,7 @@ class OriginalStatementViewServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OriginalStatementViewService(heldImports, heldStatements, views, renderer, events, clock);
+        service = new OriginalStatementViewService(heldImports, heldStatements, views, renderer, events, notifier, clock);
         lenient().when(views.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -61,9 +63,28 @@ class OriginalStatementViewServiceTest {
         assertThat(view.pageCount()).isEqualTo(4);
         assertThat(view.format()).isEqualTo("PDF");
         assertThat(view.expiresAt()).isEqualTo(Instant.parse("2026-10-15T05:30:00Z"));
-        verify(views).save(argThat(v -> v.getReason().equals(reason) && v.getViewerId().equals(viewer)
+        verify(views).save(argThat(v -> v.getViewerId().equals(viewer)
                 && v.getQueue().equals("IMPORT") && v.getPageCount() == 4));
-        verify(events).publishEvent(any(OriginalViewOpened.class));
+        // The trimmed reason travels with the event for the Super Admin email; the row keeps none.
+        verify(events).publishEvent(argThat((Object e) -> e instanceof OriginalViewOpened o && reason.equals(o.reason())));
+    }
+
+    /** The customer is told in the opening's own transaction, so the notice and the view row commit
+     *  together. 05:00 UTC on 15 Oct is 15 Oct in India. */
+    @Test
+    void openingTellsTheCustomerTheIndiaDate() {
+        UUID owner = UUID.randomUUID();
+        when(heldImports.contentForOriginalView(viewer, jobId, reason))
+                .thenReturn(new OriginalContent(jobId, owner, "IMPORT", jobId.toString(), "PDF", pdf));
+        when(renderer.pageCount(pdf)).thenReturn(1);
+
+        service.openImport(viewer, jobId, reason);
+
+        verify(notifier).notifyOpenedForFix(owner, jobId, java.time.LocalDate.parse("2026-10-15"));
+        assertThat(OriginalStatementViewService.noticeDay(Instant.parse("2026-10-14T20:00:00Z")))
+                .isEqualTo(java.time.LocalDate.parse("2026-10-15"));
+        assertThat(OriginalStatementViewService.noticeDay(Instant.parse("2026-10-14T18:29:59Z")))
+                .isEqualTo(java.time.LocalDate.parse("2026-10-14"));
     }
 
     @Test
@@ -81,7 +102,7 @@ class OriginalStatementViewServiceTest {
         verifyNoInteractions(heldImports);
 
         StatementOriginalView saved = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "TRUST", heldId,
-                "PDF", 2, reason, clock.instant());
+                "PDF", 2, clock.instant());
         when(views.findById(opened.viewId())).thenReturn(Optional.of(saved));
         when(heldStatements.contentForOpenView(heldId))
                 .thenReturn(new OriginalContent(jobId, saved.getSubjectUserId(), "TRUST", heldId, "PDF", pdf));
@@ -104,7 +125,7 @@ class OriginalStatementViewServiceTest {
         verifyNoInteractions(renderer);
 
         StatementOriginalView saved = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "IMPORT",
-                jobId.toString(), "CSV", 0, reason, clock.instant());
+                jobId.toString(), "CSV", 0, clock.instant());
         when(views.findById(saved.getId())).thenReturn(Optional.of(saved));
         when(heldImports.contentForOpenView(jobId))
                 .thenReturn(new OriginalContent(jobId, saved.getSubjectUserId(), "IMPORT", jobId.toString(), "CSV", csv));
@@ -119,7 +140,7 @@ class OriginalStatementViewServiceTest {
     void aShortReasonIsRefusedBeforeTheQueueIsAsked() {
         assertThatThrownBy(() -> service.openImport(viewer, jobId, "   too short   "))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
-        verifyNoInteractions(heldImports, views, events);
+        verifyNoInteractions(heldImports, views, events, notifier);
     }
 
     @Test
@@ -135,7 +156,18 @@ class OriginalStatementViewServiceTest {
         }
         assertThatThrownBy(() -> service.openTrust(viewer, "HLD-2026-810002", "     "))
                 .isInstanceOf(ApiException.class);
-        verifyNoInteractions(heldStatements, views, events);
+        verifyNoInteractions(heldStatements, views, events, notifier);
+    }
+
+    /** The reason lands in an audit entry and a Super Admin's inbox: control characters are
+     *  removed, and bidirectional overrides too, which make text display differently from how it is
+     *  stored. Line breaks stay. The length rule counts what is left. */
+    @Test
+    void theReasonIsCleanedOfControlAndBidiCharactersBeforeItIsCounted() {
+        assertThat(OriginalStatementViewService.validReason("Rows on page 2\u202E are\u0007 missing\nagain"))
+                .isEqualTo("Rows on page 2 are missing\nagain");
+        assertThatThrownBy(() -> OriginalStatementViewService.validReason("\u202E\u202E\u202E\u202E\u202E short words"))
+                .isInstanceOf(ApiException.class);
     }
 
     @Test
@@ -143,7 +175,7 @@ class OriginalStatementViewServiceTest {
         when(heldImports.contentForOriginalView(viewer, jobId, reason))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "could not be read"));
         assertThatThrownBy(() -> service.openImport(viewer, jobId, reason)).isInstanceOf(ApiException.class);
-        verifyNoInteractions(views, events);
+        verifyNoInteractions(views, events, notifier);
     }
 
     @Test
@@ -152,13 +184,13 @@ class OriginalStatementViewServiceTest {
                 .thenReturn(new OriginalContent(jobId, UUID.randomUUID(), "IMPORT", jobId.toString(), "PDF", pdf));
         when(renderer.pageCount(pdf)).thenThrow(new ApiException(HttpStatus.CONFLICT, "could not be opened"));
         assertThatThrownBy(() -> service.openImport(viewer, jobId, reason)).isInstanceOf(ApiException.class);
-        verifyNoInteractions(views, events);
+        verifyNoInteractions(views, events, notifier);
     }
 
     @Test
     void anotherViewersIdIsNotFound() {
         StatementOriginalView v = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "IMPORT",
-                jobId.toString(), "PDF", 2, reason, clock.instant());
+                jobId.toString(), "PDF", 2, clock.instant());
         when(views.findById(v.getId())).thenReturn(Optional.of(v));
 
         assertThatThrownBy(() -> service.page(UUID.randomUUID(), v.getId(), 1))
@@ -180,7 +212,7 @@ class OriginalStatementViewServiceTest {
     @Test
     void anExpiredViewIsNotFound() {
         StatementOriginalView v = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "IMPORT",
-                jobId.toString(), "PDF", 2, reason, clock.instant().minus(Duration.ofMinutes(31)));
+                jobId.toString(), "PDF", 2, clock.instant().minus(Duration.ofMinutes(31)));
         when(views.findById(v.getId())).thenReturn(Optional.of(v));
 
         assertThatThrownBy(() -> service.page(viewer, v.getId(), 1))
@@ -191,7 +223,7 @@ class OriginalStatementViewServiceTest {
     @Test
     void aPageIsRenderedFromFreshContentForItsOwnQueue() {
         StatementOriginalView v = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "IMPORT",
-                jobId.toString(), "PDF", 2, reason, clock.instant());
+                jobId.toString(), "PDF", 2, clock.instant());
         when(views.findById(v.getId())).thenReturn(Optional.of(v));
         when(heldImports.contentForOpenView(jobId))
                 .thenReturn(new OriginalContent(jobId, v.getSubjectUserId(), "IMPORT", jobId.toString(), "PDF", pdf));
@@ -204,7 +236,7 @@ class OriginalStatementViewServiceTest {
     @Test
     void askingForCsvLinesOfAPdfViewIsAConflict() {
         StatementOriginalView v = StatementOriginalView.open(jobId, UUID.randomUUID(), viewer, "IMPORT",
-                jobId.toString(), "PDF", 2, reason, clock.instant());
+                jobId.toString(), "PDF", 2, clock.instant());
         when(views.findById(v.getId())).thenReturn(Optional.of(v));
 
         assertThatThrownBy(() -> service.csv(viewer, v.getId()))

@@ -20,6 +20,7 @@ import com.finora.service.EmailProvider;
 import com.finora.service.EmailResult;
 import com.finora.service.HeldItemAdminAlertService;
 import com.finora.service.ProviderType;
+import com.finora.service.StatementStatusNotifier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -42,9 +43,9 @@ import static org.mockito.Mockito.when;
 /**
  * What an opening tells people: every active Super Admin by email (who, when, which item, why --
  * nothing about the customer or the statement), and the customer, once per job per India day, the
- * date and that it was to fix a reading problem -- never who. The listener is called directly here,
- * outside a transaction, so it runs at once; {@code AdminOriginalViewIT} proves the after-commit path
- * through HTTP.
+ * date and that it was to fix a reading problem -- never who. The alert and the notifier are called
+ * directly here; {@code AdminOriginalViewIT} proves the whole path through HTTP: the notice inside
+ * the opening's transaction, the email after commit and off the request.
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
@@ -56,7 +57,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
     private static final String CUSTOMER_FILE_NAME = "Asha Verma statement.pdf"; // synthetic-ok: invented name
 
     @Autowired private HeldItemAdminAlertService alerts;
-    @Autowired private OriginalViewNotices notices;
+    @Autowired private StatementStatusNotifier notifier;
     @Autowired private StatementOriginalViewRepository views;
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
@@ -95,7 +96,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
 
     private StatementOriginalView savedViewAt(User viewer, ImportJob job, String reason, Instant at) {
         return views.save(StatementOriginalView.open(job.getId(), job.getUserId(), viewer.getId(), "IMPORT",
-                job.getId().toString(), "PDF", 2, reason, at));
+                job.getId().toString(), "PDF", 2, at));
     }
 
     private StatementOriginalView savedView(User viewer, String reason) {
@@ -110,6 +111,12 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         ImportJob job = importJobRepository.findById(first.getJobId()).orElseThrow();
         return savedViewAt(userRepository.findById(first.getViewerId()).orElseThrow(), job, reason,
                 first.getOpenedAt().plusSeconds(600));
+    }
+
+    /** What OriginalStatementViewService does inside the opening's transaction. */
+    private void tellCustomer(StatementOriginalView view) {
+        notifier.notifyOpenedForFix(view.getSubjectUserId(), view.getJobId(),
+                OriginalStatementViewService.noticeDay(view.getOpenedAt()));
     }
 
     private List<EmailMessage> sent() {
@@ -150,7 +157,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         StatementOriginalView view = savedView(otherAdmin, "Rows on page 2 are missing from the preview");
         User owner = userRepository.findById(view.getSubjectUserId()).orElseThrow();
 
-        alerts.alertOriginalOpened(view.getId());
+        alerts.alertOriginalOpened(view.getId(), "Rows on page 2 are missing from the preview");
 
         assertThat(sentTo()).contains(superAdmin.getEmail()).doesNotContain(otherAdmin.getEmail(), owner.getEmail());
         EmailMessage email = sent().stream().filter(m -> m.to().equals(superAdmin.getEmail())).findFirst().orElseThrow();
@@ -169,7 +176,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         userRepository.save(suspended);
         StatementOriginalView view = savedView(createUser("ADMIN"), "Rows on page 2 are missing from the preview");
 
-        alerts.alertOriginalOpened(view.getId());
+        alerts.alertOriginalOpened(view.getId(), "Rows on page 2 are missing from the preview");
 
         assertThat(sentTo()).doesNotContain(suspended.getEmail());
     }
@@ -179,7 +186,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         User superAdmin = createUser("SUPER_ADMIN");
         StatementOriginalView view = savedView(createUser("ADMIN"), "<script>x</script> rows missing on page 2");
 
-        alerts.alertOriginalOpened(view.getId());
+        alerts.alertOriginalOpened(view.getId(), "<script>x</script> rows missing on page 2");
 
         assertThat(lastHtmlTo(superAdmin.getEmail()))
                 .doesNotContain("<script>").contains("&lt;script&gt;");
@@ -189,7 +196,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
     void aViewThatIsGoneSendsNothing() {
         createUser("SUPER_ADMIN");
 
-        alerts.alertOriginalOpened(UUID.randomUUID());
+        alerts.alertOriginalOpened(UUID.randomUUID(), "Rows on page 2 are missing from the preview");
 
         assertThat(sentTo()).isEmpty();
     }
@@ -199,8 +206,8 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         StatementOriginalView first = savedView(createUser("ADMIN"), "Rows on page 2 are missing from the preview");
         StatementOriginalView second = savedViewForSameJob(first, "Second look at the rows on page 2");
 
-        notices.onOpened(new OriginalViewOpened(first));
-        notices.onOpened(new OriginalViewOpened(second));
+        tellCustomer(first);
+        tellCustomer(second);
 
         // One notice: one row per channel, each written once under the day's dedupe key.
         List<Notification> sentToCustomer = notificationsFor(first.getSubjectUserId(),
@@ -217,8 +224,8 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         StatementOriginalView second = savedViewAt(admin, job, "Second look at the rows on page 2",
                 Instant.parse("2026-10-14T19:00:00Z"));   // 15 Oct, 00:30 IST
 
-        notices.onOpened(new OriginalViewOpened(first));
-        notices.onOpened(new OriginalViewOpened(second));
+        tellCustomer(first);
+        tellCustomer(second);
 
         assertThat(notificationsFor(first.getSubjectUserId(), NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX)
                 .stream().filter(n -> n.getChannel() == NotificationChannel.PUSH))
@@ -237,7 +244,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
                     channel, false));
         }
 
-        notices.onOpened(new OriginalViewOpened(view));
+        tellCustomer(view);
 
         assertThat(notificationsFor(view.getSubjectUserId(), NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX))
                 .extracting(Notification::getChannel, Notification::getCategory)
@@ -252,7 +259,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         User admin = createUser("ADMIN");
         StatementOriginalView view = savedViewAt(admin, Instant.parse("2026-10-14T20:00:00Z"));
 
-        notices.onOpened(new OriginalViewOpened(view));
+        tellCustomer(view);
 
         Notification pushed = onlyNotificationFor(view.getSubjectUserId(), NotificationChannel.PUSH);
         assertThat(pushed.getTitle()).isEqualTo("Your statement was opened");

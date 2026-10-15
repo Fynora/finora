@@ -193,10 +193,11 @@ public class HeldItemAdminAlertService {
      * file name or anything from the statement. Every value is escaped; the reason is typed by staff.
      *
      * <p>Re-reads the view by id, as the other alerts re-read their item, so it is safe to call
-     * after the opening's transaction has committed. An import hold links to the held-imports queue
+     * after the opening's transaction has committed. The reason is passed in: the view row does not
+     * keep it (V271); the audit entry does. An import hold links to the held-imports queue
      * (the portal has no page per held import) and names the job; a trust hold links to its own page.
      */
-    public void alertOriginalOpened(UUID viewId) {
+    public void alertOriginalOpened(UUID viewId, String reason) {
         Optional<StatementOriginalView> found = originalViewRepository.findById(viewId);
         if (found.isEmpty()) {
             log.warn("Could not send an original-view alert for view {}: it no longer exists", viewId);
@@ -220,7 +221,7 @@ public class HeldItemAdminAlertService {
                 + itemLine
                 + "<li><strong>Pages:</strong> " + escape("PDF".equals(view.getFormat())
                         ? String.valueOf(view.getPageCount()) : "CSV file") + "</li>"
-                + "<li><strong>Reason:</strong> " + escape(view.getReason()) + "</li>"
+                + "<li><strong>Reason:</strong> " + escape(reason) + "</li>"
                 + "</ul>"
                 + "<p>" + link + "</p>";
         List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);

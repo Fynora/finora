@@ -9,7 +9,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
-/** One opening of a held statement's real pages. See V271 for what the row is for. */
+/** One opening of a held statement's real pages. See V271 for what the row is for, and why the
+ *  typed reason is not on it. */
 @Entity
 @Table(name = "statement_original_views")
 public class StatementOriginalView {
@@ -25,15 +26,13 @@ public class StatementOriginalView {
     @Column(name = "item_ref", nullable = false) private String itemRef;
     @Column(nullable = false) private String format;
     @Column(name = "page_count", nullable = false) private int pageCount;
-    @Column(nullable = false) private String reason;
     @Column(name = "opened_at", nullable = false) private Instant openedAt;
     @Column(name = "expires_at", nullable = false) private Instant expiresAt;
 
     protected StatementOriginalView() {}
 
     public static StatementOriginalView open(UUID jobId, UUID subjectUserId, UUID viewerId, String queue,
-                                             String itemRef, String format, int pageCount, String reason,
-                                             Instant now) {
+                                             String itemRef, String format, int pageCount, Instant now) {
         StatementOriginalView v = new StatementOriginalView();
         v.id = UUID.randomUUID();
         v.jobId = jobId;
@@ -43,7 +42,6 @@ public class StatementOriginalView {
         v.itemRef = itemRef;
         v.format = format;
         v.pageCount = pageCount;
-        v.reason = reason;
         v.openedAt = now;
         v.expiresAt = now.plus(LIFETIME);
         return v;
@@ -62,7 +60,6 @@ public class StatementOriginalView {
     public String getItemRef() { return itemRef; }
     public String getFormat() { return format; }
     public int getPageCount() { return pageCount; }
-    public String getReason() { return reason; }
     public Instant getOpenedAt() { return openedAt; }
     public Instant getExpiresAt() { return expiresAt; }
 }

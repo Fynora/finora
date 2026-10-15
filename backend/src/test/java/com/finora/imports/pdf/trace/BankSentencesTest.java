@@ -1,0 +1,123 @@
+package com.finora.imports.pdf.trace;
+
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * The bank-sentence list's invariant: every entry is already normalised and can never carry a
+ * reference, an account number or a contact. Every string here is synthetic.
+ */
+class BankSentencesTest {
+
+    @Test
+    void normaliseLowersCollapsesAndTrims() {
+        assertThat(BankSentences.normalise("  This  is A\tComputer   Generated Statement "))
+                .isEqualTo("this is a computer generated statement");
+    }
+
+    @Test
+    void normaliseDropsControlCharacters() {
+        // Some fonts print a ligature ("ffi", "fi") as a control character; a person reading the
+        // statement sees the letters and writes the entry without it.
+        assertThat(BankSentences.normalise("Please write to the Nodal O\u001Ccer"))
+                .isEqualTo("please write to the nodal ocer");
+        assertThat(BankSentences.normalise("a\u001Db\u001Ec\u0000d e\u007Ff")).isEqualTo("abcd ef");
+    }
+
+    @Test
+    void isControlIsExactlyWhatNormaliseDrops() {
+        for (int c = 0; c <= 0xFFFF; c++) {
+            assertThat(BankSentences.isControl((char) c))
+                    .as("U+%04X", c).isEqualTo(BankSentences.CONTROL.matcher(String.valueOf((char) c)).matches());
+        }
+    }
+
+    @Test
+    void normaliseOfNullIsEmpty() {
+        assertThat(BankSentences.normalise(null)).isEmpty();
+    }
+
+    @Test
+    void everyProductionEntryIsSafe() {
+        BankSentences.entries().forEach(BankSentences::requireSafe);
+    }
+
+    @Test
+    void everyProductionEntryIsAlreadyNormalised() {
+        BankSentences.entries().forEach(e -> assertThat(BankSentences.normalise(e)).isEqualTo(e));
+    }
+
+    @Test
+    void everyProductionEntryIsListed() {
+        BankSentences.entries().forEach(e -> assertThat(BankSentences.isListed(e)).isTrue());
+    }
+
+    @Test
+    void aSafeEntryIsAccepted() {
+        assertThat(BankSentences.forTesting("This is a computer generated statement"))
+                .containsExactly("this is a computer generated statement");
+    }
+
+    @Test
+    void anEntryWithADigitIsRefused() {
+        assertRefused("call us on 1800 for help today");
+    }
+
+    @Test
+    void anEntryWithANonAsciiDigitIsRefused() {
+        assertRefused("call us on १८०० for help today");
+    }
+
+    @Test
+    void anEntryOfThreeWordsIsRefused() {
+        assertRefused("computer generated statement");
+    }
+
+    @Test
+    void anEmptyEntryIsRefused() {
+        assertRefused("");
+    }
+
+    @Test
+    void anEntryWithAnAtIsRefused() {
+        assertRefused("write to care at bank@example.com now");   // synthetic-ok
+    }
+
+    @Test
+    void anEntryShapedLikeAnIfscIsRefused() {
+        assertRefused("branch code is abcd0xyzxyz here");   // synthetic-ok
+    }
+
+    @Test
+    void anIfscShapeInsidePunctuationIsRefused() {
+        assertRefused("branch code is (abcd0xyzxyz) here");   // synthetic-ok
+    }
+
+    @Test
+    void aNonAsciiEntryIsRefused() {
+        assertRefused("this is a computer generated stätement");
+    }
+
+    @Test
+    void anEntryWithAControlCharacterIsRefused() {
+        assertThatThrownBy(() -> BankSentences.requireSafe("please write to the nodal o\u001Ccer"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("control character");
+    }
+
+    @Test
+    void anEntryNotYetNormalisedIsRefused() {
+        assertRefused("This is a computer generated statement");
+    }
+
+    @Test
+    void refusalsNameTheRuleNotTheText() {
+        assertThatThrownBy(() -> BankSentences.requireSafe("call us on 1800 for help today"))
+                .hasMessageNotContaining("1800").hasMessageContaining("digit");
+    }
+
+    private static void assertRefused(String entry) {
+        assertThatThrownBy(() -> BankSentences.requireSafe(entry)).isInstanceOf(IllegalArgumentException.class);
+    }
+}

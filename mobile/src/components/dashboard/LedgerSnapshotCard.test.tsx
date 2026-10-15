@@ -117,4 +117,24 @@ describe('LedgerSnapshotCard', () => {
     renderCard([{ label: 'Total Balance', value: 100000, delta: null, invert: false, caption: 'As of today', isPercent: false }]);
     expect(screen.getByText('As of today')).toBeTruthy();
   });
+
+  it('says once, for the whole grid, when the month is "so far" -- and still shows the figures and deltas', () => {
+    render(
+      <ThemeProvider>
+        <LedgerSnapshotCard
+          kpis={KPIS} title="This Month" deltaLabel="vs last month" deltaSpokenLabel="versus last month"
+          note="September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet."
+        />
+      </ThemeProvider>
+    );
+    expect(screen.getAllByTestId('so-far-note')).toHaveLength(1);
+    expect(screen.getByTestId('so-far-note').props.children).toContain('partial so far');
+    expect(screen.getByTestId('kpi-Income')).toBeTruthy();
+    expect(screen.getByLabelText(/Income: .*up 12\.5 percent versus last month/)).toBeTruthy();
+  });
+
+  it('shows no note line when there is none', () => {
+    renderCard();
+    expect(screen.queryByTestId('so-far-note')).toBeNull();
+  });
 });

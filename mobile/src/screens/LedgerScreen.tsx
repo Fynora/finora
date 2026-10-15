@@ -270,7 +270,7 @@ export function LedgerScreen() {
     queryKey: ['dashboard-summary'],
     queryFn: () => dashboardApi.summary(),
   });
-  const { snapshotKpis, periodTitle, deltaLabel, deltaSpokenLabel } = useDashboardKpis(summary);
+  const { snapshotKpis, periodTitle, deltaLabel, deltaSpokenLabel, soFarNote } = useDashboardKpis(summary);
 
   // Track C/C4. `categoryId` wins when the caller already had one (a Budget carries its own);
   // otherwise resolved from `categoryName` against the SAME category list this screen already
@@ -536,6 +536,7 @@ export function LedgerScreen() {
                 deltaLabel={deltaLabel}
                 deltaSpokenLabel={deltaSpokenLabel}
                 stacked={largeText}
+                note={soFarNote}
               />
             ) : null}
             <LedgerControls

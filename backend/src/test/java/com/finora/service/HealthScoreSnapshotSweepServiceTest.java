@@ -61,6 +61,7 @@ class HealthScoreSnapshotSweepServiceTest {
                 null, 0, 5,
                 null, null,
                 BigDecimal.ZERO, 0, null,
+                null,
                 null
         );
     }

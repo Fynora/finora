@@ -433,6 +433,39 @@ class BlankedCopyServiceTest {
         return map;
     }
 
+    /**
+     * End to end, through the real reading and the trace file: a listed bank sentence swallowed
+     * into a transaction's description is kept as printed in the copy, the copy reads the same
+     * description, and the name printed on the line under the sentence stays masked.
+     */
+    @Test
+    void aListedNoticeSwallowedIntoADescriptionIsKeptAndTheCopyMatches() throws Exception {
+        String notice = "The authorised modes of payment as mentioned above";
+        assertThat(com.finora.imports.pdf.trace.BankSentences.isListed(
+                com.finora.imports.pdf.trace.BankSentences.normalise(notice))).isTrue();
+        byte[] pdf = PdfFixtureBuilder.buildNoticeSwallowedIntoADescriptionSample(notice);
+
+        var real = PdfGeneratorTestSupport.generator()
+                .generateSectionsWithContext(UUID.randomUUID(), "statement.pdf", pdf).sections();
+        assertThat(real).hasSize(1);
+        List<StagedRow> rows = real.get(0).rows();
+        assertThat(rows).hasSize(3);
+        // Guard: the real reading swept the notice into the last description, so without the
+        // list the copy's masked notice would differ from it.
+        assertThat(rows.get(2).description()).contains(notice);
+        assertThat(PdfTraceRedactor.redactLine(rows.get(2).description())).doesNotContain(notice);
+
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000030", "PDF", pdf));
+
+        List<PositionedText> copyRuns = TraceFormat.parse(copy.trace());
+        assertThat(copyRuns).filteredOn(r -> r.text().equals(notice)).hasSize(2);
+        assertThat(copy.trace()).doesNotContain(PdfFixtureBuilder.PLANTED_NAME);
+        assertThat(TraceValidator.privacyKinds(copyRuns)).isEmpty();
+        assertThat(copy.differences()).isEmpty();
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+    }
+
     @Test
     void theCopyEndsWithTheRealReadingsRowMap() throws Exception {
         byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();

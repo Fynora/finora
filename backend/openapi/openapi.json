@@ -8967,6 +8967,46 @@
                 }
             }
         },
+        "/api/v1/reports/trend": {
+            "get": {
+                "tags": [
+                    "report-controller"
+                ],
+                "operationId": "monthlyTrend",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "months",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 6
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListReportTrendPoint"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/reports/months": {
             "get": {
                 "tags": [
@@ -22619,6 +22659,37 @@
                     }
                 }
             },
+            "MonthComparison": {
+                "type": "object",
+                "properties": {
+                    "previousMonth": {
+                        "type": "string"
+                    },
+                    "reliable": {
+                        "type": "boolean"
+                    },
+                    "gateReason": {
+                        "type": "string"
+                    },
+                    "previousIncome": {
+                        "type": "number"
+                    },
+                    "previousExpense": {
+                        "type": "number"
+                    },
+                    "incomeDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "expenseDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "netDelta": {
+                        "type": "number"
+                    }
+                }
+            },
             "ReportDto": {
                 "type": "object",
                 "properties": {
@@ -22645,6 +22716,72 @@
                         "items": {
                             "$ref": "#/components/schemas/IncomeLine"
                         }
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "unresolvedInflowCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "comparison": {
+                        "$ref": "#/components/schemas/MonthComparison"
+                    },
+                    "complete": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseListReportTrendPoint": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReportTrendPoint"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ReportTrendPoint": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string"
+                    },
+                    "income": {
+                        "type": "number"
+                    },
+                    "expense": {
+                        "type": "number"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "complete": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -24160,6 +24297,9 @@
                     },
                     "savingsRateGateReason": {
                         "type": "string"
+                    },
+                    "statementBehind": {
+                        "$ref": "#/components/schemas/StatementBehindDto"
                     }
                 }
             },
@@ -24189,6 +24329,22 @@
                         "type": "string"
                     },
                     "score": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "StatementBehindDto": {
+                "type": "object",
+                "properties": {
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "coveredThrough": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "accountCount": {
                         "type": "integer",
                         "format": "int32"
                     }
@@ -24311,6 +24467,9 @@
                     },
                     "savingsRateGateReason": {
                         "type": "string"
+                    },
+                    "statementBehind": {
+                        "$ref": "#/components/schemas/StatementBehindDto"
                     }
                 }
             },

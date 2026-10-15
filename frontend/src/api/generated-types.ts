@@ -3604,6 +3604,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monthlyTrend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/months": {
         parameters: {
             query?: never;
@@ -9359,6 +9375,18 @@ export interface components {
             label?: string;
             amount?: number;
         };
+        MonthComparison: {
+            previousMonth?: string;
+            reliable?: boolean;
+            gateReason?: string;
+            previousIncome?: number;
+            previousExpense?: number;
+            /** Format: double */
+            incomeDeltaPct?: number;
+            /** Format: double */
+            expenseDeltaPct?: number;
+            netDelta?: number;
+        };
         ReportDto: {
             month?: string;
             income?: number;
@@ -9366,6 +9394,32 @@ export interface components {
             categories?: components["schemas"]["CategoryAmount"][];
             unresolvedInflow?: number;
             incomeByKind?: components["schemas"]["IncomeLine"][];
+            /** Format: int32 */
+            transactionCount?: number;
+            /** Format: int32 */
+            unresolvedInflowCount?: number;
+            comparison?: components["schemas"]["MonthComparison"];
+            complete?: boolean;
+        };
+        ApiResponseListReportTrendPoint: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ReportTrendPoint"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ReportTrendPoint: {
+            month?: string;
+            income?: number;
+            expense?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            complete?: boolean;
         };
         ApiResponseListString: {
             success?: boolean;
@@ -9959,6 +10013,7 @@ export interface components {
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
+            statementBehind?: components["schemas"]["StatementBehindDto"];
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -9972,6 +10027,13 @@ export interface components {
             yearMonth?: string;
             /** Format: int32 */
             score?: number;
+        };
+        StatementBehindDto: {
+            accountName?: string;
+            /** Format: date */
+            coveredThrough?: string;
+            /** Format: int32 */
+            accountCount?: number;
         };
         ApiResponseDashboardRangeSummaryDto: {
             success?: boolean;
@@ -10023,6 +10085,7 @@ export interface components {
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
+            statementBehind?: components["schemas"]["StatementBehindDto"];
         };
         ApiResponseChangeStampDto: {
             success?: boolean;
@@ -18914,6 +18977,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseReportDto"];
+                };
+            };
+        };
+    };
+    monthlyTrend: {
+        parameters: {
+            query?: {
+                month?: string;
+                months?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListReportTrendPoint"];
                 };
             };
         };

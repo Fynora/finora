@@ -41,15 +41,17 @@ public class DashboardRangeService {
     private final UserRepository userRepository;
     private final NetWorthSnapshotRepository netWorthSnapshotRepository;
     private final ReportService reportService;
+    private final StatementReachService statementReach;
 
     public DashboardRangeService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                                   UserRepository userRepository, NetWorthSnapshotRepository netWorthSnapshotRepository,
-                                  ReportService reportService) {
+                                  ReportService reportService, StatementReachService statementReach) {
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.userRepository = userRepository;
         this.netWorthSnapshotRepository = netWorthSnapshotRepository;
         this.reportService = reportService;
+        this.statementReach = statementReach;
     }
 
     // Mirrors DashboardService.MIN_TRANSACTIONS_FOR_DELTA_COMPARISON's own reasoning: low enough
@@ -176,7 +178,11 @@ public class DashboardRangeService {
                 currentBalance, currentBalanceAsOf, currentBalanceGateReason,
                 previousBalance, previousBalanceAsOf, balanceDeltaPct, balanceGateReason,
                 current.unresolvedInflow(), current.unresolvedInflowCount(), current.unresolvedTopReason(),
-                savingsRate.gateReason()
+                savingsRate.gateReason(),
+                // Judged over the month the range ends in. A custom range that ends in an old month
+                // is not "so far" -- StatementReachService only looks at the newest two.
+                latestTxnDate == null ? null
+                        : statementReach.behindFor(userId, YearMonth.from(end), YearMonth.from(latestTxnDate)).orElse(null)
         );
     }
 

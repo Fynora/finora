@@ -246,7 +246,7 @@ export function DashboardScreen() {
       monthlyReportsQ
         .map((q) => q.data)
         .filter((d): d is NonNullable<typeof d> => !!d)
-        .map((d) => ({ label: monthLabel(d.month), income: d.income, expense: d.expense })),
+        .map((d) => ({ label: monthLabel(d.month), income: d.income, expense: d.expense, partial: d.complete === false })),
     [monthlyReportsQ]
   );
 
@@ -384,7 +384,7 @@ export function DashboardScreen() {
   // Hooks can never be called only on some renders. summary can still be undefined here -- a
   // settled failure returns right after this, but a still-loading first fetch falls through to the
   // shell, which renders these off default values.
-  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, deltaLabel, deltaSpokenLabel } =
+  const { balanceKpi, snapshotKpis, periodIsCurrent, periodLabel, periodTitle, deltaLabel, deltaSpokenLabel, soFarNote } =
     useDashboardKpis(summary);
 
   // summaryQ can fail on its own (the whole point of useQueries above) -- say so rather than
@@ -591,7 +591,7 @@ export function DashboardScreen() {
 
       <View style={styles.section}>
         {summary ? (
-          <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} />
+          <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} note={soFarNote} />
         ) : (
           <SkeletonGroup><SkeletonKpiGrid /></SkeletonGroup>
         )}
@@ -629,7 +629,7 @@ export function DashboardScreen() {
           wrapper around a null card would still leave its margin behind as a blank gap. */}
       {summary && showCashFlowMini ? (
         <View style={styles.section}>
-          <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} />
+          <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} note={soFarNote} />
         </View>
       ) : null}
 

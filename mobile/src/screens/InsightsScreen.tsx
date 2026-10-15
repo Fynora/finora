@@ -113,7 +113,7 @@ export function InsightsScreen() {
   });
   // The summary's own period, for the figures that come from it (banner, glance card, donut,
   // income card) -- see insightsPeriod above for the insights endpoint's, which can differ.
-  const { snapshotKpis, periodIsCurrent, periodTitleLong, priorPeriodLabel } = useDashboardKpis(summary);
+  const { snapshotKpis, periodIsCurrent, periodTitleLong, priorPeriodLabel, soFarNote } = useDashboardKpis(summary);
   const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
   const incomeDelta = snapshotKpis.find((k) => k.label === 'Income')?.delta ?? null;
 
@@ -127,10 +127,15 @@ export function InsightsScreen() {
     staleTime: 5 * 60_000,
   });
   const [showAllInsights, setShowAllInsights] = useState(false);
-  const trackBannerTitle = expenseDelta === null
+  // A month that is "so far" gets no verdict. Spending is lower than last month's because a
+  // statement has not arrived yet, not because the person spent less, so "You're on track! ... Keep
+  // it up!" would praise a gap in the data. The banner says why the month is partial instead.
+  const trackBannerTitle = expenseDelta === null || soFarNote
     ? (periodIsCurrent ? 'This month' : periodTitleLong)
     : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
-  const trackBannerBody = expenseDelta === null
+  const trackBannerBody = soFarNote
+    ? soFarNote
+    : expenseDelta === null
     ? (periodIsCurrent ? 'Keep an eye on your spending this month.' : `Keep an eye on your spending in ${periodTitleLong}.`)
     : expenseDelta <= 0
       ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than ${priorPeriodLabel}. Keep it up!`
@@ -387,6 +392,14 @@ export function InsightsScreen() {
               </View>
             ))}
           </View>
+          {/* The chips are this month against last month's, and this month is only part of one: said
+              on the card itself, since the banner above explaining it is a separate surface. Only
+              when there is a chip to qualify. */}
+          {soFarNote && [summary.incomeDeltaPct, summary.expenseDeltaPct, summary.netDeltaPct].some((d) => d !== null) ? (
+            <Text testID="glance-so-far-note" style={[styles.glanceNote, { color: c.mutedInk }]}>
+              These changes compare a partial month with a full one, so they may shift once the rest comes in.
+            </Text>
+          ) : null}
         </GlassSurface>
       ) : null}
 
@@ -902,6 +915,7 @@ const styles = StyleSheet.create({
   glanceValue: { fontSize: 15, fontWeight: '700' },
   glanceLabel: { fontSize: 10, marginTop: 2 },
   glanceDelta: { fontSize: 10, fontWeight: '600', marginTop: 2 },
+  glanceNote: { fontSize: 10, marginTop: spacing.sm },
   notice: {
     borderLeftWidth: 3,
     borderRadius: radius.md,

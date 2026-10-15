@@ -44,14 +44,18 @@ public class DashboardService {
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
     private final InflowChoiceService inflowChoices;
 
+    /** Whether the reporting month is "so far" because an account's statements stop short of it. */
+    private final StatementReachService statementReach;
+
     public DashboardService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                              CategoryRepository categoryRepository, BudgetRepository budgetRepository,
                              UserRepository userRepository,
                              com.finora.repository.StatementImportRepository statementImportRepository,
                              TransactionGraphService transactionGraphService,
                              HealthScoreSnapshotRepository healthScoreSnapshotRepository,
-                            InflowChoiceService inflowChoices) {
+                            InflowChoiceService inflowChoices, StatementReachService statementReach) {
         this.inflowChoices = inflowChoices;
+        this.statementReach = statementReach;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
@@ -368,7 +372,12 @@ public class DashboardService {
                 categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE,
                 incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null,
                 unresolvedCur, unresolvedCountCur, unresolvedTopReason == null ? null : unresolvedTopReason.name(),
-                savingsReading.gateReason()
+                savingsReading.gateReason(),
+                // `months` is ascending, so its last entry is the newest month with data; the
+                // reporting month IS that month, so this asks about the month the KPIs describe.
+                currentMonth == null || months.isEmpty() ? null
+                        : statementReach.behindFor(userId, YearMonth.parse(currentMonth),
+                                YearMonth.parse(months.get(months.size() - 1))).orElse(null)
         );
     }
 
@@ -482,7 +491,7 @@ public class DashboardService {
     // be trusted as a delta's denominator -- low enough that a real, if quiet, month still gets a
     // real percentage, high enough that one or two stray rows can't single-handedly produce a
     // triple-digit swing the way they did for the bug this constant exists to prevent.
-    static final int MIN_TRANSACTIONS_FOR_DELTA_COMPARISON = 3;
+    static final int MIN_TRANSACTIONS_FOR_DELTA_COMPARISON = MonthComparisonGate.MIN_TRANSACTIONS;
 
     /** Why `month` isn't trustworthy as a delta's denominator, or null when it is: a FULL calendar
      *  month (not the ragged edge of the overall imported date range -- see the comment at this
@@ -510,11 +519,7 @@ public class DashboardService {
      *  average -- both {@link #priorMonthGateReason} and {@link #computeHealthScore} exclude it via
      *  this shared check. */
     private boolean isPartialBoundaryMonth(String month, LocalDate earliestTxnDate, LocalDate latestTxnDate) {
-        boolean isEarliestBucket = earliestTxnDate != null && month.equals(YearMonth.from(earliestTxnDate).toString());
-        boolean isLatestBucket = latestTxnDate != null && month.equals(YearMonth.from(latestTxnDate).toString());
-        if (isEarliestBucket && earliestTxnDate.getDayOfMonth() != 1) return true;
-        if (isLatestBucket && latestTxnDate.getDayOfMonth() != YearMonth.from(latestTxnDate).lengthOfMonth()) return true;
-        return false;
+        return MonthComparisonGate.isPartialBoundaryMonth(month, earliestTxnDate, latestTxnDate);
     }
 
     // D-25 PR3-A. Owner's choice among the proposal's own options (transaction count vs. time

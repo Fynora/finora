@@ -167,6 +167,11 @@ describe('placeholders take the room the real text takes', () => {
       .forEach((l) => expect(flat(l.props.style).height).toBe(16));
   });
 
+  it('a settings row puts its description 2 under its title, as every real settings row does', () => {
+    withTheme(<SkeletonSettingsRow />);
+    expect(flat(screen.getByTestId('skeleton-settings-row-main', { hidden: true }).props.style).gap).toBe(2);
+  });
+
   it('a settings row whose description wraps shows a bar per description line', () => {
     withTheme(<SkeletonSettingsRow trailing="switch" metaLines={3} />);
     // title + 3 description lines + switch

@@ -327,14 +327,34 @@ export function SettingsSecuritySkeleton() {
       <SkeletonSettingsRow />
       <SkeletonBox size="button" style={styles.gapSmStackMd} />
       <SkeletonSettingsRow trailing="badge" />
-      <SkeletonSettingsRow trailing="switch" />
+      {/* AppLockSection: its description wraps to two lines beside the switch. */}
+      <SkeletonSettingsRow trailing="switch" metaLines={2} />
+      {/* DeviceSessionsSection: title, a two-line blurb, the session cards. */}
       <View style={styles.gapMd}>
-        <SkeletonText size="heading" width="40%" />
-        <SkeletonLines count={2} size="meta" />
-        <SkeletonListRow amount={false} />
-        <SkeletonListRow amount={false} divider={false} />
+        <SkeletonText size="body" width="40%" />
+        <View style={styles.sessionsBlurb}>
+          <SkeletonLines count={2} size="caption" lastWidth="65%" line={skeletonTokens.textLine.hint} />
+        </View>
+        <DeviceSessionCardsSkeleton />
       </View>
     </SkeletonGroup>
+  );
+}
+
+/** DeviceSessionsSection's session cards: a device line over two detail lines, in a bordered card.
+ *  Used by that section's own loading state and inside SettingsSecuritySkeleton. */
+export function DeviceSessionCardsSkeleton() {
+  const c = useTheme();
+  return (
+    <View>
+      {[0, 1].map((i) => (
+        <View key={i} testID="skeleton-session-card" style={[styles.sessionCard, { borderColor: c.border }]}>
+          <SkeletonText size="label" width="45%" />
+          <SkeletonText size="caption" width="70%" style={styles.sessionDetail} />
+          <SkeletonText size="caption" width="50%" style={styles.sessionDetail} />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -463,6 +483,13 @@ const styles = StyleSheet.create({
   // InflowKindsSettings' card: its children 8 apart, 16 below what is above; SectionHeading's 8
   // under the title; rows padded 8 with a hairline under each.
   inflowCard: { gap: spacing.sm, marginTop: spacing.md },
+  // DeviceSessionsSection's own spacing: the blurb 2 under the title and 8 above the cards; each card
+  // padded 10 by 12 inside a 1pt border, 4 apart, its detail lines 2 apart.
+  sessionsBlurb: { marginTop: 2, marginBottom: spacing.sm },
+  sessionCard: {
+    borderWidth: 1, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 10, marginBottom: spacing.xs,
+  },
+  sessionDetail: { marginTop: 2 },
   inflowHeading: { marginBottom: spacing.sm },
   inflowRows: { gap: spacing.sm },
   inflowRow: {

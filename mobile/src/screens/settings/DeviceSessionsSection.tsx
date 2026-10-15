@@ -9,7 +9,8 @@ import { fmtRelativeFutureTime, fmtRelativeTime } from '../../lib/format';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
 import { LoadFailed } from '../../components/LoadFailed';
-import { SkeletonGroup, SkeletonListRow } from '../../components/skeletons/Skeletons';
+import { DeviceSessionCardsSkeleton } from '../../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup } from '../../components/skeletons/Skeletons';
 
 /**
  * Active Sessions -- every device currently holding a refresh token for this account.
@@ -80,9 +81,8 @@ export function DeviceSessionsSection() {
       </Text>
 
       {isLoading ? (
-        <SkeletonGroup style={styles.loader}>
-          <SkeletonListRow amount={false} />
-          <SkeletonListRow amount={false} divider={false} />
+        <SkeletonGroup>
+          <DeviceSessionCardsSkeleton />
         </SkeletonGroup>
       ) : isError ? (
         <LoadFailed message="Couldn't load your active sessions — please try again later." tone="danger" onRetry={() => void refetch()} />
@@ -146,7 +146,6 @@ export function DeviceSessionsSection() {
 const styles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '600' },
   blurb: { fontSize: 11, lineHeight: 16, marginTop: 2, marginBottom: spacing.sm },
-  loader: { paddingVertical: spacing.sm },
   error: { fontSize: 12, paddingVertical: spacing.xs },
   empty: { fontSize: 12, fontStyle: 'italic', paddingVertical: spacing.xs },
   row: {

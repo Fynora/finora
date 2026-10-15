@@ -103,4 +103,11 @@ describe('AppLockSection first load', () => {
     renderSection();
     expectSkeletonNotSpinner();
   });
+
+  it('the skeleton row has the two description lines the real row wraps to', () => {
+    mockedHasHardware.mockReturnValue(never());
+    renderSection();
+    // title + 2 description lines + switch
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
 });

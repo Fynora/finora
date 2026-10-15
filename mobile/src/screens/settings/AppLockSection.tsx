@@ -74,7 +74,8 @@ export function AppLockSection() {
   if (loading) {
     return (
       <SkeletonGroup>
-        <SkeletonSettingsRow trailing="switch" />
+        {/* Both the real row's descriptions wrap to two lines on a phone. */}
+        <SkeletonSettingsRow trailing="switch" metaLines={2} />
       </SkeletonGroup>
     );
   }

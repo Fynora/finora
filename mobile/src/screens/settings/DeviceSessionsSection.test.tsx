@@ -102,6 +102,13 @@ describe('DeviceSessionsSection loading states', () => {
     expectSkeletonNotSpinner();
   });
 
+  it('the skeleton is two session cards, each a device line over two detail lines', () => {
+    devices.list.mockReturnValue(never());
+    renderSection();
+    expect(screen.getAllByTestId('skeleton-session-card', { hidden: true })).toHaveLength(2);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 3);
+  });
+
   it('after a failed load, Try again refetches the sessions', async () => {
     devices.list.mockRejectedValueOnce(new Error('down'));
     renderSection();

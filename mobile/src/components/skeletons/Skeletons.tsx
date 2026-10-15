@@ -150,7 +150,7 @@ export function SkeletonSettingsRow({ trailing = 'none', divider = true, metaLin
   const c = useTheme();
   return (
     <View style={[styles.settingsRow, divider && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-      <View style={styles.settingsRowMain}>
+      <View testID="skeleton-settings-row-main" style={styles.settingsRowMain}>
         <SkeletonText size="body" width="45%" />
         {metaLines > 1
           ? <SkeletonLines count={metaLines} size="meta" />
@@ -270,7 +270,8 @@ const styles = StyleSheet.create({
   profileHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   profileHeaderText: { flex: 1, gap: spacing.xs },
   settingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
-  settingsRowMain: { flex: 1, marginRight: spacing.sm, gap: spacing.xs },
+  // Every real settings row (Security, App Lock, notifications, Profile) puts its meta 2 under the title.
+  settingsRowMain: { flex: 1, marginRight: spacing.sm, gap: 2 },
   barRow: { gap: spacing.xs },
   barRowTop: { flexDirection: 'row', justifyContent: 'space-between' },
   hero: { width: '100%' },

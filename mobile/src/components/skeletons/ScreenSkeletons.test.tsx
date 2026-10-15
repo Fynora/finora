@@ -3,7 +3,7 @@ import { ThemeProvider } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import {
   FinancialMemorySkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
-  SettingsGeneralSkeleton,
+  SettingsGeneralSkeleton, SettingsSecuritySkeleton,
 } from './ScreenSkeletons';
 
 function heightOf(el: { props: { style?: unknown } }): unknown {
@@ -81,6 +81,19 @@ describe('SettingsCategorizationSkeleton', () => {
     // stepper 3 + hint 2 + review link 1 + save button 1
     // + kinds card (heading, description 2, 2 rows x 2) + senders card (heading, 2 rows x 3)
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3 + 2 + 1 + 1 + 7 + 7);
+  });
+});
+
+describe('SettingsSecuritySkeleton', () => {
+  it('has the App Lock row at two lines and the sessions section as heading, blurb and session cards', () => {
+    render(<ThemeProvider><SettingsSecuritySkeleton /></ThemeProvider>);
+    // email row 2 + button + password row 2 + button + phone row (2 + badge) + app lock (1 + 2 + switch)
+    // + sessions heading + blurb 2 + 2 cards x 3
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 + 1 + 2 + 1 + 3 + 4 + 1 + 2 + 6);
+    expect(screen.getAllByTestId('skeleton-session-card', { hidden: true })).toHaveLength(2);
+    const blurbLines = screen.getAllByTestId('skeleton-line', { hidden: true })
+      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+    expect(blurbLines).toHaveLength(2);
   });
 });
 

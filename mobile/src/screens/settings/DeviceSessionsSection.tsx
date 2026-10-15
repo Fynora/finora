@@ -8,6 +8,8 @@ import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtRelativeFutureTime, fmtRelativeTime } from '../../lib/format';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../../theme';
+import { LoadFailed } from '../../components/LoadFailed';
+import { SkeletonGroup, SkeletonListRow } from '../../components/skeletons/Skeletons';
 
 /**
  * Active Sessions -- every device currently holding a refresh token for this account.
@@ -36,7 +38,7 @@ export function DeviceSessionsSection() {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: sessions = [], isLoading, isError } = useQuery({
+  const { data: sessions = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['devices'],
     queryFn: () => devicesApi.list(),
   });
@@ -78,11 +80,12 @@ export function DeviceSessionsSection() {
       </Text>
 
       {isLoading ? (
-        <ActivityIndicator color={c.primary} style={styles.loader} />
+        <SkeletonGroup style={styles.loader}>
+          <SkeletonListRow amount={false} />
+          <SkeletonListRow amount={false} divider={false} />
+        </SkeletonGroup>
       ) : isError ? (
-        <Text style={[styles.error, { color: c.dangerInk }]}>
-          Couldn&apos;t load your active sessions — please try again later.
-        </Text>
+        <LoadFailed message="Couldn't load your active sessions — please try again later." tone="danger" onRetry={() => void refetch()} />
       ) : sessions.length === 0 ? (
         <Text style={[styles.empty, { color: c.muted }]}>No active sessions found.</Text>
       ) : (

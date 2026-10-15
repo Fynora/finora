@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Switch, Text, View, StyleSheet } from 'react-native';
+import { Switch, Text, View, StyleSheet } from 'react-native';
+import { SkeletonGroup, SkeletonSettingsRow } from '../../components/skeletons/Skeletons';
 import * as appLock from '../../lib/appLock';
 import { spacing, useTheme } from '../../theme';
 
@@ -72,9 +73,9 @@ export function AppLockSection() {
 
   if (loading) {
     return (
-      <View style={[styles.row, { borderBottomColor: c.border }]}>
-        <ActivityIndicator color={c.primary} />
-      </View>
+      <SkeletonGroup>
+        <SkeletonSettingsRow trailing="switch" />
+      </SkeletonGroup>
     );
   }
 

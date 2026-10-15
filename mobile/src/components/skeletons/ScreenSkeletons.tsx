@@ -270,6 +270,25 @@ export function SettingsGeneralSkeleton() {
   );
 }
 
+export function SettingsSecuritySkeleton() {
+  return (
+    <SkeletonGroup testID="settings-security-skeleton">
+      <SkeletonSettingsRow />
+      <SkeletonBox size="button" style={styles.gapSmStackMd} />
+      <SkeletonSettingsRow />
+      <SkeletonBox size="button" style={styles.gapSmStackMd} />
+      <SkeletonSettingsRow trailing="badge" />
+      <SkeletonSettingsRow trailing="switch" />
+      <View style={styles.gapMd}>
+        <SkeletonText size="heading" width="40%" />
+        <SkeletonLines count={2} size="meta" />
+        <SkeletonListRow amount={false} />
+        <SkeletonListRow amount={false} divider={false} />
+      </View>
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },
@@ -292,6 +311,7 @@ const styles = StyleSheet.create({
   threeUp: { flexDirection: 'row', gap: spacing.sm },
   threeUpTile: { flex: 1, paddingHorizontal: spacing.sm, gap: spacing.xs },
   columnSmRow: { gap: spacing.sm },
+  gapSmStackMd: { marginTop: spacing.sm, marginBottom: spacing.md },
   centredColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
   spacedRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
   wrappedCard: { borderRadius: radius.xl, padding: spacing.lg },

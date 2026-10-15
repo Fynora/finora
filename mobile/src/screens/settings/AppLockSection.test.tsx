@@ -3,6 +3,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { AppLockSection } from './AppLockSection';
 import { ThemeProvider } from '../../theme';
+import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
 
 const mockedHasHardware = LocalAuthentication.hasHardwareAsync as jest.MockedFunction<
   typeof LocalAuthentication.hasHardwareAsync
@@ -93,5 +94,13 @@ describe('AppLockSection', () => {
     expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
     expect(toggle.props.value).toBe(false);
     expect(await SecureStore.getItemAsync('finora_app_lock_enabled')).toBeNull();
+  });
+});
+
+describe('AppLockSection first load', () => {
+  it('shows a skeleton row, not a spinner, while it reads the device', () => {
+    mockedHasHardware.mockReturnValue(never());
+    renderSection();
+    expectSkeletonNotSpinner();
   });
 });

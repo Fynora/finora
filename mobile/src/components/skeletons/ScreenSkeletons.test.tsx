@@ -1,10 +1,14 @@
 import { render, screen } from '@testing-library/react-native';
+import { PixelRatio } from 'react-native';
 import { ThemeProvider } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import {
   FinancialMemorySkeleton, InvestmentsSkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
   SettingsAccountSkeleton, SettingsGeneralSkeleton, SettingsSecuritySkeleton, StatementGroupCardsSkeleton,
 } from './ScreenSkeletons';
+
+// Text placeholders scale with the system text size (jest's window reports 2); controls do not.
+const scaled = (h: number) => Math.round(h * PixelRatio.getFontScale());
 
 function heightOf(el: { props: { style?: unknown } }): unknown {
   return Object.assign({}, ...[el.props.style].flat(Infinity).filter(Boolean)).height;
@@ -49,7 +53,7 @@ describe('SettingsGeneralSkeleton', () => {
     const heights = screen.getAllByTestId('shimmer-block', { hidden: true }).map(heightOf);
     expect(heights).toContain(skeletonTokens.control.segments);
     const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
-      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+      .filter((l) => heightOf(l) === scaled(skeletonTokens.textLine.hint));
     // the theme hint's 2 lines and the retake-tour hint's 1
     expect(hintLines).toHaveLength(3);
   });
@@ -72,7 +76,7 @@ describe('SettingsCategorizationSkeleton', () => {
     renderIt();
     expect(heightOf(screen.getByTestId('skeleton-save-status', { hidden: true }))).toBe(skeletonTokens.control.saveStatus);
     const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
-      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+      .filter((l) => heightOf(l) === scaled(skeletonTokens.textLine.hint));
     expect(hintLines).toHaveLength(2);
   });
 
@@ -92,7 +96,7 @@ describe('SettingsSecuritySkeleton', () => {
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 + 1 + 2 + 1 + 3 + 4 + 1 + 2 + 6);
     expect(screen.getAllByTestId('skeleton-session-card', { hidden: true })).toHaveLength(2);
     const blurbLines = screen.getAllByTestId('skeleton-line', { hidden: true })
-      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+      .filter((l) => heightOf(l) === scaled(skeletonTokens.textLine.hint));
     expect(blurbLines).toHaveLength(2);
   });
 });
@@ -103,7 +107,7 @@ describe('SettingsAccountSkeleton', () => {
     // each row: label + link; hints 3 + 2
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 2 + 3 + 2);
     const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
-      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+      .filter((l) => heightOf(l) === scaled(skeletonTokens.textLine.hint));
     expect(hintLines).toHaveLength(5);
   });
 });
@@ -112,8 +116,8 @@ describe('StatementGroupCardsSkeleton', () => {
   it('is two account cards, each a name line over an 18pt meta line, with no row padding around them', () => {
     render(<ThemeProvider><StatementGroupCardsSkeleton /></ThemeProvider>);
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 2);
-    const nameLine = Math.round(skeletonTokens.text.heading * skeletonTokens.lineHeight);
-    const metaLine = skeletonTokens.textLine.statementBody;
+    const nameLine = scaled(skeletonTokens.text.heading * skeletonTokens.lineHeight);
+    const metaLine = scaled(skeletonTokens.textLine.statementBody);
     expect(screen.getAllByTestId('skeleton-line', { hidden: true }).map(heightOf))
       .toEqual([nameLine, metaLine, nameLine, metaLine]);
   });

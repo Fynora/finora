@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, useWindowDimensions, View, type DimensionValue, type StyleProp, type ViewStyle } from 'react-native';
 import { spacing, useTheme } from '../../theme';
 import {
   skeletonTokens as T, type SkeletonControlSize, type SkeletonIconSize, type SkeletonTextSize,
@@ -40,6 +40,7 @@ export function SkeletonGroup({ children, style, testID = 'skeleton-group' }: {
  * A line of text. It takes the room a real line of that font size takes (skeletonTokens.lineHeight,
  * measured), so nothing below it moves when the text lands; the bar drawn inside is the font size
  * tall, or `bar` times it inside a paragraph. Text that sets its own lineHeight passes it as `line`.
+ * Both grow with the system text size, as the real text (font size and line height) does.
  */
 export function SkeletonText({ size, width = '100%', style, bar = 1, line }: {
   size: SkeletonTextSize;
@@ -48,10 +49,12 @@ export function SkeletonText({ size, width = '100%', style, bar = 1, line }: {
   bar?: number;
   line?: number;
 }) {
+  const { fontScale } = useWindowDimensions();
   const fontSize = T.text[size];
+  const lineHeight = Math.round((line ?? fontSize * T.lineHeight) * fontScale);
   return (
-    <View testID="skeleton-line" style={[styles.lineBox, { width, height: line ?? Math.round(fontSize * T.lineHeight) }, style]}>
-      <Shimmer width="100%" height={Math.round(fontSize * bar)} />
+    <View testID="skeleton-line" style={[styles.lineBox, { width, height: lineHeight }, style]}>
+      <Shimmer width="100%" height={Math.round(fontSize * bar * fontScale)} />
     </View>
   );
 }

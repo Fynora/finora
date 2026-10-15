@@ -82,6 +82,10 @@ def main() -> int:
     classpath = corpus_run.build_classpath(quiet=True)
     out = args.out.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
+    # Created owner-only before the probe writes into it, so the lines are never readable by
+    # anyone else, not even for the length of the run.
+    os.close(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
+    os.chmod(out, 0o600)
     try:
         result = subprocess.run(["java", "-cp", classpath, PROBE_CLASS, str(corpus), str(out),
                                  str(args.min_statements)],
@@ -95,7 +99,6 @@ def main() -> int:
     if result.returncode != 0 or len(summary) != 1:
         print(f"probe failed (exit {result.returncode}); its output is not shown", file=sys.stderr)
         return 1
-    os.chmod(out, 0o600)
     print(summary[0])
     return 0
 

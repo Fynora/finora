@@ -27,6 +27,14 @@ class BankSentencesTest {
     }
 
     @Test
+    void isControlIsExactlyWhatNormaliseDrops() {
+        for (int c = 0; c <= 0xFFFF; c++) {
+            assertThat(BankSentences.isControl((char) c))
+                    .as("U+%04X", c).isEqualTo(BankSentences.CONTROL.matcher(String.valueOf((char) c)).matches());
+        }
+    }
+
+    @Test
     void normaliseOfNullIsEmpty() {
         assertThat(BankSentences.normalise(null)).isEmpty();
     }

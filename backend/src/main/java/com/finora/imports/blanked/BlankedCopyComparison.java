@@ -229,17 +229,25 @@ public final class BlankedCopyComparison {
             at.add(k);
         }
         for (String sentence : sentences) {
-            StringBuilder regex = new StringBuilder("(?<!" + NOT_IN_A_WORD + ")");
-            String[] words = sentence.split(" ");
-            for (int w = 0; w < words.length; w++) {
-                if (w > 0) regex.append("\\s+");
-                regex.append(Pattern.quote(words[w]));
-            }
-            regex.append("(?!" + NOT_IN_A_WORD + ")");
-            var m = Pattern.compile(regex.toString(), Pattern.CASE_INSENSITIVE).matcher(visible);
+            var m = SENTENCE_PATTERNS.computeIfAbsent(sentence, BlankedCopyComparison::sentencePattern).matcher(visible);
             while (m.find()) Arrays.fill(covered, at.get(m.start()), at.get(m.end() - 1) + 1, true);
         }
         return covered;
+    }
+
+    /** One compiled pattern per sentence, kept: a statement compares hundreds of descriptions. */
+    private static final Map<String, Pattern> SENTENCE_PATTERNS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The sentence's words in order, any run of whitespace between them, standing apart. */
+    private static Pattern sentencePattern(String sentence) {
+        StringBuilder regex = new StringBuilder("(?<!" + NOT_IN_A_WORD + ")");
+        String[] words = sentence.split(" ");
+        for (int w = 0; w < words.length; w++) {
+            if (w > 0) regex.append("\\s+");
+            regex.append(Pattern.quote(words[w]));
+        }
+        regex.append("(?!" + NOT_IN_A_WORD + ")");
+        return Pattern.compile(regex.toString(), Pattern.CASE_INSENSITIVE);
     }
 
     private static boolean allCovered(boolean[] covered, int from, int to) {

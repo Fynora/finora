@@ -122,7 +122,8 @@ public final class BankSentences {
 
     /** Whether {@code c} is a control character {@link #normalise} drops. */
     public static boolean isControl(char c) {
-        return CONTROL.matcher(String.valueOf(c)).matches();
+        return Character.getType(c) == Character.CONTROL
+                && c != '\t' && c != '\n' && c != '\u000B' && c != '\f' && c != '\r';
     }
 
     /** The production list, normalised. */

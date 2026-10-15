@@ -25,6 +25,7 @@ import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/JourneyWidget';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
+import { longMonthName, statementBehindNote } from '../lib/statementBehind';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
@@ -620,6 +621,11 @@ export default function Dashboard() {
     },
   ] : [];
   const kpis = isThisMonth ? monthKpis : rangeKpis;
+  // "So far": an account's statements stop short of the month these figures end in. The figures
+  // stay -- this only says what they are, once, instead of a dash or a silently low number.
+  const soFarNote = isThisMonth
+    ? statementBehindNote(summary.statementBehind, summary.reportingMonth ? longMonthName(summary.reportingMonth) : 'This month')
+    : statementBehindNote(rangeSummary?.statementBehind, rangeSummary ? longMonthName(rangeSummary.endDate) : '');
 
   return (
     <div>
@@ -775,6 +781,9 @@ export default function Dashboard() {
             />
           ))}
         </div>
+        {soFarNote && (
+          <p className="text-xs text-muted -mt-3 mb-6" data-testid="so-far-note">{soFarNote}</p>
+        )}
         {/* Money that came in over this range but is not counted in the Income card -- a transfer
             from a person, an unexplained credit on a card (see FlowClassifier on the backend).
             Without this line a user whose income drops because a parent's transfer stopped

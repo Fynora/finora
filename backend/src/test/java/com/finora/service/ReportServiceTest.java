@@ -58,7 +58,8 @@ class ReportServiceTest {
         accountCoverageService = mock(AccountCoverageService.class);
         when(accountCoverageService.gapsForUser(any())).thenReturn(List.of());
         reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService,
-                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository), accountCoverageService);
+                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository), accountCoverageService,
+                new StatementReachService(accountCoverageService, accountRepository, transactionRepository));
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, Transaction.ReconciliationStatus status) {

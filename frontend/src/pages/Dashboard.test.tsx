@@ -2225,3 +2225,79 @@ describe('Dashboard — unresolved inflow banner', () => {
     expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeInTheDocument();
   });
 });
+
+describe("Dashboard — a month that is 'so far' because a statement stops short", () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary());
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(userApi.get).mockReset().mockResolvedValue({
+      email: 'amy@example.test', fullName: 'Amy Santiago', lowBalanceThreshold: 2000,
+      theme: 'system', timezone: 'Asia/Kolkata', phoneNumber: '+919876500000',
+      phoneVerified: true, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+      onboardingCompleted: true,
+    });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.forMonth).mockReset();
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary());
+  });
+
+  it("says the month is partial so far, names the account, and keeps the month's figures", async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2026-09', monthlyExpense: 91000,
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    }));
+    renderDashboard();
+
+    expect(await screen.findByTestId('so-far-note')).toHaveTextContent(
+      "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+    // Labelled, not withheld: the expense card still shows the month's own number.
+    expect(screen.getByText('Expenses (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('₹91,000')).toBeInTheDocument();
+  });
+
+  it('shows no note when every active statement reaches the end of the month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ statementBehind: null }));
+    renderDashboard();
+
+    await screen.findByText('Expenses (This Month)');
+    expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
+  });
+
+  it('shows no note when an older server does not send the field at all', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
+    renderDashboard();
+
+    await screen.findByText('Expenses (This Month)');
+    expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
+  });
+
+  it("names the month the range ends in, from the range summary's own note", async () => {
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      endDate: '2026-09-30',
+      statementBehind: { accountName: 'Axis Card', statementEnd: '2026-08-20', accountCount: 2 },
+    }));
+    await renderOnRange();
+
+    expect(await screen.findByTestId('so-far-note')).toHaveTextContent(
+      "September is partial so far: 2 accounts' latest statements end before month-end, the earliest being Axis Card on Aug 20.");
+  });
+
+  it('does not let the month summary note leak onto a range that has none', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    }));
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({ statementBehind: null }));
+    await renderOnRange();
+
+    await screen.findByText(/^Income \(/);
+    expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
+  });
+});

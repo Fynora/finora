@@ -1824,6 +1824,32 @@ describe('month card heading', () => {
   });
 });
 
+describe('a month that is "so far" because a statement stops short of it', () => {
+  it('says so once under the month card, naming the account', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    }));
+
+    renderScreen();
+
+    const note = await screen.findByTestId('so-far-note');
+    expect(note.props.children).toBe(
+      "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+  });
+
+  it('shows no note when every active statement reaches the end of the month', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true, statementBehind: null,
+    }));
+
+    renderScreen();
+
+    await screen.findByText('This Month');
+    expect(screen.queryByTestId('so-far-note')).toBeNull();
+  });
+});
+
 describe('"As of" staleness caption on Total Balance (Track C/C5)', () => {
   it('reads "As of today" when the reporting month is the current one', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({ reportingMonthIsCurrent: true }));

@@ -248,6 +248,35 @@ describe('InsightsScreen', () => {
     expect(screen.getByText(/15% higher than last month/)).toBeTruthy();
   });
 
+  it('gives a month that is "so far" no verdict: no praise for spending that is only low because a statement is missing', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
+      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798, 'Food & Dining': 900 },
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    } as any);
+    renderScreen();
+
+    // The banner says why the month is partial, instead of "You're on track! ... Keep it up!".
+    expect(await screen.findByText(/September is partial so far: HDFC Card's latest statement ends Sep 11/)).toBeTruthy();
+    expect(screen.queryByText("You're on track!")).toBeNull();
+    expect(screen.queryByText(/Keep it up/)).toBeNull();
+    expect(screen.queryByText(/22% lower/)).toBeNull();
+  });
+
+  it('gives a month that is "so far" no warning either when spending looks higher', async () => {
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
+      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    } as any);
+    renderScreen();
+
+    expect(await screen.findByText(/September is partial so far/)).toBeTruthy();
+    expect(screen.queryByText('Heads up')).toBeNull();
+  });
+
   it('renders the Spending by Category donut and drills through on a slice tap', async () => {
     dashboard.summary.mockResolvedValue({
       monthlyIncome: 1, monthlyExpense: 10000, incomeDeltaPct: 0, expenseDeltaPct: 0, netCashFlow: 0,

@@ -74,4 +74,36 @@ describe('useDashboardKpis', () => {
     expect(savingsRate({ ...BASE_SUMMARY, savingsRatePct: null, savingsRateGateReason: 'NO_INCOME' }))
       .toMatchObject({ value: null, caption: 'No income counted yet' });
   });
+
+  describe('soFarNote', () => {
+    it('names the account and the server\'s own reporting month when a statement stops short of it', () => {
+      const { result } = renderHook(() => useDashboardKpis({
+        ...BASE_SUMMARY,
+        statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+      } as any));
+      expect(result.current.soFarNote)
+        .toBe("September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.");
+    });
+
+    it('uses the month the server reports, not the calendar month', () => {
+      const { result } = renderHook(() => useDashboardKpis({
+        ...BASE_SUMMARY, reportingMonth: '2026-07', reportingMonthIsCurrent: false,
+        statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-07-11', accountCount: 1 },
+      } as any));
+      expect(result.current.soFarNote).toContain('July is partial so far');
+    });
+
+    it('is null when nothing is behind, when an older server omits the field, and before the summary loads', () => {
+      expect(renderHook(() => useDashboardKpis({ ...BASE_SUMMARY, statementBehind: null } as any)).result.current.soFarNote).toBeNull();
+      expect(renderHook(() => useDashboardKpis(BASE_SUMMARY as any)).result.current.soFarNote).toBeNull();
+      expect(renderHook(() => useDashboardKpis(undefined)).result.current.soFarNote).toBeNull();
+    });
+
+    it('leaves every figure and delta exactly as it was -- the note labels, it does not withhold', () => {
+      const behind = { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 };
+      const withNote = renderHook(() => useDashboardKpis({ ...BASE_SUMMARY, statementBehind: behind } as any)).result.current;
+      const without = renderHook(() => useDashboardKpis(BASE_SUMMARY as any)).result.current;
+      expect(withNote.snapshotKpis).toEqual(without.snapshotKpis);
+    });
+  });
 });

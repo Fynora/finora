@@ -1592,6 +1592,21 @@ describe('LedgerScreen "This Month" summary', () => {
     expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();
   });
 
+  it('says the month is "so far" under the card when a statement stops short of it, and keeps the figures', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    dashboard.summary.mockResolvedValue({
+      monthlyIncome: 145000, monthlyExpense: 18672, incomeDeltaPct: 12, expenseDeltaPct: -8,
+      netCashFlow: 126328, netDeltaPct: 15, savingsRatePct: 87, currentBalance: 50000,
+      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
+      statementBehind: { accountName: 'HDFC Card', statementEnd: '2026-09-11', accountCount: 1 },
+    } as never);
+    renderScreen();
+
+    expect((await screen.findByTestId('so-far-note')).props.children).toContain('September is partial so far');
+    expect(screen.getByTestId('kpi-Income')).toBeTruthy();
+    expect(screen.getByTestId('kpi-Expenses')).toBeTruthy();
+  });
+
   it('names the month instead of "This Month" when the figures are from an earlier month', async () => {
     transactions.search.mockResolvedValue(page([]) as never);
     dashboard.summary.mockResolvedValue({

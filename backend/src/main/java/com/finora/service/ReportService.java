@@ -31,11 +31,16 @@ public class ReportService {
     /** Which months overlap a hole between two imported statements -- see MonthComparisonGate. */
     private final AccountCoverageService accountCoverageService;
 
+    /** Whether an account's statements stop short of a recent month. */
+    private final StatementReachService statementReach;
+
     public ReportService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                           CategoryRepository categoryRepository, TransactionGraphService transactionGraphService,
-                         InflowChoiceService inflowChoices, AccountCoverageService accountCoverageService) {
+                         InflowChoiceService inflowChoices, AccountCoverageService accountCoverageService,
+                         StatementReachService statementReach) {
         this.inflowChoices = inflowChoices;
         this.accountCoverageService = accountCoverageService;
+        this.statementReach = statementReach;
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
@@ -133,8 +138,8 @@ public class ReportService {
         RangeTotals previous = forRange(userId, prior.atDay(1), prior.atEndOfMonth());
         LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
         LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
-        boolean awaiting = latest != null && awaitingStatement(userId, month, YearMonth.from(latest),
-                accountCoverageService.latestStatementEnds(userId));
+        boolean awaiting = latest != null
+                && statementReach.behindFor(userId, month, YearMonth.from(latest)).isPresent();
         String reason = MonthComparisonGate.reason(month, prior, earliest, latest,
                 accountCoverageService.gapsForUser(userId), awaiting,
                 transactionCount, previous.transactionCount());
@@ -146,22 +151,6 @@ public class ReportService {
         return new ReportDto.MonthComparison(prior.toString(), true, null, previous.income(), previous.expense(),
                 deltaPct(income, previous.income()), deltaPct(expense, previous.expense()),
                 net.subtract(previousNet));
-    }
-
-    /**
-     * See {@link MonthComparisonGate#awaitingStatement}. The queries run only when there is a
-     * statement-backed account to judge and the month is recent enough to be judged at all, so a
-     * user with no statement imports, or looking at an old month, pays for neither.
-     */
-    private boolean awaitingStatement(UUID userId, YearMonth month, YearMonth newestDataMonth,
-                                      Map<UUID, LocalDate> latestStatementEnds) {
-        if (latestStatementEnds.isEmpty()
-                || month.isBefore(newestDataMonth.minusMonths(MonthComparisonGate.RECENT_MONTHS - 1L))) {
-            return false;
-        }
-        java.util.Set<UUID> active = new java.util.HashSet<>(transactionRepository.findAccountIdsWithTransactionsBetween(
-                userId, latestStatementEnds.keySet(), month.minusMonths(1).atDay(1), month.atEndOfMonth()));
-        return MonthComparisonGate.awaitingStatement(month, newestDataMonth, latestStatementEnds, active);
     }
 
     /** Percent change from {@code prior} to {@code current}, null when the prior is zero (a change
@@ -208,7 +197,7 @@ public class ReportService {
             RangeTotals totals = forRange(userId, m.atDay(1), m.atEndOfMonth());
             boolean complete = !MonthComparisonGate.isPartialBoundaryMonth(m.toString(), earliest, latest)
                     && !MonthComparisonGate.overlapsGap(m, gaps)
-                    && !awaitingStatement(userId, m, newest, statementEnds);
+                    && statementReach.behindFor(userId, m, newest, statementEnds).isEmpty();
             points.add(new ReportTrendPoint(m.toString(), totals.income(), totals.expense(),
                     totals.transactionCount(), complete));
         }

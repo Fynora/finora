@@ -44,6 +44,7 @@ class DashboardServiceTest {
     private com.finora.repository.StatementImportRepository statementImportRepository;
     private TransactionGraphService transactionGraphService;
     private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
+    private StatementReachService statementReach;
     private DashboardService dashboardService;
     private final UUID userId = UUID.randomUUID();
     private Account savings;
@@ -79,10 +80,12 @@ class DashboardServiceTest {
         when(userRepository.findById(any())).thenReturn(Optional.of(user));
         when(statementImportRepository.countByUserIdAndAccountIdIn(any(), any())).thenReturn(0L);
 
+        statementReach = mock(StatementReachService.class);
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
                 budgetRepository, userRepository, statementImportRepository, transactionGraphService,
                 healthScoreSnapshotRepository,
-                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)),
+                statementReach);
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, LocalDate date, Transaction.ReconciliationStatus status) {
@@ -530,6 +533,47 @@ class DashboardServiceTest {
     }
 
     @Test
+    @DisplayName("so far: the summary carries the account whose statements stop short of the reporting month, and still returns the figures")
+    void summarize_carriesTheStatementBehindNote_andKeepsTheFigures() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (LocalDate d = LocalDate.of(2026, 8, 1); !d.isAfter(LocalDate.of(2026, 8, 31)); d = d.plusDays(1)) {
+            txns.add(txn(new BigDecimal("100.00"), Transaction.Type.EXPENSE, d, Transaction.ReconciliationStatus.OK));
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+        var note = new com.finora.dto.StatementBehindDto("HDFC Card", LocalDate.of(2026, 8, 11), 1);
+        // Asked about the reporting month (August) and the newest month with data (also August).
+        when(statementReach.behindFor(eq(userId), eq(java.time.YearMonth.of(2026, 8)), eq(java.time.YearMonth.of(2026, 8))))
+                .thenReturn(Optional.of(note));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.statementBehind()).isEqualTo(note);
+        // "So far" is a label, not a reason to withhold: the month's own figure is still there.
+        assertThat(summary.monthlyExpense()).isEqualByComparingTo("3100.00");
+    }
+
+    @Test
+    @DisplayName("so far: nothing behind means no note")
+    void summarize_hasNoStatementBehindNote_whenNoAccountIsBehind() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (LocalDate d = LocalDate.of(2026, 8, 1); !d.isAfter(LocalDate.of(2026, 8, 31)); d = d.plusDays(1)) {
+            txns.add(txn(new BigDecimal("100.00"), Transaction.Type.EXPENSE, d, Transaction.ReconciliationStatus.OK));
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        assertThat(dashboardService.summarize(userId).statementBehind()).isNull();
+    }
+
+    @Test
+    @DisplayName("so far: a user with no transactions is never asked, so nothing can go wrong with an empty month list")
+    void summarize_doesNotAskAboutAStatementReach_forAUserWithNoData() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
+
+        assertThat(dashboardService.summarize(userId).statementBehind()).isNull();
+        org.mockito.Mockito.verify(statementReach, org.mockito.Mockito.never()).behindFor(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("comparison gating: a FULL prior month with too few transactions still doesn't get a delta")
     void summarize_gatesDeltas_whenTheFullPriorMonthHasTooFewTransactions() {
         // Isolated from the partial-boundary gate: the earlier of June's two transactions falls on
@@ -919,7 +963,8 @@ class DashboardServiceTest {
         dashboardService = new DashboardService(accountRepository, transactionRepository, categoryRepository,
                 budgetRepository, userRepository, statementImportRepository, transactionGraphService,
                 healthScoreSnapshotRepository,
-                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)),
+                mock(StatementReachService.class));
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
@@ -1179,7 +1224,8 @@ class DashboardServiceTest {
         DashboardService serviceWithCard = new DashboardService(accountRepositoryWithCard, transactionRepository,
                 categoryRepository, budgetRepository, userRepository, statementImportRepository, transactionGraphService,
                 healthScoreSnapshotRepository,
-                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)));
+                new InflowChoiceService(mock(InflowKindRepository.class), mock(SenderInflowRuleRepository.class)),
+                mock(StatementReachService.class));
 
         List<Transaction> txns = new java.util.ArrayList<>();
         for (int i = 0; i < 10; i++) {

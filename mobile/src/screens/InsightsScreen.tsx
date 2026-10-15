@@ -113,7 +113,7 @@ export function InsightsScreen() {
   });
   // The summary's own period, for the figures that come from it (banner, glance card, donut,
   // income card) -- see insightsPeriod above for the insights endpoint's, which can differ.
-  const { snapshotKpis, periodIsCurrent, periodTitleLong, priorPeriodLabel } = useDashboardKpis(summary);
+  const { snapshotKpis, periodIsCurrent, periodTitleLong, priorPeriodLabel, soFarNote } = useDashboardKpis(summary);
   const expenseDelta = snapshotKpis.find((k) => k.label === 'Expenses')?.delta ?? null;
   const incomeDelta = snapshotKpis.find((k) => k.label === 'Income')?.delta ?? null;
 
@@ -127,10 +127,15 @@ export function InsightsScreen() {
     staleTime: 5 * 60_000,
   });
   const [showAllInsights, setShowAllInsights] = useState(false);
-  const trackBannerTitle = expenseDelta === null
+  // A month that is "so far" gets no verdict. Spending is lower than last month's because a
+  // statement has not arrived yet, not because the person spent less, so "You're on track! ... Keep
+  // it up!" would praise a gap in the data. The banner says why the month is partial instead.
+  const trackBannerTitle = expenseDelta === null || soFarNote
     ? (periodIsCurrent ? 'This month' : periodTitleLong)
     : expenseDelta <= 0 ? "You're on track!" : 'Heads up';
-  const trackBannerBody = expenseDelta === null
+  const trackBannerBody = soFarNote
+    ? soFarNote
+    : expenseDelta === null
     ? (periodIsCurrent ? 'Keep an eye on your spending this month.' : `Keep an eye on your spending in ${periodTitleLong}.`)
     : expenseDelta <= 0
       ? `Your spending is ${Math.abs(expenseDelta).toFixed(0)}% lower than ${priorPeriodLabel}. Keep it up!`

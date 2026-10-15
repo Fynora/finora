@@ -82,12 +82,19 @@ final class MonthComparisonGate {
      */
     static boolean awaitingStatement(YearMonth month, YearMonth newestDataMonth,
                                      Map<UUID, LocalDate> latestStatementEnd, Set<UUID> activeAccountIds) {
-        if (month.isBefore(newestDataMonth.minusMonths(RECENT_MONTHS - 1L))) return false;
+        return !behindAccountIds(month, newestDataMonth, latestStatementEnd, activeAccountIds).isEmpty();
+    }
+
+    /** The accounts {@link #awaitingStatement} is about: active ones whose latest statement ends
+     *  before {@code month} does, empty when the month is too old to be judged. */
+    static List<UUID> behindAccountIds(YearMonth month, YearMonth newestDataMonth,
+                                       Map<UUID, LocalDate> latestStatementEnd, Set<UUID> activeAccountIds) {
+        if (month.isBefore(newestDataMonth.minusMonths(RECENT_MONTHS - 1L))) return List.of();
         LocalDate monthEnd = month.atEndOfMonth();
-        return activeAccountIds.stream().anyMatch(id -> {
+        return activeAccountIds.stream().filter(id -> {
             LocalDate statementEnd = latestStatementEnd.get(id);
             return statementEnd != null && statementEnd.isBefore(monthEnd);
-        });
+        }).toList();
     }
 
     /**

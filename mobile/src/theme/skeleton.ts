@@ -34,7 +34,7 @@ export const skeletonTokens = {
     statementBody: 18,
   },
   text: {
-    tiny: 10, caption: 11, meta: 12, label: 13, body: 14, heading: 15, subheading: 16,
+    axis: 9, tiny: 10, caption: 11, meta: 12, label: 13, body: 14, heading: 15, subheading: 16,
     subject: 17, amount: 18, value: 20, title: 22, hero: 28, display: 36,
   },
   control: {
@@ -46,6 +46,8 @@ export const skeletonTokens = {
     saveStatus: 16,
     /** SettingsGeneralScreen's theme switch: 44pt segments inside a 1pt border. */
     segments: 46,
+    /** InvestmentsScreen's Delete link under a holding's value (minHeight 32). */
+    rowAction: 32,
     switchHeight: 31, chip: 18, badge: 20, bar: 8, barTrack: 6,
   },
   /** Widths that are fixed in the real layout, not a share of the row. */

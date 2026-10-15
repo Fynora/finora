@@ -3,8 +3,8 @@ import { radius, spacing, useTheme } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import { Card } from '../Card';
 import {
-  SkeletonBox, SkeletonChart, SkeletonFormField, SkeletonGroup, SkeletonHero, SkeletonIcon, SkeletonLines,
-  SkeletonListRow, SkeletonProfileHeader, SkeletonSettingsRow, SkeletonText,
+  SkeletonBox, SkeletonChart, SkeletonEmptyState, SkeletonFormField, SkeletonGroup, SkeletonHero, SkeletonIcon,
+  SkeletonLines, SkeletonListRow, SkeletonProfileHeader, SkeletonSettingsRow, SkeletonText,
 } from './Skeletons';
 
 /**
@@ -73,7 +73,13 @@ export function FinancialMemorySkeleton() {
   );
 }
 
-export function InvestmentsSkeleton() {
+/**
+ * `holdingsCount` is what the cached accounts already say: 0 draws the two empty messages the
+ * screen will show, a number draws the donut and that many holding rows, and undefined (accounts
+ * not loaded yet) draws the donut and two rows standing in for "some".
+ */
+export function InvestmentsSkeleton({ holdingsCount }: { holdingsCount?: number }) {
+  const noHoldings = holdingsCount === 0;
   return (
     <SkeletonGroup testID="investments-skeleton">
       <View style={styles.headerEnd}>
@@ -89,18 +95,43 @@ export function InvestmentsSkeleton() {
       </View>
       <Card style={styles.gapMd}>
         <SkeletonText size="heading" width="35%" style={styles.stackSm} />
-        <SkeletonChart variant="donut" />
+        {noHoldings ? <SkeletonEmptyState lines={2} /> : <SkeletonChart variant="donut" />}
       </Card>
+      {/* Net Worth Trend: the heading beside the 44pt Save snapshot button, then the trend chart. */}
       <Card style={styles.gapMd}>
-        <SkeletonText size="heading" width="45%" style={styles.stackSm} />
-        <SkeletonChart />
+        <View style={styles.headerRow}>
+          <SkeletonText size="heading" width="45%" />
+          <SkeletonBox size="touch" width="35%" />
+        </View>
+        <SkeletonChart variant="trend" />
       </Card>
       <Card style={styles.gapMd}>
         <SkeletonText size="heading" width="30%" style={styles.stackSm} />
-        <SkeletonListRow />
-        <SkeletonListRow divider={false} />
+        {noHoldings
+          ? <SkeletonEmptyState />
+          : Array.from({ length: holdingsCount ?? 2 }).map((_, i) => <HoldingRowSkeleton key={i} />)}
       </Card>
     </SkeletonGroup>
+  );
+}
+
+/** InvestmentsScreen's holding row: the name and its kind on the left; the value and the 32pt
+ *  Delete link under it on the right, which is what sets the row's height. */
+function HoldingRowSkeleton() {
+  const c = useTheme();
+  return (
+    <View testID="skeleton-holding-row" style={[styles.holdingRow, { borderBottomColor: c.border }]}>
+      <View style={styles.flexFill}>
+        <SkeletonText size="body" width="55%" />
+        <SkeletonText size="tiny" width="30%" style={styles.holdingKind} />
+      </View>
+      <View style={[styles.holdingRight, { width: skeletonTokens.fixedWidth.amount }]}>
+        <SkeletonText size="body" width="100%" />
+        <View style={[styles.holdingAction, { height: skeletonTokens.control.rowAction }]}>
+          <SkeletonText size="caption" width="70%" />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -523,6 +554,14 @@ const styles = StyleSheet.create({
   // under the title; rows padded 8 with a hairline under each.
   inflowCard: { gap: spacing.sm, marginTop: spacing.md },
   statementCard: { marginBottom: spacing.md },
+  // InvestmentsScreen's holding row: padded 10 with a hairline under it, aligned to the top; the
+  // kind 2 under the name; the Delete link 6 under the value.
+  holdingRow: {
+    flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  holdingKind: { marginTop: 2 },
+  holdingRight: { alignItems: 'flex-end' },
+  holdingAction: { marginTop: 6, justifyContent: 'center', alignItems: 'flex-end', width: '100%' },
   // SupportTicketsScreen's row: a 1pt-bordered card padded 16, 4 apart; the subject and dates 3 below
   // the line above; the number and tag 4 apart.
   ticketCard: {

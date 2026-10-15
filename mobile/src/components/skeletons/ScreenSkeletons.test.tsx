@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react-native';
 import { ThemeProvider } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import {
-  FinancialMemorySkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
+  FinancialMemorySkeleton, InvestmentsSkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
   SettingsAccountSkeleton, SettingsGeneralSkeleton, SettingsSecuritySkeleton, StatementGroupCardsSkeleton,
 } from './ScreenSkeletons';
 
@@ -116,6 +116,39 @@ describe('StatementGroupCardsSkeleton', () => {
     const metaLine = skeletonTokens.textLine.statementBody;
     expect(screen.getAllByTestId('skeleton-line', { hidden: true }).map(heightOf))
       .toEqual([nameLine, metaLine, nameLine, metaLine]);
+  });
+});
+
+describe('InvestmentsSkeleton', () => {
+  function renderIt(holdingsCount?: number) {
+    render(<ThemeProvider><InvestmentsSkeleton holdingsCount={holdingsCount} /></ThemeProvider>);
+  }
+
+  it('with no holdings known, draws the empty allocation and holdings messages', () => {
+    renderIt(0);
+    expect(screen.getAllByTestId('skeleton-empty-state', { hidden: true })).toHaveLength(2);
+    expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
+    expect(screen.queryAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(0);
+  });
+
+  it('with holdings known, draws the donut and one row per holding', () => {
+    renderIt(3);
+    expect(screen.getByTestId('skeleton-chart-donut', { hidden: true })).toBeTruthy();
+    expect(screen.getAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(3);
+  });
+
+  it('draws the net worth trend as the snapshot button row over the trend chart with its date axis', () => {
+    renderIt(0);
+    expect(screen.getByTestId('skeleton-chart-trend', { hidden: true })).toBeTruthy();
+    const heights = screen.getAllByTestId('shimmer-block', { hidden: true }).map(heightOf);
+    expect(heights).toContain(skeletonTokens.control.touch);
+    expect(heights).toContain(skeletonTokens.chart.trend);
+  });
+
+  it('with holdings not yet known, draws the donut and two rows standing in for some', () => {
+    renderIt(undefined);
+    expect(screen.getByTestId('skeleton-chart-donut', { hidden: true })).toBeTruthy();
+    expect(screen.getAllByTestId('skeleton-holding-row', { hidden: true })).toHaveLength(2);
   });
 });
 

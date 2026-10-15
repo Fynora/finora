@@ -344,4 +344,12 @@ describe('InvestmentsScreen first load', () => {
     expectSkeletonNotSpinner();
     expect(screen.getByTestId('investments-skeleton')).toBeTruthy();
   });
+
+  it('with the accounts known to hold no investments, the skeleton shows the two empty cards, not a donut', async () => {
+    accounts.list.mockResolvedValue([]);
+    networth.current.mockReturnValue(never());
+    renderScreen();
+    expect(await screen.findAllByTestId('skeleton-empty-state', { hidden: true })).toHaveLength(2);
+    expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
+  });
 });

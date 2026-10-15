@@ -167,6 +167,22 @@ export function SkeletonSettingsRow({ trailing = 'none', divider = true, metaLin
   );
 }
 
+/** Card.tsx's EmptyState: a centred 13pt message, padded 16 above and below. */
+export function SkeletonEmptyState({ lines = 1 }: { lines?: number }) {
+  return (
+    <View testID="skeleton-empty-state" style={styles.emptyState}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <SkeletonText
+          key={i}
+          size="label"
+          width={lines > 1 && i === lines - 1 ? '50%' : '85%'}
+          bar={lines > 1 ? T.paragraphBar : 1}
+        />
+      ))}
+    </View>
+  );
+}
+
 /** HorizontalBarList's row: the label and its count on one line, the bar track, then the amount
  *  on the right under it -- each 2 apart, as the real row stacks them. */
 export function SkeletonBarRow() {
@@ -248,7 +264,22 @@ export function SkeletonBudgetCard() {
 
 /** Matches CashFlowChart's fixed height and DonutChart's fixed diameter -- lib/chartGeometry.ts,
  *  through skeletonTokens.chart -- so the skeleton never drifts from the chart it stands in for. */
-export function SkeletonChart({ variant = 'bar', width = '100%' }: { variant?: 'bar' | 'donut'; width?: DimensionValue }) {
+export function SkeletonChart({ variant = 'bar', width = '100%' }: {
+  variant?: 'bar' | 'donut' | 'trend';
+  width?: DimensionValue;
+}) {
+  if (variant === 'trend') {
+    // TrendChart: the plot, then its first and last dates 4 under it.
+    return (
+      <View testID="skeleton-chart-trend">
+        <Shimmer width={width} height={T.chart.trend} borderRadius={T.radius.block} />
+        <View style={styles.trendAxis}>
+          <SkeletonText size="axis" width="15%" />
+          <SkeletonText size="axis" width="15%" />
+        </View>
+      </View>
+    );
+  }
   if (variant === 'donut') {
     return (
       <View style={styles.donutWrap} testID="skeleton-chart-donut">
@@ -275,6 +306,8 @@ const styles = StyleSheet.create({
   // Every real settings row (Security, App Lock, notifications, Profile) puts its meta 2 under the title.
   settingsRowMain: { flex: 1, marginRight: spacing.sm, gap: 2 },
   barRow: { gap: 2 },
+  emptyState: { paddingVertical: spacing.md, alignItems: 'center' },
+  trendAxis: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   barRowValue: { alignSelf: 'flex-end' },
   barRowTop: { flexDirection: 'row', justifyContent: 'space-between' },
   hero: { width: '100%' },

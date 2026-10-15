@@ -202,7 +202,9 @@ export function InvestmentsScreen() {
     return (
       <GlassScreen style={styles.glassRoot}>
         <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
-          <InvestmentsSkeleton />
+          {/* The accounts list is cached across launches, so it often already knows how many
+              holdings there are while net worth is still loading. */}
+          <InvestmentsSkeleton holdingsCount={accountsQ.data ? holdings.length : undefined} />
         </ScrollView>
       </GlassScreen>
     );

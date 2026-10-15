@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
 import { Button } from '../components/Button';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { SettingsGeneralSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
@@ -112,8 +114,10 @@ export function SettingsGeneralScreen() {
 
   if (userQ.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.flex}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <SettingsGeneralSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -125,9 +129,7 @@ export function SettingsGeneralScreen() {
   if (userQ.isError || !user) {
     return (
       <GlassScreen style={styles.centered}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your settings — please try again later.
-        </Text>
+        <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />
       </GlassScreen>
     );
   }
@@ -221,7 +223,6 @@ export function SettingsGeneralScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   retakeTourRow: {

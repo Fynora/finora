@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, View } from 'react-native';
+import { LoadFailed } from '../../components/LoadFailed';
+import { SkeletonGroup, SkeletonSettingsRow } from '../../components/skeletons/Skeletons';
 import { notificationPreferencesApi, type NotificationPreference } from '../../api/endpoints';
 import { spacing, useTheme } from '../../theme';
 
@@ -27,13 +29,22 @@ export function NotificationPreferencesSection() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Bumped by "Try again" to run the load below once more.
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
     notificationPreferencesApi.list()
       .then((p) => { if (!cancelled) setPrefs(p); })
       .catch(() => { if (!cancelled) setLoadError(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [attempt]);
+
+  function retryLoad() {
+    setLoadError(false);
+    setPrefs(null);
+    setAttempt((a) => a + 1);
+  }
 
   async function toggle(pref: NotificationPreference, next: boolean) {
     setSaving(true);
@@ -51,11 +62,12 @@ export function NotificationPreferencesSection() {
     <View style={[styles.section, { borderTopColor: c.border }]}>
       <Text style={[styles.heading, { color: c.ink }]}>Notifications</Text>
       {loadError ? (
-        <Text style={[styles.meta, { color: c.dangerInk }]}>
-          Couldn&apos;t load your notification settings. Try reopening Settings.
-        </Text>
+        <LoadFailed message="Couldn't load your notification settings." tone="danger" onRetry={retryLoad} />
       ) : prefs === null ? (
-        <ActivityIndicator color={c.primary} accessibilityLabel="Loading your notification settings" />
+        <SkeletonGroup>
+          <SkeletonSettingsRow trailing="switch" />
+          <SkeletonSettingsRow trailing="switch" divider={false} />
+        </SkeletonGroup>
       ) : (
         <>
           {/* A channel this build has no copy for (a newer backend) is skipped, not rendered blank --

@@ -248,6 +248,28 @@ export function TicketDetailSkeleton() {
   );
 }
 
+export function SettingsGeneralSkeleton() {
+  return (
+    <SkeletonGroup testID="settings-general-skeleton">
+      <SkeletonFormField />
+      <View style={styles.gapSm}>
+        <SkeletonFormField />
+      </View>
+      <View style={styles.gapMd}>
+        <SkeletonText size="meta" width="20%" style={styles.stackSm} />
+        <SkeletonBox size="touch" />
+        <SkeletonText size="caption" width="80%" style={styles.gapSm} />
+      </View>
+      <SkeletonBox size="button" style={styles.gapMd} />
+      <View style={styles.gapMd}>
+        <SkeletonText size="heading" width="35%" style={styles.stackSm} />
+        <SkeletonSettingsRow trailing="switch" />
+        <SkeletonSettingsRow trailing="switch" divider={false} />
+      </View>
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },

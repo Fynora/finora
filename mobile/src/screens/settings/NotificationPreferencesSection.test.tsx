@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { NotificationPreferencesSection } from './NotificationPreferencesSection';
 import { notificationPreferencesApi } from '../../api/endpoints';
 import { ThemeProvider } from '../../theme';
+import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
 
 jest.mock('../../api/endpoints', () => ({
   notificationPreferencesApi: { list: jest.fn(), set: jest.fn() },
@@ -62,5 +63,26 @@ describe('NotificationPreferencesSection', () => {
 
     expect(await screen.findByText(/couldn't load your notification settings/i)).toBeTruthy();
     expect(screen.queryByLabelText('Email')).not.toBeOnTheScreen();
+  });
+});
+
+describe('NotificationPreferencesSection loading states', () => {
+  beforeEach(() => api.list.mockReset());
+
+  it('shows a skeleton, not a spinner, while the preferences load', () => {
+    api.list.mockReturnValue(never());
+    renderSection();
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again loads them again', async () => {
+    api.list.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    expect(await screen.findByText("Couldn't load your notification settings.")).toBeTruthy();
+
+    api.list.mockResolvedValueOnce(both(true, true));
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findAllByRole('switch')).not.toHaveLength(0);
+    expect(api.list).toHaveBeenCalledTimes(2);
   });
 });

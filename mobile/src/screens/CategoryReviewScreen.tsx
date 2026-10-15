@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -227,7 +228,7 @@ export function CategoryReviewScreen() {
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
       contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <Text style={[styles.title, { color: c.ink }]}>Review categories</Text>
       <Text style={[styles.subtitle, { color: c.muted }]}>

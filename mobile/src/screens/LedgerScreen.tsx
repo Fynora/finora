@@ -3,6 +3,7 @@ import {
   ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View,
   type NativeScrollEvent, type NativeSyntheticEvent, type TextInput,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -523,8 +524,7 @@ export function LedgerScreen() {
           if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
         }}
         onEndReachedThreshold={0.4}
-        refreshing={isFetching && !isFetchingNextPage}
-        onRefresh={() => void refetch()}
+        refreshControl={<AppRefreshControl refreshing={isFetching && !isFetchingNextPage} onRefresh={() => void refetch()} tintColor={c.primary} />}
         contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         ListHeaderComponent={
           <View style={styles.header}>

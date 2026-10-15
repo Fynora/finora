@@ -14,6 +14,7 @@ import {
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 // useWindowDimensions (used for chart width and, per the "large Dynamic Type" describe block
 // below, font scale) reads its value from Dimensions.get('window') on mount -- spying there,
@@ -532,6 +533,16 @@ describe('pull-to-refresh indicator', () => {
     expect(withBypass).toHaveBeenCalledTimes(1);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard-summary'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] });
+  });
+
+  it('a pull to refresh gives one impact', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    await screen.findByText('Total Balance');
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+    expectHaptics({ impact: 1 });
   });
 
   it('stays visible until Goals, Insights, and the Cash Flow report queries have finished too', async () => {

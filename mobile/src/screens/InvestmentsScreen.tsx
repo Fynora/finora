@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text,
+  Pressable, ScrollView, StyleSheet, Text,
   useWindowDimensions, View
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -218,7 +219,7 @@ export function InvestmentsScreen() {
     <ScrollView
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={styles.header}>
         <Pressable

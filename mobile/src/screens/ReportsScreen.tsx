@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -183,7 +184,7 @@ export function ReportsScreen() {
     <ScrollView
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={
-        <RefreshControl
+        <AppRefreshControl
           refreshing={isFetching && !reportLoading}
           // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
           onRefresh={() => withBypass(() => void queryClient.invalidateQueries({ queryKey: ['report', month] }))}

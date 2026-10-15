@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
+  Pressable, ScrollView, StyleSheet, Text, View
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -177,7 +178,7 @@ export function GoalsScreen() {
       contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
-        <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
+        <AppRefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
       <View style={styles.header}>

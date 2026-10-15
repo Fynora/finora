@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -170,7 +171,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
     <ScrollView
       style={styles.flex}
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
     >
       <Card style={styles.section}>
         <View style={styles.periodRow}>

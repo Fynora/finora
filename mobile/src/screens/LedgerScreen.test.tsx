@@ -1,4 +1,4 @@
-import { FlatList, Platform, StyleSheet } from 'react-native';
+import { FlatList, Platform, RefreshControl, StyleSheet } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import {
   ledgerPageRequest,
 } from './LedgerScreen';
 import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
-import { hapticImpact } from '../lib/haptics';
+import { expectHaptics } from '../test/haptics';
 import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
@@ -65,8 +65,6 @@ jest.mock('../api/endpoints', () => ({
 jest.mock('../lib/invalidateFinancialData', () => ({
   invalidateFinancialData: jest.fn(),
 }));
-
-jest.mock('../lib/haptics');
 
 // React Native's jest setup reports a font scale of 2, which is "large text" to this screen: rows
 // lose their avatar and the controls stack. These tests describe the ordinary layout; the one that
@@ -641,7 +639,18 @@ describe('long-press haptic', () => {
 
     fireEvent(screen.getByRole('button', { name: /Grocery run/ }), 'longPress');
 
-    expect(hapticImpact).toHaveBeenCalledTimes(1);
+    expectHaptics({ impact: 1 });
+  });
+});
+
+describe('pull to refresh', () => {
+  it('a pull to refresh gives one impact', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await waitFor(() => screen.getByText('Grocery run'));
+    const control = screen.UNSAFE_getByType(RefreshControl);
+    act(() => control.props.onRefresh());
+    expectHaptics({ impact: 1 });
   });
 });
 
@@ -920,7 +929,7 @@ describe('correcting a category from the ledger', () => {
     // The detail sheet must NOT have opened -- a long-press that also fired the tap handler would
     // put a delete confirmation on top of (or under) it.
     expect(screen.queryByText('Transaction Details')).toBeNull();
-    expect(hapticImpact).toHaveBeenCalled();
+    expectHaptics({ impact: 1 });
   });
 });
 

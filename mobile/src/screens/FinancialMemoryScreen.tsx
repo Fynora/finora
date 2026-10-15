@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { FinancialMemorySkeleton } from '../components/skeletons/ScreenSkeletons';
@@ -94,7 +95,7 @@ export function FinancialMemoryScreen() {
     <ScrollView
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={
-        <RefreshControl
+        <AppRefreshControl
           refreshing={(summaryQ.isFetching || recurringQ.isFetching) && !summaryQ.isLoading}
           onRefresh={() => { void summaryQ.refetch(); void recurringQ.refetch(); }}
           tintColor={c.primary}

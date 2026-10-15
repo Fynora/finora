@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -415,7 +416,7 @@ export function DashboardScreen() {
     <ScrollView
       ref={scrollRef}
       contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       {/* No persistent in-app header exists on mobile today -- BrandMark only renders on
           AuthScreenLayout (login/register). This mirrors web Sidebar.tsx's brand+badge placement

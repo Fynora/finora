@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../components/Button';
@@ -118,7 +119,7 @@ export function ProfileScreen({ navigation }: Props) {
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
-        <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
+        <AppRefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }
     >
       {/* Shows the SAVED name, never the in-progress edit, so it can't contradict the "Unsaved

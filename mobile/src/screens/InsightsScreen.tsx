@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
@@ -310,7 +311,7 @@ export function InsightsScreen() {
     <ScrollView
       ref={scrollRef}
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.headerText}>

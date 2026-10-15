@@ -1671,7 +1671,9 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     renderScreen();
     await screen.findByText('Netflix');
     fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
-    await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
+    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull poll pretty-prints the whole fiber and
+    // starves the very timer that removes the row (the Insights twin failed this way on CI).
+    await waitFor(() => expect(screen.queryByText('Netflix')).not.toBeOnTheScreen());
     expectHaptics({});
 
     await act(async () => resolve());

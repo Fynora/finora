@@ -103,7 +103,9 @@ describe('InsightsScreen', () => {
     resetHapticCalls();
 
     fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
-    await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull poll pretty-prints the whole fiber and
+    // starves the very timer that removes the row (failed this way on a loaded CI runner).
+    await waitFor(() => expect(screen.queryByText('netflix')).not.toBeOnTheScreen());
     expectHaptics({});
 
     await act(async () => resolve());

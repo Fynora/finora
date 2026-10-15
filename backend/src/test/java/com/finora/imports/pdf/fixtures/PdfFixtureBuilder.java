@@ -290,6 +290,32 @@ public final class PdfFixtureBuilder {
         return render(List.of(page));
     }
 
+    /**
+     * {@link #buildReferenceNumberAndBalanceSample}'s table with a bank's notice sentence printed in
+     * the narration column on a dateless line under the last row -- the shape that sweeps a footer
+     * into a transaction's description -- and the same sentence again on a line of its own below
+     * the table, with an invented name on the line under it. {@code notice} is the sentence as
+     * printed.
+     */
+    public static byte[] buildNoticeSwallowedIntoADescriptionSample(String notice) throws IOException {
+        float[] col = {LEFT_MARGIN, 115f, 320f, 460f, 530f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("CANARA BANK")
+                .blankLine()
+                .row(col, "Date", "Particulars", "Reference No", "Amount", "Balance")
+                .row(col, "01/07/2026", "UPI/DR/234567890123/GENERIC MERCHANT", "234567890123", "-1000.00", "49000.00")   // synthetic-ok: invented ascending digits
+                .row(col, "01/07/2026", "MOB-IMPS/CR/SAMPLE SNDR", "10203040506070", "1000.00", "50000.00")   // synthetic-ok: 10-20-30-40-50-60-70, invented, not corpus-derived
+                .row(col, "02/07/2026", "UPI/DR/345678901234/GENERIC PAYEE", "345678901234", "-150.00", "49850.00")   // synthetic-ok: invented ascending digits
+                .row(col, null, notice)
+                .blankLine()
+                .blankLine()
+                .line(notice)
+                .line(PLANTED_NAME);
+
+        return render(List.of(page));
+    }
+
     /** Invented customer-shaped values planted by {@link #buildSampleWithPlantedCustomerData}, so a
      *  test can assert none of them reaches a blanked copy. None belongs to anybody. */
     public static final String PLANTED_NAME = "Asha Verma";

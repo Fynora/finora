@@ -17,7 +17,7 @@ class MonthComparisonGateTest {
 
     private static String reason(LocalDate earliest, LocalDate latest, List<AccountCoverageService.DateRange> gaps,
                                  int selectedCount, int priorCount) {
-        return MonthComparisonGate.reason(AUG, JUL, earliest, latest, gaps, selectedCount, priorCount);
+        return MonthComparisonGate.reason(AUG, JUL, earliest, latest, gaps, false, selectedCount, priorCount);
     }
 
     // --- the partial-boundary rule (moved here from DashboardService unchanged) ---
@@ -90,7 +90,78 @@ class MonthComparisonGateTest {
         // Selected month is the ragged latest bucket AND the prior is thin AND there is a gap:
         // the partial selected month is what a reader needs to hear first.
         var gap = List.of(new AccountCoverageService.DateRange(LocalDate.of(2026, 7, 5), LocalDate.of(2026, 7, 9)));
-        assertThat(MonthComparisonGate.reason(YearMonth.of(2026, 9), AUG, FIRST, LocalDate.of(2026, 9, 12), gap, 4, 1))
+        assertThat(MonthComparisonGate.reason(YearMonth.of(2026, 9), AUG, FIRST, LocalDate.of(2026, 9, 12), gap, true, 4, 1))
                 .isEqualTo("SELECTED_MONTH_PARTIAL");
+    }
+
+    // --- an account whose statements stop short of the month ---
+
+    private static final YearMonth SEP = YearMonth.of(2026, 9);
+    private static final java.util.UUID CARD = java.util.UUID.randomUUID();
+    private static final java.util.UUID BANK = java.util.UUID.randomUUID();
+
+    private static boolean awaiting(YearMonth month, YearMonth newest, LocalDate cardEnd, java.util.Set<java.util.UUID> active) {
+        var ends = new java.util.HashMap<java.util.UUID, LocalDate>();
+        ends.put(BANK, LocalDate.of(2026, 9, 30));
+        if (cardEnd != null) ends.put(CARD, cardEnd);
+        return MonthComparisonGate.awaitingStatement(month, newest, ends, active);
+    }
+
+    @Test
+    void aCardWhoseStatementEndsOnThe11th_leavesTheNewestMonthAwaitingItsStatement() {
+        // The case this exists for: bank to 30 Sep, card cycle ends 11 Sep. September looks
+        // complete to the user-level rule, but the card's last three weeks are not in yet.
+        assertThat(awaiting(SEP, SEP, LocalDate.of(2026, 9, 11), java.util.Set.of(BANK, CARD))).isTrue();
+    }
+
+    @Test
+    void theMonthBefore_isNotAwaitingWhenTheCardsStatementReachesIntoTheNextMonth() {
+        // The same card statement (to 11 Sep) fully covers August.
+        assertThat(awaiting(AUG, SEP, LocalDate.of(2026, 9, 11), java.util.Set.of(BANK, CARD))).isFalse();
+    }
+
+    @Test
+    void aCardThatMissedAWholeCycle_leavesBothRecentMonthsAwaiting() {
+        LocalDate stoppedAug11 = LocalDate.of(2026, 8, 11);
+        assertThat(awaiting(SEP, SEP, stoppedAug11, java.util.Set.of(BANK, CARD))).isTrue();
+        assertThat(awaiting(AUG, SEP, stoppedAug11, java.util.Set.of(BANK, CARD))).isTrue();
+    }
+
+    @Test
+    void aStatementReachingExactlyMonthEnd_isNotBehind_andOneDayShortIs() {
+        assertThat(awaiting(SEP, SEP, LocalDate.of(2026, 9, 30), java.util.Set.of(CARD))).isFalse();
+        assertThat(awaiting(SEP, SEP, LocalDate.of(2026, 9, 29), java.util.Set.of(CARD))).isTrue();
+    }
+
+    @Test
+    void anAccountWithNoTransactionsInTheWindow_isNeverTheCause() {
+        // A savings account that was simply quiet: nothing in the month or the one before.
+        assertThat(awaiting(SEP, SEP, LocalDate.of(2026, 6, 1), java.util.Set.of(BANK))).isFalse();
+    }
+
+    @Test
+    void aClosedCard_stopsBlockingOnceTheMonthIsNoLongerRecent() {
+        // Final card statement ended 11 Aug and the card was closed. While September is the newest
+        // month, August and September are held back; by November they are not judged at all.
+        LocalDate lastStatement = LocalDate.of(2026, 8, 11);
+        var cardWasActive = java.util.Set.of(CARD);
+        assertThat(awaiting(AUG, SEP, lastStatement, cardWasActive)).isTrue();
+        assertThat(awaiting(AUG, YearMonth.of(2026, 11), lastStatement, cardWasActive)).isFalse();
+        assertThat(awaiting(SEP, YearMonth.of(2026, 11), lastStatement, cardWasActive)).isFalse();
+    }
+
+    @Test
+    void aStatementBackedAccountIsTheOnlyKindJudged_anAccountWithNoStatementIsNotInTheMap() {
+        // BANK is in the map; a manual-only account is not, so even if it is active it cannot count.
+        var ends = java.util.Map.of(BANK, LocalDate.of(2026, 9, 30));
+        assertThat(MonthComparisonGate.awaitingStatement(SEP, SEP, ends, java.util.Set.of(CARD))).isFalse();
+    }
+
+    @Test
+    void theStatementBehindReason_sitsAfterTheGapRuleAndBeforeTheThinPriorRule() {
+        var gap = List.of(new AccountCoverageService.DateRange(LocalDate.of(2026, 7, 5), LocalDate.of(2026, 7, 9)));
+        assertThat(MonthComparisonGate.reason(AUG, JUL, FIRST, LAST, List.of(), true, 5, 5)).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
+        assertThat(MonthComparisonGate.reason(AUG, JUL, FIRST, LAST, gap, true, 5, 5)).isEqualTo("COVERAGE_GAP");
+        assertThat(MonthComparisonGate.reason(AUG, JUL, FIRST, LAST, List.of(), true, 5, 1)).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
     }
 }

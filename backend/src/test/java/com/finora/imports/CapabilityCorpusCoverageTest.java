@@ -1,9 +1,6 @@
 package com.finora.imports;
 
-import com.finora.dto.ImportDto;
 import com.finora.imports.pdf.PdfTableLocator;
-import com.finora.imports.pdf.fixtures.PdfTrace;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -12,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,22 +54,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * test goes red until the entry is deleted, so the ratchet tightens by itself instead of waiting for
  * someone to remember.
  *
- * <p><b>{@code @Tag("nightly")}.</b> This is a coverage metric, not a correctness gate — the doc
- * above already says a drop here means "add a trace", not "something broke". Excluded from the
- * default backend suite (backend/pom.xml's {@code excludedGroups}) rather than run on every PR —
- * the one candidate out of four slow corpus-driven tests investigated for this that was actually
- * safe to defer; the other three (trace PII scanning, a silent-data-loss regression sweep, a
- * targeted real-document defect test) stay on every run because deferring any of them risks a real
- * correctness or security regression sitting on main for a day, not just a stale metric.
+ * <p>Runs on every build. It used to carry {@code @Tag("nightly")}, because its corpus half ran the
+ * locator over every committed trace; that half is now {@code CapabilityCorpusCoverageTracesTest}
+ * in the private repository, and what is left here only scans the production sources.
  *
- * <p>Run by {@code corpus-coverage-nightly.yml} on its own daily schedule, and — added 2026-09-05
- * after PR #930 registered four new capabilities with no committed trace covering any of them, a
- * gap the nightly-only cadence let sit on main for a day before catching (fixed in PR #957) — also
- * on any pull request that touches {@link CapabilityCoverageService}, this class, or the committed
- * trace corpus, so the next capability registered without coverage is caught at review time
- * instead. See that workflow file's own comment for the exact path filter.
+ * <p>The tests that read committed statement traces moved to {@code
+ * CapabilityCorpusCoverageTracesTest} in the private Fynora/finora-statement-traces repository,
+ * with the traces themselves (see docs/engineering/private-statement-traces.md).
  */
-@Tag("nightly")
 class CapabilityCorpusCoverageTest {
 
     /**
@@ -622,99 +610,6 @@ class CapabilityCorpusCoverageTest {
                         documented was resolved. Delete it, so the list keeps meaning what it says \
                         and this test gets correspondingly stricter.""")
                 .isEmpty();
-    }
-
-    @Test
-    void everyDeclaredCapabilityIsExercisedByACommittedTrace() {
-        Set<String> covered = capabilitiesTheCorpusExercises();
-
-        Set<String> uncovered = new TreeSet<>(CapabilityCoverageService.KNOWN_CAPABILITIES);
-        uncovered.removeAll(covered);
-        uncovered.removeAll(DECLARED_WITHOUT_A_TRACE.keySet());
-
-        assertThat(uncovered)
-                .as("""
-                        A capability is claimed with nothing in the corpus that exercises it, so a \
-                        change that breaks it fails on a customer's statement rather than on this \
-                        build. Capture a trace, or add it to DECLARED_WITHOUT_A_TRACE with the \
-                        reason it is being left uncovered.""")
-                .isEmpty();
-    }
-
-    /** The ratchet. Every line deleted from the shortfall is a claim that became evidence, and this
-     *  is what stops one being added back quietly to make room for another. */
-    @Test
-    void theCorpusShortfallOnlyEverShrinks() {
-        Set<String> covered = capabilitiesTheCorpusExercises();
-        List<String> resolved = DECLARED_WITHOUT_A_TRACE.keySet().stream().filter(covered::contains).toList();
-
-        assertThat(resolved)
-                .as("""
-                        A trace now exercises a capability still listed as uncovered. Delete the \
-                        entry -- leaving it there means the shortfall stops describing the corpus \
-                        and the number stops being worth reporting.""")
-                .isEmpty();
-
-        List<String> unknown = DECLARED_WITHOUT_A_TRACE.keySet().stream()
-                .filter(c -> !CapabilityCoverageService.KNOWN_CAPABILITIES.contains(c)).toList();
-        assertThat(unknown)
-                .as("the shortfall names a capability the registry no longer declares")
-                .isEmpty();
-    }
-
-    /**
-     * Reports coverage rather than asserting it, so the number is visible on every run.
-     *
-     * <p>Not a soft assertion — the gate above is the assertion. This exists because a shortfall
-     * nobody sees is a shortfall nobody closes, and a figure printed on every build is the cheapest
-     * form of pressure there is.
-     */
-    @Test
-    void reportsWhereTheCorpusStands() {
-        Set<String> declared = new TreeSet<>(CapabilityCoverageService.KNOWN_CAPABILITIES);
-        Set<String> covered = capabilitiesTheCorpusExercises();
-        Set<String> declaredAndCovered = new TreeSet<>(declared);
-        declaredAndCovered.retainAll(covered);
-
-        // Worded carefully, because this line is what gets quoted. "7 of 16 covered" reads as "9 do
-        // not work", and that is not what was measured -- a capability can be correct and simply
-        // have no committed trace. What this number says is how much of the engine a parser change
-        // cannot silently break, which is a statement about the CORPUS, not about the parser.
-        System.out.printf(
-                "%n[corpus] %d of %d declared capabilities have at least one regression trace "
-                        + "exercising them (%.0f%%), from %d committed trace(s).%n"
-                        + "[corpus] This measures evidence, not correctness: an unexercised "
-                        + "capability may work perfectly and simply lack a trace.%n",
-                declaredAndCovered.size(), declared.size(),
-                100.0 * declaredAndCovered.size() / declared.size(),
-                PdfTrace.committedTraceNames().size());
-        System.out.println("[corpus] exercised by a trace: " + String.join(", ", declaredAndCovered));
-        Set<String> remaining = new TreeSet<>(declared);
-        remaining.removeAll(declaredAndCovered);
-        System.out.println("[corpus] no trace yet:        " + String.join(", ", remaining));
-
-        assertThat(PdfTrace.committedTraceNames())
-                .as("the corpus is empty -- every claim about parser coverage is unevidenced")
-                .isNotEmpty();
-    }
-
-    /**
-     * What the corpus actually exercises, by running the locator over each trace and reading what
-     * fired.
-     *
-     * <p>Deliberately not the traces' own {@code capabilities} metadata. A corpus that grades itself
-     * on what it claims to cover is not a gate. The two v3 traces now carry capability metadata and
-     * the remaining v1 carries none, so a metadata-based measure would grade the corpus on its own
-     * claims for two documents and report nothing at all for the third.
-     */
-    private static Set<String> capabilitiesTheCorpusExercises() {
-        Set<String> covered = new LinkedHashSet<>();
-        for (String name : PdfTrace.committedTraceNames()) {
-            DocumentContext ctx = new DocumentContext("PDF", "CapabilityCorpusCoverageTest");
-            new PdfTableLocator().locateAll(PdfTrace.load(name), ctx);
-            ctx.capabilities().stream().map(ImportDto.CapabilityActivation::capability).forEach(covered::add);
-        }
-        return covered;
     }
 
     /**

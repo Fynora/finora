@@ -46,7 +46,6 @@ be increased", 2026-08-07). See [self-hosted-runner.md](self-hosted-runner.md).
 | `codeql.yml` | as before | skipped (code scanning needs GitHub Code Security on private repos) |
 | `maestro-nightly.yml` | mobile merges, nightly | by hand only |
 | `e2e-nightly.yml` | nightly | by hand only |
-| `corpus-coverage-nightly.yml` | path-filtered PRs, nightly | path-filtered pushes to `full-ci` PRs, by hand |
 | `sync-dev-branch.yml` | every push to main | by hand only, and needs a passing by-hand CI run on main |
 | `github-traffic-metrics.yml` | every 6 hours | skipped (no outside traffic; auto-merge is public-only on Free) |
 | `gitleaks-nightly.yml` | nightly | nightly (unchanged) |

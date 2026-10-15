@@ -162,6 +162,12 @@ public class SecurityConfig {
                     // its own signature check ran. AccountAggregatorWebhookControllerIT now pins
                     // the HTTP-level behaviour for all three webhook routes.
                     .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/setu").permitAll()
+                    // The private trace repository's nightly retention job -- no Finora session. Its
+                    // dedicated key (checked in constant time in TraceRetentionController, which
+                    // answers 404 until app.trace-retention.key is set) replaces authentication,
+                    // same reasoning as the webhooks above. TraceRetentionIT calls it with no
+                    // Authorization header to pin that this rule is what lets it through.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/internal/trace-retention/gone").permitAll()
                     // Actuator lives on its own port (management.server.port), which Railway never
                     // routes a domain to -- so these two rules only ever grant anything to a caller
                     // already inside the private network. On the public port the endpoints are not

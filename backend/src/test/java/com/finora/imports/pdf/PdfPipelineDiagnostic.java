@@ -99,7 +99,9 @@ class PdfPipelineDiagnostic {
      *            -DpdfPath=scratch-pdf/whatever.pdf -DtraceName=hdfc-txn-date-header
      * </pre>
      *
-     * Writes {@code src/test/resources/traces/&lt;traceName&gt;.trace} -- the document's text layer
+     * Writes {@code &lt;traceName&gt;.trace} into {@link PdfTrace#tracesDir()} -- the private
+     * Fynora/finora-statement-traces checkout that {@code scripts/trace-capture.sh} points
+     * {@code finora.traces.dir} at, never this repository -- the document's text layer
      * with coordinates intact and every non-structural token masked (see {@link PdfTraceRedactor}).
      * This is the step that makes "every production bug becomes a permanent regression case"
      * affordable: it takes one command rather than an afternoon of hand-authoring a synthetic PDF
@@ -150,7 +152,7 @@ class PdfPipelineDiagnostic {
                     + result.blockers().size() + " blocker(s) above must be resolved first.");
         }
 
-        Path out = Path.of("src/test/resources/traces", traceName + ".trace");
+        Path out = PdfTrace.tracesDir().resolve(traceName + ".trace");
         Files.createDirectories(out.getParent());
         Files.writeString(out, content);
         System.out.println("Written -> " + out.toAbsolutePath());

@@ -106,6 +106,24 @@ if [ "$1" = "--tree-ratchet" ]; then
   MODE_RATCHET="yes"
 fi
 
+# Statement traces and their golden outputs live in the private Fynora/finora-statement-traces
+# repository (project 3 of docs/superpowers/specs/2026-10-14-fixing-statements-without-the-real-
+# statement-design.md). A trace is derived from a statement even when it passes every check below,
+# so the hook refuses one by its path before reading any content. CI's counterpart, which reads the
+# whole tree rather than what is staged, is scripts/check-no-statement-traces.sh.
+if [ -z "$1" ]; then
+  staged_traces=$(git diff --cached --name-only --diff-filter=ACR | grep -E '\.trace$|\.golden\.txt$' || true)
+  if [ -n "$staged_traces" ]; then
+    echo "" >&2
+    echo "COMMIT BLOCKED: statement traces belong in Fynora/finora-statement-traces, not here:" >&2
+    printf '%s\n' "$staged_traces" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "  See docs/engineering/private-statement-traces.md." >&2
+    echo "" >&2
+    exit 1
+  fi
+fi
+
 if [ "$1" = "--range" ]; then
   MODE_RANGE="yes"
   BASE="$2"

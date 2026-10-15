@@ -7,18 +7,10 @@ import com.finora.imports.DuplicateDetector;
 import com.finora.imports.TransactionNormalizer;
 import com.finora.imports.pdf.PdfPreviewGenerator.PdfGenerationResult;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
-import com.finora.imports.pdf.fixtures.PdfTrace;
 import com.finora.repository.TransactionRepository;
 import com.finora.service.CategorizationService;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
 
-import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -49,6 +41,11 @@ import static org.mockito.Mockito.when;
  * that actually matters to a user is the account type the review form gets prefilled with --
  * {@code suggestedAccountType} -- plus the {@code CREDIT_CARD_SUMMARY_SIGNAL} capability the
  * document context records for the corpus.
+ *
+ * <p>The tests that read committed statement traces moved to {@code
+ * CreditCardSignalEvidenceThresholdPdfPreviewGeneratorTracesTest} in the private
+ * Fynora/finora-statement-traces repository, with the traces themselves (see
+ * docs/engineering/private-statement-traces.md). The tests left here build their input by hand.
  */
 class CreditCardSignalEvidenceThresholdPdfPreviewGeneratorTest {
 
@@ -292,112 +289,8 @@ class CreditCardSignalEvidenceThresholdPdfPreviewGeneratorTest {
                 .doesNotContain("CREDIT_CARD_SUMMARY_SIGNAL");
     }
 
-    // ---------- a real statement, end to end ----------
-
-    /**
-     * The whole rule measured against a real AU Small Finance Bank credit-card statement, via the
-     * committed positional trace of its text layer rather than a fixture anyone here wrote.
-     *
-     * <p>This document is the reason both halves of the fix exist, and it is the one that shows
-     * why "does it classify correctly" was too weak a question to have been asking. Under the
-     * previous rule it passed on EXACTLY two signals -- "Minimum amount due", plus a bare "credit
-     * limit" substring -- i.e. with zero margin, and one of those two was the entry that
-     * false-positived HSBC. It now clears the threshold on three, and every one of them is
-     * something a card statement genuinely prints: "Minimum amount due", "Total amount due" (a
-     * spelling that was not on the list at all), and a real labelled "Total Credit Limit:
-     * ₹1,00,000.00" field.
-     */
-    @Test
-    void aRealAuCreditCardStatement_clearsTheThresholdWithMarginToSpare() {
-        List<String> auxiliaryText = auPaymentSummarySectionText();
-
-        assertThat(new PdfPreviewGenerator((PdfTextExtractor) null, null, null, null, null, null, null, null)
-                .countDistinctCreditCardSignals(auxiliaryText))
-                .as("AU's payment summary: 'Total amount due' + 'Minimum amount due' + a labelled "
-                        + "'Total Credit Limit: <amount>' field")
-                .isEqualTo(3);
-    }
-
-    /** Names the three signals individually, so a regression that swapped one for another (and so
-     *  kept the count at three) still fails here. */
-    @Test
-    void aRealAuCreditCardStatement_carriesEachOfTheThreeSignalsIndividually() {
-        List<String> lower = auPaymentSummarySectionText().stream()
-                .filter(l -> l != null).map(l -> l.toLowerCase(java.util.Locale.ROOT)).toList();
-
-        assertThat(lower).anyMatch(l -> l.contains("total amount due"));
-        assertThat(lower).anyMatch(l -> l.contains("minimum amount due"));
-        assertThat(lower).anyMatch(l -> l.contains("total credit limit: ₹1,00,000.00"));
-    }
-
-    /**
-     * The same document, but through {@code generate} from PDF bytes rather than from the located
-     * section -- the path a user's upload actually takes -- so the assertion above cannot be
-     * passing on a section that the real pipeline would never have assembled.
-     */
-    @Test
-    void aRealAuCreditCardStatement_isPrefilledAsACreditCardEndToEnd() throws Exception {
-        byte[] pdf = renderTrace(PdfTrace.load(AU_CREDIT_CARD_TRACE));
-
-        assertThat(suggestedAccountType(pdf, "au_credit_card_statement.pdf")).isEqualTo("CREDIT_CARD");
-        assertThat(activatedCapabilities(pdf, "au_credit_card_statement.pdf"))
-                .contains("CREDIT_CARD_SUMMARY_SIGNAL");
-    }
-
-    // ---------- helpers ----------
-
-    private static final String AU_CREDIT_CARD_TRACE = "au-credit-card-statement";
-
-    /** The AU statement's first section -- the one carrying the payment summary block. */
-    private List<String> auPaymentSummarySectionText() {
-        return new PdfTableLocator().locateAll(PdfTrace.load(AU_CREDIT_CARD_TRACE), null)
-                .sections().get(0).auxiliaryText();
-    }
-
     private long signalCount(String... auxiliaryLines) {
         return new PdfPreviewGenerator((PdfTextExtractor) null, null, null, null, null, null, null, null)
                 .countDistinctCreditCardSignals(List.of(auxiliaryLines));
-    }
-
-    /**
-     * Draws a trace's runs back onto a PDF at their captured coordinates. Deliberately the same
-     * technique the corpus measurement harness uses: the layout is reconstructed, not the original
-     * file, which is enough for a classification question that reads the text layer.
-     *
-     * <p>Non-ASCII glyphs are dropped, since the standard-14 font cannot encode them -- which
-     * incidentally exercises the currency symbol being optional in the credit-limit field pattern:
-     * end to end, AU's line arrives as "Total Credit Limit: 1,00,000.00" with no symbol at all.
-     */
-    private static byte[] renderTrace(List<PositionedText> runs) throws Exception {
-        int pageCount = runs.stream().mapToInt(PositionedText::pageIndex).max().orElse(0) + 1;
-        try (PDDocument doc = new PDDocument()) {
-            for (int p = 0; p < pageCount; p++) {
-                PDPage page = new PDPage(PDRectangle.A4);
-                doc.addPage(page);
-                float h = PDRectangle.A4.getHeight();
-                final int pageIndex = p;
-                try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
-                    cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 9f);
-                    for (PositionedText r : runs) {
-                        if (r.pageIndex() != pageIndex) continue;
-                        String text = ascii(r.text());
-                        if (text.isEmpty()) continue;
-                        cs.beginText();
-                        cs.newLineAtOffset(r.x(), h - r.y());
-                        cs.showText(text);
-                        cs.endText();
-                    }
-                }
-            }
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            doc.save(bos);
-            return bos.toByteArray();
-        }
-    }
-
-    private static String ascii(String s) {
-        StringBuilder sb = new StringBuilder();
-        for (char c : s.toCharArray()) if (c >= 32 && c < 127) sb.append(c);
-        return sb.toString();
     }
 }

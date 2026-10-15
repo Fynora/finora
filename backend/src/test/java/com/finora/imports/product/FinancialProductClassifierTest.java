@@ -1,7 +1,5 @@
 package com.finora.imports.product;
 
-import com.finora.imports.pdf.PdfTableLocator;
-import com.finora.imports.pdf.fixtures.PdfTrace;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -9,6 +7,12 @@ import java.util.List;
 import static com.finora.imports.product.ProductEvidenceCollector.Section;
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * <p>The tests that read committed statement traces moved to {@code
+ * FinancialProductClassifierTracesTest} in the private Fynora/finora-statement-traces repository,
+ * with the traces themselves (see docs/engineering/private-statement-traces.md). The tests left
+ * here build their input by hand.
+ */
 class FinancialProductClassifierTest {
 
     private final ProductEvidenceCollector collector = new ProductEvidenceCollector();
@@ -273,51 +277,6 @@ class FinancialProductClassifierTest {
                     .as("run %d disagreed with the first", i)
                     .isEqualTo(first);
         }
-    }
-
-    @Test
-    void theRealCombinedStatementsSectionsAreNotAllAccounts() {
-        // Against the captured trace of a real HDFC combined statement -- the document that exposed
-        // every section being offered as an account.
-        var doc = new PdfTableLocator().locateAll(PdfTrace.load("hdfc-composite-deposit-schedules"), null);
-
-        List<FinancialProductType> detected = doc.sections().stream()
-                .map(s -> classifier.classify(Section.of(
-                        s.rows().isEmpty() ? List.of() : List.copyOf(s.rows().get(0).keySet()),
-                        s.auxiliaryText(), s.rows().size())).type())
-                .toList();
-
-        assertThat(detected).hasSize(4);
-        assertThat(detected.get(0))
-                .as("the savings account, the only section carrying a ledger")
-                .isEqualTo(FinancialProductType.SAVINGS);
-
-        // Four sections, not three: the fourth is the fixed-deposit schedule WRAPPED_HEADER made
-        // visible. It was never misclassified before, because it was never located -- its heading
-        // is printed across two visual lines and neither is a header on its own. A section that
-        // does not exist cannot be offered as an account, so this test could not have caught it;
-        // that is what the trace regression test is for.
-        //
-        // The three deposit schedules must not be offered as accounts. They previously classified
-        // as SAVINGS -- confidently, and wrongly -- because a single "Deposit(Mnth)" column
-        // satisfied the old any-one-keyword ledger test.
-        //
-        // Note what this asserts and what it does not. Neither section reaches FIXED_DEPOSIT here,
-        // because this fixture's own capture redacted the words "Maturity" and "Mnth" out of its
-        // column headers before it was committed (PdfTraceRedactor's allowlist had no deposit
-        // vocabulary at the time -- since fixed, but a committed trace cannot be un-redacted). With
-        // that vocabulary gone there is genuinely nothing in these sections to identify them, and
-        // UNKNOWN is the correct answer to evidence that is not there. Re-capturing this trace with
-        // the current redactor is what would let it assert FIXED_DEPOSIT.
-        assertThat(detected.get(1).domain())
-                .as("a deposit schedule is not an account")
-                .isNotEqualTo(FinancialProductType.Domain.ACCOUNT);
-        assertThat(detected.get(2).domain())
-                .as("a deposit schedule is not an account")
-                .isNotEqualTo(FinancialProductType.Domain.ACCOUNT);
-        assertThat(detected.get(3).domain())
-                .as("a deposit schedule is not an account")
-                .isNotEqualTo(FinancialProductType.Domain.ACCOUNT);
     }
 
     // --- naming must never lower a score it is recorded as supporting -------------------------

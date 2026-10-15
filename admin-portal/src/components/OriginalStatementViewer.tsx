@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { ConfirmDialog } from './ConfirmDialog';
+import OpeningReasonDialog from './OpeningReasonDialog';
 import { adminOriginalViewApi } from '../api/endpoints';
 import type { OriginalViewOpened } from '../types';
-
-const MIN_REASON = 15;
-const MAX_REASON = 500;
 
 const ENDED = 'This view has ended. Open the statement again.';
 const BUSY = 'The server is busy. Try again in a minute.';
@@ -50,9 +47,6 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
   itemId: string;
   onClose: () => void;
 }) {
-  const [reason, setReason] = useState('');
-  const [opening, setOpening] = useState(false);
-  const [openError, setOpenError] = useState<string | null>(null);
   const [view, setView] = useState<OriginalViewOpened | null>(null);
   const [pages, setPages] = useState<string[]>([]);
   const [lines, setLines] = useState<string[] | null>(null);
@@ -61,8 +55,6 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
   // Every object URL made, freed on unmount -- a ref, so the cleanup sees the latest list.
   const urls = useRef<string[]>([]);
   const endedRef = useRef(false);
-  const trimmed = reason.trim();
-  const reasonOk = trimmed.length >= MIN_REASON && trimmed.length <= MAX_REASON;
 
   useEffect(() => () => {
     urls.current.forEach((url) => URL.revokeObjectURL(url));
@@ -119,49 +111,19 @@ export default function OriginalStatementViewer({ queue, itemId, onClose }: {
     return () => document.removeEventListener('keydown', onKey);
   }, [view, onClose]);
 
-  async function open() {
-    setOpening(true);
-    setOpenError(null);
-    try {
-      const opened = queue === 'IMPORT'
-        ? await adminOriginalViewApi.openImport(itemId, trimmed)
-        : await adminOriginalViewApi.openTrust(itemId, trimmed);
-      setView(opened);
-    } catch (err) {
-      setOpenError(errorText(err, 'The statement could not be opened.'));
-    } finally {
-      setOpening(false);
-    }
-  }
-
   if (!view) {
     return (
-      <ConfirmDialog
+      <OpeningReasonDialog
         title="Open the real statement"
-        message="Only Admins can do this. Super Admins will be emailed and the reason is recorded. The customer will be told the date and that it was to fix a reading problem."
         confirmLabel="Open statement"
-        confirmDisabled={!reasonOk}
-        busy={opening}
-        onConfirm={() => void open()}
-        onCancel={onClose}
-      >
-        <div className="space-y-1">
-          <label htmlFor="original-view-reason" className="text-xs font-medium text-ink">Reason</label>
-          <textarea
-            id="original-view-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={MAX_REASON + 50}
-            rows={3}
-            placeholder="e.g. Rows on page 2 are missing from the preview"
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-ink"
-          />
-          <p className={`text-xs ${trimmed.length > MAX_REASON ? 'text-danger' : 'text-muted'}`}>
-            {trimmed.length} / {MAX_REASON}
-          </p>
-          {openError && <p className="text-xs text-danger">{openError}</p>}
-        </div>
-      </ConfirmDialog>
+        failureText="The statement could not be opened."
+        onOpen={async (reason) => {
+          setView(queue === 'IMPORT'
+            ? await adminOriginalViewApi.openImport(itemId, reason)
+            : await adminOriginalViewApi.openTrust(itemId, reason));
+        }}
+        onClose={onClose}
+      />
     );
   }
 

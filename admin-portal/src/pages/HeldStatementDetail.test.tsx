@@ -405,6 +405,19 @@ describe('HeldStatementDetail', () => {
     expect(screen.getByText('Opened by ops-admin@example.com')).toBeInTheDocument();
   });
 
+  it('shows an opening of the staged rows in the History', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      timeline: [...detail.timeline, { eventType: 'STAGED_ROWS_VIEWED', fromStatus: null, toStatus: null,
+        notes: 'Opened by ops-admin@example.com', actorId: 'a1', createdAt: '2026-10-15T05:00:00Z' }],
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    expect(screen.getByText('Staged rows opened')).toBeInTheDocument();
+  });
+
   it('hides the view control from a non-admin role', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
     renderPage();
@@ -634,11 +647,18 @@ describe('HeldStatementDetail', () => {
       // Audited server-side on every read, so never fetched just by opening the page.
       expect(adminHeldStatementApi.stagedRows).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole('button', { name: 'Show staged rows' }));
+      // The same rules as the original: a reason first, and who will be told.
+      expect(screen.getByText(/Super Admins will be emailed/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show rows' })).toBeDisabled();
+      expect(adminHeldStatementApi.stagedRows).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '  Rows on page 2 are missing  ' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Show rows' }));
 
       expect(await screen.findByText('SAMPLE SALARY')).toBeInTheDocument();
       expect(screen.getByText('SAMPLE GROCERY')).toBeInTheDocument();
       expect(screen.getByText(/2 staged of 3 read/)).toBeInTheDocument();
-      expect(adminHeldStatementApi.stagedRows).toHaveBeenCalledWith('HLD-2026-100001');
+      expect(adminHeldStatementApi.stagedRows).toHaveBeenCalledWith('HLD-2026-100001', 'Rows on page 2 are missing');
+      expect(screen.queryByLabelText('Reason')).toBeNull();
       // Numbered from one, so the row a balance-mismatch finding calls "Row 2" can be found
       // without counting down the table.
       const secondRow = screen.getByText('SAMPLE GROCERY').closest('tr') as HTMLElement;
@@ -653,6 +673,8 @@ describe('HeldStatementDetail', () => {
       await screen.findByText(/count disagree/i);
 
       fireEvent.click(screen.getByRole('button', { name: 'Show staged rows' }));
+      fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Rows on page 2 are missing' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Show rows' }));
 
       expect(await screen.findByText(/are gone/)).toBeInTheDocument();
     });

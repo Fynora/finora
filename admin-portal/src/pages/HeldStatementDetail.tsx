@@ -7,6 +7,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
+import OpeningReasonDialog from '../components/OpeningReasonDialog';
 import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import { formatWhen } from '../lib/formatWhen';
@@ -120,6 +121,7 @@ function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
  *  their event type as before. */
 const EVENT_LABEL: Record<string, string> = {
   ORIGINAL_VIEWED: 'Original statement opened',
+  STAGED_ROWS_VIEWED: 'Staged rows opened',
 };
 
 function HeldStatementDetailContent({ heldId }: { heldId: string }) {
@@ -130,6 +132,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [viewingOriginal, setViewingOriginal] = useState(false);
+  const [askingForRows, setAskingForRows] = useState(false);
   const [approveNote, setApproveNote] = useState('');
   const [markFalsePositive, setMarkFalsePositive] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -253,12 +256,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
   });
-  // On request only: every read is audited server-side, the same as opening the original.
-  const loadStagedRows = useMutation({
-    mutationFn: () => adminHeldStatementApi.stagedRows(heldId),
-    onSuccess: (result) => { setActionError(null); setStagedRows(result); },
-    onError,
-  });
+
   if (detail.isLoading) {
     return <p className="text-muted text-sm">Loading…</p>;
   }
@@ -313,6 +311,21 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           emailed, and the customer is told the date.
         </p>
       )}
+      {/* The rows are the statement's content, so they take the same rules as the original: a
+          reason first, then the Super Admins are emailed and the customer is told. */}
+      {askingForRows && (
+        <OpeningReasonDialog
+          title="Show the staged rows"
+          confirmLabel="Show rows"
+          failureText="The staged rows could not be shown."
+          onOpen={async (reason) => {
+            setStagedRows(await adminHeldStatementApi.stagedRows(heldId, reason));
+            setActionError(null);
+            setAskingForRows(false);
+          }}
+          onClose={() => setAskingForRows(false)}
+        />
+      )}
       {viewingOriginal && (
         <OriginalStatementViewer queue="TRUST" itemId={heldId} onClose={() => setViewingOriginal(false)} />
       )}
@@ -351,19 +364,19 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
           <h3 className="text-sm font-semibold text-ink">Staged rows</h3>
           <p className="text-xs text-muted">
-            The rows approving releases to the user&apos;s confirm step. Viewing them is logged against
-            your account, because they are content from a customer&apos;s bank statement.
+            The rows approving releases to the user&apos;s confirm step. They are content from a
+            customer&apos;s bank statement, so viewing them needs a reason, is logged against your
+            account, emails the Super Admins and tells the customer the date.
           </p>
           {stagedRows ? (
             <StagedRowsView data={stagedRows} />
           ) : (
             <button
               type="button"
-              onClick={() => loadStagedRows.mutate()}
-              disabled={loadStagedRows.isPending}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
+              onClick={() => setAskingForRows(true)}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink"
             >
-              {loadStagedRows.isPending ? 'Loading…' : 'Show staged rows'}
+              Show staged rows
             </button>
           )}
         </section>

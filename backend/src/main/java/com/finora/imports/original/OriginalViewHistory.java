@@ -20,8 +20,9 @@ import java.util.stream.Collectors;
 @Component
 public class OriginalViewHistory {
 
-    /** One opening. {@code openedBy} is the opener's email, or "a deleted account". */
-    public record Opening(Instant openedAt, UUID viewerId, String openedBy) {}
+    /** One opening. {@code openedBy} is the opener's email, or "a deleted account". {@code format}
+     *  is PDF or CSV for the original, ROWS for a trust hold's staged rows (V273). */
+    public record Opening(Instant openedAt, UUID viewerId, String openedBy, String format) {}
 
     private final StatementOriginalViewRepository views;
     private final UserRepository users;
@@ -41,7 +42,7 @@ public class OriginalViewHistory {
                 .collect(Collectors.toMap(User::getId, User::getEmail, (a, b) -> a));
         return rows.stream()
                 .map(v -> new Opening(v.getOpenedAt(), v.getViewerId(),
-                        emails.getOrDefault(v.getViewerId(), "a deleted account")))
+                        emails.getOrDefault(v.getViewerId(), "a deleted account"), v.getFormat()))
                 .toList();
     }
 }

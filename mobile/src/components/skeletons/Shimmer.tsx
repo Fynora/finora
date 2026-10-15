@@ -2,11 +2,12 @@ import { useEffect } from 'react';
 import {
   AccessibilityInfo, Animated, StyleSheet, type DimensionValue, type ViewStyle,
 } from 'react-native';
-import { radius, useTheme } from '../../theme';
+import { useTheme } from '../../theme';
+import { skeletonTokens as T } from '../../theme/skeleton';
 
 export interface ShimmerProps {
   width?: DimensionValue;
-  height: number;
+  height: DimensionValue;
   borderRadius?: number;
   style?: ViewStyle;
   testID?: string;
@@ -21,14 +22,9 @@ export interface ShimmerProps {
  * Ref-counted rather than always-on: the loop starts when the first Shimmer mounts and stops when
  * the last one unmounts, so it never runs in the background once nothing is loading anywhere.
  */
-const sharedPulse = new Animated.Value(0.35);
+const sharedPulse = new Animated.Value(T.pulse.low);
 let activeShimmerCount = 0;
 let sharedLoop: Animated.CompositeAnimation | null = null;
-
-/** Static opacity used instead of the pulse when the OS "Reduce Motion" setting is on. Deliberately
- *  toward the bright end of the 0.35 -> 1 range the animation sweeps: the block still has to read
- *  as a visible placeholder, it just stops moving. */
-const REDUCED_MOTION_OPACITY = 0.7;
 
 /**
  * Starts the pulse only if the OS "Reduce Motion" setting is off.
@@ -53,8 +49,8 @@ function startPulse() {
   if (activeShimmerCount === 0 || sharedLoop) return;
   sharedLoop = Animated.loop(
     Animated.sequence([
-      Animated.timing(sharedPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
-      Animated.timing(sharedPulse, { toValue: 0.35, duration: 700, useNativeDriver: true }),
+      Animated.timing(sharedPulse, { toValue: T.pulse.high, duration: T.pulse.halfCycleMs, useNativeDriver: true }),
+      Animated.timing(sharedPulse, { toValue: T.pulse.low, duration: T.pulse.halfCycleMs, useNativeDriver: true }),
     ])
   );
   sharedLoop.start();
@@ -68,7 +64,10 @@ function startPulseUnlessReducedMotion() {
         return;
       }
       if (activeShimmerCount === 0) return;
-      sharedPulse.setValue(REDUCED_MOTION_OPACITY);
+      // Static opacity instead of the pulse under Reduce Motion. Deliberately toward the bright end
+      // of the range the animation sweeps: the block still has to read as a visible placeholder, it
+      // just stops moving.
+      sharedPulse.setValue(T.pulse.reducedMotion);
     })
     // A device that can't answer gets the animation rather than a frozen placeholder: fail toward
     // the pre-existing behaviour, not toward a skeleton that looks broken.
@@ -81,16 +80,11 @@ function acquireSharedLoop() {
     // releaseSharedLoop's stop() below freezes sharedPulse wherever it was mid-fade, not
     // necessarily back at 0.35 -- without this reset, the first pulse of a new loading episode
     // starts from that leftover value instead of the intended minimum, reading as a stutter.
-    sharedPulse.setValue(0.35);
+    sharedPulse.setValue(T.pulse.low);
     startPulseUnlessReducedMotion();
-    // Every individual Shimmer block is hidden from the accessibility tree below (a screen reader
-    // reading out a dozen unlabelled "gray rectangle" placeholders is worse than reading nothing),
-    // but that leaves NO signal at all that the screen is loading -- the old spinner this system
-    // replaced was, at minimum, a real native element VoiceOver/TalkBack announced on its own. A
-    // one-time announcement exactly when loading starts (this ref-count going 0->1 is that moment,
-    // the same signal that already starts the shared pulse above) restores that without re-
-    // exposing every placeholder individually or repeating the announcement per skeleton block.
-    AccessibilityInfo.announceForAccessibility('Loading');
+    // No announcement here: each placeholder group (SkeletonGroup) is one element labelled
+    // "Loading", which a screen reader reads when it reaches it -- the spec rules out a live-region
+    // interruption every time something starts loading.
   }
 }
 
@@ -102,8 +96,13 @@ function releaseSharedLoop() {
   }
 }
 
+/** Test-only: how many Shimmers hold the shared pulse right now. */
+export function __activeShimmerCountForTests(): number {
+  return activeShimmerCount;
+}
+
 export function Shimmer({
-  width = '100%', height, borderRadius = radius.md, style, testID = 'shimmer-block',
+  width = '100%', height, borderRadius = T.radius.line, style, testID = 'shimmer-block',
 }: ShimmerProps) {
   const c = useTheme();
 
@@ -119,7 +118,7 @@ export function Shimmer({
       // real value replaces it. Exposing it too would double-announce every field on first load.
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.block, { width, height, borderRadius, backgroundColor: c.border, opacity: sharedPulse }, style]}
+      style={[styles.block, { width, height, borderRadius, backgroundColor: c[T.fill], opacity: sharedPulse }, style]}
     />
   );
 }

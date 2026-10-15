@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -25,6 +25,7 @@ import { counterpartyLabel } from '../lib/counterpartyLabel';
 import {
   NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
 } from '../lib/ledgerPaging';
+import { categoryIdByName, parseLedgerUrlFilters } from '../lib/ledgerUrlFilters';
 import { ConfirmDialog, Button, IconButton, Skeleton, FinoraCard, Badge, useDialogA11y } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
@@ -267,7 +268,13 @@ export default function Ledger() {
   // pressing Enter up there actually lands here with the term already applied rather than
   // just navigating to an empty ledger.
   const [searchParams] = useSearchParams();
-  const [filters, setFilters] = useState<TransactionFilters>({ page: 0, size: 10, sortField: 'date', sortDir: 'desc' });
+  // A link from Reports can also carry a date range and a category ("the transactions behind this
+  // figure"). The dates seed the first request so it is the filtered one, not an unfiltered flash
+  // followed by a second; the category waits for the user's categories (see the effect below).
+  const [filters, setFilters] = useState<TransactionFilters>(() => {
+    const fromUrl = parseLedgerUrlFilters(searchParams);
+    return { page: 0, size: 10, sortField: 'date', sortDir: 'desc', dateFrom: fromUrl.dateFrom, dateTo: fromUrl.dateTo };
+  });
   const [showAllWaiting, setShowAllWaiting] = useState(false);
   const [keywordInput, setKeywordInput] = useState(() => searchParams.get('q') ?? '');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
@@ -388,6 +395,28 @@ export default function Ledger() {
 
   const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
   const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
+
+  // Applies the date range and category a link carries (see the filters state above). Ledger does
+  // not unmount between two such links, so this runs for every new one, not only the first visit.
+  // `appliedUrlFilters` is what stops it re-running when `categories` refetches: without it a
+  // category the user has since changed with a chip would be put back.
+  const urlFilters = useMemo(() => parseLedgerUrlFilters(searchParams), [searchParams]);
+  const appliedUrlFilters = useRef('');
+  useEffect(() => {
+    const signature = JSON.stringify(urlFilters);
+    if (signature === '{}' || appliedUrlFilters.current === signature) return;
+    // The category is a NAME in the link and a filter on its id, so it waits for the categories.
+    if (urlFilters.categoryName && !categories) return;
+    appliedUrlFilters.current = signature;
+    setFilters((f) => ({
+      ...f,
+      dateFrom: urlFilters.dateFrom ?? f.dateFrom,
+      dateTo: urlFilters.dateTo ?? f.dateTo,
+      // No matching category (a report's catch-all "Uncategorized") means no category filter.
+      categoryId: (urlFilters.categoryName && categoryIdByName(categories, urlFilters.categoryName)) || f.categoryId,
+      page: 0,
+    }));
+  }, [urlFilters, categories]);
 
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);

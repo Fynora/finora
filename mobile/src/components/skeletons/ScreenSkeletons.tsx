@@ -319,6 +319,21 @@ export function NotificationPreferencesRowsSkeleton() {
   );
 }
 
+/** StatementHistoryScreen's account cards: the account name over its bank and statement count,
+ *  straight inside the card's padding. Two stand in for "some". */
+export function StatementGroupCardsSkeleton() {
+  return (
+    <>
+      {[0, 1].map((i) => (
+        <Card key={i} style={styles.statementCard}>
+          <SkeletonText size="heading" width="45%" />
+          <SkeletonText size="label" width="55%" line={skeletonTokens.textLine.statementBody} />
+        </Card>
+      ))}
+    </>
+  );
+}
+
 export function SettingsSecuritySkeleton() {
   return (
     <SkeletonGroup testID="settings-security-skeleton">
@@ -484,6 +499,7 @@ const styles = StyleSheet.create({
   // InflowKindsSettings' card: its children 8 apart, 16 below what is above; SectionHeading's 8
   // under the title; rows padded 8 with a hairline under each.
   inflowCard: { gap: spacing.sm, marginTop: spacing.md },
+  statementCard: { marginBottom: spacing.md },
   // DeviceSessionsSection's own spacing: the blurb 2 under the title and 8 above the cards; each card
   // padded 10 by 12 inside a 1pt border, 4 apart, its detail lines 2 apart.
   sessionsBlurb: { marginTop: 2, marginBottom: spacing.sm },

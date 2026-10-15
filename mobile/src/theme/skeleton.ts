@@ -30,6 +30,8 @@ export const skeletonTokens = {
     /** The settings screens' hints (General, Categorization, Account, the Active Sessions blurb):
      *  11pt on a 16pt line. */
     hint: 16,
+    /** StatementHistoryScreen's body text: 13pt on an 18pt line. */
+    statementBody: 18,
   },
   text: {
     tiny: 10, caption: 11, meta: 12, label: 13, body: 14, heading: 15, subheading: 16,

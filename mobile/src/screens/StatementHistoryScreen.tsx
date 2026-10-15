@@ -20,7 +20,8 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
 import { Card, DetailField, EmptyState, SectionHeading } from '../components/Card';
 import { LoadFailed } from '../components/LoadFailed';
-import { SkeletonGroup, SkeletonListRow, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { StatementGroupCardsSkeleton } from '../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { apiErrorCode, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -225,11 +226,7 @@ export function StatementHistoryScreen() {
 
         {isLoading ? (
           <SkeletonGroup>
-            {[0, 1].map((i) => (
-              <Card key={i} style={styles.section}>
-                <SkeletonListRow amount={false} divider={false} />
-              </Card>
-            ))}
+            <StatementGroupCardsSkeleton />
           </SkeletonGroup>
         ) : isError ? (
           <Card style={styles.section}>

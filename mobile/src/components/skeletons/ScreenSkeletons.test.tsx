@@ -3,7 +3,7 @@ import { ThemeProvider } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import {
   FinancialMemorySkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
-  SettingsAccountSkeleton, SettingsGeneralSkeleton, SettingsSecuritySkeleton,
+  SettingsAccountSkeleton, SettingsGeneralSkeleton, SettingsSecuritySkeleton, StatementGroupCardsSkeleton,
 } from './ScreenSkeletons';
 
 function heightOf(el: { props: { style?: unknown } }): unknown {
@@ -105,6 +105,17 @@ describe('SettingsAccountSkeleton', () => {
     const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
       .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
     expect(hintLines).toHaveLength(5);
+  });
+});
+
+describe('StatementGroupCardsSkeleton', () => {
+  it('is two account cards, each a name line over an 18pt meta line, with no row padding around them', () => {
+    render(<ThemeProvider><StatementGroupCardsSkeleton /></ThemeProvider>);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 2);
+    const nameLine = Math.round(skeletonTokens.text.heading * skeletonTokens.lineHeight);
+    const metaLine = skeletonTokens.textLine.statementBody;
+    expect(screen.getAllByTestId('skeleton-line', { hidden: true }).map(heightOf))
+      .toEqual([nameLine, metaLine, nameLine, metaLine]);
   });
 });
 

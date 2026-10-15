@@ -93,6 +93,8 @@ public class HeldStatementService {
     private final ImportService importService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.fix.FixJobStarter fixJobStarter;
+    private final com.finora.imports.fix.ClaudeFixStatusLookup claudeFix;
     private final OriginalViewHistory originalViewHistory;
     private final StatementOriginalViewRepository originalViews;
     private final ApplicationEventPublisher events;
@@ -114,7 +116,11 @@ public class HeldStatementService {
                                 com.finora.imports.passwords.StatementPasswordService statementPasswordService,
                                 OriginalViewHistory originalViewHistory,
                                 StatementOriginalViewRepository originalViews,
-                                ApplicationEventPublisher events) {
+                                ApplicationEventPublisher events,
+                                com.finora.imports.fix.FixJobStarter fixJobStarter,
+                                com.finora.imports.fix.ClaudeFixStatusLookup claudeFix) {
+        this.fixJobStarter = fixJobStarter;
+        this.claudeFix = claudeFix;
         this.originalViewHistory = originalViewHistory;
         this.originalViews = originalViews;
         this.events = events;
@@ -325,7 +331,20 @@ public class HeldStatementService {
         }
         job.attachReviewRecord(held.getId());
         importJobRepository.save(job);
+        startClaudeFixAfterCommit(job.getId());
         return new StagedHold(job.getId(), true);
+    }
+
+    /**
+     * The automatic Claude fix decides whether to start, once the hold has committed (it hands off
+     * to its own thread at once). Called where a trust hold is complete -- the job held and its
+     * review record attached -- and deliberately not from {@link #openHold}: on the worker's path
+     * {@code openHold} commits before the worker moves the job into the hold and records its
+     * findings, so a start from there could find the job not yet held. The worker starts it itself
+     * once both are done.
+     */
+    private void startClaudeFixAfterCommit(UUID jobId) {
+        AfterCommit.run("claude fix start (trust review)", () -> fixJobStarter.onHeld(jobId));
     }
 
     /** What {@link #holdStagedUpload} did: the job the client follows while the rows are blocked
@@ -446,6 +465,7 @@ public class HeldStatementService {
         HeldStatement held = openHold(job, staged, decision, job.getParserVersion());
         job.attachReviewRecord(held.getId());
         importJobRepository.save(job);
+        startClaudeFixAfterCommit(job.getId());
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REVIEW_RECORD_OPENED",
                 null, held.getStatus().name(), null));
@@ -560,7 +580,8 @@ public class HeldStatementService {
         String fileName = importJobRepository.findById(held.getImportJobId())
                 .map(ImportJob::getFileName).orElse(null);
         return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows),
-                timeline(events, originalViewHistory.forJob(held.getImportJobId())));
+                timeline(events, originalViewHistory.forJob(held.getImportJobId())),
+                claudeFix.forJob(held.getImportJobId()));
     }
 
     private List<FindingView> findings(List<ImportVerificationFinding> rows) {
@@ -772,6 +793,7 @@ public class HeldStatementService {
      * {@code EntityManager.lock(..., LockModeType.OPTIMISTIC_FORCE_INCREMENT)} for a race this
      * narrow.
      */
+    /** A {@code null} actor is the Claude fix job re-reading the statement once its fix is deployed. */
     @Transactional
     public HeldStatementRerunResultDto rerunParser(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
@@ -838,14 +860,14 @@ public class HeldStatementService {
                 + " (" + (versionChanged ? "changed" : "unchanged") + ").";
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, PARSER_RERUN_EVENT,
                 from.name(), held.getStatus().name(), summaryNote));
-        auditService.record(actingAdminId, "TRUST_REVIEW_PARSER_RERUN", "HeldStatement", held.getId(),
-                Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId(),
-                        "stillHeld", decision.hold(),
-                        "previousParserVersion", String.valueOf(previousVersion),
-                        "currentParserVersion", String.valueOf(currentVersion),
-                        "parserVersionChanged", versionChanged));
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.put("stillHeld", decision.hold());
+        details.put("previousParserVersion", String.valueOf(previousVersion));
+        details.put("currentParserVersion", String.valueOf(currentVersion));
+        details.put("parserVersionChanged", versionChanged);
+        auditService.record(actingAdminId, "TRUST_REVIEW_PARSER_RERUN", "HeldStatement", held.getId(), details);
 
         return new HeldStatementRerunResultDto(previousVersion, currentVersion, versionChanged,
                 decision.hold(), decision.reasons(), HeldStatementDto.from(held));
@@ -1175,35 +1197,70 @@ public class HeldStatementService {
     @Transactional
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
+        ImportJob job = blankedCopyJob(held);
+        byte[] content = blankedCopyBytes(actingAdminId, held, job);
+        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * As {@link #contentForBlankedCopy}, for the automatic Claude fix job: no person is involved, so
+     * the audit entry has no actor and says {@code actor: claude-fix}; every gate is the staff
+     * method's. The reference is the import job's id, not the Held ID, so both queues' fix jobs key
+     * on the import job.
+     */
+    @Transactional
+    public StaffStatementContent contentForSystemBlankedCopy(String heldId) {
+        HeldStatement held = require(heldId);
+        ImportJob job = blankedCopyJob(held);
+        byte[] content = blankedCopyBytes(null, held, job);
+        return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
+    }
+
+    private ImportJob blankedCopyJob(HeldStatement held) {
         refuseIfNotOpen(held, "copied");
         refuseIfLockedWithoutPassword(held, "copied");
-        ImportJob job = requireJob(held);
+        return requireJob(held);
+    }
+
+    private byte[] blankedCopyBytes(UUID actingAdminId, HeldStatement held, ImportJob job) {
         boolean savedPassword = hasSavedPassword(job);
         // Its own transaction, as the view's: a failed read rolls this one back, and the attempt is
         // the event being recorded.
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.put("savedPasswordOnFile", savedPassword);
         auditService.recordEvenOnRollback(actingAdminId, "HELD_STATEMENT_BLANKED_COPY", "HeldStatement",
-                held.getId(), Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId(),
-                        "savedPasswordOnFile", savedPassword));
+                held.getId(), details);
         byte[] content = readStatement(held, job);
         if (savedPassword) {
             // A file the saved password did not open is refused, not handed over.
             content = statementPasswordService.unlockedForBlankedCopy(job, content, held.getHeldId());
         }
-        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+        return content;
+    }
+
+    /** Who acted, for an audit entry: the admin's id, or {@code actor: claude-fix} when no person did. */
+    private static Map<String, Object> actorDetails(UUID actingAdminId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (actingAdminId == null) {
+            details.put("actor", "claude-fix");
+        } else {
+            details.put("actorId", actingAdminId.toString());
+        }
+        return details;
     }
 
     /**
      * The second audit entry for a blanked copy, as {@code AdminHeldImportService
      * .recordBlankedCopyResult}: written once the copy is made or the privacy scan refused it, with
-     * the ids and the check's result, never statement text.
+     * the ids and the check's result, never statement text. A {@code null} actor is the Claude fix
+     * job.
      */
     @Transactional
     public void recordBlankedCopyResult(UUID actingAdminId, String heldId, BlankedCopyOutcome outcome) {
         HeldStatement held = require(heldId);
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("actorId", actingAdminId.toString());
+        Map<String, Object> details = actorDetails(actingAdminId);
         details.put("subjectUserId", held.getUserId().toString());
         details.put("heldId", held.getHeldId());
         details.putAll(outcome.auditDetails());

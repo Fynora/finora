@@ -7,6 +7,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
+import ClaudeFixLine from '../components/ClaudeFixLine';
 import OpeningReasonDialog from '../components/OpeningReasonDialog';
 import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
@@ -345,6 +346,8 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           <p className="text-sm text-danger">{actionError}</p>
         </div>
       )}
+
+      <ClaudeFixLine fix={detail.data?.claudeFix} />
 
       {/* Trigger evidence */}
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">

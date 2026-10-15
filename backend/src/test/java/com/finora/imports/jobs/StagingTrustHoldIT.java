@@ -67,6 +67,7 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
     @Autowired private ImportJobRepository jobRepository;
     @Autowired private HeldStatementRepository heldStatementRepository;
     @Autowired private HeldStatementService heldStatementService;
+    @Autowired private com.finora.imports.fix.ClaudeFixJobRepository claudeFixJobs;
     @Autowired private ImportSessionService importSessionService;
     @Autowired private com.finora.imports.original.StatementOriginalViewRepository originalViews;
     @Autowired private ImportJobService importJobService;
@@ -275,6 +276,28 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
         assertThat(mapper.readTree(queued.getBody()).get("data").get("jobId").asText())
                 .isEqualTo(heldJobId.toString());
         assertThat(jobsOf(owner)).hasSize(1);
+    }
+
+
+    /** The Claude fix starter runs on its own thread after the hold commits; waits for its row
+     *  (the switch is off under test, so the row records OFF). */
+    private com.finora.imports.fix.ClaudeFixJob claudeFixRowFor(UUID jobId) throws InterruptedException {
+        for (int i = 0; i < 150; i++) {
+            var row = claudeFixJobs.findById(jobId);
+            if (row.isPresent()) return row.get();
+            Thread.sleep(100);
+        }
+        throw new AssertionError("no Claude fix row for " + jobId + " after 15 s");
+    }
+
+    /** A hold made while staging starts the Claude fix decision once it commits. */
+    @Test
+    void aStagedHoldRecordsAClaudeFixDecision() throws Exception {
+        User owner = user();
+        JsonNode staged = stageCsv(owner, FUTURE_PERIOD_CSV);
+        ImportJob held = onlyHeldJob(owner, sessionIdOf(staged));
+
+        assertThat(claudeFixRowFor(held.getId()).getReason()).isEqualTo(com.finora.imports.fix.ClaudeFixJob.Reason.OFF);
     }
 
     @Test

@@ -134,6 +134,7 @@ public class ImportJobWorker {
     private final com.finora.service.HeldStatementService heldStatementService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.fix.FixJobStarter fixJobStarter;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     @Value("${app.import.queue.enabled:false}")
@@ -150,7 +151,9 @@ public class ImportJobWorker {
                             com.finora.service.HeldStatementService heldStatementService,
                             ParserVersionProvider parserVersionProvider,
                             HeldItemAdminAlertService heldItemAdminAlertService,
-                            com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                            com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                            com.finora.imports.fix.FixJobStarter fixJobStarter) {
+        this.fixJobStarter = fixJobStarter;
         this.jobStore = jobStore;
         this.importService = importService;
         this.statementContentService = statementContentService;
@@ -341,6 +344,11 @@ public class ImportJobWorker {
             }
             final UUID heldId = heldStatementId;
             final boolean riding = covered;
+            // Set when this pass leaves the job held for trust review under its own review record:
+            // the one outcome that starts the automatic Claude fix (below, once the hold and its
+            // findings are written). A job riding another job's review, or held with no record,
+            // does not: the review it rides has its own.
+            final boolean[] heldUnderOwnReview = {false};
 
             jobStore.update(jobId, j -> {
                 // A job riding another job's review settles against where that review stands now,
@@ -369,6 +377,7 @@ public class ImportJobWorker {
                     // Keeps the session: the rows are real, and comparing them against the
                     // document is the entire review.
                     j.holdForTrustReview(staged.sessionId(), heldId, Instant.now());
+                    heldUnderOwnReview[0] = heldId != null;
                 } else {
                     j.complete(staged.sessionId(), Instant.now());
                 }
@@ -392,6 +401,12 @@ public class ImportJobWorker {
                 }
             });
             recordVerificationFindings(jobId, staged);
+            // After the hold (jobStore.update has committed, so this runs at once) and after the
+            // findings the fix job's metadata names. Not from HeldStatementService.openHold, which
+            // commits before either: see its startClaudeFixAfterCommit.
+            if (heldUnderOwnReview[0]) {
+                AfterCommit.run("claude fix start (trust review)", () -> fixJobStarter.onHeld(jobId));
+            }
             // Only on the success path. A job that failed in PARSING did not skip IMPORTING, it
             // never reached it, and recording that as SKIPPED would turn an honest absence into a
             // false claim.
@@ -755,6 +770,9 @@ public class ImportJobWorker {
                 // object.
                 AfterCommit.run("held-item admin alert",
                         () -> heldItemAdminAlertService.alertImportHeld(jobId));
+                // The automatic Claude fix decides whether to start (docs/superpowers/specs/
+                // 2026-10-15-claude-fix-job-design.md); it hands off to its own thread at once.
+                AfterCommit.run("claude fix start", () -> fixJobStarter.onHeld(jobId));
             }
             switch (outcome[0]) {
                 case DEAD_LETTERED -> {

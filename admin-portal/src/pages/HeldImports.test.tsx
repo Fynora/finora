@@ -323,6 +323,30 @@ describe('HeldImports', () => {
     expect(list).toHaveTextContent('ops-admin@example.com');
   });
 
+  it("shows what the Claude fix did, with Claude's PRs", async () => {
+    vi.mocked(adminHeldImportApi.get).mockResolvedValue({
+      ...heldDetail,
+      claudeFix: { state: 'PR_OPEN', reason: null, publicPr: 41, privatePr: 7, attempt: 1, monthlyCap: 50 },
+    });
+    mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText('hdfc-june.pdf');
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+    await screen.findByText(/no header row found/);
+
+    expect(screen.getByTestId('claude-fix-line')).toHaveTextContent('Claude opened a fix: PR #41 (Finora), #7 (private)');
+  });
+
+  it('says nothing about the Claude fix when the backend sends nothing', async () => {
+    mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText('hdfc-june.pdf');
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+    await screen.findByText(/no header row found/);
+
+    expect(screen.queryByTestId('claude-fix-line')).toBeNull();
+  });
+
   it('says nothing about openings when there were none', async () => {
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
     renderPage();

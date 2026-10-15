@@ -37,7 +37,10 @@ public record HeldStatementDetailDto(
         HeldStatementDto summary,
         String fileName,
         List<FindingView> findings,
-        List<EventView> timeline) {
+        List<EventView> timeline,
+        // What the automatic Claude fix did: a state, a reason and PR numbers only. Null while the
+        // switch is on and nothing is recorded yet.
+        com.finora.imports.fix.ClaudeFixStatus claudeFix) {
 
     /** One verification rule's outcome for one section -- the printed-versus-parsed numbers
      *  behind the trigger, not a sentence summarising them. */

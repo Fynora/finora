@@ -8446,11 +8446,24 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        HeldClaudeFix: {
+            state?: string;
+            reason?: string;
+            /** Format: int32 */
+            publicPr?: number;
+            /** Format: int32 */
+            privatePr?: number;
+            /** Format: int32 */
+            attempt?: number;
+            /** Format: int32 */
+            monthlyCap?: number;
+        };
         HeldStatementDetailDto: {
             summary?: components["schemas"]["HeldStatementDto"];
             fileName?: string;
             findings?: components["schemas"]["FindingView"][];
             timeline?: components["schemas"]["EventView"][];
+            claudeFix?: components["schemas"]["HeldClaudeFix"];
         };
         HeldStatementDto: {
             /** Format: uuid */
@@ -12073,6 +12086,7 @@ export interface components {
             correlationId?: string;
             objectKey?: string;
             originalOpenings?: components["schemas"]["HeldImportOriginalOpening"][];
+            claudeFix?: components["schemas"]["HeldClaudeFix"];
         };
         HeldImportOriginalOpening: {
             /** Format: date-time */

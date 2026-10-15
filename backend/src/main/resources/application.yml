@@ -814,6 +814,24 @@ app:
     # by the owner in Railway and nowhere in this repository. Unset (the default), or shorter than
     # 32 characters, means off: the endpoint answers 404.
     key: ${APP_TRACE_RETENTION_KEY:}
+  claude-fix:
+    # The automatic Claude fix job (docs/superpowers/specs/2026-10-15-claude-fix-job-design.md,
+    # runbook docs/engineering/claude-fix-job.md). When a PDF statement is held and its server
+    # blanked copy MATCHES, the copy is committed to the private repository's incoming branch,
+    # where a workflow proposes a reader fix as two PRs a person merges. Off by default: while off
+    # nothing is started, sent or polled. Turn on only after the runbook's prerequisites.
+    enabled: ${APP_CLAUDE_FIX_ENABLED:false}
+    # Jobs started per calendar month (India time); the next hold goes to a person.
+    monthly-cap: ${APP_CLAUDE_FIX_MONTHLY_CAP:50}
+    # A fine-grained token limited to the private repository: Contents read/write, Actions read,
+    # Pull requests read, no Workflows. Set by the owner in Railway and nowhere in this repository.
+    github-token: ${APP_CLAUDE_FIX_GITHUB_TOKEN:}
+    # A read-only fine-grained token for Fynora/finora (Contents read, Pull requests read), used to
+    # read the fix PR and compare it with the deployed commit. Optional while Finora is public (the
+    # token above can read a public repository); required once Finora is private.
+    public-read-token: ${APP_CLAUDE_FIX_PUBLIC_READ_TOKEN:}
+    # How often production polls GitHub for each open job's run and PRs.
+    follow-up-interval-ms: ${APP_CLAUDE_FIX_FOLLOW_UP_INTERVAL_MS:600000}
   audit:
     redaction:
       # BH-044. AuditService.redactExpiredMetadata replaces audit_logs.metadata with a small

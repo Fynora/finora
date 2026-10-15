@@ -61,4 +61,20 @@ class BuildVersionResolverTest {
 
         assertThat(resolver.currentCommit()).isEqualTo("a1b2c3d");
     }
+
+    @Test
+    void theFullCommitIsGitsFullIdThenTheConfiguredOneUntruncatedThenNull() {
+        ObjectProvider<GitProperties> withGit = mock(ObjectProvider.class);
+        Properties gitProps = new Properties();
+        gitProps.setProperty("commit.id", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+        when(withGit.getIfAvailable()).thenReturn(new GitProperties(gitProps));
+        assertThat(new BuildVersionResolver(withGit, "9999999").currentFullCommit())
+                .isEqualTo("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2");
+
+        ObjectProvider<GitProperties> withoutGit = mock(ObjectProvider.class);
+        when(withoutGit.getIfAvailable()).thenReturn(null);
+        assertThat(new BuildVersionResolver(withoutGit, "77bbfe493cf230ce3e4624dfaa41fe617c8ae127").currentFullCommit())
+                .isEqualTo("77bbfe493cf230ce3e4624dfaa41fe617c8ae127");
+        assertThat(new BuildVersionResolver(withoutGit, " ").currentFullCommit()).isNull();
+    }
 }

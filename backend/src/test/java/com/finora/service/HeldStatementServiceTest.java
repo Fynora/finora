@@ -38,6 +38,7 @@ class HeldStatementServiceTest {
     private ImportJobRepository importJobRepository;
     private ImportVerificationFindingRepository findingRepository;
     private HeldItemAdminAlertService heldItemAdminAlertService;
+    private com.finora.imports.fix.FixJobStarter fixJobStarter;
     private StatementStatusNotifier statementStatusNotifier;
     private HeldStatementService service;
 
@@ -55,6 +56,7 @@ class HeldStatementServiceTest {
         ImportService importService = mock(ImportService.class);
         ParserVersionProvider parserVersionProvider = mock(ParserVersionProvider.class);
         heldItemAdminAlertService = mock(HeldItemAdminAlertService.class);
+        fixJobStarter = mock(com.finora.imports.fix.FixJobStarter.class);
 
         when(idGenerator.next()).thenReturn("HELD-00099");
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -66,7 +68,8 @@ class HeldStatementServiceTest {
                 heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
                 org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class),
                 org.mockito.Mockito.mock(com.finora.imports.original.StatementOriginalViewRepository.class),
-                org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class));
+                org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class),
+                fixJobStarter, org.mockito.Mockito.mock(com.finora.imports.fix.ClaudeFixStatusLookup.class));
     }
 
     private ImportJob job() {
@@ -86,6 +89,9 @@ class HeldStatementServiceTest {
         service.createHold(job, staged, periodIntegrityDecision(), "abc123");
 
         verify(heldItemAdminAlertService).alertTrustReviewHeld("HELD-00099");
+        // The worker's hold is not complete when createHold commits: the job moves into the hold,
+        // and its findings are recorded, after. The worker starts the Claude fix itself then.
+        verify(fixJobStarter, never()).onHeld(any());
     }
 
     /**
@@ -117,7 +123,7 @@ class HeldStatementServiceTest {
         service.createHold(job, staged, periodIntegrityDecision(), "abc123");
 
         verify(heldItemAdminAlertService, never()).alertTrustReviewHeld(any());
-        verifyNoInteractions(statementStatusNotifier);
+        verifyNoInteractions(statementStatusNotifier, fixJobStarter);
     }
 
     // ------------------------------------------------------------------ detail

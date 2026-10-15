@@ -52,7 +52,13 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
         slide,
       ]}
     >
-      <GlassSurface testID="tab-pill-glass" style={[styles.pill, Platform.OS === 'android' && styles.android]}>
+      {/* "tablist", as on the library's own bar: it is what makes VoiceOver and TalkBack read the
+          items as tabs with their position ("tab, 2 of 5"). */}
+      <GlassSurface
+        testID="tab-pill-glass"
+        accessibilityRole="tablist"
+        style={[styles.pill, Platform.OS === 'android' && styles.android]}
+      >
         {state.routes.map((route, index) => {
           const focused = index === state.index;
           const { options } = descriptors[route.key];

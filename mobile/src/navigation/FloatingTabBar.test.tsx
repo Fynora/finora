@@ -59,6 +59,13 @@ describe('FloatingTabBar', () => {
     expect(order).toEqual(['Home', 'Transactions', 'Quick actions', 'Insights', 'More']);
   });
 
+  it('marks the row as a tab list, so screen readers announce each tab and its position', () => {
+    // Same as the library's own bar (BottomTabBar.tsx: role="tablist" on the row). Without it
+    // VoiceOver and TalkBack read the tabs as unrelated buttons, with no "tab, 2 of 5".
+    setup();
+    expect(screen.getByTestId('tab-pill-glass').props.accessibilityRole).toBe('tablist');
+  });
+
   it('marks the open tab selected and colours it with the active tint', () => {
     setup({ index: 1 });
     expect(screen.getByTestId('tab-Transactions')).toBeSelected();

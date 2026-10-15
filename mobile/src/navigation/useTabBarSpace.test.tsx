@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { renderHook } from '@testing-library/react-native';
 import { TabBarSpaceContext, padForTabBar, useTabBarSpace } from './useTabBarSpace';
 
@@ -19,7 +19,7 @@ describe('useTabBarSpace', () => {
 });
 
 describe('padForTabBar', () => {
-  const flat = (s: unknown) => StyleSheet.flatten(s as never);
+  const flat = (s: StyleProp<ViewStyle>): ViewStyle => StyleSheet.flatten(s) ?? {};
 
   it('adds the space to an existing paddingBottom', () => {
     expect(flat(padForTabBar({ paddingBottom: 24, paddingTop: 8 }, 104))).toMatchObject({ paddingBottom: 128, paddingTop: 8 });

@@ -5,6 +5,7 @@ import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../a
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import type { AccountStatementGroup } from '../types';
 import { detail as jobDetail, label as jobLabel } from '../lib/importJob';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 // Scoped to re-importing a password-protected statement -- the one flow here where the server's
 // answer changes what the screen DOES rather than only what it says.
@@ -506,5 +507,47 @@ describe('StatementHistoryScreen — recent imports', () => {
 
     expect(await screen.findByText('HDFC Savings')).toBeOnTheScreen();
     expect(screen.queryByText('Recent imports')).toBeNull();
+  });
+});
+
+describe('StatementHistoryScreen loading states', () => {
+  beforeEach(() => {
+    api.listGroupedByAccount.mockReset().mockResolvedValue(groups);
+    api.transactions.mockReset();
+  });
+
+  it('shows statement skeletons, not a spinner, on first load', () => {
+    api.listGroupedByAccount.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+  });
+
+  it('a failed list offers Try again instead of asking for a pull the screen does not have', async () => {
+    api.listGroupedByAccount.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText("Couldn't load your statement history.")).toBeTruthy();
+    expect(screen.queryByText(/Pull back/)).toBeNull();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findAllByLabelText('Transactions')).not.toHaveLength(0);
+  });
+
+  it('the transactions pop-up shows a skeleton while it loads', async () => {
+    api.transactions.mockReturnValue(never());
+    renderScreen();
+    fireEvent.press((await screen.findAllByLabelText('Transactions'))[0]);
+    expect(await screen.findByLabelText('Loading')).toBeTruthy();
+  });
+
+  it('a failed transactions pop-up says so, not "no longer on the books"', async () => {
+    api.transactions.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    fireEvent.press((await screen.findAllByLabelText('Transactions'))[0]);
+    expect(await screen.findByText("Couldn't load this import's transactions.")).toBeTruthy();
+    expect(screen.queryByText(/no longer on the books/)).toBeNull();
+
+    api.transactions.mockResolvedValueOnce([]);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText(/no longer on the books/)).toBeTruthy();
   });
 });

@@ -1,29 +1,15 @@
 package com.finora.imports.pdf;
 
-import com.finora.imports.TestAccountRepositories;
-
-import com.finora.dto.ImportDto.StagedRow;
-import com.finora.imports.CsvParser;
 import com.finora.imports.DocumentContext;
-import com.finora.imports.DuplicateDetector;
 import com.finora.imports.TransactionNormalizer;
-import com.finora.imports.pdf.fixtures.PdfTrace;
-import com.finora.repository.TransactionRepository;
-import com.finora.service.CategorizationService;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -50,252 +36,22 @@ import static org.mockito.Mockito.when;
  * and each of them is asserted here on its own adversarial layout: a case that clears every other
  * gate and is refused by exactly the one under test. Without that, a single over-broad gate would
  * be invisible behind the other three.
+ *
+ * <p>The tests that read committed statement traces moved to {@code
+ * WrappedHeaderOnAScoringLinePdfTableLocatorTracesTest} in the private
+ * Fynora/finora-statement-traces repository, with the traces themselves (see
+ * docs/engineering/private-statement-traces.md). The tests left here build their input by hand.
  */
 class WrappedHeaderOnAScoringLinePdfTableLocatorTest {
-
-    private static final String CBI = "central-bank-savings-ledger-validation";
-
-    private final UUID userId = UUID.randomUUID();
-
-    private List<Map<String, String>> rowsOf(PdfTableLocator.LocatedDocument doc) {
-        List<Map<String, String>> rows = new ArrayList<>();
-        for (PdfTableLocator.LocatedSection section : doc.sections()) rows.addAll(section.rows());
-        return rows;
-    }
-
-    private PdfTableLocator.LocatedDocument locate(String trace, DocumentContext ctx) {
-        return new PdfTableLocator().locateAll(PdfTrace.load(trace), ctx);
-    }
-
-    private Set<String> columnsOf(List<Map<String, String>> rows) {
-        Set<String> columns = new LinkedHashSet<>();
-        for (Map<String, String> row : rows) columns.addAll(row.keySet());
-        return columns;
-    }
-
-    private TransactionNormalizer normalizer() {
-        CategorizationService categorization = mock(CategorizationService.class);
-        when(categorization.suggestReadOnly(any(), any(), any(), any()))
-                .thenReturn(new CategorizationService.Suggestion("Other", "default", null, null, null));
-        when(categorization.suggestReadOnly(any(), any(), any(), any(), any()))
-                .thenReturn(new CategorizationService.Suggestion("Other", "default", null, null, null));
-        when(categorization.suggestReadOnly(any(), any(), any(), any(), any(), any(), any(), any()))
-                .thenReturn(new CategorizationService.Suggestion("Other", "default", null, null, null));
-        TransactionRepository transactions = mock(TransactionRepository.class);
-        when(transactions.findPotentialDuplicatesByUserAndAccountIdIn(any(), any(), any(), any(), any())).thenReturn(List.of());
-        return new TransactionNormalizer(categorization, new DuplicateDetector(transactions, TestAccountRepositories.anyLive()),
-                com.finora.imports.TestRuleEngines.empty());
-    }
 
     // ------------------------------------------------------------------
     // The real document
     // ------------------------------------------------------------------
 
-    /**
-     * The header the locator actually built, rather than the keys that happen to appear on data
-     * rows. A column no value ever lands in ("Cheque Number") is missing from the latter, so the
-     * keys are the wrong surface for asserting what the header IS.
-     */
-    private List<String> headerOf(String trace) {
-        DocumentContext ctx = new DocumentContext("PDF", "WrappedHeaderOnAScoringLineTest");
-        locate(trace, ctx);
-        return ctx.buildMetadata().headers();
-    }
-
     private List<String> headerOf(List<PositionedText> runs) {
         DocumentContext ctx = new DocumentContext("PDF", "WrappedHeaderOnAScoringLineTest");
         new PdfTableLocator().locateAll(runs, ctx);
         return ctx.buildMetadata().headers();
-    }
-
-    @Test
-    void theTwoHeaderBandsBecomeOneHeader_andTheDateColumnIsNamedInFull() {
-        DocumentContext ctx = new DocumentContext("PDF", "WrappedHeaderOnAScoringLineTest");
-        locate(CBI, ctx);
-
-        // "Value" alone names nothing the normalizer knows; "Value Date" is in its DATE_HINTS.
-        assertThat(ctx.buildMetadata().headers())
-                .containsExactly("Xxxx Date", "Value Date", "Branch Code", "Cheque Number",
-                        "Transaction Description", "Debit", "Credit", "Balance");
-        assertThat(ctx.capabilities()).extracting("capability").contains("WRAPPED_HEADER");
-    }
-
-    @Test
-    void theSecondBandIsNoLongerConsumedAsTheTablesFirstDataRow() {
-        List<Map<String, String>> rows = rowsOf(locate(CBI, null));
-
-        // Before the fix this was literally {Value=Date, Branch=Code, Cheque=Number} -- the header's
-        // own second band, staged as a transaction.
-        assertThat(rows.get(0)).doesNotContainEntry("Value Date", "Date");
-        assertThat(CsvParser.parseDate(rows.get(0).get("Value Date")))
-                .as("the first located row is a real dated transaction")
-                .isNotNull();
-        // 224 -> 223: exactly the one fake row removed. The header's other eight reprints were
-        // already being absorbed as continuation lines rather than standing as rows of their own.
-        assertThat(rows).hasSize(223);
-    }
-
-    @Test
-    void everyTransactionNowCarriesADateTheNormalizerCanRead() {
-        // The headline quantity, measured with TransactionNormalizer's own whole-cell date hints:
-        // 0 of 224 rows before the fix, 222 of 223 after (the remaining row is the statement's
-        // dateless opening-balance line).
-        String[] dateColumns = {"date", "transaction_date", "txn date", "transaction date",
-                "value date", "date & time"};
-
-        long dated = rowsOf(locate(CBI, null)).stream()
-                .filter(row -> CsvParser.firstNonBlank(row, dateColumns) != null)
-                .count();
-
-        assertThat(dated).isEqualTo(222);
-    }
-
-    @Test
-    void thoseRowsActuallyStageAsTransactions() {
-        // The point of the whole fix: the locator already reported success on this document, so
-        // only the staged count shows the loss. Before the fix the normalizer accepted zero rows.
-        TransactionNormalizer normalizer = normalizer();
-
-        List<StagedRow> staged = new ArrayList<>();
-        for (Map<String, String> row : rowsOf(locate(CBI, null))) {
-            StagedRow one = normalizer.normalize(userId, row);
-            if (one != null) staged.add(one);
-        }
-
-        assertThat(staged).as("staged transactions, where before the fix there were none").hasSize(222);
-        assertThat(staged).allSatisfy(row -> assertThat(row.date()).isNotNull());
-    }
-
-    @Test
-    void theNineReprintedHeadersStillRecordAsOneRepeatedHeader_notNineSections() {
-        // CBI reprints BOTH bands on all nine pages. If the merged signature differed page to page
-        // the document would split into nine sections instead of recording REPEATED_HEADER.
-        DocumentContext ctx = new DocumentContext("PDF", "WrappedHeaderOnAScoringLineTest");
-
-        PdfTableLocator.LocatedDocument doc = locate(CBI, ctx);
-
-        assertThat(doc.sections()).hasSize(1);
-        assertThat(ctx.capabilities()).extracting("capability").contains("REPEATED_HEADER");
-    }
-
-    // ------------------------------------------------------------------
-    // The corpus-wide safety property
-    // ------------------------------------------------------------------
-
-    /**
-     * Every trace in the corpus, with the section and row counts the engine produced BEFORE Fix B.
-     * Central Bank of India is the only entry that moved (224 -> 223 rows).
-     *
-     * <p>This is the single most important assertion in this file. Lifting the
-     * {@code !looksLikeHeaderRow} guard puts every already-recognized header in the corpus within
-     * reach of a merge, and a merge that fires where the single-line reading was already correct
-     * silently renames columns, eats a real first data row, or re-anchors the whole table. Counting
-     * rows per document is what makes that visible.
-     */
-    private static final Map<String, int[]> CORPUS_SECTIONS_AND_ROWS = corpus();
-
-    private static Map<String, int[]> corpus() {
-        Map<String, int[]> expected = new LinkedHashMap<>();
-        expected.put("au-credit-card-statement", new int[]{3, 6});
-        // {2, 113} before PdfTableLocator.looksLikePaymentSummaryPanel: the dropped section was a
-        // misdetected payment-summary panel (2 rows), not fine print -- real rows survive. 110, not
-        // 111, since TRANSACTION_TABLE_CLOSED (STATEMENT_CLOSING_MARKER) started stopping at this
-        // trace's own "*** End of Statement ***" line.
-        // 110 -> 109 and 58 -> 56 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: page furniture
-        // buffered before a repeated banner/header is auxiliary text now, not a dateless row.
-        // Dated rows verified identical on the Axis trace; on the two BOB traces the only dated
-        // change is two transactions regaining the narration line their page break had cost them.
-        expected.put("axis-credit-card-statement", new int[]{1, 109});
-        expected.put("bob-repeated-account-banner", new int[]{1, 56});
-        expected.put("bob-savings-ledger-validation", new int[]{1, 56});
-        // 61, not 60: SAME_DAY_CONTINUATION_TRANSACTION now recognizes this trace's dateless
-        // "Closing Balance" marker (it restates the last transaction's own balance, same shape as
-        // the "Opening Balance" row already at row 0) as its own row instead of being silently
-        // absorbed into the last real transaction's description text.
-        expected.put("canara-savings-ledger-validation", new int[]{1, 61});
-        expected.put("central-bank-savings-ledger-validation", new int[]{1, 223}); // was {1, 224}
-        // 102 -> 95 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: seven page-furniture lines of
-        // the savings ledger are auxiliary text now, not dateless rows; dated rows verified identical.
-        expected.put("hdfc-composite-deposit-schedules", new int[]{4, 95});
-        // {2, 6} before looksLikePaymentSummaryPanel: same panel shape, 2 rows dropped.
-        expected.put("hdfc-credit-card-ledger-validation", new int[]{1, 4});
-        // 331 -> 266: WRAPPED_DESCRIPTION_BEYOND_COUNT_CAP merges this export's third and
-        // later wrapped narration lines back into their own transactions instead of leaving
-        // them as standalone dateless rows. Section count is unchanged, and so is the
-        // normalized transaction count -- see SplitHeaderRunsPdfTableLocatorTest
-        // .theRowsThemselvesAreUnchangedInNumber for the full justification.
-        expected.put("hdfc-savings-ledger-validation", new int[]{1, 266});
-        // 569 -> 568: STATEMENT_SUMMARY_BLOCK_CLOSED removes a phantom trailing-summary row this
-        // trace's own trace used to form -- see SplitHeaderRunsPdfTableLocatorTest's own comment.
-        // 568 -> 397: WRAPPED_DESCRIPTION_BEYOND_COUNT_CAP, same mechanism and same
-        // justification as hdfc-savings-ledger-validation above.
-        // 397 -> 389 (plan 4, LEADING_BUFFER_REPEATED_PAGE_FURNITURE_DIVERTED): the bank-name footer
-        // block printed at the foot of every page no longer opens a leading buffer. Before, it
-        // formed one junk row per page (37, all footer and disclaimer text) and swept the replay's
-        // page-end narration tails into auxiliary text with it; now the footer lines are auxiliary
-        // text one by one and those tails (bucketed in the Date column in this redacted replay,
-        // never attached to a transaction before or after) stand as their own undated rows. All 360
-        // dated rows are unchanged apart from rejoined wraps; on the real statement the tails attach
-        // and no undated row remains.
-        expected.put("hdfc-savings-multi-page-ledger", new int[]{1, 389});
-        // 9 -> 8: STATEMENT_SUMMARY_BLOCK_CLOSED removes a phantom trailing-summary row, same shape
-        // as hdfc-savings-multi-page-ledger above.
-        expected.put("hdfc-savings-single-page-ledger", new int[]{1, 8});
-        expected.put("hdfc-txn-date-narration-header", new int[]{1, 5});
-        expected.put("hsbc-savings-ledger-validation", new int[]{1, 2});
-        // icici, kotak, sbi: post P-002 Fix 2 (commit pending) -- see HeaderProseRejectionTest.
-        expected.put("icici-credit-card-statement", new int[]{1, 6});
-        // {1, 2} before Phase 2E.5's leading-narration fix -- the narration-only line right under the
-        // header now attaches to its transaction instead of being swallowed as false-header prose. All
-        // 11 real transactions verified via BALANCE_CHAIN/STATEMENT_TOTALS with zero discrepancies; row
-        // 12 is the pre-existing flushPendingLeading page-2 glossary content, not new behavior.
-        expected.put("icici-savings-ledger-validation", new int[]{1, 12});
-        expected.put("kotak-credit-card-ledger-validation", new int[]{0, 0});
-        expected.put("kotak-savings-ledger-validation", new int[]{1, 2});
-        expected.put("pnb-savings-ledger-validation", new int[]{1, 62});
-        // {4, 7} before looksLikePaymentSummaryPanel: one of the four sections was itself a
-        // payment-summary panel (2 rows) -- 3 sections, 5 rows survive.
-        expected.put("sbi-credit-card-statement", new int[]{3, 5});
-        expected.put("union-bank-savings-ledger-validation", new int[]{1, 19}); // 20 before LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER; one page-furniture line is auxiliary text now
-        return expected;
-    }
-
-    @Test
-    void noOtherDocumentInTheCorpusChangesShape() {
-        CORPUS_SECTIONS_AND_ROWS.forEach((trace, expected) -> {
-            PdfTableLocator.LocatedDocument doc = locate(trace, null);
-            assertThat(doc.sections().size()).as("%s: sections", trace).isEqualTo(expected[0]);
-            assertThat(rowsOf(doc).size()).as("%s: rows", trace).isEqualTo(expected[1]);
-        });
-    }
-
-    @Test
-    void theThreeHdfcSavingsHeadersFixARepairedAreUntouchedByFixB() {
-        // Fix A coalesces those headers HORIZONTALLY, on a single y band. Fix B works VERTICALLY.
-        // The two must not interact: if Fix B pulled the row below into the coalesced header, the
-        // seven column names Fix A produces would change and every amount would move.
-        for (String trace : List.of("hdfc-savings-ledger-validation", "hdfc-savings-multi-page-ledger",
-                "hdfc-savings-single-page-ledger")) {
-            assertThat(columnsOf(rowsOf(locate(trace, null))))
-                    .as("%s: Fix A's seven columns, unchanged", trace)
-                    .containsExactlyInAnyOrder("Date", "Narration", "Chq./Xxx.Xx.", "Value Dt",
-                            "Withdrawal Amt.", "Deposit Amt.", "Closing Balance");
-        }
-    }
-
-    @Test
-    void aGenuineFirstDataRowUnderAHeaderIsStillReadAsData() {
-        // The Axis credit-card statement prints its first transaction 10.13pt under its header --
-        // inside HEADER_WRAP_MAX_GAP, and on a header line that already scores. It must stay a
-        // transaction. It is refused because it carries a date and an amount (carriesNoDataValue),
-        // which is a check the merge already made and Fix B deliberately did not touch.
-        List<Map<String, String>> rows = rowsOf(locate("axis-credit-card-statement", null));
-
-        assertThat(columnsOf(rows)).contains("DATE", "TRANSACTION DETAILS", "AMOUNT (Xx.)");
-        assertThat(rows.stream().filter(r -> CsvParser.parseDate(
-                String.valueOf(r.getOrDefault("DATE", ""))) != null).count())
-                .as("the transactions under that header are still transactions")
-                .isEqualTo(108);
     }
 
     // ------------------------------------------------------------------

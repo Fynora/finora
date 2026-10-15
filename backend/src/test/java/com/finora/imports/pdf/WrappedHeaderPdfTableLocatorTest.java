@@ -3,7 +3,6 @@ package com.finora.imports.pdf;
 import com.finora.imports.CsvParser;
 import com.finora.imports.DocumentContext;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
-import com.finora.imports.pdf.fixtures.PdfTrace;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -26,6 +25,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * columns carry BOTH lines' text — because merging the wrong way round (or on the wrong x) still
  * finds a table, just one whose columns are named after half a heading and anchored under the
  * wrong values.
+ *
+ * <p>The tests that read committed statement traces moved to {@code
+ * WrappedHeaderPdfTableLocatorTracesTest} in the private Fynora/finora-statement-traces repository,
+ * with the traces themselves (see docs/engineering/private-statement-traces.md). The tests left
+ * here build their input by hand.
  */
 class WrappedHeaderPdfTableLocatorTest {
 
@@ -128,44 +132,6 @@ class WrappedHeaderPdfTableLocatorTest {
 
     private static PositionedText run(String text, float x, float width, float y, int page) {
         return new PositionedText(text, x, y, page, width);
-    }
-
-    /**
-     * The invariant this capability is allowed to have, stated executably rather than left to a
-     * regeneratable snapshot: it may make a table appear that was not being located, and it may
-     * not disturb one that was.
-     *
-     * <p>Two of the three committed traces contain no wrapped heading at all, so the capability
-     * must never fire on them; the third has two, and the savings ledger it was already extracting
-     * has to come through with exactly the rows and columns it had before. A future change that
-     * turns this into a general row-merging engine breaks this test before it breaks a customer's
-     * statement.
-     */
-    @Test
-    void aTableThatWasAlreadyBeingLocatedIsNotDisturbed() {
-        for (String trace : List.of("hdfc-txn-date-narration-header", "bob-repeated-account-banner")) {
-            DocumentContext ctx = new DocumentContext("PDF", "WrappedHeaderPdfTableLocatorTest");
-            new PdfTableLocator().locateAll(PdfTrace.load(trace), ctx);
-            assertThat(ctx.capabilities()).extracting("capability")
-                    .as("%s has no wrapped heading -- this capability must not touch it", trace)
-                    .doesNotContain("WRAPPED_HEADER");
-        }
-
-        PdfTableLocator.LocatedSection savings = new PdfTableLocator()
-                .locateAll(PdfTrace.load("hdfc-composite-deposit-schedules"), null).sections().get(0);
-
-        // 84 -> 77 with LEADING_BUFFER_CLOSED_AT_REPEATED_BANNER: seven page-furniture lines this
-        // ledger prints between each page's repeated banner and its repeated header used to be
-        // located as dateless rows; they are now the section's auxiliary text. Verified by
-        // dumping the trace under both locators: the 89 dated rows are identical.
-        assertThat(savings.rows()).hasSize(77);
-        assertThat(savings.rows().get(0).keySet())
-                .containsExactly("Txn Date", "Narration", "Withdrawals", "Deposits", "Closing Balance");
-        long dated = savings.rows().stream()
-                .map(row -> CsvParser.firstNonBlank(row, "txn date"))
-                .filter(date -> date != null && CsvParser.parseDate(date.trim()) != null)
-                .count();
-        assertThat(dated).as("the savings ledger's own transactions, unchanged").isEqualTo(76L);
     }
 
     /**

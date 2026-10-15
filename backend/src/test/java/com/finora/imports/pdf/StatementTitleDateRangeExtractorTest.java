@@ -18,7 +18,8 @@ class StatementTitleDateRangeExtractorTest {
     }
 
     // Coordinates copied verbatim from the committed real trace
-    // (src/test/resources/traces/kotak-savings-ledger-validation.trace, rows at y=110.52/126.04,
+    // (kotak-savings-ledger-validation.trace, now in the private Fynora/finora-statement-traces
+    // repository; rows at y=110.52/126.04,
     // x=33.86) -- the trace itself has its date text redacted ("99 Xxx 9999 - 99 Xxx 9999", the
     // same policy every transaction date in that trace is redacted under), so it cannot prove
     // correct date VALUE recovery on its own; this test supplies the real, unredacted date string

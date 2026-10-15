@@ -22,13 +22,22 @@ public final class BlankedCopyDto {
     @Schema(name = "BlankedCopyDifference")
     public record Difference(int section, Integer row, String field, List<String> maskedTokens) {}
 
+    /** A row of the real reading worth a look, by position and counts only: {@code kind} is
+     *  TWO_PAGES, MANY_LINES or FAR_LINE (see {@code UnusualRows}); section and row are 0-based, as
+     *  a {@link Difference} counts them. */
+    @Schema(name = "BlankedCopyUnusualRow")
+    public record UnusualRow(int section, int row, String kind, int lines, int pages) {}
+
     @Schema(name = "BlankedCopyResponse")
     public record Response(String fileName, String trace, String check, String notCheckedReason,
-                           List<Difference> differences) {
+                           List<Difference> differences, List<UnusualRow> unusualRows) {
         public static Response of(BlankedCopy copy) {
             return new Response(copy.fileName(), copy.trace(), copy.check().name(), copy.notCheckedReason(),
                     copy.differences().stream()
                             .map(d -> new Difference(d.section(), d.row(), d.field().name(), d.maskedTokens()))
+                            .toList(),
+                    copy.unusualRows().stream()
+                            .map(f -> new UnusualRow(f.section(), f.row(), f.kind().name(), f.lines(), f.pages()))
                             .toList());
         }
     }

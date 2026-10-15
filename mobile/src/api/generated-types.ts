@@ -11895,6 +11895,18 @@ export interface components {
             check?: string;
             notCheckedReason?: string;
             differences?: components["schemas"]["BlankedCopyDifference"][];
+            unusualRows?: components["schemas"]["BlankedCopyUnusualRow"][];
+        };
+        BlankedCopyUnusualRow: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            kind?: string;
+            /** Format: int32 */
+            lines?: number;
+            /** Format: int32 */
+            pages?: number;
         };
         ApiResponsePagedResponseHoldWithoutReviewRecordDto: {
             success?: boolean;

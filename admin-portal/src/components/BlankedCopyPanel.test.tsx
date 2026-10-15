@@ -110,4 +110,41 @@ describe('BlankedCopyPanel', () => {
     expect(await screen.findByText('The blanked copy was refused: it still contained phone number.')).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('lists unusual rows in plain words, numbered as rows are elsewhere', async () => {
+    vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy({
+      unusualRows: [{ section: 0, row: 11, kind: 'MANY_LINES', lines: 6, pages: 1 },
+                    { section: 0, row: 19, kind: 'TWO_PAGES', lines: 3, pages: 2 },
+                    { section: 0, row: 30, kind: 'FAR_LINE', lines: 3, pages: 1 },
+                    { section: 1, row: 3, kind: 'MANY_LINES', lines: 5, pages: 1 }],
+    }))} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Unusual rows' });
+    expect(list).toHaveTextContent('Row 12 took 6 printed lines.');
+    expect(screen.getByText('Row 12 took 6 printed lines.')).toBeInTheDocument();
+    expect(screen.getByText('Row 20 took lines from 2 pages.')).toBeInTheDocument();
+    expect(screen.getByText('Row 31 took a line far from the rest.')).toBeInTheDocument();
+    expect(screen.getByText('Account 2, Row 4 took 5 printed lines.')).toBeInTheDocument();
+  });
+
+  it('says nothing about unusual rows when there are none', async () => {
+    vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy({ unusualRows: [] }))} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
+    expect(screen.queryByText('Unusual rows')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Unusual rows' })).not.toBeInTheDocument();
+  });
+
+  it('names a row-lines difference in plain words', async () => {
+    vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy({
+      check: 'DIFFERS',
+      differences: [{ section: 0, row: 11, field: 'ROW_LINES', maskedTokens: [] }],
+    }))} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(await screen.findByText('Row 12: the copy used different printed lines')).toBeInTheDocument();
+  });
 });

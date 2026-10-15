@@ -22667,11 +22667,45 @@
                     }
                 }
             },
+            "BiggestSpend": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "CategoryAmount": {
                 "type": "object",
                 "properties": {
                     "category": {
                         "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
+            "DailySpend": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
                     },
                     "amount": {
                         "type": "number"
@@ -22766,6 +22800,18 @@
                     },
                     "savingsRateGateReason": {
                         "type": "string"
+                    },
+                    "biggestSpends": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BiggestSpend"
+                        }
+                    },
+                    "dailySpend": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DailySpend"
+                        }
                     }
                 }
             },

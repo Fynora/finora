@@ -12,8 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -107,6 +109,30 @@ public class ReportService {
                 .map(e -> new ReportDto.CategoryAmount(e.getKey(), e.getValue()))
                 .toList();
 
+        // Biggest purchases and spend per day read the SAME rows and netting as the category list
+        // above (txns filtered by countsAsSpend, amounts through spendAmount), so a row listed here
+        // is something the report counted as spend, never a transfer it left out.
+        List<Transaction> spendRows = txns.stream().filter(spend::countsAsSpend).toList();
+        List<ReportDto.BiggestSpend> biggestSpends = spendRows.stream()
+                .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && spend.spendAmount(t).signum() > 0)
+                // Amount, then the later date, then id: a total order, so a tie cannot reshuffle
+                // between two requests.
+                .sorted(Comparator.comparing((Transaction t) -> spend.spendAmount(t), Comparator.reverseOrder())
+                        .thenComparing(Transaction::getTxnDate, Comparator.reverseOrder())
+                        .thenComparing(Transaction::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .limit(MAX_BIGGEST_SPENDS)
+                .map(t -> new ReportDto.BiggestSpend(
+                        t.getId(), t.getTxnDate(), spendLabel(t),
+                        categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
+                        spend.spendAmount(t)))
+                .toList();
+        Map<LocalDate, BigDecimal> spendByDay = new TreeMap<>();
+        for (Transaction t : spendRows) spendByDay.merge(t.getTxnDate(), spend.spendAmount(t), BigDecimal::add);
+        List<ReportDto.DailySpend> dailySpend = spendByDay.entrySet().stream()
+                .filter(e -> e.getValue().signum() > 0)
+                .map(e -> new ReportDto.DailySpend(e.getKey(), e.getValue()))
+                .toList();
+
         Map<String, BigDecimal> incomeByLabel = new java.util.LinkedHashMap<>();
         for (Transaction t : txnsForTotals) {
             if (!FlowTotals.countsAsIncome(t, flow)) continue;
@@ -130,7 +156,17 @@ public class ReportService {
                 unresolvedInflow, incomeByKind,
                 txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison,
                 coverage == null || coverage.completeFor(month),
-                savings.pct(), savings.gateReason());
+                savings.pct(), savings.gateReason(), biggestSpends, dailySpend);
+    }
+
+    /** How many of the month's largest purchases the report lists. */
+    private static final int MAX_BIGGEST_SPENDS = 3;
+
+    /** What a purchase is called on the report: the merchant, else the description, never blank. */
+    private static String spendLabel(Transaction t) {
+        if (t.getMerchant() != null && !t.getMerchant().isBlank()) return t.getMerchant().trim();
+        if (t.getDescription() != null && !t.getDescription().isBlank()) return t.getDescription().trim();
+        return "Transaction";
     }
 
     /** What decides whether a month is a whole month: the span of the user's history, the holes

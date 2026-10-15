@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { trackNavigation } from '../lib/trackNavigation';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -15,6 +15,8 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { SettingsCategorizationSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Threshold moves in 5% steps -- fine-grained enough for a confidence cutoff, and it avoids
@@ -64,8 +66,10 @@ export function SettingsCategorizationScreen() {
 
   if (workspaceQ.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <SettingsCategorizationSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -79,9 +83,7 @@ export function SettingsCategorizationScreen() {
   if (workspaceQ.isError) {
     return (
       <GlassScreen style={styles.centered}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your settings — please try again later.
-        </Text>
+        <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void workspaceQ.refetch()} />
       </GlassScreen>
     );
   }
@@ -164,7 +166,6 @@ export function SettingsCategorizationScreen() {
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   hint: { fontSize: 11, lineHeight: 16, marginTop: spacing.sm },
   reviewLink: { marginTop: spacing.sm },

@@ -289,6 +289,45 @@ export function SettingsSecuritySkeleton() {
   );
 }
 
+export function SettingsCategorizationSkeleton() {
+  return (
+    <SkeletonGroup testID="settings-categorization-skeleton">
+      <View style={styles.rowCenterMd}>
+        <SkeletonBox size="field" width="15%" />
+        <SkeletonText size="value" width="20%" />
+        <SkeletonBox size="field" width="15%" />
+      </View>
+      <View style={styles.gapSm}>
+        <SkeletonLines count={2} size="caption" />
+      </View>
+      <SkeletonText size="label" width="70%" style={styles.gapSm} />
+      <SkeletonBox size="button" style={styles.gapMd} />
+      <View style={styles.gapMd}>
+        <SkeletonText size="heading" width="35%" style={styles.stackSm} />
+        <SkeletonSettingsRow trailing="switch" />
+        <SkeletonSettingsRow trailing="switch" divider={false} />
+      </View>
+    </SkeletonGroup>
+  );
+}
+
+export function SettingsAccountSkeleton() {
+  const c = useTheme();
+  return (
+    <SkeletonGroup testID="settings-account-skeleton">
+      {[0, 1].map((i) => (
+        <View key={i} style={[styles.dangerRow, i === 0 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
+          <SkeletonText size="meta" width="40%" />
+          <View style={styles.gapSm}>
+            <SkeletonLines count={3} size="caption" />
+          </View>
+          <SkeletonText size="body" width="35%" style={styles.gapSm} />
+        </View>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },
@@ -311,6 +350,8 @@ const styles = StyleSheet.create({
   threeUp: { flexDirection: 'row', gap: spacing.sm },
   threeUpTile: { flex: 1, paddingHorizontal: spacing.sm, gap: spacing.xs },
   columnSmRow: { gap: spacing.sm },
+  rowCenterMd: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  dangerRow: { paddingVertical: spacing.md },
   gapSmStackMd: { marginTop: spacing.sm, marginBottom: spacing.md },
   centredColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
   spacedRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },

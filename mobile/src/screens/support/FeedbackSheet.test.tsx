@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { FeedbackSheet } from './FeedbackSheet';
 import { feedbackApi } from '../../api/endpoints';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   feedbackApi: { submit: jest.fn() },
@@ -21,6 +22,14 @@ describe('FeedbackSheet', () => {
   beforeEach(() => {
     onClose.mockReset();
     api.submit.mockReset();
+  });
+
+  it('ticks only when the feedback type changes', () => {
+    renderSheet();
+    fireEvent.press(screen.getByText('General feedback'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('Something’s broken'));
+    expectHaptics({ selection: 1 });
   });
 
   it('keeps Send disabled until a message is entered', () => {

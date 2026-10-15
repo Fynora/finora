@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from './Button';
 import { TextField } from './TextField';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { iconNameFor } from '../lib/categoryIcons';
@@ -119,7 +120,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
                 return (
                   <Pressable
                     key={i.token}
-                    onPress={() => setIcon(i.token)}
+                    onPress={() => { hapticSelectionIfChanged(icon, i.token); setIcon(i.token); }}
                     accessibilityRole="button"
                     accessibilityLabel={i.label}
                     accessibilityState={{ selected: isSelected }}
@@ -144,7 +145,7 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
                 return (
                   <Pressable
                     key={col.token}
-                    onPress={() => setColor(col.token)}
+                    onPress={() => { hapticSelectionIfChanged(color, col.token); setColor(col.token); }}
                     accessibilityRole="button"
                     accessibilityLabel={col.token}
                     accessibilityState={{ selected: isSelected }}

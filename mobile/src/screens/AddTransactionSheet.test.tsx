@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { accountsApi, categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { create: jest.fn() },
@@ -69,6 +70,16 @@ describe('AddTransactionSheet', () => {
 
     expect(await screen.findByText('HDFC Savings')).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Expense$/ }).props.accessibilityState.selected).toBe(true);
+  });
+
+  it('ticks only when the type changes', async () => {
+    renderSheet();
+    await settle();
+    await screen.findByText('HDFC Savings');
+    fireEvent.press(screen.getByRole('button', { name: /^Expense$/ }));
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: /^Income$/ }));
+    expectHaptics({ selection: 1 });
   });
 
   it('defaults the date to today in the device timezone, not a UTC-shifted day', async () => {

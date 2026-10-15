@@ -10,6 +10,7 @@ import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
 import { transactionsApi, type CategoryOption, type CategoryScope, type UpdateTransactionPayload } from '../api/endpoints';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -134,7 +135,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
               {(['EXPENSE', 'INCOME'] as const).map((t) => (
                 <Pressable
                   key={t}
-                  onPress={() => setType(t)}
+                  onPress={() => { hapticSelectionIfChanged(type, t); setType(t); }}
                   accessibilityRole="button"
                   accessibilityState={{ selected: type === t }}
                   style={[

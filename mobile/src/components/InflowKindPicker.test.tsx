@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { InflowKindPicker } from './InflowKindPicker';
 import type { InflowKind } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 const kinds: InflowKind[] = [
   { id: 'k1', name: 'Income', countsAsIncome: true, builtIn: 'INCOME' },
@@ -13,6 +14,26 @@ describe('InflowKindPicker', () => {
     render(<InflowKindPicker kinds={kinds} selectedId={null} onPick={onPick} onCreate={jest.fn()} />);
     fireEvent.press(screen.getByText('Family support'));
     expect(onPick).toHaveBeenCalledWith(kinds[1]);
+  });
+
+  it('ticks only when the picked kind changes', () => {
+    render(<InflowKindPicker kinds={kinds} selectedId="k2" onPick={jest.fn()} onCreate={jest.fn()} />);
+    fireEvent.press(screen.getByText('Family support'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('Income'));
+    expectHaptics({ selection: 1 });
+  });
+
+  it('ticks only when the answer to "count this as income?" changes', () => {
+    render(<InflowKindPicker kinds={kinds} selectedId={null} onPick={jest.fn()} onCreate={jest.fn()} />);
+    fireEvent.press(screen.getByText('+ New kind…'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('○ Yes, count it'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText('● Yes, count it'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText("○ No, don't count it"));
+    expectHaptics({ selection: 2 });
   });
 
   it('creates a kind only after the income question is answered', async () => {

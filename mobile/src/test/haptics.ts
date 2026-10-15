@@ -15,6 +15,14 @@ export function hapticCalls(): Record<Kind, number> {
   };
 }
 
+/** Forgets the haptics asked for so far, for a test that has to walk a flow (one that fires its
+ *  own) before reaching the control it is about. Only the expo-haptics mocks are cleared. */
+export function resetHapticCalls(): void {
+  jest.mocked(Haptics.notificationAsync).mockClear();
+  jest.mocked(Haptics.selectionAsync).mockClear();
+  jest.mocked(Haptics.impactAsync).mockClear();
+}
+
 /** Exactly these haptics and no others: kind and count, every kind checked. */
 export function expectHaptics(expected: Partial<Record<Kind, number>>): void {
   expect(hapticCalls()).toEqual({ success: 0, warning: 0, error: 0, selection: 0, impact: 0, ...expected });

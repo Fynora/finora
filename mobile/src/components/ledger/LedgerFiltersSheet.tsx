@@ -1,6 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AppSwitch } from '../AppSwitch';
-import { hapticSelection } from '../../lib/haptics';
+import { hapticSelection, hapticSelectionIfChanged } from '../../lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppModal } from '../AppModal';
 import { DateField } from '../DateField';
@@ -71,7 +71,7 @@ export function LedgerFiltersSheet({
                 return (
                   <Pressable
                     key={s}
-                    onPress={() => onStatus(s)}
+                    onPress={() => { hapticSelectionIfChanged(status, s); onStatus(s); }}
                     // The chip is 36 high; this makes the target 44.
                     hitSlop={{ top: 4, bottom: 4 }}
                     accessibilityRole="button"

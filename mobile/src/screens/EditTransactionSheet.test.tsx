@@ -5,6 +5,7 @@ import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { AppAlert } from '../lib/appAlert';
 import type { Transaction } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { update: jest.fn(), similar: jest.fn() },
@@ -72,6 +73,15 @@ beforeEach(() => {
 });
 
 describe('EditTransactionSheet', () => {
+  it('ticks only when the type changes', async () => {
+    renderSheet();
+    await settle();
+    fireEvent.press(screen.getByRole('button', { name: /^Expense$/ }));
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: /^Income$/ }));
+    expectHaptics({ selection: 1 });
+  });
+
   it('seeds every field from the transaction', () => {
     renderSheet();
 

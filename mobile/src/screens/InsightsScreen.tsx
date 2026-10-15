@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -339,7 +340,7 @@ export function InsightsScreen() {
         {TABS.map((t) => (
           <Pressable
             key={t.key}
-            onPress={() => switchTab(t.key)}
+            onPress={() => { hapticSelectionIfChanged(activeTab, t.key); switchTab(t.key); }}
             style={[styles.tabPill, activeTab === t.key ? { backgroundColor: c.primaryLight } : null]}
             accessibilityRole="button"
             accessibilityState={{ selected: activeTab === t.key }}

@@ -66,6 +66,14 @@ describe('LedgerFiltersSheet', () => {
     expect(handlers.onInternational).toHaveBeenCalledWith(false);
   });
 
+  it('ticks only when the status changes', () => {
+    show({ status: 'TRANSFER' });
+    fireEvent.press(screen.getByLabelText('Filter by status: Transfer'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Filter by status: OK'));
+    expectHaptics({ selection: 1 });
+  });
+
   it('the International only row fires one selection per toggle', () => {
     show({ internationalOnly: false });
     fireEvent.press(screen.getByLabelText('Show only international transactions'));

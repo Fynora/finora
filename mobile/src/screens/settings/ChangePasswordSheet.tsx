@@ -10,6 +10,7 @@ import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { ProgressBar } from '../../components/ProgressBar';
 import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
+import { hapticSelectionIfChanged } from '../../lib/haptics';
 import { safeStorage } from '../../lib/safeStorage';
 import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
@@ -344,7 +345,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
                     ].map((option) => (
                       <Pressable
                         key={String(option.value)}
-                        onPress={() => setSignOutOtherDevices(option.value)}
+                        onPress={() => { hapticSelectionIfChanged(signOutOtherDevices, option.value); setSignOutOtherDevices(option.value); }}
                         style={[styles.radioRow, { borderColor: c.border }]}
                         accessibilityRole="radio"
                         accessibilityState={{ checked: signOutOtherDevices === option.value }}

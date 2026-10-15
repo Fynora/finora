@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
+import { expectHaptics } from '../test/haptics';
 
 // Same trick DashboardScreen.test.tsx uses: useWindowDimensions reads Dimensions.get('window')
 // under the hood, so spying there is enough to simulate a scaled-up Dynamic Type setting.
@@ -81,6 +82,16 @@ describe('CategoryPickerModal', () => {
 
     expect(onSelect).toHaveBeenCalledWith(TRAVEL);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('ticks only when the pick differs from the category already selected', async () => {
+    renderPicker({ selectedName: 'Food' });
+    await settle();
+    fireEvent.press(await screen.findByTestId('category-Food'));
+    expect(onSelect).toHaveBeenCalledWith(FOOD);
+    expectHaptics({});
+    fireEvent.press(screen.getByTestId('category-Travel'));
+    expectHaptics({ selection: 1 });
   });
 
   // Regression for FYNORA-MOBILE-5 (Sentry): this component is always mounted inside LedgerScreen

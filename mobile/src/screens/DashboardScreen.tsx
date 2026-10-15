@@ -7,6 +7,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -1009,7 +1010,7 @@ export function DashboardScreen() {
               {(Object.keys(RANGE_MONTHS) as CashFlowRange[]).map((r) => (
                 <Pressable
                   key={r}
-                  onPress={() => setCashFlowRange(r)}
+                  onPress={() => { hapticSelectionIfChanged(cashFlowRange, r); setCashFlowRange(r); }}
                   accessibilityRole="button"
                   accessibilityState={{ selected: cashFlowRange === r }}
                   accessibilityLabel={`Show ${RANGE_MONTHS[r]} months`}

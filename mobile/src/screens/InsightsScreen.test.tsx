@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InsightsScreen } from './InsightsScreen';
+import { expectHaptics } from '../test/haptics';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
 } from '../api/endpoints';
@@ -162,6 +163,15 @@ describe('InsightsScreen', () => {
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.getByText(/Couldn't load your insights/)).toBeTruthy();
+  });
+
+  it('ticks only when the tab changes', async () => {
+    renderScreen();
+    expect(await screen.findByText('Dining')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Overview'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Spending'));
+    expectHaptics({ selection: 1 });
   });
 
   it('keeps insights when the recurring endpoint fails', async () => {

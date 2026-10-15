@@ -4,6 +4,7 @@ import { SkeletonGroup, SkeletonListRow, SkeletonText } from './skeletons/Skelet
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from './Card';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { fmtCurrency, fmtDate, toLocalDateString } from '../lib/format';
 import { isPausedCold } from '../lib/refreshingIndicator';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -122,7 +123,7 @@ export function InvestmentActivityCard() {
           return (
             <Pressable
               key={p.months}
-              onPress={() => setMonths(p.months)}
+              onPress={() => { hapticSelectionIfChanged(months, p.months); setMonths(p.months); }}
               hitSlop={6}
               style={[styles.chip, { borderColor: selected ? c.primary : c.border }]}
               accessibilityRole="radio"

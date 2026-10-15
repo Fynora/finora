@@ -1499,6 +1499,14 @@ describe('operational layer (card redesign)', () => {
     expect(screen.getByLabelText('Show 6 months').props.accessibilityState).toEqual({ selected: false });
   });
 
+  it('ticks only when the cash flow range changes', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Show 6 months'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Show 3 months'));
+    expectHaptics({ selection: 1 });
+  });
+
   it('shows the month tiles as a skeleton grid while the summary is loading, not a single card', async () => {
     dashboard.summary.mockReturnValue(new Promise(() => {}) as never);
     renderScreen();

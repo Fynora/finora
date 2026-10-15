@@ -12,6 +12,7 @@ import { TextField } from '../components/TextField';
 import {
   accountsApi, transactionsApi, type CategoryOption, type CreateTransactionPayload,
 } from '../api/endpoints';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -147,7 +148,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
                   {(['EXPENSE', 'INCOME'] as const).map((t) => (
                     <Pressable
                       key={t}
-                      onPress={() => setType(t)}
+                      onPress={() => { hapticSelectionIfChanged(type, t); setType(t); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: type === t }}
                       style={[

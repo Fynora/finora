@@ -5,6 +5,7 @@ import {
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
@@ -291,14 +292,14 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
         </Text>
         <View style={styles.modeRow}>
           <Pressable
-            onPress={() => setComparisonMode('full')}
+            onPress={() => { hapticSelectionIfChanged(comparisonMode, 'full'); setComparisonMode('full'); }}
             accessibilityRole="button"
             style={[styles.modeButton, { backgroundColor: comparisonMode === 'full' ? c.primary : c.card }]}
           >
             <Text style={{ color: comparisonMode === 'full' ? '#fff' : c.ink }}>Full Years</Text>
           </Pressable>
           <Pressable
-            onPress={() => setComparisonMode('ytd')}
+            onPress={() => { hapticSelectionIfChanged(comparisonMode, 'ytd'); setComparisonMode('ytd'); }}
             accessibilityRole="button"
             style={[styles.modeButton, { backgroundColor: comparisonMode === 'ytd' ? c.primary : c.card }]}
           >

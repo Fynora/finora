@@ -8,7 +8,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { colorHexFor, iconNameFor } from '../lib/categoryIcons';
-import { hapticSelection } from '../lib/haptics';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryDeleteSheet } from './CategoryDeleteSheet';
@@ -114,7 +114,7 @@ export function CategoryPickerModal({
   }
 
   function handleSelect(category: CategoryOption) {
-    hapticSelection();
+    hapticSelectionIfChanged(selectedName, category.name);
     onSelect(category);
     close();
   }

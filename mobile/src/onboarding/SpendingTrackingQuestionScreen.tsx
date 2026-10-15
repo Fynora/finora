@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { Button } from '../components/Button';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
 
@@ -61,7 +62,7 @@ export function SpendingTrackingQuestionScreen({ onSubmit, onSignOut }: Props) {
               key={opt.key}
               accessibilityRole="radio"
               accessibilityState={{ checked: active }}
-              onPress={() => setSelected(opt.key)}
+              onPress={() => { hapticSelectionIfChanged(selected, opt.key); setSelected(opt.key); }}
               style={[styles.option, { borderColor: active ? c.primary : c.border }]}
             >
               <Text style={{ color: c.ink }}>{opt.label}</Text>

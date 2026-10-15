@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccountFormSheet } from './AccountFormSheet';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { create: jest.fn(), update: jest.fn(), remove: jest.fn() },
@@ -81,6 +82,14 @@ describe('AccountFormSheet -- add mode', () => {
 
     expect(api.create).toHaveBeenCalledWith({ name: 'New Wallet', accountType: 'WALLET', balance: 1500 });
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it('ticks only when the account type changes', () => {
+    renderSheet();
+    fireEvent.press(screen.getByRole('button', { name: 'Savings' }));
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: 'Wallet' }));
+    expectHaptics({ selection: 1 });
   });
 
   it('sends no opening balance at all when left blank, rather than coercing it to zero', async () => {

@@ -9,6 +9,7 @@ import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
 import { accountsApi, type AccountRequest } from '../api/endpoints';
 import type { Account } from '../types';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
@@ -150,7 +151,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
                   return (
                     <Pressable
                       key={t}
-                      onPress={() => setAccountType(t)}
+                      onPress={() => { hapticSelectionIfChanged(accountType, t); setAccountType(t); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active }}
                       style={[

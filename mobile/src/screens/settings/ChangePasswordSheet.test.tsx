@@ -7,6 +7,7 @@ import { passwordChangeApi } from '../../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../../lib/phoneAuth';
 import { safeStorage } from '../../lib/safeStorage';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 
 const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
 
@@ -184,6 +185,16 @@ describe('ChangePasswordSheet', () => {
 
     expect(screen.getByRole('button', { name: /Update Password/ }).props.accessibilityState.disabled).toBe(true);
     expect(screen.getByText("Passwords don't match.")).toBeTruthy();
+  });
+
+  it('ticks only when the other-devices choice changes', async () => {
+    renderSheet();
+    await reachNewPasswordStep();
+    resetHapticCalls();
+    fireEvent.press(screen.getByLabelText('Sign out other devices (Recommended) — this device stays signed in.'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Keep other devices signed in'));
+    expectHaptics({ selection: 1 });
   });
 
   it('lets the user keep other devices signed in', async () => {

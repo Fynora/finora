@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button } from './Button';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import type { InflowKind } from '../types';
 import { radius, spacing, useTheme } from '../theme';
@@ -46,7 +47,7 @@ export function InflowKindPicker({ kinds, selectedId, onPick, onCreate, busy }: 
             disabled={busy}
             accessibilityRole="button"
             accessibilityState={{ selected: selectedId === k.id }}
-            onPress={() => onPick(k)}
+            onPress={() => { hapticSelectionIfChanged(selectedId, k.id); onPick(k); }}
             style={[styles.chip, {
               borderColor: selectedId === k.id ? c.primary : c.border,
               backgroundColor: selectedId === k.id ? c.primaryLight : c.card,
@@ -77,7 +78,7 @@ export function InflowKindPicker({ kinds, selectedId, onPick, onCreate, busy }: 
           <Text style={[styles.question, { color: c.muted }]}>Count this as income?</Text>
           {[true, false].map((v) => (
             <Pressable key={String(v)} accessibilityRole="radio" accessibilityState={{ checked: countsAsIncome === v }}
-              onPress={() => setCountsAsIncome(v)} style={styles.radio}>
+              onPress={() => { hapticSelectionIfChanged(countsAsIncome, v); setCountsAsIncome(v); }} style={styles.radio}>
               <Text style={[styles.chipName, { color: c.ink }]}>
                 {countsAsIncome === v ? '● ' : '○ '}{v ? 'Yes, count it' : "No, don't count it"}
               </Text>

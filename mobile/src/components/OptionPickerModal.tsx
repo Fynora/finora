@@ -1,7 +1,7 @@
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { hapticSelection } from '../lib/haptics';
+import { hapticSelectionIfChanged } from '../lib/haptics';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
 
@@ -58,7 +58,7 @@ export function OptionPickerModal({ visible, title, options, selected, onSelect,
             return (
               <Pressable
                 onPress={() => {
-                  hapticSelection();
+                  hapticSelectionIfChanged(selected, item);
                   onSelect(item);
                 }}
                 accessibilityRole="button"

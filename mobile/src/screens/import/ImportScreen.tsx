@@ -33,7 +33,7 @@ import {
 import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
-import { hapticError, hapticSuccess } from '../../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
@@ -1365,7 +1365,7 @@ export function ImportScreen() {
                     <Pressable
                       key={choice}
                       disabled={disabled}
-                      onPress={() => setAccountChoice(choice)}
+                      onPress={() => { hapticSelectionIfChanged(accountChoice, choice); setAccountChoice(choice); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active, disabled }}
                       style={[
@@ -1402,7 +1402,7 @@ export function ImportScreen() {
                     <Pressable
                       key={a.id}
                       disabled={aaLinked}
-                      onPress={() => setSelectedAccountId(a.id)}
+                      onPress={() => { hapticSelectionIfChanged(selectedAccountId, a.id); setSelectedAccountId(a.id); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active, disabled: aaLinked }}
                       style={[
@@ -1435,7 +1435,7 @@ export function ImportScreen() {
                       return (
                         <Pressable
                           key={t}
-                          onPress={() => setAccountForm((f) => ({ ...f, accountType: t }))}
+                          onPress={() => { hapticSelectionIfChanged(accountForm.accountType, t); setAccountForm((f) => ({ ...f, accountType: t })); }}
                           accessibilityRole="button"
                           accessibilityState={{ selected: active }}
                           style={[

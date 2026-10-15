@@ -379,13 +379,15 @@ public final class PdfTraceRedactor {
      * (see {@link BankSentences}). Lines are the redactor's own ({@link NumberGroups#lines}, with
      * its margin), the same lines its digit rules read. A line holding a sentence and anything else
      * is not a match, so nothing printed beside a sentence is kept with it; a sentence wrapped over
-     * two printed lines matches on neither.
+     * two printed lines matches on neither. The line must be plain ASCII, like every entry.
      */
     static Set<Integer> runsOfListedLines(List<PositionedText> runs, Set<String> sentences) {
         if (sentences.isEmpty()) return Set.of();
         Set<Integer> keep = new java.util.HashSet<>();
         for (NumberGroups.Line line : NumberGroups.lines(runs, NumberGroups.REDACTOR_GAP_MARGIN)) {
-            if (!sentences.contains(BankSentences.normalise(line.text()))) continue;
+            // ASCII only, as every rule that keeps text: some characters lower-case into ASCII
+            // (the Kelvin sign becomes "k"), and a line spelled with one is not the sentence.
+            if (!isAscii(line.text()) || !sentences.contains(BankSentences.normalise(line.text()))) continue;
             for (int[] o : line.origin()) {
                 if (o != null) keep.add(o[0]);
             }

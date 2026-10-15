@@ -148,6 +148,32 @@ class PdfTraceRedactorBankSentenceTest {
     }
 
     @Test
+    void aLineSpelledWithACharacterThatLowersIntoAsciiIsNotAMatch() {
+        // The Kelvin sign lower-cases to "k", so the normalised line equals the entry; the line is
+        // not plain ASCII, so it is masked as before.
+        Set<String> keep = BankSentences.forTesting("please keep this statement safe");
+        String printed = "please \u212Aeep this statement safe";
+        assertThat(BankSentences.normalise(printed)).isEqualTo("please keep this statement safe");
+
+        List<PositionedText> out = PdfTraceRedactor.redact(List.of(
+                new PositionedText(printed, 50.2f, 700f, 0, 150.4f)), keep);
+
+        assertRun(out.get(0), "xxxxxx Xxxx this statement xxxx", 50f, 150f);
+        assertThat(PdfTraceRedactor.redact(List.of(
+                new PositionedText("please keep this statement safe", 50.2f, 700f, 0, 150.4f)), keep).get(0).text())
+                .isEqualTo("please keep this statement safe");
+    }
+
+    @Test
+    void aWideSpaceInsideTheLineIsNotAMatch() {
+        String printed = "This is a computer\u2003generated statement";
+        List<PositionedText> out = PdfTraceRedactor.redact(List.of(
+                new PositionedText(printed, 50.2f, 700f, 0, 190.4f)), S);
+
+        assertRun(out.get(0), "This is a xxxxxxxx\u2003xxxxxxxxx statement", 50f, 190f);
+    }
+
+    @Test
     void caseAndSpacingDoNotMatter() {
         String printed = "THIS  IS A COMPUTER GENERATED STATEMENT";
         List<PositionedText> out = PdfTraceRedactor.redact(List.of(

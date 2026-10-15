@@ -8,6 +8,7 @@ import { Button } from '../../components/Button';
 import { MetricTile } from '../../components/AccountUI';
 import { gmailApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtRelativeTime } from '../../lib/format';
 import { connectGmail } from '../../lib/gmailAuth';
@@ -138,8 +139,10 @@ export function GmailConnectionSection() {
       const startedAt = requestStartedAt();
       try {
         await gmailApi.disconnect();
+        hapticSuccess();
         refresh();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'gmail-connection:disconnect', startedAt);
         setActionError(toUserMessage(e, "Couldn't disconnect Gmail -- please try again."));
       } finally {

@@ -1,10 +1,11 @@
 import { Linking } from 'react-native';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsBankSyncScreen } from './SettingsBankSyncScreen';
 import { accountAggregatorApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   accountAggregatorApi: { list: jest.fn(), initiate: jest.fn(), disconnect: jest.fn() },
@@ -66,6 +67,29 @@ test('refuses to open a redirectUrl with an unsafe scheme, and surfaces an error
   fireEvent.press(screen.getByText('Connect a Bank Account'));
   expect(await screen.findByText("Couldn't start connecting your bank.")).toBeTruthy();
   expect(openURL).not.toHaveBeenCalled();
+});
+
+test('disconnecting gives one success once confirmed, nothing on Cancel, and one error when refused', async () => {
+  (accountAggregatorApi.list as jest.Mock).mockResolvedValue([
+    { id: 'l1', fiType: 'DEPOSIT', status: 'ACTIVE', consentExpiresAt: null, lastSyncedAt: null, lastSyncStatus: null, statusChangedAt: '2026-08-01T00:00:00Z' },
+  ]);
+  (accountAggregatorApi.disconnect as jest.Mock)
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error('down'));
+  renderScreen();
+
+  fireEvent.press(await screen.findByText('Disconnect'));
+  fireEvent.press(screen.getByText('Cancel'));
+  expectHaptics({});
+
+  fireEvent.press(screen.getByText('Disconnect'));
+  fireEvent.press(screen.getByText('Confirm Disconnect'));
+  await waitFor(() => expectHaptics({ success: 1 }));
+
+  fireEvent.press(await screen.findByText('Disconnect'));
+  fireEvent.press(screen.getByText('Confirm Disconnect'));
+  expect(await screen.findByText("Couldn't disconnect.")).toBeTruthy();
+  expectHaptics({ success: 1, error: 1 });
 });
 
 async function openURLCalledWith(spy: jest.SpyInstance, url: string): Promise<boolean> {

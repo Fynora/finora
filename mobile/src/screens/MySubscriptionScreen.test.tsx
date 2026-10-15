@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MySubscriptionScreen } from './MySubscriptionScreen';
 import { billingApi } from '../api/endpoints';
 import { restorePurchases } from '../lib/revenueCat';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   billingApi: { mySubscription: jest.fn(), pause: jest.fn(), resume: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn() },
@@ -73,6 +74,24 @@ describe('MySubscriptionScreen', () => {
       'Pause subscription?', expect.stringMatching(/stops right away/i), expect.any(Array)
     );
     await waitFor(() => expect(mockedBillingApi.pause).toHaveBeenCalled());
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a pause the server refuses gives one error', async () => {
+    mockedBillingApi.mySubscription.mockResolvedValue({
+      planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+    } as any);
+    mockedBillingApi.pause.mockRejectedValueOnce(new Error('down'));
+    jest.spyOn(AppAlert, 'alert').mockImplementation((_title, _msg, buttons) => {
+      buttons?.find((b) => b.text === 'Pause')?.onPress?.();
+    });
+    renderScreen();
+
+    fireEvent.press(await screen.findByText('Pause subscription'));
+
+    expect(await screen.findByText('Could not pause this subscription. Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('does not pause when the confirmation is dismissed', async () => {
@@ -88,6 +107,7 @@ describe('MySubscriptionScreen', () => {
     fireEvent.press(await screen.findByText('Pause subscription'));
 
     expect(mockedBillingApi.pause).not.toHaveBeenCalled();
+    expectHaptics({});
   });
 
   it('shows a paused message and a Resume button instead of Pause for a paused subscription', async () => {
@@ -117,6 +137,21 @@ describe('MySubscriptionScreen', () => {
 
     await waitFor(() => expect(mockedBillingApi.resume).toHaveBeenCalled());
     expect(alertSpy).not.toHaveBeenCalled();
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a resume the server refuses gives one error', async () => {
+    mockedBillingApi.mySubscription.mockResolvedValue({
+      planCode: 'PLUS', planName: 'Plus', status: 'PAUSED', autoRenew: true,
+      hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
+    } as any);
+    mockedBillingApi.resume.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+
+    fireEvent.press(await screen.findByText('Resume subscription'));
+
+    expect(await screen.findByText('Could not resume this subscription. Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('explains why Pause is the only control and links to Manage on web for an active Razorpay-owned subscription', async () => {

@@ -10,7 +10,7 @@ import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { ProgressBar } from '../../components/ProgressBar';
 import { TextField } from '../../components/TextField';
 import { passwordChangeApi } from '../../api/endpoints';
-import { hapticSelectionIfChanged } from '../../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { safeStorage } from '../../lib/safeStorage';
 import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
@@ -127,6 +127,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));
         setStep('otp');
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'change-password:start', startedAt);
         setError(toUserMessage(e, signInMethod === 'PASSWORD'
           ? 'Could not start the password change. Please try again.'
@@ -150,6 +151,7 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
         setStep('newPassword');
       } catch (e) {
         // Covers Firebase (confirm) and the backend (verifyOtp) alike -- toUserMessage maps both.
+        hapticError();
         reportTransportFailure(e, 'change-password:verify-otp', startedAt);
         setError(toUserMessage(e, 'Could not verify that code. Please try again.'));
         setOtp('');
@@ -186,10 +188,12 @@ export function ChangePasswordSheet({ onClose, onSuccess, signInMethod }: {
         const res = await passwordChangeApi.complete(
           sessionId, newPassword, signOutOtherDevices, currentRefreshToken
         );
+        hapticSuccess();
         setSuccessMessage(res.message);
         setStep('success');
         onSuccess?.();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'change-password:complete', startedAt);
         setError(toUserMessage(e, 'Could not update your password. Please try again.'));
       } finally {

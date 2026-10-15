@@ -5,6 +5,7 @@ import { ChangeEmailSheet } from './ChangeEmailSheet';
 import { emailChangeApi } from '../../api/endpoints';
 import { AUTH_EMAIL_ALREADY_REGISTERED } from '../../api/errorCodes';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   emailChangeApi: { start: jest.fn() },
@@ -82,6 +83,25 @@ describe('ChangeEmailSheet', () => {
     expect(screen.getByText(/We sent a confirmation link to new@example.com/)).toBeTruthy();
     // The form is gone -- this is a replacement step, not an overlay on top of it.
     expect(screen.queryByLabelText('Current password')).toBeNull();
+    expectHaptics({ success: 1 });
+  });
+
+  it('a request that fails once and then goes through gives one error, then one success', async () => {
+    api.start
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 503, data: { message: 'Try again.' } } })
+      .mockResolvedValueOnce({ sessionId: 'sess-1', devVerifyLink: null });
+    renderSheet();
+    fillForm();
+
+    fireEvent.press(screen.getByRole('button', { name: /Send confirmation link/ }));
+    await settle();
+    expect(screen.getByText('Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
+
+    fireEvent.press(screen.getByRole('button', { name: /Send confirmation link/ }));
+    await settle();
+    expect(screen.getByText('Check your inbox')).toBeTruthy();
+    expectHaptics({ error: 1, success: 1 });
   });
 
   it('shows a server error and stays on the form when start() fails', async () => {
@@ -100,6 +120,7 @@ describe('ChangeEmailSheet', () => {
     // An ordinary rejection (wrong password) must not offer "Log in instead" -- only the one
     // specific, known-actionable cause below does.
     expect(screen.queryByText('Log in instead')).toBeNull();
+    expectHaptics({ error: 1 });
   });
 
   /** The email belongs to a different account -- ending the CURRENT session so the one that

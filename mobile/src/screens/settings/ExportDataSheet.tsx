@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { useSingleFlight } from '../../lib/useSingleFlight';
 import { useTheme } from '../../theme';
@@ -42,8 +43,10 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
       const startedAt = requestStartedAt();
       try {
         await accountLifecycleApi.exportData(currentPassword, null);
+        hapticSuccess();
         onClose();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'export-data:submit', startedAt);
         setError(toUserMessage(e, 'Could not prepare your export. Please try again.'));
       } finally {

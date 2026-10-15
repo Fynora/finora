@@ -553,6 +553,25 @@ class DashboardServiceTest {
     }
 
     @Test
+    @DisplayName("so far: with several months of data, the question is asked about the newest month, against the newest month")
+    void summarize_asksAboutTheNewestMonth_whenThereAreSeveralMonthsOfData() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (LocalDate d = LocalDate.of(2026, 7, 1); !d.isAfter(LocalDate.of(2026, 8, 31)); d = d.plusDays(1)) {
+            txns.add(txn(new BigDecimal("100.00"), Transaction.Type.EXPENSE, d, Transaction.ReconciliationStatus.OK));
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+        var note = new com.finora.dto.StatementBehindDto("HDFC Card", LocalDate.of(2026, 8, 11), 1);
+        // Only the exact pair (August, August) is stubbed: July as either argument would miss it.
+        when(statementReach.behindFor(eq(userId), eq(java.time.YearMonth.of(2026, 8)), eq(java.time.YearMonth.of(2026, 8))))
+                .thenReturn(Optional.of(note));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.reportingMonth()).isEqualTo("2026-08");
+        assertThat(summary.statementBehind()).isEqualTo(note);
+    }
+
+    @Test
     @DisplayName("so far: nothing behind means no note")
     void summarize_hasNoStatementBehindNote_whenNoAccountIsBehind() {
         List<Transaction> txns = new java.util.ArrayList<>();

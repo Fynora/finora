@@ -29,13 +29,17 @@ const monthOnly = (label: string) => label.split(' ')[0];
  * as an area chart under it. Before that it was a half-width card beside Accounts.
  */
 export function CashFlowMiniCard({
-  points, deltaPct, deltaLabel,
+  points, deltaPct, deltaLabel, note,
 }: {
   points: CashFlowPoint[];
   deltaPct: number | null;
   // What deltaPct compares against -- useDashboardKpis's deltaLabel, since it is the summary's
   // netDeltaPct: "vs last month" only when the reporting month is the current one.
   deltaLabel: string;
+  /** Said under the chip when the reporting month is "so far" (an account's statements stop short
+   *  of it): the chip is that month's net change, so it needs the same label the month's figures
+   *  carry. Built from the server's own month and account (lib/statementBehind), never here. */
+  note?: string | null;
 }) {
   const c = useTheme();
 
@@ -87,6 +91,9 @@ export function CashFlowMiniCard({
           </View>
         ) : null}
       </View>
+      {note && deltaPct !== null ? (
+        <Text testID="cash-flow-so-far-note" style={[typography.caption, { color: c.mutedInk }]}>{note}</Text>
+      ) : null}
       <Svg
         testID="cash-flow-trend-chart"
         width="100%"

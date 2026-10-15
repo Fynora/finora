@@ -155,6 +155,15 @@ class DashboardStatementReachIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aCustomRangeRunningPastTheNewestData_isNotLabelledAboutAMonthWithNoData() throws Exception {
+        User user = userWithACard(Account.PrimarySource.MANUAL, LocalDate.of(2026, 9, 11));
+
+        JsonNode range = data("/api/v1/dashboard/range-summary?rangeType=CUSTOM&startDate=2026-08-01&endDate=2026-12-31", user);
+
+        assertThat(range.get("statementBehind").isNull()).isTrue();
+    }
+
+    @Test
     void aCardWhoseStatementReachesMonthEnd_hasNoNote() throws Exception {
         User user = userWithACard(Account.PrimarySource.MANUAL, LocalDate.of(2026, 9, 30));
 

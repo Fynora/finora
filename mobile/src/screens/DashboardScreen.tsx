@@ -627,7 +627,7 @@ export function DashboardScreen() {
           wrapper around a null card would still leave its margin behind as a blank gap. */}
       {summary && showCashFlowMini ? (
         <View style={styles.section}>
-          <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} />
+          <CashFlowMiniCard points={cashFlowPoints} deltaPct={summary.netDeltaPct} deltaLabel={deltaLabel} note={soFarNote} />
         </View>
       ) : null}
 

@@ -136,6 +136,24 @@ describe('CashFlowMiniCard', () => {
     expect(screen.getByText('▼ 5.0%')).toHaveStyle({ color: light.dangerInk });
   });
 
+  const POINTS = [{ label: 'Jun', income: 40000, expense: 20000 }];
+  const NOTE = "September is partial so far: HDFC Card's latest statement ends Sep 11, so its last days aren't in yet.";
+
+  it('says the month is "so far" beside the net change it labels, and keeps the figures', () => {
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={22} deltaLabel="vs last month" points={POINTS} note={NOTE} /></ThemeProvider>);
+    expect(screen.getByTestId('cash-flow-so-far-note').props.children).toBe(NOTE);
+    expect(screen.getByText('▲ 22.0%')).toBeTruthy();
+    expect(screen.getByText('₹20,000')).toBeTruthy();
+  });
+
+  it('shows no note when there is none, or when there is no net change for it to label', () => {
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={22} deltaLabel="vs last month" points={POINTS} /></ThemeProvider>);
+    expect(screen.queryByTestId('cash-flow-so-far-note')).toBeNull();
+    screen.unmount();
+    render(<ThemeProvider><CashFlowMiniCard deltaPct={null} deltaLabel="vs last month" points={POINTS} note={NOTE} /></ThemeProvider>);
+    expect(screen.queryByTestId('cash-flow-so-far-note')).toBeNull();
+  });
+
   it('renders nothing with no points -- the full Cash Flow card explains why', () => {
     const { toJSON } = render(<ThemeProvider><CashFlowMiniCard points={[]} deltaPct={null} deltaLabel="vs last month" /></ThemeProvider>);
     expect(toJSON()).toBeNull();

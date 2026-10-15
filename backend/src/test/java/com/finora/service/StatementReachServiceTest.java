@@ -78,6 +78,19 @@ class StatementReachServiceTest {
     }
 
     @Test
+    void aMonthAfterTheNewestDataMonth_hasNoNote_soACustomRangeRunningIntoTheFutureIsNotLabelled() {
+        // A custom Dashboard range can end after the user's last transaction. That month has no data
+        // to be "so far" about; without this the card active in the newest month would be reported
+        // as behind a month that has not happened yet.
+        when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
+        activeInWindow(hdfc);
+
+        assertThat(service.behindFor(userId, YearMonth.of(2026, 10), SEP)).isEmpty();
+
+        verify(transactions, never()).findAccountIdsWithTransactionsBetween(any(), any(), any(), any());
+    }
+
+    @Test
     void anActiveAccountWhoseStatementEndsBeforeTheMonth_isReportedByNameAndDate() {
         when(coverage.latestStatementEnds(userId)).thenReturn(Map.of(hdfc.getId(), LocalDate.of(2026, 9, 11)));
         activeInWindow(hdfc);

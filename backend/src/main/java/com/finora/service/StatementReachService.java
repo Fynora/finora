@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  * Whether a month's figures are "so far" because an account's statements stop short of it, and
  * which account. The one place that asks the question for the Reports comparison and for both
  * Dashboard summaries, so they cannot disagree. The rule itself, and why it only looks at the
- * newest two months, is {@link MonthComparisonGate#awaitingStatement}.
+ * newest two months, is {@link MonthComparisonGate#behindAccountIds}.
  */
 @Service
 public class StatementReachService {
@@ -47,8 +47,11 @@ public class StatementReachService {
     @Transactional(readOnly = true)
     public Optional<StatementBehindDto> behindFor(UUID userId, YearMonth month, YearMonth newestDataMonth,
                                                   Map<UUID, LocalDate> latestStatementEnds) {
-        // Cheap exits first: nobody to judge, or a month too old to be judged. Neither pays for a query.
+        // Cheap exits first, none of which pays for a query: nobody to judge, a month too old to be
+        // judged, or a month after the user's newest data -- a custom Dashboard range can run into
+        // the future, and a month with no data is not "so far" about anything.
         if (latestStatementEnds.isEmpty()
+                || month.isAfter(newestDataMonth)
                 || month.isBefore(newestDataMonth.minusMonths(MonthComparisonGate.RECENT_MONTHS - 1L))) {
             return Optional.empty();
         }

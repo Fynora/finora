@@ -1060,6 +1060,26 @@ export interface ReportData {
   savingsRatePct?: number | null;
   /** NO_INCOME or UNRESOLVED_EXCEEDS_INCOME when the rate is withheld, null when it is not. */
   savingsRateGateReason?: string | null;
+  /** The month's three largest purchases, biggest first, from the same rows and refund netting as
+   *  `categories`. Optional: an older server omits it. */
+  biggestSpends?: BiggestSpend[];
+  /** Spend per day (days with spend only, oldest first), from the same rows as `categories`.
+   *  Optional: an older server omits it. */
+  dailySpend?: DailySpend[];
+}
+export interface BiggestSpend {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** The merchant, or the description when there is none. */
+  label: string;
+  category: string;
+  amount: number;
+}
+export interface DailySpend {
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
 }
 export interface MonthComparison {
   previousMonth: string;

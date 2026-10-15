@@ -11,7 +11,10 @@ import { fmt, monthLabelLong } from './reportSections/reportFormat';
 import { ReportHero } from './reportSections/ReportHero';
 import { ReportStatCards } from './reportSections/ReportStatCards';
 import { ReviewNotice } from './reportSections/ReviewNotice';
+import { BiggestSpends } from './reportSections/BiggestSpends';
 import { CategoryBreakdown } from './reportSections/CategoryBreakdown';
+import { MerchantsCard } from './reportSections/MerchantsCard';
+import { SpendingCalendar } from './reportSections/SpendingCalendar';
 import { MonthSwitcher } from './reportSections/MonthSwitcher';
 import { Observations } from './reportSections/Observations';
 import { buildObservations } from './reportSections/observationText';
@@ -242,6 +245,14 @@ export default function Reports() {
             )}
           </div>
           <TrendPanel points={extrasForReport?.trend ?? null} selectedMonth={report.month} />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <SpendingCalendar month={report.month} days={report.dailySpend} complete={report.complete !== false} />
+            {/* Without a calendar (nothing spent, or an older server) the column takes the full row. */}
+            <div className={`space-y-6 ${report.dailySpend && report.dailySpend.length > 0 ? '' : 'lg:col-span-2'}`}>
+              <BiggestSpends items={report.biggestSpends} />
+              <MerchantsCard month={report.month} />
+            </div>
+          </div>
         </>
       )}
     </div>

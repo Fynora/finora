@@ -10,6 +10,13 @@ export function fmt(n: number): string {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
 
+/** "2026-09-14" -> "Sep 14". Explicit y/m/d construction: `new Date("2026-09-14")` is UTC midnight,
+ *  which is the 13th anywhere behind UTC. */
+export function shortDate(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // "2026-08" -> "August 2026", for naming a month inside a sentence. Explicit y/m/1 construction,
 // not `new Date(monthStr)` -- a bare "YYYY-MM" parses as UTC midnight, which renders as the prior
 // month in any timezone behind UTC. Long form rather than a short "Jul 26", which reads fine on a

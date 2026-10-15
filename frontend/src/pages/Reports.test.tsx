@@ -3,12 +3,15 @@ import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Reports from './Reports';
-import { categoriesApi, insightsApi, reportsApi, type InsightsData, type ReportData } from '../api/endpoints';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { analyticsApi, categoriesApi, entitlementsApi, insightsApi, reportsApi, type InsightsData, type ReportData } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn(), trend: vi.fn() },
   categoriesApi: { list: vi.fn() },
   insightsApi: { get: vi.fn() },
+  entitlementsApi: { mine: vi.fn() },
+  analyticsApi: { topMerchants: vi.fn() },
 }));
 
 // The extras (categories, insights, trend) are optional on the page, so every test starts with
@@ -18,6 +21,9 @@ beforeEach(() => {
   vi.mocked(categoriesApi.list).mockResolvedValue([]);
   vi.mocked(insightsApi.get).mockResolvedValue({ sentences: [], movers: [] });
   vi.mocked(reportsApi.trend).mockResolvedValue([]);
+  // No Advanced Reports unless a test says otherwise, so the paid endpoint is never called by default.
+  vi.mocked(entitlementsApi.mine).mockResolvedValue({ features: { ADVANCED_REPORTS: false } } as never);
+  vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
 });
 
 function report(overrides: Partial<ReportData> = {}): ReportData {
@@ -35,10 +41,13 @@ function pending<T>(): Promise<T> {
 }
 
 function renderPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <Reports />
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <Reports />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -676,5 +685,171 @@ describe('Reports — the last months', () => {
     renderPage();
     await screen.findByTestId('category-rows');
     expect(screen.queryByTestId('trend-chart')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — biggest spends', () => {
+  const spend = (id: string, label: string, amount: number, date = '2026-08-14', category = 'Shopping') =>
+    ({ id, date, label, category, amount });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it("lists the server's biggest purchases with their day and category, each opening that purchase in the ledger", async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      biggestSpends: [spend('a', 'Big Mart', 9000), spend('b', 'Electricity bill', 2500, '2026-08-06', 'Bills & Utilities')],
+    }));
+    renderPage();
+
+    const list = await screen.findByTestId('biggest-spends');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(list).getByText('Aug 14 · Shopping')).toBeInTheDocument();
+    expect(within(list).getByText('₹9,000')).toBeInTheDocument();
+    const href = within(list).getByRole('link', { name: /Big Mart, ₹9,000 on Aug 14/ }).getAttribute('href')!;
+    const params = new URLSearchParams(href.split('?')[1]);
+    expect(params.get('q')).toBe('Big Mart');
+    expect(params.get('from')).toBe('2026-08-14');
+    expect(params.get('to')).toBe('2026-08-14');
+  });
+
+  it('keeps a name with special characters intact in the link', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ biggestSpends: [spend('a', 'A & B + Co?', 500)] }));
+    renderPage();
+    const href = (await screen.findByRole('link', { name: /A & B \+ Co\?, ₹500/ })).getAttribute('href')!;
+    expect(new URLSearchParams(href.split('?')[1]).get('q')).toBe('A & B + Co?');
+  });
+
+  it('is not drawn when there are none, or from an older server', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ biggestSpends: [] }));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Biggest spends')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Biggest spends')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — daily spending', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-09']);
+  });
+
+  const withDays = (days: { date: string; amount: number }[], over: Partial<ReportData> = {}) =>
+    report({ month: '2026-09', dailySpend: days, ...over });
+
+  it('shades each day, names the biggest, and opens a day with spend in the ledger', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(withDays([{ date: '2026-09-14', amount: 3120 }, { date: '2026-09-03', amount: 400 }]));
+    renderPage();
+
+    expect(await screen.findByTestId('calendar-biggest')).toHaveTextContent('Biggest day: Sep 14, ₹3,120');
+    const grid = screen.getByTestId('spend-calendar');
+    expect(within(grid).getAllByRole('link')).toHaveLength(2);
+    const href = within(grid).getByRole('link', { name: /Sep 14: ₹3,120 spent/ }).getAttribute('href')!;
+    const params = new URLSearchParams(href.split('?')[1]);
+    expect(params.get('from')).toBe('2026-09-14');
+    expect(params.get('to')).toBe('2026-09-14');
+    // 30 days in September, 2 with spend: the other 28 are plain, unlinked cells.
+    expect(grid.querySelectorAll('div.aspect-square')).toHaveLength(28);
+    // Said so that it is true in both themes: "darker" is wrong in dark mode, where heavier is lighter.
+    expect(screen.getByText(/stronger shade means more spent/)).toBeInTheDocument();
+    expect(screen.queryByText(/darker/i)).not.toBeInTheDocument();
+  });
+
+  it('says days past the data show nothing only for a month that is partly in', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(withDays([{ date: '2026-09-03', amount: 400 }], { complete: false }));
+    const { unmount } = renderPage();
+    expect(await screen.findByText(/Days past your latest data show nothing/)).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(withDays([{ date: '2026-09-03', amount: 400 }], { complete: true }));
+    renderPage();
+    await screen.findByTestId('spend-calendar');
+    expect(screen.queryByText(/Days past your latest data/)).not.toBeInTheDocument();
+  });
+
+  it('is not drawn for a month with no spending, or from an older server', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(withDays([]));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('spend-calendar')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ month: '2026-09' }));
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('spend-calendar')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — top merchants', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+  });
+
+  it('shows a locked preview with no real data, and never asks the paid endpoint, without Advanced Reports', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ features: { ADVANCED_REPORTS: false } } as never);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([{ merchantId: 'm1', merchantName: 'Secret Merchant', totalSpend: 99999, transactionCount: 3 }]);
+    renderPage();
+
+    expect(await screen.findByTestId('locked-merchants-bars')).toBeInTheDocument();
+    expect(screen.getByText('Plus & Premium')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /View plans/ })).toHaveAttribute('href', '/app/billing');
+    expect(analyticsApi.topMerchants).not.toHaveBeenCalled();
+    expect(screen.queryByText('Secret Merchant')).not.toBeInTheDocument();
+  });
+
+  it('shows the real top merchants for the month, with a link to Advanced Reports, with it', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ features: { ADVANCED_REPORTS: true } } as never);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([
+      { merchantId: 'm1', merchantName: 'Big Mart', totalSpend: 9000, transactionCount: 4 },
+      { merchantId: 'm2', merchantName: 'Corner Cafe', totalSpend: 1200, transactionCount: 1 },
+    ]);
+    renderPage();
+
+    const list = await screen.findByTestId('top-merchants');
+    expect(within(list).getByText('Big Mart')).toBeInTheDocument();
+    expect(within(list).getByText('4 transactions')).toBeInTheDocument();
+    expect(within(list).getByText('1 transaction')).toBeInTheDocument();
+    expect(analyticsApi.topMerchants).toHaveBeenCalledWith('2026-08');
+    expect(screen.getByRole('link', { name: 'See more in Advanced Reports' })).toHaveAttribute('href', '/app/reports/advanced');
+    expect(screen.queryByTestId('locked-merchants-bars')).not.toBeInTheDocument();
+  });
+
+  it('shows at most five, and nothing when the month has none or the request fails', async () => {
+    vi.mocked(entitlementsApi.mine).mockResolvedValue({ features: { ADVANCED_REPORTS: true } } as never);
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) => ({ merchantId: `m${i}`, merchantName: `Merchant ${i}`, totalSpend: 1000 - i, transactionCount: 1 })));
+    const first = renderPage();
+    const list = await screen.findByTestId('top-merchants');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5);
+    first.unmount();
+
+    vi.mocked(analyticsApi.topMerchants).mockResolvedValue([]);
+    const second = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Top merchants')).not.toBeInTheDocument();
+    second.unmount();
+
+    vi.mocked(analyticsApi.topMerchants).mockRejectedValue(new Error('boom'));
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Top merchants')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing, rather than the locked preview, while the entitlement is still unknown', async () => {
+    vi.mocked(entitlementsApi.mine).mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('locked-merchants-bars')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('top-merchants')).not.toBeInTheDocument();
   });
 });

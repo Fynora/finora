@@ -3,6 +3,7 @@ package com.finora.dto;
 import com.finora.entity.ImportJob;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -49,16 +50,28 @@ public record HeldImportDto(
      * <p>Every construction of this is audited by {@code AdminHeldImportService.detail} -- see this
      * class's own doc for why the row form withholds {@code lastError} and this one does not.
      */
-    public record Detail(HeldImportDto job, String lastError, String correlationId, String objectKey) {
+    // Named for the contract: springdoc names a schema after the simple class name, and
+    // SupportTicketDto.Detail is also "Detail", so without this the held-import detail endpoint was
+    // described as a support ticket. The name changes only the contract, not the JSON.
+    @io.swagger.v3.oas.annotations.media.Schema(name = "HeldImportDetail")
+    public record Detail(HeldImportDto job, String lastError, String correlationId, String objectKey,
+                         // Who opened the real statement, and when, oldest first -- never the reason,
+                         // which is on the audit entry only.
+                         List<Opening> originalOpenings) {
 
-        public static Detail from(ImportJob job) {
+        public static Detail from(ImportJob job, List<Opening> originalOpenings) {
             return new Detail(
                     HeldImportDto.from(job),
                     job.getLastError(),
                     job.getCorrelationId(),
-                    job.getObjectKey());
+                    job.getObjectKey(),
+                    List.copyOf(originalOpenings));
         }
     }
+
+    /** One opening of the held import's real statement: when, and by whom (their email). */
+    @io.swagger.v3.oas.annotations.media.Schema(name = "HeldImportOriginalOpening")
+    public record Opening(Instant openedAt, String openedBy) {}
 
     /**
      * The queue's counts.

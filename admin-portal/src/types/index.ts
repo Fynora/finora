@@ -1288,6 +1288,9 @@ export interface HeldImportDetail {
   lastError: string | null;
   correlationId: string | null;
   objectKey: string | null;
+  /** Who opened the real statement, and when, oldest first -- never the reason. Optional because
+   *  an older backend does not send it. */
+  originalOpenings?: { openedAt: string; openedBy: string }[];
 }
 
 /** One place a held statement's blanked copy reads differently from the real one -- mirrors the

@@ -116,6 +116,12 @@ function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
   );
 }
 
+/** Readable names for History entries that are not the hold's own state changes. The rest keep
+ *  their event type as before. */
+const EVENT_LABEL: Record<string, string> = {
+  ORIGINAL_VIEWED: 'Original statement opened',
+};
+
 function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const { roles } = useAdminAuth();
   // The real statement and its staged rows are pinned to these roles on the server too.
@@ -643,7 +649,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         <ul className="space-y-2">
           {timeline.map((event, index) => (
             <li key={index} className="text-xs border-l-2 border-border pl-3">
-              <span className="text-ink font-medium">{event.eventType}</span>{' '}
+              <span className="text-ink font-medium">{EVENT_LABEL[event.eventType] ?? event.eventType}</span>{' '}
               <span className="text-muted">{formatWhen(event.createdAt)}</span>
               {event.notes && <p className="text-muted mt-0.5">{event.notes}</p>}
             </li>

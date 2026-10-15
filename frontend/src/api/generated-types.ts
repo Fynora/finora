@@ -11400,6 +11400,30 @@ export interface components {
             /** Format: int32 */
             totalPages?: number;
         };
+        ApiResponseHeldImportDetail: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["HeldImportDetail"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        HeldImportDetail: {
+            job?: components["schemas"]["HeldImportDto"];
+            lastError?: string;
+            correlationId?: string;
+            objectKey?: string;
+            originalOpenings?: components["schemas"]["HeldImportOriginalOpening"][];
+        };
+        HeldImportOriginalOpening: {
+            /** Format: date-time */
+            openedAt?: string;
+            openedBy?: string;
+        };
         ApiResponseBreakdown: {
             success?: boolean;
             message?: string;
@@ -20620,7 +20644,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseDetail"];
+                    "*/*": components["schemas"]["ApiResponseHeldImportDetail"];
                 };
             };
         };

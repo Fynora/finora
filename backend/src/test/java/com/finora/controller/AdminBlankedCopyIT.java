@@ -448,6 +448,9 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
             i++;
         }
         assertThat(differences.toString()).doesNotContain("EMPLOYER", "SENDER", "MERCHANT", "PAYEE");
+        // Unusual rows are named by position and counts only; this ordinary statement has none.
+        assertThat(data.get("unusualRows").isArray()).isTrue();
+        assertThat(data.get("unusualRows")).isEmpty();
         assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
     }
 

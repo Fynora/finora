@@ -6,6 +6,7 @@ import com.finora.imports.blanked.BlankedCopyComparison;
 import com.finora.imports.blanked.BlankedCopyRefusedException;
 import com.finora.imports.blanked.BlankedCopyService;
 import com.finora.imports.blanked.RowMapBlock;
+import com.finora.imports.blanked.UnusualRows;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.PositionedText;
@@ -499,6 +500,42 @@ class BlankedCopyServiceTest {
     }
 
     @Test
+    void theUnusualRowsComeFromTheRealReadingsRowMap() throws Exception {
+        PdfPreviewGenerator real = PdfGeneratorTestSupport.generator();
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        AtomicInteger calls = new AtomicInteger();
+        RowLines fiveLines = new RowLines(List.of(new RowLines.Line(0, 10000), new RowLines.Line(0, 11400),
+                new RowLines.Line(0, 12800), new RowLines.Line(0, 14200), new RowLines.Line(0, 15600)));
+        doAnswer(invocation -> {
+            RowMapSink sink = invocation.getArgument(3);
+            // Both readings report row 1 as five lines, so the check still matches.
+            RowMapSink reported = (section, lines) -> {
+                Map<Integer, RowLines> altered = new TreeMap<>(lines);
+                altered.put(1, fiveLines);
+                sink.section(section, altered);
+            };
+            calls.incrementAndGet();
+            return real.generateSectionsFromAcquired(invocation.getArgument(0), invocation.getArgument(1),
+                    invocation.getArgument(2), reported);
+        }).when(generator).generateSectionsFromAcquired(any(), any(), any(), any());
+
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("HLD-2026-000025", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+        assertThat(copy.unusualRows()).containsExactly(
+                new UnusualRows.Flag(0, 1, UnusualRows.Kind.MANY_LINES, 5, 1));
+    }
+
+    @Test
+    void anOrdinaryStatementHasNoUnusualRows() throws Exception {
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator()).make(new StaffStatementContent(
+                "HLD-2026-000026", "PDF", PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        assertThat(copy.unusualRows()).isEmpty();
+    }
+
+    @Test
     void aStatementThatCannotBeReadCarriesNoRowMap() throws Exception {
         PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
         doThrow(new IllegalStateException("boom")).when(generator)
@@ -507,5 +544,6 @@ class BlankedCopyServiceTest {
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
         assertThat(copy.trace()).doesNotContain("# rowmap");
+        assertThat(copy.unusualRows()).isEmpty();
     }
 }

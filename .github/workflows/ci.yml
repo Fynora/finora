@@ -382,6 +382,12 @@ jobs:
       - name: Customer PII check
         run: sh scripts/check-fixture-hygiene.sh --each "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
 
+      # Statement traces and golden outputs live in the private Fynora/finora-statement-traces
+      # repository. The pre-commit hook refuses one by its path; this is the same refusal for a
+      # commit that skipped the hook, read from every tracked path rather than from a diff.
+      - name: No statement traces
+        run: bash scripts/check-no-statement-traces.sh
+
       # Same absence, same fix. Its own comment records the shipped production bug it exists to
       # prevent -- "a 401-handling fix landed on web, missed mobile, and shipped a bug where a
       # mistyped password revoked every session on every device" -- and a guard against a bug that

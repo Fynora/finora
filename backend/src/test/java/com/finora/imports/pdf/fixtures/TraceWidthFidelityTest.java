@@ -1,9 +1,7 @@
 package com.finora.imports.pdf.fixtures;
 
-import com.finora.imports.DocumentContext;
 import com.finora.imports.pdf.PdfTableLocator;
 import com.finora.imports.pdf.PositionedText;
-import com.finora.dto.ImportDto;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import com.finora.imports.pdf.trace.TraceMetadata;
 import org.junit.jupiter.api.Test;
@@ -35,6 +33,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * traces in the repository are v1 and stay width-blind until they are recaptured from their source
  * documents; nothing here can change that. What it can do is guarantee that a trace captured from
  * today onwards carries the evidence, and fail loudly if the column is ever dropped again.
+ *
+ * <p>The tests that read committed statement traces moved to {@code TraceWidthFidelityTracesTest}
+ * in the private Fynora/finora-statement-traces repository, with the traces themselves (see
+ * docs/engineering/private-statement-traces.md). The tests left here build their input by hand.
  */
 class TraceWidthFidelityTest {
 
@@ -145,56 +147,6 @@ class TraceWidthFidelityTest {
         assertThat(TraceMetadata.hasNoWidths(List.of())).isTrue();
         assertThat(TraceMetadata.hasNoWidths(
                 List.of(new PositionedText("XXXX XXXXXXX", 50f, 700f, 0, 0f)))).isTrue();
-    }
-
-    /**
-     * The corpus on disk, checked against the rows rather than the stamp.
-     *
-     * <p>Every trace that carries no real width must say so whatever version it declares. The v1
-     * traces answered this correctly before the fix by accident; the v3-stamped candidates answered
-     * it wrongly, and this loop is what would have caught them.
-     */
-    @Test
-    void everyTraceOnDiskReportsWidthPresenceFromItsRowsNotItsVersionStamp() {
-        List<String> names = PdfTrace.committedTraceNames();
-        assertThat(names).as("no traces found -- this check is testing nothing").isNotEmpty();
-
-        for (String name : names) {
-            List<PositionedText> runs = PdfTrace.load(name);
-            long realWidths = runs.stream().filter(r -> r.width() > 0f).count();
-            int version = PdfTrace.metadata(name).traceVersion();
-
-            assertThat(TraceMetadata.hasNoWidths(runs))
-                    .as("%s declares v%d and has %d/%d runs with a real width",
-                            name, version, realWidths, runs.size())
-                    .isEqualTo(realWidths == 0);
-        }
-    }
-
-    /**
-     * The two zero-width v3 recapture candidates, if they are still on this machine.
-     *
-     * <p>Skipped rather than failed when absent: they are uncommitted working-directory artefacts of
-     * a capture that needs the original customer PDF, which the build machine does not have. While
-     * they are present they are the real-data proof of the defect -- both declare v3, both carry
-     * 0.00 in every width field, and both reported "has widths" before this fix.
-     */
-    @Test
-    void theZeroWidthV3RecaptureCandidatesReportNoWidths() {
-        List<String> candidates = PdfTrace.committedTraceNames().stream()
-                .filter(name -> name.endsWith("-v3-candidate-1")).toList();
-        org.junit.jupiter.api.Assumptions.assumeFalse(candidates.isEmpty(),
-                "no v3 recapture candidates on disk -- nothing to check");
-
-        for (String name : candidates) {
-            List<PositionedText> runs = PdfTrace.load(name);
-            assertThat(PdfTrace.metadata(name).traceVersion())
-                    .as("%s is the version-stamp half of the defect", name).isEqualTo(3);
-            assertThat(runs).as("%s parsed to no rows at all", name).isNotEmpty();
-            assertThat(TraceMetadata.hasNoWidths(runs))
-                    .as("%s declares v3 but carries no measured width in %d rows", name, runs.size())
-                    .isTrue();
-        }
     }
 
     /**

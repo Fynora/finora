@@ -21,13 +21,22 @@
 # motivated a capability. If a trace no longer contains that evidence, the capability it protects
 # loses its grounding -- which is why requiredHeaders is a first-class argument and not an
 # afterthought. See docs/engineering/trace-lifecycle.md.
+#
+# The trace is written into a checkout of the private Fynora/finora-statement-traces repository,
+# named by FINORA_PRIVATE_TRACES, never into this one: nothing derived from a statement is kept in
+# the public repository, and its pre-commit hook and CI refuse a .trace file. See
+# docs/engineering/private-statement-traces.md.
 
 set -e
 
 usage() {
   cat >&2 <<'USAGE'
 Usage:
-  ./scripts/trace-capture.sh <trace-name> <path-to.pdf> [options]
+  FINORA_PRIVATE_TRACES=/path/to/finora-statement-traces \
+    ./scripts/trace-capture.sh <trace-name> <path-to.pdf> [options]
+
+The trace is written to $FINORA_PRIVATE_TRACES/traces/, a checkout of the private
+Fynora/finora-statement-traces repository. Commit it there, never here.
 
 Required:
   <trace-name>            capability-descriptive, never a bank name on its own
@@ -58,6 +67,13 @@ USAGE
 }
 
 [ $# -lt 2 ] && usage
+
+PRIVATE_REPO="${FINORA_PRIVATE_TRACES:?set it to your finora-statement-traces checkout}"
+if [ ! -d "$PRIVATE_REPO/traces" ]; then
+  echo "No traces/ folder in $PRIVATE_REPO -- FINORA_PRIVATE_TRACES must name a checkout of Fynora/finora-statement-traces." >&2
+  exit 1
+fi
+PRIVATE_REPO="$(cd "$PRIVATE_REPO" && pwd)"
 
 TRACE_NAME="$1"
 PDF_PATH="$2"
@@ -121,6 +137,7 @@ cd "$(dirname "$0")/../backend"
 
 echo "Capturing $TRACE_NAME from $PDF_PATH ..."
 ./mvnw -q -o test -Dtest='PdfPipelineDiagnostic#captureRedactedTrace' -DfailIfNoTests=false \
+  -Dfinora.traces.dir="$PRIVATE_REPO/traces" \
   -DpdfPath="$PDF_PATH" \
   -DpdfPassword="$PASSWORD" \
   -DtraceName="$TRACE_NAME" \
@@ -130,7 +147,7 @@ echo "Capturing $TRACE_NAME from $PDF_PATH ..."
   -Dregressions="$REGRESSIONS" \
   -Dmotivation="$WHY"
 
-TRACE_FILE="src/test/resources/traces/$TRACE_NAME.trace"
+TRACE_FILE="$PRIVATE_REPO/traces/$TRACE_NAME.trace"
 if [ ! -f "$TRACE_FILE" ]; then
   echo "" >&2
   echo "No trace was written -- see the blockers above." >&2
@@ -141,7 +158,8 @@ fi
 
 echo ""
 echo "Running the trace-backed regression suite ..."
-./mvnw -q -o test -Dtest='TraceCorpusHealthTest,GoldenOutputSnapshotTest,*PdfPreviewGeneratorTest,FinancialProductClassifierTest' \
+./mvnw -q -o test -Pprivate-traces -Dfinora.private.repo="$PRIVATE_REPO" \
+  -Dtest='TraceCorpusHealthTest,GoldenOutputSnapshotTest,*PdfPreviewGenerator*Test,FinancialProductClassifier*Test' \
   -DfailIfNoTests=false
 
 # --- 6. Summary -----------------------------------------------------------------------------------
@@ -149,6 +167,8 @@ echo "Running the trace-backed regression suite ..."
 cat <<EOF
 
 Captured and validated: $TRACE_FILE
+
+Commit it in $PRIVATE_REPO (Fynora/finora-statement-traces), never in Fynora/finora.
 
 Before committing:
   - the golden snapshot for this trace may have changed; read the diff, do not regenerate blindly

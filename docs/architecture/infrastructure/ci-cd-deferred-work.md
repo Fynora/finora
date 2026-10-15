@@ -125,6 +125,14 @@ corpus (`backend/src/test/resources/traces/**`) — a `paths:` filter on the one
 schedule for the rare PR that can actually create this gap, never removing coverage the way a
 careless RFC-CI-01-style filter risks elsewhere in this file.
 
+**2026-10-15 — superseded.** `corpus-coverage-nightly.yml` is gone. The statement traces moved to the
+private `Fynora/finora-statement-traces` repository, so this repository has no corpus to measure.
+`CapabilityCorpusCoverageTest` was split: its two registry-against-engine checks (and the stale
+accept-list check) scan only the production sources, lost the `nightly` tag and run on every build
+here; its three corpus checks are `CapabilityCorpusCoverageTracesTest` in the private repository,
+whose own workflow runs them on every push there and once a day against this repository's `main`.
+See `docs/engineering/private-statement-traces.md`.
+
 **Original problem, for context:** `backend`'s `./mvnw test` used to run unit tests (`*Test`, `*Tests`, `*TestCase`) and
 integration tests (`*IT`, Testcontainers-backed) together, in one Maven `test` phase invocation, on
 every single PR. There's no fast unit-only gate with integration tests deferred to merge or a

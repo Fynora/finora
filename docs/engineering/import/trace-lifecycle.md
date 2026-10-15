@@ -1,8 +1,14 @@
 # Trace Lifecycle
 
-**What this governs:** the `.trace` fixtures under `backend/src/test/resources/traces/` — how one
-is created, redacted, validated, regenerated and retired, and how each maps back to a real
-capability.
+**What this governs:** the `.trace` fixtures — how one is created, redacted, validated, regenerated
+and retired, and how each maps back to a real capability.
+
+> **Where traces live (since 2026-10-15).** Not in this repository. Every trace, its golden output
+> and every test that reads one are in the private `Fynora/finora-statement-traces` repository, and
+> this repository's pre-commit hook and CI refuse a `.trace` or `.golden.txt` file. Paths below that
+> say `backend/src/test/resources/traces/` describe where traces used to be. See
+> [`private-statement-traces.md`](../private-statement-traces.md) for where they are now and how to
+> run their tests.
 
 **Why it exists as a document:** the trace corpus is production-grade evidence held to test-fixture
 discipline, and the gap between those two showed up twice in one week — a customer's account number

@@ -202,5 +202,59 @@ case "$out" in
 esac
 cd "$REPO" || exit 1; rm -rf "$D"
 
+# ------------------------------------- 7. statement traces and golden outputs are refused outright
+
+# Traces moved to the private Fynora/finora-statement-traces repository (project 3 of the
+# 2026-10-14 design). A trace is refused by its path, before its content is read: even a clean,
+# validated one is derived from a statement and does not belong in a public repository.
+new_repo
+mkdir -p backend/src/test/resources/traces
+printf '# finora-pdf-trace v3\n' > backend/src/test/resources/traces/x.trace
+git add backend/src/test/resources/traces/x.trace
+if out=$(sh "$SCRIPT" 2>&1); then rc=0; else rc=1; fi
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'statement traces belong in Fynora/finora-statement-traces'; then
+  ok "a staged .trace file is refused"
+else
+  bad "a staged .trace file is refused (got: $out)"
+fi
+git rm -q --cached backend/src/test/resources/traces/x.trace
+mkdir -p golden
+printf 'trace: x\n' > golden/x.golden.txt
+git add golden/x.golden.txt
+if out=$(sh "$SCRIPT" 2>&1); then rc=0; else rc=1; fi
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'statement traces belong in Fynora/finora-statement-traces'; then
+  ok "a staged .golden.txt file is refused"
+else
+  bad "a staged .golden.txt file is refused (got: $out)"
+fi
+git rm -q --cached golden/x.golden.txt
+printf 'notes\n' > golden/readme.md
+git add golden/readme.md
+if sh "$SCRIPT" >/dev/null 2>&1; then
+  ok "an ordinary file beside them is still allowed"
+else
+  bad "an ordinary file beside them is still allowed"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
+# ------------------------- 8. a trace committed past the hook (--no-verify) still fails CI's check
+
+new_repo
+mkdir -p backend/src/test/resources/traces
+commit_file backend/src/test/resources/traces/y.trace '# finora-pdf-trace v3' "add trace past the hook"
+if bash "$REPO/scripts/check-no-statement-traces.sh" >/dev/null 2>&1; then
+  bad "a committed .trace file fails check-no-statement-traces.sh"
+else
+  ok "a committed .trace file fails check-no-statement-traces.sh"
+fi
+git rm -q backend/src/test/resources/traces/y.trace
+git commit -q -m "remove it"
+if bash "$REPO/scripts/check-no-statement-traces.sh" >/dev/null 2>&1; then
+  ok "a tree with no trace passes check-no-statement-traces.sh"
+else
+  bad "a tree with no trace passes check-no-statement-traces.sh"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

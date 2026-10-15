@@ -811,8 +811,8 @@ app:
   trace-retention:
     # TraceRetentionController: the private trace repository's nightly retention job asks which
     # held-item references are gone, and deletes the traces made from them. Its dedicated key, set
-    # by the owner in Railway and nowhere in this repository. Unset (the default) means off: the
-    # endpoint answers 404.
+    # by the owner in Railway and nowhere in this repository. Unset (the default), or shorter than
+    # 32 characters, means off: the endpoint answers 404.
     key: ${APP_TRACE_RETENTION_KEY:}
   audit:
     redaction:

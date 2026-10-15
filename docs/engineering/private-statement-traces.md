@@ -71,8 +71,9 @@ FINORA_PRIVATE_TRACES=/absolute/path/to/finora-statement-traces \
 ## When a parser pull request is ready to merge
 
 This repository's CI no longer runs any trace-backed test. So a pull request that changes anything
-under `backend/src/main/java/com/finora/imports/` is not merge-ready until one of these passes for
-its branch:
+under `backend/src/main/java/com/finora/imports/`, or a dependency the statement reader uses (a
+PDFBox bump in `backend/pom.xml` among them: `PdfTextExtractorSnapshotTest`, which pins what PDFBox
+extracts, is a private test now), is not merge-ready until one of these passes for its branch:
 - the local `-Pprivate-traces` command above, or
 - the private repository's on-demand run for that branch.
 

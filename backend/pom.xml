@@ -712,6 +712,35 @@
       <id>private-traces</id>
       <build>
         <plugins>
+          <!-- Without this, the profile run without -Dfinora.private.repo, or with a path that is
+               not a checkout of the private repository, compiled no private test and passed: a green
+               "trace run" that ran no trace test. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>require-private-trace-checkout</id>
+                <phase>validate</phase>
+                <goals><goal>enforce</goal></goals>
+                <configuration>
+                  <rules>
+                    <requireProperty>
+                      <property>finora.private.repo</property>
+                      <message>-Pprivate-traces needs -Dfinora.private.repo=/absolute/path/to/finora-statement-traces</message>
+                    </requireProperty>
+                    <requireFilesExist>
+                      <files>
+                        <file>${finora.private.repo}/tests/java</file>
+                        <file>${finora.private.repo}/traces</file>
+                      </files>
+                      <message>finora.private.repo must name a checkout of Fynora/finora-statement-traces (with tests/java and traces)</message>
+                    </requireFilesExist>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
           <plugin>
             <groupId>org.codehaus.mojo</groupId>
             <!-- No <version>: spring-boot-starter-parent manages it, as it does surefire's. -->

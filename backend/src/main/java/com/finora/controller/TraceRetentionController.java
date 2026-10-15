@@ -2,6 +2,8 @@ package com.finora.controller;
 
 import com.finora.imports.blanked.TraceRetentionService;
 import io.swagger.v3.oas.annotations.Hidden;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +28,10 @@ import java.util.List;
  * references a call, and the answer is a subset of the question: no user, email or file name is
  * ever returned or logged. Nothing is looked up for a caller without the key.
  *
+ * <p>A configured key shorter than {@link #MIN_KEY_LENGTH} characters leaves the endpoint off and
+ * logs a warning (never the key): there is no rate limit here, so the key's length is what makes
+ * guessing it hopeless.
+ *
  * <p>{@code @Hidden}: infrastructure, not product API, like {@link HealthController}; no client
  * is generated from it.
  */
@@ -34,7 +40,10 @@ import java.util.List;
 @RequestMapping("/api/v1/internal/trace-retention")
 public class TraceRetentionController {
 
+    private static final Logger log = LoggerFactory.getLogger(TraceRetentionController.class);
+
     static final int MAX_REFERENCES = 500;
+    static final int MIN_KEY_LENGTH = 32;
 
     private final TraceRetentionService service;
     private final byte[] key;   // empty = off
@@ -42,6 +51,11 @@ public class TraceRetentionController {
     public TraceRetentionController(TraceRetentionService service,
                                     @Value("${app.trace-retention.key:}") String key) {
         this.service = service;
+        if (!key.isEmpty() && key.length() < MIN_KEY_LENGTH) {
+            log.warn("app.trace-retention.key is shorter than {} characters; the trace-retention endpoint stays off",
+                    MIN_KEY_LENGTH);
+            key = "";
+        }
         this.key = key.getBytes(StandardCharsets.UTF_8);
     }
 

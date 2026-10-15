@@ -48,7 +48,7 @@ import static org.mockito.Mockito.verify;
 @TestPropertySource(properties = "app.trace-retention.key=" + TraceRetentionIT.KEY)
 class TraceRetentionIT extends AbstractIntegrationTest {
 
-    static final String KEY = "test-retention-key-for-it-only";
+    static final String KEY = "test-retention-key-for-this-integration-test-only";
     private static final String PATH = "/api/v1/internal/trace-retention/gone";
 
     @Autowired private TestRestTemplate restTemplate;
@@ -79,9 +79,11 @@ class TraceRetentionIT extends AbstractIntegrationTest {
                 job.getObjectKey(), "Printed and parsed transaction count disagree (ROW_GROUPING)"));
     }
 
-    /** A held id no other test or seed uses: the year 2099 and a random sequence. */
+    /** A held id no other test or seed uses: the year 2099 and a twelve-digit random sequence (the
+     *  format takes six or more), so two calls in one shared database never collide on held_id's
+     *  unique constraint. */
     private static String freshHeldId() {
-        return "HLD-2099-" + String.format("%06d", (int) (Math.random() * 900_000) + 100_000);
+        return "HLD-2099-" + String.format("%012d", Math.floorMod(UUID.randomUUID().getLeastSignificantBits(), 1_000_000_000_000L));
     }
 
     private ResponseEntity<String> ask(String key, List<String> references) {

@@ -4,6 +4,7 @@ import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.ImportDto.StagedRow;
 import com.finora.imports.pdf.RowLines;
+import com.finora.imports.pdf.trace.BankSentences;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
@@ -142,15 +144,20 @@ public final class BlankedCopyComparison {
      *       own, separators kept -- a digit run split across runs reaches eight digits only when
      *       joined, so the joined line masks the whole compound, kept words included, while the
      *       copy masked each run and kept them. This is one exact masking of the real text, not a
-     *       tolerance: a different word, a different length or a word in clear differs.</li>
+     *       tolerance: a different word, a different length or a word in clear differs; (e) the
+     *       real token itself, only where the token lies wholly inside a listed bank sentence
+     *       ({@link BankSentences}) that the real description holds whole, standing apart from
+     *       other letters and digits -- the copy keeps a printed line verbatim when the whole line
+     *       is that sentence, and a footer swallowed into a description then reads as printed.
+     *       A word of a sentence anywhere else, or of only part of one, is not covered.</li>
      * </ul>
      *
      * <p>Guaranteed: a missing, extra or reordered line, or a word grouped into another row, moves a
      * token or a space and differs; a word the joined line keeps can never be masked in the copy
      * unless it holds a digit, names a month, or is one piece of a compound the redactor masks
      * piece by piece under (d); no piece between separators may be partly kept and partly masked,
-     * and a letter appears in clear only where the redactor keeps it, in the joined line or, under
-     * (d), in its own piece.
+     * and a letter appears in clear only where the redactor keeps it, in the joined line, under
+     * (d) in its own piece, or under (e) inside a whole listed sentence.
      *
      * <p>Not guaranteed (known limits, pinned by tests): under (c), a token of digits and
      * punctuation that the copy masked whole matches any same-shape real token at that position, so
@@ -158,6 +165,12 @@ public final class BlankedCopyComparison {
      * masked is reported as a difference although it was read the same way.
      */
     static boolean sameDescription(String real, String copy) {
+        return sameDescription(real, copy, BankSentences.listed());
+    }
+
+    /** {@link #sameDescription(String, String)} with the given bank sentences in place of the
+     *  production list. */
+    static boolean sameDescription(String real, String copy, Set<String> sentences) {
         if (real == null || copy == null) return real == copy;
         String joined = PdfTraceRedactor.redactLine(real);
         if (copy.equals(joined)) return true;
@@ -171,9 +184,13 @@ public final class BlankedCopyComparison {
             // compare against the masking alone, which exact equality above already did.
             return false;
         }
+        boolean[] covered = sentenceCover(real, sentences);
+        int at = 0;
         for (int i = 0; i < r.size(); i++) {
             String realPart = r.get(i);
             String copyPart = c.get(i);
+            int realStart = at;
+            at += realPart.length();
             if (isWhitespace(realPart) || isWhitespace(copyPart)) {
                 if (!copyPart.equals(realPart)) return false;
                 continue;
@@ -185,12 +202,58 @@ public final class BlankedCopyComparison {
             if ((isDigitsAndPunctuation(realPart) || isMonthName(realPart))
                     && copyPart.equals(maskWhole(realPart))) continue;                  // (c)
             if (copyPart.equals(maskPieceByPiece(realPart))) continue;                  // (d)
+            if (allCovered(covered, realStart, at) && copyPart.equals(realPart)) continue; // (e)
             return false;
         }
         return true;
     }
 
     private static final Pattern PART = Pattern.compile("\\s+|\\S+");
+    private static final String NOT_IN_A_WORD = "[\\p{L}\\p{N}\\p{M}]";
+
+    /**
+     * Per char of {@code real}: inside an occurrence of a listed sentence, matched case-insensitively
+     * with any run of whitespace for each space and control characters ignored, standing apart from
+     * other letters, digits and marks.
+     */
+    private static boolean[] sentenceCover(String real, Set<String> sentences) {
+        boolean[] covered = new boolean[real.length()];
+        if (sentences.isEmpty()) return covered;
+        // Matched on the text without its control characters, as BankSentences.normalise reads a
+        // printed line (a font can print a ligature as one), then mapped back to the real text.
+        StringBuilder visible = new StringBuilder(real.length());
+        List<Integer> at = new ArrayList<>(real.length());
+        for (int k = 0; k < real.length(); k++) {
+            if (BankSentences.isControl(real.charAt(k))) continue;
+            visible.append(real.charAt(k));
+            at.add(k);
+        }
+        for (String sentence : sentences) {
+            var m = SENTENCE_PATTERNS.computeIfAbsent(sentence, BlankedCopyComparison::sentencePattern).matcher(visible);
+            while (m.find()) Arrays.fill(covered, at.get(m.start()), at.get(m.end() - 1) + 1, true);
+        }
+        return covered;
+    }
+
+    /** One compiled pattern per sentence, kept: a statement compares hundreds of descriptions. */
+    private static final Map<String, Pattern> SENTENCE_PATTERNS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The sentence's words in order, any run of whitespace between them, standing apart. */
+    private static Pattern sentencePattern(String sentence) {
+        StringBuilder regex = new StringBuilder("(?<!" + NOT_IN_A_WORD + ")");
+        String[] words = sentence.split(" ");
+        for (int w = 0; w < words.length; w++) {
+            if (w > 0) regex.append("\\s+");
+            regex.append(Pattern.quote(words[w]));
+        }
+        regex.append("(?!" + NOT_IN_A_WORD + ")");
+        return Pattern.compile(regex.toString(), Pattern.CASE_INSENSITIVE);
+    }
+
+    private static boolean allCovered(boolean[] covered, int from, int to) {
+        for (int k = from; k < to; k++) if (!covered[k]) return false;
+        return from < to;
+    }
     private static final Pattern MONTH_NAME = Pattern.compile(
             "(?i)jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(tember)?"
                     + "|oct(ober)?|nov(ember)?|dec(ember)?");

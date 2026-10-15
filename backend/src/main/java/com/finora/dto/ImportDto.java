@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.accounts.AccountDto;
 import com.finora.imports.ImportReliabilityStatus;
 import com.finora.imports.RowKind;
@@ -742,6 +743,7 @@ public class ImportDto {
      * be annotated for what is true in EVERY context that binds it, so the existing per-caller
      * manual checks ({@code confirmSession}/{@code confirmMultiSection}) stay as the real guard.
      */
+    @Schema(name = "ImportConfirmRequest")
     public record ConfirmRequest(
             UUID sessionId,
             @NotNull(message = "rows is required") List<@Valid ConfirmedRow> rows,
@@ -1023,6 +1025,7 @@ public class ImportDto {
      *  actually imported (skipped/unchecked rows don't count). source is always "CSV" today —
      *  see CsvImportService's class comment on why PDF/Gmail import isn't implemented yet; this
      *  field exists now so the summary UI doesn't need to change when they are. */
+    @Schema(name = "ImportConfirmResponse")
     public record ConfirmResponse(
             int imported,
             int skipped,

@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -227,6 +228,7 @@ public record DashboardSummaryDto(
          */
         String savingsRateGateReason
 ) {
+    @Schema(name = "DashboardSummaryCategoryMover")
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}
 
     public record DetectedDuplicate(UUID transactionId, LocalDate date, String merchant, BigDecimal amount) {}

@@ -5752,7 +5752,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        UpdateRequest: {
+        WorkspaceSettingsUpdateRequest: {
             /** Format: int32 */
             autoApplyConfidenceThreshold?: number;
         };
@@ -5773,6 +5773,12 @@ export interface components {
             autoApplyConfidenceThreshold?: number;
             /** Format: date-time */
             updatedAt?: string;
+        };
+        UserSettingsUpdateRequest: {
+            lowBalanceThreshold?: number;
+            theme?: string;
+            timezone?: string;
+            fullName?: string;
         };
         ApiResponseUserSettingsDto: {
             success?: boolean;
@@ -5800,6 +5806,19 @@ export interface components {
             passwordChangedAt?: string;
             signInMethod?: string;
             onboardingCompleted?: boolean;
+        };
+        TransactionUpdateRequest: {
+            /** Format: date */
+            date?: string;
+            description?: string;
+            merchant?: string;
+            amount?: number;
+            type?: string;
+            categoryName?: string;
+            notes?: string;
+            tags?: string[];
+            /** @enum {string} */
+            applyTo?: "SIMILAR" | "ONLY_THIS";
         };
         ApiResponseTransactionDto: {
             success?: boolean;
@@ -5934,6 +5953,18 @@ export interface components {
             monthlyLimit?: number;
             spentThisMonth?: number;
         };
+        RuleUpdateRequest: {
+            field?: string;
+            operator?: string;
+            comparisonValue?: string;
+            actionType?: string;
+            actionValue?: string;
+            /** Format: int32 */
+            priority?: number;
+            enabled?: boolean;
+            amountMin?: number;
+            amountMax?: number;
+        };
         ApiResponseRuleDto: {
             success?: boolean;
             message?: string;
@@ -5966,6 +5997,17 @@ export interface components {
             amountMax?: number;
             payeeAliases?: string[];
         };
+        IdentifierRequest: {
+            identifierType: string;
+            identifierValue: string;
+        };
+        RelationshipUpdateRequest: {
+            label?: string;
+            relationshipType?: string;
+            /** Format: uuid */
+            linkedAccountId?: string;
+            identifiers?: components["schemas"]["IdentifierRequest"][];
+        };
         ApiResponseRelationshipDto: {
             success?: boolean;
             message?: string;
@@ -5993,7 +6035,7 @@ export interface components {
             linkedAccountId?: string;
             identifiers?: components["schemas"]["IdentifierDto"][];
         };
-        CreateRequest: {
+        AccountCreateRequest: {
             name: string;
             accountType?: string;
             balance?: number;
@@ -6417,6 +6459,15 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
+        BankUpdateRequest: {
+            officialName?: string;
+            shortName?: string;
+            colorHex?: string;
+            initials?: string;
+            category?: string;
+            websiteUrl?: string;
+            ifscPrefix?: string;
+        };
         ApiResponseBankDto: {
             success?: boolean;
             message?: string;
@@ -6429,14 +6480,14 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        VerifyOtpRequest: {
+        PhoneChangeVerifyOtpRequest: {
             sessionId: string;
             firebaseIdToken: string;
         };
-        ApiResponseVerifyOtpResponse: {
+        ApiResponsePhoneChangeVerifyOtpResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["VerifyOtpResponse"];
+            data?: components["schemas"]["PhoneChangeVerifyOtpResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -6445,16 +6496,16 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        VerifyOtpResponse: {
+        PhoneChangeVerifyOtpResponse: {
             message?: string;
         };
-        StartRequest: {
+        PhoneChangeStartRequest: {
             newPhoneNumber: string;
         };
-        ApiResponseStartResponse: {
+        ApiResponsePhoneChangeStartResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["StartResponse"];
+            data?: components["schemas"]["PhoneChangeStartResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -6463,17 +6514,17 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        StartResponse: {
+        PhoneChangeStartResponse: {
             sessionId?: string;
             maskedPhone?: string;
         };
-        CompleteRequest: {
+        PhoneChangeCompleteRequest: {
             sessionId: string;
         };
-        ApiResponseCompleteResponse: {
+        ApiResponsePhoneChangeCompleteResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["CompleteResponse"];
+            data?: components["schemas"]["PhoneChangeCompleteResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -6482,9 +6533,72 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        CompleteResponse: {
+        PhoneChangeCompleteResponse: {
             message?: string;
             phoneNumber?: string;
+        };
+        PasswordChangeVerifyOtpRequest: {
+            sessionId: string;
+            firebaseIdToken: string;
+        };
+        ApiResponsePasswordChangeVerifyOtpResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PasswordChangeVerifyOtpResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PasswordChangeVerifyOtpResponse: {
+            message?: string;
+        };
+        PasswordChangeStartRequest: {
+            currentPassword?: string;
+            googleIdToken?: string;
+            appleIdToken?: string;
+        };
+        ApiResponsePasswordChangeStartResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PasswordChangeStartResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PasswordChangeStartResponse: {
+            sessionId?: string;
+            phoneNumber?: string;
+            maskedPhone?: string;
+        };
+        PasswordChangeCompleteRequest: {
+            sessionId: string;
+            newPassword: string;
+            signOutOtherDevices?: boolean;
+            currentRefreshToken?: string;
+        };
+        ApiResponsePasswordChangeCompleteResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PasswordChangeCompleteResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PasswordChangeCompleteResponse: {
+            message?: string;
+            otherDevicesSignedOut?: boolean;
         };
         VerifyRequest: {
             sessionId: string;
@@ -6504,6 +6618,48 @@ export interface components {
         };
         VerifyResponse: {
             message?: string;
+        };
+        EmailChangeStartRequest: {
+            currentPassword?: string;
+            googleIdToken?: string;
+            appleIdToken?: string;
+            /** Format: email */
+            newEmail: string;
+        };
+        ApiResponseEmailChangeStartResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["EmailChangeStartResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        EmailChangeStartResponse: {
+            sessionId?: string;
+            devVerifyLink?: string;
+        };
+        EmailChangeCompleteRequest: {
+            sessionId: string;
+        };
+        ApiResponseEmailChangeCompleteResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["EmailChangeCompleteResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        EmailChangeCompleteResponse: {
+            message?: string;
+            email?: string;
         };
         ExportDataRequest: {
             currentPassword?: string;
@@ -6550,6 +6706,18 @@ export interface components {
         };
         DeactivateResponse: {
             message?: string;
+        };
+        TransactionCreateRequest: {
+            /** Format: uuid */
+            accountId?: string;
+            categoryName?: string;
+            /** Format: date */
+            date?: string;
+            description?: string;
+            amount?: number;
+            type?: string;
+            tags?: string[];
+            idempotencyKey?: string;
         };
         MarkTransferRequest: {
             /** Format: uuid */
@@ -6604,10 +6772,10 @@ export interface components {
             ids: string[];
             category: string;
         };
-        ApiResponseDetail: {
+        ApiResponseSupportTicketDetail: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["Detail"];
+            data?: components["schemas"]["SupportTicketDetail"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -6624,7 +6792,7 @@ export interface components {
             /** Format: int64 */
             sizeBytes?: number;
         };
-        Detail: {
+        SupportTicketDetail: {
             /** Format: uuid */
             id?: string;
             ticketNumber?: string;
@@ -6885,27 +7053,6 @@ export interface components {
             /** @enum {string} */
             reliabilityStatus?: "CLEAN" | "REVIEW_RECOMMENDED" | "NEEDS_ATTENTION";
         };
-        ConfirmRequest: {
-            /** Format: uuid */
-            sessionId?: string;
-            rows: components["schemas"]["ConfirmedRow"][];
-            /** Format: uuid */
-            existingAccountId?: string;
-            newAccount?: components["schemas"]["NewAccountRequest"];
-            statementOpeningBalance?: number;
-            statementClosingBalance?: number;
-            password?: string;
-            /** Format: date */
-            statementPeriodStart?: string;
-            /** Format: date */
-            statementPeriodEnd?: string;
-            totalAmountDue?: number;
-            /** Format: date */
-            paymentDueDate?: string;
-            userConfirmedContinue?: boolean;
-            idempotencyKey?: string;
-            holderIsMine?: boolean;
-        };
         ConfirmedRow: {
             /** Format: date */
             date?: string;
@@ -6928,6 +7075,27 @@ export interface components {
             international?: boolean;
             foreignCurrency?: string;
             foreignAmount?: number;
+        };
+        ImportConfirmRequest: {
+            /** Format: uuid */
+            sessionId?: string;
+            rows: components["schemas"]["ConfirmedRow"][];
+            /** Format: uuid */
+            existingAccountId?: string;
+            newAccount?: components["schemas"]["NewAccountRequest"];
+            statementOpeningBalance?: number;
+            statementClosingBalance?: number;
+            password?: string;
+            /** Format: date */
+            statementPeriodStart?: string;
+            /** Format: date */
+            statementPeriodEnd?: string;
+            totalAmountDue?: number;
+            /** Format: date */
+            paymentDueDate?: string;
+            userConfirmedContinue?: boolean;
+            idempotencyKey?: string;
+            holderIsMine?: boolean;
         };
         NewAccountRequest: {
             name: string;
@@ -6954,10 +7122,10 @@ export interface components {
             /** Format: int32 */
             installmentsTotal?: number;
         };
-        ApiResponseConfirmResponse: {
+        ApiResponseImportConfirmResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["ConfirmResponse"];
+            data?: components["schemas"]["ImportConfirmResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -6966,7 +7134,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        ConfirmResponse: {
+        ImportConfirmResponse: {
             /** Format: int32 */
             imported?: number;
             /** Format: int32 */
@@ -7081,10 +7249,10 @@ export interface components {
         SpendingTrackingRequest: {
             method?: string;
         };
-        ApiResponseStatusResponse: {
+        ApiResponseOnboardingStatusResponse: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["StatusResponse"];
+            data?: components["schemas"]["OnboardingStatusResponse"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -7093,7 +7261,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        StatusResponse: {
+        OnboardingStatusResponse: {
             onboardingCompleted?: boolean;
             financialFocus?: string[];
             spendingTrackingMethod?: string;
@@ -7288,7 +7456,7 @@ export interface components {
             };
         };
         MultiAccountConfirmResponse: {
-            perAccount?: components["schemas"]["ConfirmResponse"][];
+            perAccount?: components["schemas"]["ImportConfirmResponse"][];
         };
         Accepted: {
             /** Format: uuid */
@@ -7364,6 +7532,13 @@ export interface components {
             heldForReviewJobId?: string;
             freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
         };
+        GoalCreateRequest: {
+            name: string;
+            targetAmount: number;
+            currentAmount?: number;
+            /** Format: date */
+            targetDate?: string;
+        };
         ApiResponseGoalDto: {
             success?: boolean;
             message?: string;
@@ -7412,10 +7587,17 @@ export interface components {
             /** Format: uuid */
             messageId?: string;
         };
-        ApiResponseSummary: {
+        FeedbackCreateRequest: {
+            /** @enum {string} */
+            type: "BUG" | "FEATURE_REQUEST" | "IMPROVEMENT" | "GENERAL";
+            /** @enum {string} */
+            context: "DASHBOARD" | "TRANSACTIONS" | "REPORTS" | "BUDGETS" | "GOALS" | "IMPORT_FLOW" | "ACCOUNTS" | "SETTINGS" | "HELP" | "OTHER";
+            message: string;
+        };
+        ApiResponseFeedbackSummary: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["Summary"];
+            data?: components["schemas"]["FeedbackSummary"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -7424,7 +7606,7 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        Summary: {
+        FeedbackSummary: {
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
@@ -7724,7 +7906,25 @@ export interface components {
             fullName?: string;
             referralCode?: string;
         };
-        MergeRequest: {
+        RuleCreateRequest: {
+            field: string;
+            operator: string;
+            comparisonValue: string;
+            actionType: string;
+            actionValue?: string;
+            /** Format: int32 */
+            priority?: number;
+            amountMin?: number;
+            amountMax?: number;
+        };
+        RelationshipCreateRequest: {
+            label: string;
+            relationshipType: string;
+            /** Format: uuid */
+            linkedAccountId?: string;
+            identifiers: components["schemas"]["IdentifierRequest"][];
+        };
+        RelationshipMergeRequest: {
             /** Format: uuid */
             mergeFromRelationshipId: string;
         };
@@ -7764,8 +7964,16 @@ export interface components {
             topCategoryConfidence?: number;
             distribution?: components["schemas"]["DistributionEntry"][];
         };
+        MerchantMergeRequest: {
+            /** Format: uuid */
+            mergeFromMerchantId: string;
+        };
         AdminReactivateRequest: {
             reason?: string;
+        };
+        TrustedSenderCreateRequest: {
+            domain?: string;
+            merchantName?: string;
         };
         AddNoteRequest: {
             note: string;
@@ -7790,6 +7998,36 @@ export interface components {
             note?: string;
             /** Format: date-time */
             createdAt?: string;
+        };
+        ApiResponseSupportTicketSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SupportTicketSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SupportTicketSummary: {
+            /** Format: uuid */
+            id?: string;
+            ticketNumber?: string;
+            /** Format: uuid */
+            userId?: string;
+            /** @enum {string} */
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER";
+            subject?: string;
+            /** @enum {string} */
+            status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
+            /** Format: uuid */
+            claimedByAdminId?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
         };
         TestRequest: {
             field: string;
@@ -8032,6 +8270,10 @@ export interface components {
             transactionCount?: number;
             /** Format: date-time */
             createdAt?: string;
+        };
+        MerchantReviewMergeRequest: {
+            /** Format: uuid */
+            survivingMerchantId: string;
         };
         ApiResponseMapStringInteger: {
             success?: boolean;
@@ -8314,6 +8556,16 @@ export interface components {
             /** Format: date-time */
             heldAt?: string;
         };
+        BankCreateRequest: {
+            id: string;
+            officialName: string;
+            shortName: string;
+            colorHex?: string;
+            initials?: string;
+            category?: string;
+            websiteUrl?: string;
+            ifscPrefix?: string;
+        };
         ApiResponseEnrollResponse: {
             success?: boolean;
             message?: string;
@@ -8336,6 +8588,24 @@ export interface components {
             appleIdToken?: string;
             code?: string;
         };
+        AdminMfaConfirmRequest: {
+            code: string;
+        };
+        AdminMfaConfirmResponse: {
+            recoveryCodes?: string[];
+        };
+        ApiResponseAdminMfaConfirmResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AdminMfaConfirmResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         UpdateKindRequest: {
             name?: string;
             countsAsIncome?: boolean;
@@ -8347,6 +8617,10 @@ export interface components {
             name?: string;
             icon?: string;
             color?: string;
+        };
+        MerchantUpdateRequest: {
+            canonicalName?: string;
+            website?: string;
         };
         UpdateStatusRequest: {
             /** @enum {string} */
@@ -8829,10 +9103,10 @@ export interface components {
             /** Format: int32 */
             windowMonths?: number;
         };
-        ApiResponsePagedResponseSummary: {
+        ApiResponsePagedResponseSupportTicketSummary: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["PagedResponseSummary"];
+            data?: components["schemas"]["PagedResponseSupportTicketSummary"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -8841,8 +9115,8 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        PagedResponseSummary: {
-            content?: components["schemas"]["Summary"][];
+        PagedResponseSupportTicketSummary: {
+            content?: components["schemas"]["SupportTicketSummary"][];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
@@ -8936,7 +9210,7 @@ export interface components {
             accountName?: string;
             accountType?: string;
             bank?: components["schemas"]["BankDto"];
-            statements?: components["schemas"]["Summary"][];
+            statements?: components["schemas"]["StatementImportSummary"][];
             deleted?: boolean;
             /** Format: date-time */
             deletedAt?: string;
@@ -8946,6 +9220,42 @@ export interface components {
             success?: boolean;
             message?: string;
             data?: components["schemas"]["AccountGroup"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        StatementImportSummary: {
+            /** Format: uuid */
+            id?: string;
+            fileName?: string;
+            /** Format: date */
+            statementPeriodStart?: string;
+            /** Format: date */
+            statementPeriodEnd?: string;
+            openingBalance?: number;
+            closingBalance?: number;
+            totalAmountDue?: number;
+            /** Format: date */
+            paymentDueDate?: string;
+            /** Format: int32 */
+            transactionsImported?: number;
+            /** Format: int32 */
+            transactionsSkipped?: number;
+            /** Format: date-time */
+            importedAt?: string;
+            /** Format: int32 */
+            duplicateCount?: number;
+            /** Format: int64 */
+            storedSize?: number;
+        };
+        ApiResponseStatementImportSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["StatementImportSummary"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -9268,13 +9578,6 @@ export interface components {
             name?: string;
             amount?: number;
         };
-        CategoryMover: {
-            category?: string;
-            current?: number;
-            priorAverage?: number;
-            /** Format: double */
-            pctChange?: number;
-        };
         CoverageCaveat: {
             month?: string;
             gaps?: components["schemas"]["GapWindow"][];
@@ -9285,9 +9588,16 @@ export interface components {
             /** Format: date */
             gapEnd?: string;
         };
+        InsightsCategoryMover: {
+            category?: string;
+            current?: number;
+            priorAverage?: number;
+            /** Format: double */
+            pctChange?: number;
+        };
         InsightsDto: {
             sentences?: string[];
-            movers?: components["schemas"]["CategoryMover"][];
+            movers?: components["schemas"]["InsightsCategoryMover"][];
             coverageCaveat?: components["schemas"]["CoverageCaveat"];
             biggestCategory?: components["schemas"]["CategoryHighlight"];
             topMerchant?: components["schemas"]["MerchantHighlight"];
@@ -9525,6 +9835,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        DashboardSummaryCategoryMover: {
+            category?: string;
+            currentAmount?: number;
+            priorAmount?: number;
+            /** Format: double */
+            pctChange?: number;
+        };
         DashboardSummaryDto: {
             currentBalance?: number;
             totalAssets?: number;
@@ -9586,7 +9903,7 @@ export interface components {
             comparisonGateReason?: string;
             /** Format: int32 */
             comparisonGateMinTransactions?: number;
-            expenseCategoryMovers?: components["schemas"]["CategoryMover"][];
+            expenseCategoryMovers?: components["schemas"]["DashboardSummaryCategoryMover"][];
             /** Format: int32 */
             duplicateTransactionCount?: number;
             detectedDuplicates?: components["schemas"]["DetectedDuplicate"][];
@@ -9853,19 +10170,7 @@ export interface components {
             month?: string;
             totalSpend?: number;
         };
-        ApiResponseListTopMerchant: {
-            success?: boolean;
-            message?: string;
-            data?: components["schemas"]["TopMerchant"][];
-            /** Format: date-time */
-            timestamp?: string;
-            errorCode?: string;
-            requestId?: string;
-            details?: {
-                [key: string]: unknown;
-            };
-        };
-        TopMerchant: {
+        AnalyticsTopMerchant: {
             /** Format: uuid */
             merchantId?: string;
             merchantName?: string;
@@ -9873,10 +10178,10 @@ export interface components {
             /** Format: int32 */
             transactionCount?: number;
         };
-        ApiResponseListTopCategory: {
+        ApiResponseListAnalyticsTopMerchant: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["TopCategory"][];
+            data?: components["schemas"]["AnalyticsTopMerchant"][];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -9885,13 +10190,25 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        TopCategory: {
+        AnalyticsTopCategory: {
             /** Format: uuid */
             categoryId?: string;
             categoryName?: string;
             totalSpend?: number;
             /** Format: int32 */
             transactionCount?: number;
+        };
+        ApiResponseListAnalyticsTopCategory: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AnalyticsTopCategory"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseMultiYearReport: {
             success?: boolean;
@@ -10180,6 +10497,28 @@ export interface components {
             newCategoryName?: string;
             /** Format: date-time */
             createdAt?: string;
+        };
+        ApiResponseLearningSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["LearningSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        LearningSummary: {
+            /** Format: int32 */
+            learnedMerchants?: number;
+            /** Format: int64 */
+            totalConfirmations?: number;
+            /** Format: int64 */
+            correctedCount?: number;
+            /** Format: int64 */
+            resetCount?: number;
         };
         ApiResponseListAccountDto: {
             success?: boolean;
@@ -10553,22 +10892,15 @@ export interface components {
             /** Format: int64 */
             totalTransactions?: number;
         };
-        ApiResponseTrace: {
+        ApiResponseReconciliationExplorerTrace: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["Trace"];
+            data?: components["schemas"]["ReconciliationExplorerTrace"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
             requestId?: string;
             details?: {
-                [key: string]: unknown;
-            };
-        };
-        Classification: {
-            /** @enum {string} */
-            reconciliationStatus?: "OK" | "DUPLICATE" | "TRANSFER" | "REFUND" | "REVERSAL" | "INVESTMENT_TRANSFER" | "SUPERSEDED";
-            transactionExplanation?: {
                 [key: string]: unknown;
             };
         };
@@ -10607,11 +10939,18 @@ export interface components {
             /** @enum {string} */
             source?: "MANUAL" | "CSV_IMPORT" | "GMAIL_IMPORT" | "ACCOUNT_AGGREGATOR";
         };
-        Trace: {
+        ReconciliationExplorerClassification: {
+            /** @enum {string} */
+            reconciliationStatus?: "OK" | "DUPLICATE" | "TRANSFER" | "REFUND" | "REVERSAL" | "INVESTMENT_TRANSFER" | "SUPERSEDED";
+            transactionExplanation?: {
+                [key: string]: unknown;
+            };
+        };
+        ReconciliationExplorerTrace: {
             raw?: components["schemas"]["Raw"];
             normalized?: components["schemas"]["Normalized"];
             edges?: components["schemas"]["Edge"][];
-            classification?: components["schemas"]["Classification"];
+            classification?: components["schemas"]["ReconciliationExplorerClassification"];
         };
         ApiResponseListPushCampaignDto: {
             success?: boolean;
@@ -10777,6 +11116,32 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
             attempts?: components["schemas"]["AttemptDto"][];
+        };
+        ApiResponseNotificationAdminSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["NotificationAdminSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ChannelSummary: {
+            channel?: string;
+            /** Format: int64 */
+            sent?: number;
+            /** Format: int64 */
+            failed?: number;
+        };
+        NotificationAdminSummary: {
+            /** Format: int64 */
+            sent?: number;
+            /** Format: int64 */
+            failed?: number;
+            byChannel?: components["schemas"]["ChannelSummary"][];
         };
         ApiResponseListMerchantStatDto: {
             success?: boolean;
@@ -10993,6 +11358,221 @@ export interface components {
         UpcomingIntegrationDto: {
             name?: string;
             description?: string;
+        };
+        ApiResponseInsightsExplorerTrace: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InsightsExplorerTrace"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        InsightsExplorerTopCategory: {
+            category?: string;
+            amount?: number;
+            transactions?: components["schemas"]["TracedTransaction"][];
+        };
+        InsightsExplorerTopMerchant: {
+            merchant?: string;
+            amount?: number;
+            transactions?: components["schemas"]["TracedTransaction"][];
+        };
+        InsightsExplorerTrace: {
+            /** Format: uuid */
+            userId?: string;
+            reportingMonth?: string;
+            reportingMonthIsCurrent?: boolean;
+            totalSpend?: components["schemas"]["TotalSpend"];
+            topCategory?: components["schemas"]["InsightsExplorerTopCategory"];
+            topMerchant?: components["schemas"]["InsightsExplorerTopMerchant"];
+        };
+        TotalSpend: {
+            amount?: number;
+            /** Format: int32 */
+            categoryCount?: number;
+            transactions?: components["schemas"]["TracedTransaction"][];
+        };
+        TracedTransaction: {
+            /** Format: uuid */
+            transactionId?: string;
+            description?: string;
+            rawAmount?: number;
+            reportableAmount?: number;
+            /** Format: date */
+            txnDate?: string;
+        };
+        ApiResponseImportTrace: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ImportTrace"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Completion: {
+            /** Format: uuid */
+            statementImportId?: string;
+            /** Format: int32 */
+            transactionsImported?: number;
+            /** Format: int32 */
+            transactionsSkipped?: number;
+            /** Format: date-time */
+            importedAt?: string;
+            /** Format: date-time */
+            sessionConfirmedAt?: string;
+        };
+        Finding: {
+            /** Format: int32 */
+            sectionIndex?: number;
+            rule?: string;
+            outcome?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            recordedAt?: string;
+        };
+        ImportTrace: {
+            analysisReference?: string;
+            /** Format: uuid */
+            importJobId?: string;
+            /** Format: uuid */
+            importSessionId?: string;
+            correlationId?: string;
+            analysis?: components["schemas"]["AnalysisView"];
+            job?: components["schemas"]["Job"];
+            stages?: components["schemas"]["Stage"][];
+            verification?: components["schemas"]["Finding"][];
+            learning?: components["schemas"]["Learning"];
+            completion?: components["schemas"]["Completion"];
+        };
+        Job: {
+            status?: string;
+            /** Format: int32 */
+            attemptCount?: number;
+            /** Format: int32 */
+            rowsTotal?: number;
+            /** Format: int32 */
+            rowsProcessed?: number;
+            lastError?: string;
+            /** Format: date-time */
+            queuedAt?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** Format: int64 */
+            totalDurationMs?: number;
+        };
+        Learning: {
+            /** Format: int32 */
+            events?: number;
+            byStatus?: {
+                [key: string]: number;
+            };
+            outstanding?: components["schemas"]["LearningEvent"][];
+        };
+        LearningEvent: {
+            /** Format: uuid */
+            id?: string;
+            status?: string;
+            /** Format: int32 */
+            attemptCount?: number;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        Stage: {
+            stage?: string;
+            /** Format: int32 */
+            attempt?: number;
+            outcome?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            endedAt?: string;
+            /** Format: int64 */
+            durationMs?: number;
+        };
+        ApiResponseImportTelemetrySummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ImportTelemetrySummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ImportTelemetrySummary: {
+            /** Format: int64 */
+            completedJobs?: number;
+            /** Format: int64 */
+            withTelemetry?: number;
+            /** Format: int64 */
+            predatesTelemetry?: number;
+            /** Format: int64 */
+            notCompleted?: number;
+            byReliabilityStatus?: {
+                [key: string]: number;
+            };
+            byTextSource?: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            headerReconstructionUncertain?: number;
+            /** Format: int64 */
+            withFailedFindings?: number;
+            /** Format: int64 */
+            withWarningFindings?: number;
+            byParserVersion?: components["schemas"]["ParserVersionBreakdown"][];
+        };
+        ParserVersionBreakdown: {
+            parserVersion?: string;
+            /** Format: int64 */
+            jobs?: number;
+            /** Format: int64 */
+            clean?: number;
+            /** Format: int64 */
+            reviewRecommended?: number;
+            /** Format: int64 */
+            needsAttention?: number;
+        };
+        ApiResponseImportRowTrace: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ImportRowTrace"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ImportRowTrace: {
+            /** Format: uuid */
+            statementImportId?: string;
+            rows?: components["schemas"]["RowOutcome"][];
+        };
+        RowOutcome: {
+            /** Format: int32 */
+            rowPosition?: number;
+            /** Format: uuid */
+            transactionId?: string;
+            description?: string;
+            amount?: number;
+            /** Format: date */
+            txnDate?: string;
         };
         ApiResponseListLayoutSummary: {
             success?: boolean;
@@ -11424,6 +12004,47 @@ export interface components {
             openedAt?: string;
             openedBy?: string;
         };
+        ApiResponseHeldImportSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["HeldImportSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        HeldImportSummary: {
+            /** Format: int64 */
+            held?: number;
+            /** Format: int64 */
+            reprocessing?: number;
+        };
+        ApiResponsePagedResponseFeedbackSummary: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PagedResponseFeedbackSummary"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PagedResponseFeedbackSummary: {
+            content?: components["schemas"]["FeedbackSummary"][];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            size?: number;
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+        };
         ApiResponseBreakdown: {
             success?: boolean;
             message?: string;
@@ -11789,6 +12410,21 @@ export interface components {
             periodEnd?: string;
             classification?: string;
         };
+        AdminMfaStatusResponse: {
+            enabled?: boolean;
+        };
+        ApiResponseAdminMfaStatusResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AdminMfaStatusResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         ApiResponseSavedStatementPasswordsRemoved: {
             success?: boolean;
             message?: string;
@@ -11843,7 +12479,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["WorkspaceSettingsUpdateRequest"];
             };
         };
         responses: {
@@ -11887,7 +12523,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["UserSettingsUpdateRequest"];
             };
         };
         responses: {
@@ -11913,7 +12549,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["TransactionUpdateRequest"];
             };
         };
         responses: {
@@ -12100,7 +12736,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["RuleUpdateRequest"];
             };
         };
         responses: {
@@ -12150,7 +12786,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["RelationshipUpdateRequest"];
             };
         };
         responses: {
@@ -12200,7 +12836,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["AccountCreateRequest"];
             };
         };
         responses: {
@@ -12415,7 +13051,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["RuleUpdateRequest"];
             };
         };
         responses: {
@@ -12753,7 +13389,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["BankUpdateRequest"];
             };
         };
         responses: {
@@ -12801,7 +13437,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["AccountCreateRequest"];
             };
         };
         responses: {
@@ -12921,7 +13557,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["VerifyOtpRequest"];
+                "application/json": components["schemas"]["PhoneChangeVerifyOtpRequest"];
             };
         };
         responses: {
@@ -12931,7 +13567,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseVerifyOtpResponse"];
+                    "*/*": components["schemas"]["ApiResponsePhoneChangeVerifyOtpResponse"];
                 };
             };
         };
@@ -12945,7 +13581,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StartRequest"];
+                "application/json": components["schemas"]["PhoneChangeStartRequest"];
             };
         };
         responses: {
@@ -12955,7 +13591,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStartResponse"];
+                    "*/*": components["schemas"]["ApiResponsePhoneChangeStartResponse"];
                 };
             };
         };
@@ -12969,7 +13605,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CompleteRequest"];
+                "application/json": components["schemas"]["PhoneChangeCompleteRequest"];
             };
         };
         responses: {
@@ -12979,7 +13615,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseCompleteResponse"];
+                    "*/*": components["schemas"]["ApiResponsePhoneChangeCompleteResponse"];
                 };
             };
         };
@@ -12993,7 +13629,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["VerifyOtpRequest"];
+                "application/json": components["schemas"]["PasswordChangeVerifyOtpRequest"];
             };
         };
         responses: {
@@ -13003,7 +13639,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseVerifyOtpResponse"];
+                    "*/*": components["schemas"]["ApiResponsePasswordChangeVerifyOtpResponse"];
                 };
             };
         };
@@ -13017,7 +13653,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StartRequest"];
+                "application/json": components["schemas"]["PasswordChangeStartRequest"];
             };
         };
         responses: {
@@ -13027,7 +13663,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStartResponse"];
+                    "*/*": components["schemas"]["ApiResponsePasswordChangeStartResponse"];
                 };
             };
         };
@@ -13041,7 +13677,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CompleteRequest"];
+                "application/json": components["schemas"]["PasswordChangeCompleteRequest"];
             };
         };
         responses: {
@@ -13051,7 +13687,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseCompleteResponse"];
+                    "*/*": components["schemas"]["ApiResponsePasswordChangeCompleteResponse"];
                 };
             };
         };
@@ -13089,7 +13725,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StartRequest"];
+                "application/json": components["schemas"]["EmailChangeStartRequest"];
             };
         };
         responses: {
@@ -13099,7 +13735,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStartResponse"];
+                    "*/*": components["schemas"]["ApiResponseEmailChangeStartResponse"];
                 };
             };
         };
@@ -13113,7 +13749,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CompleteRequest"];
+                "application/json": components["schemas"]["EmailChangeCompleteRequest"];
             };
         };
         responses: {
@@ -13123,7 +13759,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseCompleteResponse"];
+                    "*/*": components["schemas"]["ApiResponseEmailChangeCompleteResponse"];
                 };
             };
         };
@@ -13267,7 +13903,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["TransactionCreateRequest"];
             };
         };
         responses: {
@@ -13508,7 +14144,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseSupportTicketSummary"];
                 };
             };
         };
@@ -13539,7 +14175,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseDetail"];
+                    "*/*": components["schemas"]["ApiResponseSupportTicketDetail"];
                 };
             };
         };
@@ -13627,7 +14263,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmRequest"];
+                "application/json": components["schemas"]["ImportConfirmRequest"];
             };
         };
         responses: {
@@ -13637,7 +14273,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseConfirmResponse"];
+                    "*/*": components["schemas"]["ApiResponseImportConfirmResponse"];
                 };
             };
         };
@@ -13855,7 +14491,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStatusResponse"];
+                    "*/*": components["schemas"]["ApiResponseOnboardingStatusResponse"];
                 };
             };
         };
@@ -13899,7 +14535,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStatusResponse"];
+                    "*/*": components["schemas"]["ApiResponseOnboardingStatusResponse"];
                 };
             };
         };
@@ -14435,7 +15071,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmRequest"];
+                "application/json": components["schemas"]["ImportConfirmRequest"];
             };
         };
         responses: {
@@ -14445,7 +15081,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseConfirmResponse"];
+                    "*/*": components["schemas"]["ApiResponseImportConfirmResponse"];
                 };
             };
         };
@@ -14479,7 +15115,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["GoalCreateRequest"];
             };
         };
         responses: {
@@ -14583,7 +15219,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["FeedbackCreateRequest"];
             };
         };
         responses: {
@@ -14593,7 +15229,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseFeedbackSummary"];
                 };
             };
         };
@@ -15306,7 +15942,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["RuleCreateRequest"];
             };
         };
         responses: {
@@ -15400,7 +16036,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["RelationshipCreateRequest"];
             };
         };
         responses: {
@@ -15427,7 +16063,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MergeRequest"];
+                "application/json": components["schemas"]["RelationshipMergeRequest"];
             };
         };
         responses: {
@@ -15527,7 +16163,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MergeRequest"];
+                "application/json": components["schemas"]["MerchantMergeRequest"];
             };
         };
         responses: {
@@ -15575,7 +16211,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["AccountCreateRequest"];
             };
         };
         responses: {
@@ -15689,7 +16325,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["TrustedSenderCreateRequest"];
             };
         };
         responses: {
@@ -15791,7 +16427,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseSupportTicketSummary"];
                 };
             };
         };
@@ -15813,7 +16449,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseSupportTicketSummary"];
                 };
             };
         };
@@ -15872,7 +16508,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["RuleCreateRequest"];
             };
         };
         responses: {
@@ -16475,7 +17111,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MergeRequest"];
+                "application/json": components["schemas"]["MerchantReviewMergeRequest"];
             };
         };
         responses: {
@@ -17156,7 +17792,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["BankCreateRequest"];
             };
         };
         responses: {
@@ -17224,7 +17860,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmRequest"];
+                "application/json": components["schemas"]["AdminMfaConfirmRequest"];
             };
         };
         responses: {
@@ -17234,7 +17870,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseConfirmResponse"];
+                    "*/*": components["schemas"]["ApiResponseAdminMfaConfirmResponse"];
                 };
             };
         };
@@ -17268,7 +17904,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateRequest"];
+                "application/json": components["schemas"]["AccountCreateRequest"];
             };
         };
         responses: {
@@ -17470,7 +18106,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UpdateRequest"];
+                "application/json": components["schemas"]["MerchantUpdateRequest"];
             };
         };
         responses: {
@@ -17506,7 +18142,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseSupportTicketSummary"];
                 };
             };
         };
@@ -17964,7 +18600,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseDetail"];
+                    "*/*": components["schemas"]["ApiResponseSupportTicketDetail"];
                 };
             };
         };
@@ -18111,7 +18747,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseStatementImportSummary"];
                 };
             };
         };
@@ -18379,7 +19015,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStatusResponse"];
+                    "*/*": components["schemas"]["ApiResponseOnboardingStatusResponse"];
                 };
             };
         };
@@ -18967,7 +19603,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseListTopMerchant"];
+                    "*/*": components["schemas"]["ApiResponseListAnalyticsTopMerchant"];
                 };
             };
         };
@@ -18989,7 +19625,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseListTopCategory"];
+                    "*/*": components["schemas"]["ApiResponseListAnalyticsTopCategory"];
                 };
             };
         };
@@ -19332,7 +19968,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseLearningSummary"];
                 };
             };
         };
@@ -19446,7 +20082,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseListTopMerchant"];
+                    "*/*": components["schemas"]["ApiResponseListAnalyticsTopMerchant"];
                 };
             };
         };
@@ -19470,7 +20106,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseListTopCategory"];
+                    "*/*": components["schemas"]["ApiResponseListAnalyticsTopCategory"];
                 };
             };
         };
@@ -19580,7 +20216,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseSupportTicketSummary"];
                 };
             };
         };
@@ -19752,7 +20388,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseTrace"];
+                    "*/*": components["schemas"]["ApiResponseReconciliationExplorerTrace"];
                 };
             };
         };
@@ -19885,7 +20521,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseNotificationAdminSummary"];
                 };
             };
         };
@@ -20123,7 +20759,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseTrace"];
+                    "*/*": components["schemas"]["ApiResponseInsightsExplorerTrace"];
                 };
             };
         };
@@ -20145,7 +20781,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseTrace"];
+                    "*/*": components["schemas"]["ApiResponseImportTrace"];
                 };
             };
         };
@@ -20167,7 +20803,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseTrace"];
+                    "*/*": components["schemas"]["ApiResponseImportTrace"];
                 };
             };
         };
@@ -20187,7 +20823,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseImportTelemetrySummary"];
                 };
             };
         };
@@ -20209,7 +20845,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseTrace"];
+                    "*/*": components["schemas"]["ApiResponseImportRowTrace"];
                 };
             };
         };
@@ -20686,7 +21322,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponseHeldImportSummary"];
                 };
             };
         };
@@ -20711,7 +21347,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseFeedbackSummary"];
                 };
             };
         };
@@ -20982,7 +21618,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseStatusResponse"];
+                    "*/*": components["schemas"]["ApiResponseAdminMfaStatusResponse"];
                 };
             };
         };

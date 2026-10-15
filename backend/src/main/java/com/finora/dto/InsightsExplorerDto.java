@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -25,6 +26,7 @@ public final class InsightsExplorerDto {
      * expense transactions at all -- the same state {@code InsightsService.build()} answers with
      * its own "upload or add transactions" sentence, not a lookup failure.
      */
+    @Schema(name = "InsightsExplorerTrace")
     public record Trace(UUID userId, String reportingMonth, boolean reportingMonthIsCurrent,
                          TotalSpend totalSpend, TopCategory topCategory, TopMerchant topMerchant) {}
 
@@ -33,9 +35,11 @@ public final class InsightsExplorerDto {
     public record TotalSpend(BigDecimal amount, int categoryCount, List<TracedTransaction> transactions) {}
 
     /** The exact category {@code InsightsService}'s "biggest category" sentence names. */
+    @Schema(name = "InsightsExplorerTopCategory")
     public record TopCategory(String category, BigDecimal amount, List<TracedTransaction> transactions) {}
 
     /** The exact merchant {@code InsightsService}'s "top merchant" sentence names. */
+    @Schema(name = "InsightsExplorerTopMerchant")
     public record TopMerchant(String merchant, BigDecimal amount, List<TracedTransaction> transactions) {}
 
     /** One transaction that fed into a traced number. {@code reportableAmount} is what actually

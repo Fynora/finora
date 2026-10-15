@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -25,9 +26,11 @@ public record MerchantDto(
      *  Security fix: website had @Size but no scheme validation, the same gap that made
      *  Bank.websiteUrl a stored XSS -- a MERCHANT_MANAGE admin could persist "javascript:..." for
      *  any client that renders it as a link. See {@link com.finora.util.SafeHttpUrl}. */
+    @Schema(name = "MerchantUpdateRequest")
     public record UpdateRequest(@Size(max = 255) String canonicalName,
                                  @com.finora.util.SafeHttpUrl @Size(max = 500) String website) {}
 
+    @Schema(name = "MerchantMergeRequest")
     public record MergeRequest(@NotNull(message = "mergeFromMerchantId is required") UUID mergeFromMerchantId) {}
 
     /** Backs POST /{merchantId}/confirm-category (spec §5.5). applyToTransactionId is the

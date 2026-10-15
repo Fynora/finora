@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +41,7 @@ public final class ImportTelemetryDto {
      * @param byParserVersion         the same distribution split by deploy, because a rate measured
      *                                across a parser change is two populations averaged together
      */
+    @Schema(name = "ImportTelemetrySummary")
     public record Summary(
             long completedJobs,
             long withTelemetry,

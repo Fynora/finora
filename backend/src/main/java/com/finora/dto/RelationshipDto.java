@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -26,6 +27,7 @@ public record RelationshipDto(
      *  element, so a request with one blank/missing-type identifier byte would sail past
      *  validation and reach RelationshipService.create(), where parseIdentifierType(null) throws
      *  a raw NullPointerException (surfaced as an unhelpful 500) instead of a clean 400. */
+    @Schema(name = "RelationshipCreateRequest")
     public record CreateRequest(
             @NotBlank(message = "Label is required") String label,
             @NotNull(message = "Relationship type is required") String relationshipType,
@@ -40,10 +42,12 @@ public record RelationshipDto(
      *  natural "which one did you mean" way to patch a single identifier out of a list by value,
      *  so a full replace (same shape create() already writes) is the one unambiguous contract.
      *  Supply the existing identifiers unchanged if the caller only means to edit the label. */
+    @Schema(name = "RelationshipUpdateRequest")
     public record UpdateRequest(
             String label, String relationshipType, UUID linkedAccountId,
             @Valid List<IdentifierRequest> identifiers
     ) {}
 
+    @Schema(name = "RelationshipMergeRequest")
     public record MergeRequest(@NotNull(message = "mergeFromRelationshipId is required") UUID mergeFromRelationshipId) {}
 }

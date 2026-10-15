@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
@@ -38,5 +39,6 @@ public record MerchantReviewDto(
      *  unvalidated {@code Map<String, UUID>} body -- an empty {@code {}} body reached
      *  {@code MerchantService.merge}'s {@code survivingMerchantId.equals(mergeFromMerchantId)}
      *  with a null survivingMerchantId and threw an unhandled NPE (500) instead of a clean 400. */
+    @Schema(name = "MerchantReviewMergeRequest")
     public record MergeRequest(@NotNull(message = "survivingMerchantId is required") UUID survivingMerchantId) {}
 }

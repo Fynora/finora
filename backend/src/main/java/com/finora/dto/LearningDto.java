@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -29,5 +30,6 @@ public class LearningDto {
      *  this month, unlike AnalyticsDto.LearningGrowthPoint). resetCount: how many times a user has
      *  used "Reset Learning" -- see LearningService.reset's own doc comment for why this is worth
      *  surfacing separately rather than folding into correctedCount. */
+    @Schema(name = "LearningSummary")
     public record Summary(int learnedMerchants, long totalConfirmations, long correctedCount, long resetCount) {}
 }

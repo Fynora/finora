@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.accounts.AccountDto;
 import com.finora.entity.StatementImport;
 import com.finora.repository.StatementImportRepository;
@@ -21,6 +22,7 @@ public class StatementImportDto {
      *  intelligence/schema, not the "visualize what already exists" reuse this phase is scoped to
      *  (see docs/team-message-financial-intelligence-workspace-kickoff.md's non-goals). Duplicate
      *  count had no such gap -- ReconciliationStatus already exists on every transaction. */
+    @Schema(name = "StatementImportSummary")
     public record Summary(
             UUID id,
             String fileName,

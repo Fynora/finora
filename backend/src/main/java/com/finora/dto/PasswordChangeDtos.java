@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -25,19 +26,23 @@ public class PasswordChangeDtos {
      *  Services credential, re-verified server-side, never trusted from an old sign-in) is for
      *  one created via Sign in with Google; appleIdToken is the same idea for Sign in with
      *  Apple. */
+    @Schema(name = "PasswordChangeStartRequest")
     public record StartRequest(String currentPassword, String googleIdToken, String appleIdToken) {}
 
     /** sessionId is what the frontend carries forward to the next two steps -- deliberately
      *  opaque (a random UUID), not something a client could compute or guess. phoneNumber (the
      *  real, unmasked number) is what the frontend hands to Firebase's signInWithPhoneNumber();
      *  maskedPhone is what it shows on screen while doing so. */
+    @Schema(name = "PasswordChangeStartResponse")
     public record StartResponse(String sessionId, String phoneNumber, String maskedPhone) {}
 
     /** firebaseIdToken proves phone ownership -- see PhoneVerificationProvider's own doc
      *  comment. By the time a token exists at all, Firebase has already confirmed the code
      *  client-side; a wrong code never produces a token to send here in the first place. */
+    @Schema(name = "PasswordChangeVerifyOtpRequest")
     public record VerifyOtpRequest(@NotBlank String sessionId, @NotBlank String firebaseIdToken) {}
 
+    @Schema(name = "PasswordChangeVerifyOtpResponse")
     public record VerifyOtpResponse(String message) {}
 
     /** signOutOtherDevices controls whether every OTHER active session gets revoked once the
@@ -56,6 +61,7 @@ public class PasswordChangeDtos {
      *  required request field is non-breaking under
      *  docs/engineering/api-compatibility-policy.md; removing the field would not be. Delete it
      *  once no supported client sends it. */
+    @Schema(name = "PasswordChangeCompleteRequest")
     public record CompleteRequest(
             @NotBlank String sessionId,
             @NotBlank @Size(min = 8, max = 72, message = AuthDtos.PASSWORD_SIZE_MESSAGE) String newPassword,
@@ -63,5 +69,6 @@ public class PasswordChangeDtos {
             String currentRefreshToken
     ) {}
 
+    @Schema(name = "PasswordChangeCompleteResponse")
     public record CompleteResponse(String message, boolean otherDevicesSignedOut) {}
 }

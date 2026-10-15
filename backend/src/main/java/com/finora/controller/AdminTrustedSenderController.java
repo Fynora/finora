@@ -1,5 +1,6 @@
 package com.finora.controller;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.dto.ApiResponse;
 import com.finora.integrations.google.TrustedSenderDomain;
 import com.finora.integrations.google.TrustedSenderDomainService;
@@ -44,6 +45,7 @@ public class AdminTrustedSenderController {
         }
     }
 
+    @Schema(name = "TrustedSenderCreateRequest")
     public record CreateRequest(String domain, String merchantName) {}
     public record RelabelRequest(String merchantName) {}
 

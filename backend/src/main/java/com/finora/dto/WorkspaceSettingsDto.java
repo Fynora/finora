@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 
 /**
@@ -9,5 +10,6 @@ import java.time.Instant;
  * See V22 migration's comment and WorkspaceSettingsService's class comment for the full reasoning.
  */
 public record WorkspaceSettingsDto(int autoApplyConfidenceThreshold, Instant updatedAt) {
+    @Schema(name = "WorkspaceSettingsUpdateRequest")
     public record UpdateRequest(int autoApplyConfidenceThreshold) {}
 }

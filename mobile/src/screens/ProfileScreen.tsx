@@ -20,6 +20,7 @@ import type { MoreStackParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Profile'>;
 
@@ -33,6 +34,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'Profile'>;
  */
 export function ProfileScreen({ navigation }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
 
@@ -109,7 +111,7 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />

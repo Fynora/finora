@@ -15,6 +15,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { parsePositiveAmount } from '../lib/validation';
 import { radius, spacing, THEME_LABEL, THEME_SETTINGS, useTheme, useThemeSetting } from '../theme';
 import { NotificationPreferencesSection } from './settings/NotificationPreferencesSection';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /**
  * Falls back to a curated list where Intl.supportedValuesOf is unavailable, rather than leaving
@@ -37,6 +38,7 @@ function availableTimezones(): string[] {
 
 export function SettingsGeneralScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const { setting: themeSetting, setSetting: setThemeSetting } = useThemeSetting();
   const { setOnboardingCompleted } = useAuth();
   const queryClient = useQueryClient();
@@ -134,7 +136,7 @@ export function SettingsGeneralScreen() {
     // GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
     // put while the content scrolls over it.
     <GlassScreen style={styles.flex}>
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }} keyboardShouldPersistTaps="handled">
       <TextField
         label="Low balance alert"
         value={lowBalance}

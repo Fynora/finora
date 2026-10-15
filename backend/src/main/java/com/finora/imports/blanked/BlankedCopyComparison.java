@@ -213,10 +213,21 @@ public final class BlankedCopyComparison {
 
     /**
      * Per char of {@code real}: inside an occurrence of a listed sentence, matched case-insensitively
-     * with any run of whitespace for each space, standing apart from other letters, digits and marks.
+     * with any run of whitespace for each space and control characters ignored, standing apart from
+     * other letters, digits and marks.
      */
     private static boolean[] sentenceCover(String real, Set<String> sentences) {
         boolean[] covered = new boolean[real.length()];
+        if (sentences.isEmpty()) return covered;
+        // Matched on the text without its control characters, as BankSentences.normalise reads a
+        // printed line (a font can print a ligature as one), then mapped back to the real text.
+        StringBuilder visible = new StringBuilder(real.length());
+        List<Integer> at = new ArrayList<>(real.length());
+        for (int k = 0; k < real.length(); k++) {
+            if (BankSentences.isControl(real.charAt(k))) continue;
+            visible.append(real.charAt(k));
+            at.add(k);
+        }
         for (String sentence : sentences) {
             StringBuilder regex = new StringBuilder("(?<!" + NOT_IN_A_WORD + ")");
             String[] words = sentence.split(" ");
@@ -225,8 +236,8 @@ public final class BlankedCopyComparison {
                 regex.append(Pattern.quote(words[w]));
             }
             regex.append("(?!" + NOT_IN_A_WORD + ")");
-            var m = Pattern.compile(regex.toString(), Pattern.CASE_INSENSITIVE).matcher(real);
-            while (m.find()) Arrays.fill(covered, m.start(), m.end(), true);
+            var m = Pattern.compile(regex.toString(), Pattern.CASE_INSENSITIVE).matcher(visible);
+            while (m.find()) Arrays.fill(covered, at.get(m.start()), at.get(m.end() - 1) + 1, true);
         }
         return covered;
     }

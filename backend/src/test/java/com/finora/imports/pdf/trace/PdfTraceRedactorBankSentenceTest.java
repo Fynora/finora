@@ -174,6 +174,16 @@ class PdfTraceRedactorBankSentenceTest {
     }
 
     @Test
+    void aLigaturePrintedAsAControlCharacterStillMatchesAndIsKeptAsPrinted() {
+        Set<String> keep = BankSentences.forTesting("please write to the nodal ocer");
+        String printed = "Please write to the Nodal O\u001Ccer";
+        List<PositionedText> out = PdfTraceRedactor.redact(List.of(
+                new PositionedText(printed, 50.2f, 700f, 0, 150.4f)), keep);
+
+        assertRun(out.get(0), printed, 50.2f, 150.4f);
+    }
+
+    @Test
     void caseAndSpacingDoNotMatter() {
         String printed = "THIS  IS A COMPUTER GENERATED STATEMENT";
         List<PositionedText> out = PdfTraceRedactor.redact(List.of(

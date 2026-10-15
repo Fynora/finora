@@ -18,6 +18,15 @@ class BankSentencesTest {
     }
 
     @Test
+    void normaliseDropsControlCharacters() {
+        // Some fonts print a ligature ("ffi", "fi") as a control character; a person reading the
+        // statement sees the letters and writes the entry without it.
+        assertThat(BankSentences.normalise("Please write to the Nodal O\u001Ccer"))
+                .isEqualTo("please write to the nodal ocer");
+        assertThat(BankSentences.normalise("a\u001Db\u001Ec\u0000d e\u007Ff")).isEqualTo("abcd ef");
+    }
+
+    @Test
     void normaliseOfNullIsEmpty() {
         assertThat(BankSentences.normalise(null)).isEmpty();
     }
@@ -81,6 +90,12 @@ class BankSentencesTest {
     @Test
     void aNonAsciiEntryIsRefused() {
         assertRefused("this is a computer generated stätement");
+    }
+
+    @Test
+    void anEntryWithAControlCharacterIsRefused() {
+        assertThatThrownBy(() -> BankSentences.requireSafe("please write to the nodal o\u001Ccer"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("control character");
     }
 
     @Test

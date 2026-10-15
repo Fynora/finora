@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *
  * <p>Entries are added by a reviewed PR only, chosen by the owner from his own statements, and
  * each must pass {@link #requireSafe}: no digit, at least four words, no '@', no IFSC-shaped word,
- * ASCII only, already normalised. An entry can therefore never carry a reference, an account
+ * ASCII only with no control character, already normalised. An entry can therefore never carry a reference, an account
  * number or a contact.
  */
 public final class BankSentences {
@@ -26,6 +26,10 @@ public final class BankSentences {
      *  letters or digits, standing apart from other letters and digits. */
     private static final Pattern IFSC_SHAPE = Pattern.compile("(?<![a-z0-9])[a-z]{4}0[a-z0-9]{6}(?![a-z0-9])");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    /** A control character other than ASCII whitespace. Some fonts print a ligature ("ffi", "fi")
+     *  as one: a person reading the statement sees the letters, writes the entry without it, and
+     *  a printed line holding it still has to match. */
+    static final Pattern CONTROL = Pattern.compile("[\\p{Cc}&&[^\\t\\n\\x0B\\f\\r]]");
 
     /** Normalised entries. Grouped by the bank each was seen on, one comment per group. */
     private static final List<String> ENTRIES = List.of(
@@ -39,9 +43,16 @@ public final class BankSentences {
         return Set.copyOf(entries);
     }
 
-    /** Lower case, every run of whitespace one space, trimmed. */
+    /** Control characters dropped, lower case, every run of whitespace one space, trimmed. */
     public static String normalise(String line) {
-        return line == null ? "" : WHITESPACE.matcher(line.strip()).replaceAll(" ").toLowerCase(Locale.ROOT);
+        if (line == null) return "";
+        String visible = CONTROL.matcher(line).replaceAll("");
+        return WHITESPACE.matcher(visible.strip()).replaceAll(" ").toLowerCase(Locale.ROOT);
+    }
+
+    /** Whether {@code c} is a control character {@link #normalise} drops. */
+    public static boolean isControl(char c) {
+        return CONTROL.matcher(String.valueOf(c)).matches();
     }
 
     /** The production list, normalised. */
@@ -77,6 +88,7 @@ public final class BankSentences {
         if (entry == null) throw new IllegalArgumentException("entry is null");
         if (entry.codePoints().anyMatch(Character::isDigit)) throw new IllegalArgumentException("entry has a digit");
         if (!entry.chars().allMatch(c -> c < 128)) throw new IllegalArgumentException("entry is not ASCII");
+        if (CONTROL.matcher(entry).find()) throw new IllegalArgumentException("entry has a control character");
         if (!entry.equals(normalise(entry))) throw new IllegalArgumentException("entry is not normalised");
         if (entry.isEmpty() || entry.split(" ").length < 4) throw new IllegalArgumentException("entry has fewer than 4 words");
         if (entry.indexOf('@') >= 0) throw new IllegalArgumentException("entry has an @");

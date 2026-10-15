@@ -436,6 +436,18 @@ class BlankedCopyComparisonTest {
     }
 
     @Test
+    void aSwallowedFooterWithALigatureControlCharacterStillMatches() {
+        java.util.Set<String> sentences = java.util.Set.of("please write to the nodal ocer");
+        String real = "UPI ASHA Please write to the Nodal O\u001Ccer";
+        String copy = "UPI XXXX Please write to the Nodal O\u001Ccer";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, java.util.Set.of())).isFalse();
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, sentences)).isTrue();
+        // The control character does not stand in for a letter: a different word still differs.
+        assertThat(BlankedCopyComparison.sameDescription("UPI ASHA Please write to the Nodal O\u001Cver",
+                "UPI XXXX Please write to the Nodal O\u001Cver", sentences)).isFalse();
+    }
+
+    @Test
     void aSentenceWordOutsideTheSentenceSpanIsNotExcused() {
         assertThat(PdfTraceRedactor.redactLine("computer ASHA")).isEqualTo("xxxxxxxx XXXX");
         assertThat(BlankedCopyComparison.sameDescription("computer ASHA", "computer XXXX", SENTENCES)).isFalse();

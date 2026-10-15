@@ -25,6 +25,11 @@ export const skeletonTokens = {
   /** Inside a paragraph the lines sit on top of each other, so each bar is drawn thinner than its
    *  line to stay visibly separate from the next. */
   paragraphBar: 0.7,
+  /** Text that sets its own lineHeight instead of the system default. */
+  textLine: {
+    /** The settings screens' hints (General, Categorization): 11pt on a 16pt line. */
+    hint: 16,
+  },
   text: {
     tiny: 10, caption: 11, meta: 12, label: 13, body: 14, heading: 15, subheading: 16,
     subject: 17, amount: 18, value: 20, title: 22, hero: 28, display: 36,
@@ -33,8 +38,11 @@ export const skeletonTokens = {
     field: 48, button: 48, touch: 44, codeRow: 52,
     /** The slot TextField keeps under its input for an error message (minHeight 16). */
     fieldMessage: 16,
-    /** The row ProfileScreen keeps for SaveStatus above its Save button (saveRow, minHeight 16). */
+    /** The row Profile, Settings General and Categorization keep for SaveStatus above a Save
+     *  button (saveRow, minHeight 16). */
     saveStatus: 16,
+    /** SettingsGeneralScreen's theme switch: 44pt segments inside a 1pt border. */
+    segments: 46,
     switchHeight: 31, chip: 18, badge: 20, bar: 8, barTrack: 6,
   },
   /** Widths that are fixed in the real layout, not a share of the row. */

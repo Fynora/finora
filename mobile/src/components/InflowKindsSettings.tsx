@@ -5,6 +5,8 @@ import { inflowApi } from '../api/endpoints';
 import { Button } from './Button';
 import { Card, SectionHeading } from './Card';
 import { InflowKindPicker } from './InflowKindPicker';
+import { InflowKindRowsSkeleton, SenderRuleRowsSkeleton } from './skeletons/ScreenSkeletons';
+import { SkeletonGroup } from './skeletons/Skeletons';
 import { apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { AppAlert } from '../lib/appAlert';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -69,6 +71,7 @@ export function InflowKindsSettings() {
         </Text>
         {message ? <Text style={[styles.small, { color: c.dangerInk }]}>{message}</Text> : null}
         {kindsQ.isError ? <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load your kinds.</Text> : null}
+        {kindsQ.isLoading ? <SkeletonGroup><InflowKindRowsSkeleton /></SkeletonGroup> : null}
         {kindsQ.data?.map((k) => (
           <View key={k.id} style={[styles.row, { borderBottomColor: c.border }]}>
             {renaming === k.id ? (
@@ -116,6 +119,7 @@ export function InflowKindsSettings() {
       </Card>
       <Card style={styles.card}>
         <SectionHeading title="Remembered senders" />
+        {rulesQ.isLoading ? <SkeletonGroup><SenderRuleRowsSkeleton /></SkeletonGroup> : null}
         {rulesQ.data && rulesQ.data.length === 0 ? (
           <Text style={[styles.small, { color: c.muted }]}>No senders remembered yet.</Text>
         ) : null}

@@ -39,17 +39,18 @@ export function SkeletonGroup({ children, style, testID = 'skeleton-group' }: {
 /**
  * A line of text. It takes the room a real line of that font size takes (skeletonTokens.lineHeight,
  * measured), so nothing below it moves when the text lands; the bar drawn inside is the font size
- * tall, or `bar` times it inside a paragraph.
+ * tall, or `bar` times it inside a paragraph. Text that sets its own lineHeight passes it as `line`.
  */
-export function SkeletonText({ size, width = '100%', style, bar = 1 }: {
+export function SkeletonText({ size, width = '100%', style, bar = 1, line }: {
   size: SkeletonTextSize;
   width?: DimensionValue;
   style?: ViewStyle;
   bar?: number;
+  line?: number;
 }) {
   const fontSize = T.text[size];
   return (
-    <View testID="skeleton-line" style={[styles.lineBox, { width, height: Math.round(fontSize * T.lineHeight) }, style]}>
+    <View testID="skeleton-line" style={[styles.lineBox, { width, height: line ?? Math.round(fontSize * T.lineHeight) }, style]}>
       <Shimmer width="100%" height={Math.round(fontSize * bar)} />
     </View>
   );
@@ -77,15 +78,16 @@ export function SkeletonIcon({ size, round = false, style }: {
 }
 
 /** A few lines of text, the last one shorter, the way a paragraph ends. */
-export function SkeletonLines({ count = 3, size = 'meta', lastWidth = '60%' }: {
+export function SkeletonLines({ count = 3, size = 'meta', lastWidth = '60%', line }: {
   count?: number;
   size?: SkeletonTextSize;
   lastWidth?: DimensionValue;
+  line?: number;
 }) {
   return (
     <View testID="skeleton-lines">
       {Array.from({ length: count }).map((_, i) => (
-        <SkeletonText key={i} size={size} width={i === count - 1 ? lastWidth : '100%'} bar={T.paragraphBar} />
+        <SkeletonText key={i} size={size} width={i === count - 1 ? lastWidth : '100%'} bar={T.paragraphBar} line={line} />
       ))}
     </View>
   );
@@ -139,16 +141,20 @@ export function SkeletonProfileHeader() {
 }
 
 /** A Settings row: title and meta lines, and the control at its end. */
-export function SkeletonSettingsRow({ trailing = 'none', divider = true }: {
+export function SkeletonSettingsRow({ trailing = 'none', divider = true, metaLines = 1 }: {
   trailing?: 'switch' | 'chevron' | 'badge' | 'none';
   divider?: boolean;
+  /** How many lines the real description wraps to, where the copy is fixed. */
+  metaLines?: number;
 }) {
   const c = useTheme();
   return (
     <View style={[styles.settingsRow, divider && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
       <View style={styles.settingsRowMain}>
         <SkeletonText size="body" width="45%" />
-        <SkeletonText size="meta" width="70%" />
+        {metaLines > 1
+          ? <SkeletonLines count={metaLines} size="meta" />
+          : <SkeletonText size="meta" width="70%" />}
       </View>
       {trailing === 'switch' ? (
         <Shimmer width={T.fixedWidth.switch} height={T.control.switchHeight} borderRadius={T.control.switchHeight / 2} />

@@ -270,25 +270,52 @@ export function TicketDetailSkeleton() {
   );
 }
 
+// Description and hint line counts are the fixed copy as it wraps on a 402pt-wide phone.
 export function SettingsGeneralSkeleton() {
+  const c = useTheme();
   return (
     <SkeletonGroup testID="settings-general-skeleton">
       <SkeletonFormField />
+      {/* Timezone is a plain label over the picker -- not a TextField, so no error slot under it. */}
+      <SkeletonText size="meta" width="20%" style={styles.fieldLabel} />
+      <SkeletonBox size="field" />
+      <SkeletonText size="meta" width="15%" style={styles.themeLabel} />
+      <SkeletonBox size="segments" />
       <View style={styles.gapSm}>
-        <SkeletonFormField />
+        <SkeletonLines count={2} size="caption" lastWidth="20%" line={skeletonTokens.textLine.hint} />
       </View>
-      <View style={styles.gapMd}>
-        <SkeletonText size="meta" width="20%" style={styles.stackSm} />
-        <SkeletonBox size="touch" />
-        <SkeletonText size="caption" width="80%" style={styles.gapSm} />
+      <View
+        testID="skeleton-save-status"
+        style={[styles.saveStatusRow, { height: skeletonTokens.control.saveStatus }]}
+      />
+      <SkeletonBox size="button" />
+      {/* NotificationPreferencesSection */}
+      <View style={[styles.notificationSection, { borderTopColor: c.border }]}>
+        <SkeletonText size="body" width="30%" style={styles.notificationHeading} />
+        <NotificationPreferencesRowsSkeleton />
       </View>
-      <SkeletonBox size="button" style={styles.gapMd} />
-      <View style={styles.gapMd}>
-        <SkeletonText size="heading" width="35%" style={styles.stackSm} />
-        <SkeletonSettingsRow trailing="switch" />
-        <SkeletonSettingsRow trailing="switch" divider={false} />
+      <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
+        <View style={styles.flexFill}>
+          <SkeletonText size="meta" width="45%" style={styles.fieldLabel} />
+          <SkeletonText size="caption" width="80%" style={styles.gapSm} line={skeletonTokens.textLine.hint} />
+        </View>
+        <SkeletonText size="label" width="25%" />
       </View>
     </SkeletonGroup>
+  );
+}
+
+/** NotificationPreferencesSection's rows under its heading: email, push, and the footnote. Used by
+ *  the section's own loading state and inside SettingsGeneralSkeleton, so the two cannot drift. */
+export function NotificationPreferencesRowsSkeleton() {
+  return (
+    <>
+      <SkeletonSettingsRow trailing="switch" metaLines={3} />
+      <SkeletonSettingsRow trailing="switch" metaLines={2} />
+      <View style={styles.gapSm}>
+        <SkeletonLines count={2} size="meta" lastWidth="45%" />
+      </View>
+    </>
   );
 }
 
@@ -320,16 +347,60 @@ export function SettingsCategorizationSkeleton() {
         <SkeletonBox size="field" width="15%" />
       </View>
       <View style={styles.gapSm}>
-        <SkeletonLines count={2} size="caption" />
+        <SkeletonLines count={2} size="caption" line={skeletonTokens.textLine.hint} />
       </View>
       <SkeletonText size="label" width="70%" style={styles.gapSm} />
-      <SkeletonBox size="button" style={styles.gapMd} />
-      <View style={styles.gapMd}>
-        <SkeletonText size="heading" width="35%" style={styles.stackSm} />
-        <SkeletonSettingsRow trailing="switch" />
-        <SkeletonSettingsRow trailing="switch" divider={false} />
-      </View>
+      <View
+        testID="skeleton-save-status"
+        style={[styles.saveStatusRow, { height: skeletonTokens.control.saveStatus }]}
+      />
+      <SkeletonBox size="button" />
+      {/* InflowKindsSettings: its two cards, each with two rows standing in for "some". */}
+      <Card style={styles.inflowCard}>
+        <SkeletonText size="heading" width="40%" style={styles.inflowHeading} />
+        <SkeletonLines count={2} size="meta" lastWidth="55%" />
+        <InflowKindRowsSkeleton />
+      </Card>
+      <Card style={styles.inflowCard}>
+        <SkeletonText size="heading" width="55%" style={styles.inflowHeading} />
+        <SenderRuleRowsSkeleton />
+      </Card>
     </SkeletonGroup>
+  );
+}
+
+/** InflowKindsSettings' money-kind rows: a name, and the income label or switch on the right. Used
+ *  by that card's own loading state and inside SettingsCategorizationSkeleton. */
+export function InflowKindRowsSkeleton() {
+  const c = useTheme();
+  return (
+    <View style={styles.inflowRows}>
+      {[0, 1].map((i) => (
+        <View key={i} style={[styles.inflowRow, { borderBottomColor: c.border }]}>
+          <SkeletonText size="body" width="40%" />
+          <SkeletonText size="meta" width="30%" />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** InflowKindsSettings' remembered-sender rows: a name over its kind and payment count, Forget on
+ *  the right. Used by that card's own loading state and inside SettingsCategorizationSkeleton. */
+export function SenderRuleRowsSkeleton() {
+  const c = useTheme();
+  return (
+    <View style={styles.inflowRows}>
+      {[0, 1].map((i) => (
+        <View key={i} style={[styles.inflowRow, { borderBottomColor: c.border }]}>
+          <View style={styles.flexFill}>
+            <SkeletonText size="body" width="60%" />
+            <SkeletonText size="meta" width="45%" />
+          </View>
+          <SkeletonText size="meta" width="12%" />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -376,6 +447,28 @@ const styles = StyleSheet.create({
   rowCenterMd: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   dangerRow: { paddingVertical: spacing.md },
   gapSmStackMd: { marginTop: spacing.sm, marginBottom: spacing.md },
+  // SettingsGeneralScreen's own spacing: field labels 6 above their control, the theme label 16
+  // below the picker.
+  fieldLabel: { marginBottom: 6 },
+  themeLabel: { marginTop: spacing.md, marginBottom: 6 },
+  // Settings General's and Categorization's save-status row: 8 above and below.
+  saveStatusRow: { marginVertical: spacing.sm },
+  notificationSection: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: spacing.lg, paddingTop: spacing.md },
+  notificationHeading: { marginBottom: spacing.xs },
+  retakeTourRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  flexFill: { flex: 1, marginRight: spacing.sm },
+  // InflowKindsSettings' card: its children 8 apart, 16 below what is above; SectionHeading's 8
+  // under the title; rows padded 8 with a hairline under each.
+  inflowCard: { gap: spacing.sm, marginTop: spacing.md },
+  inflowHeading: { marginBottom: spacing.sm },
+  inflowRows: { gap: spacing.sm },
+  inflowRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm,
+    paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   centredColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
   spacedRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
   referralSubtitle: { marginTop: spacing.md - 4 },

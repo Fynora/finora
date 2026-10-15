@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Switch, Text, View } from 'react-native';
 import { LoadFailed } from '../../components/LoadFailed';
-import { SkeletonGroup, SkeletonSettingsRow } from '../../components/skeletons/Skeletons';
+import { NotificationPreferencesRowsSkeleton } from '../../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup } from '../../components/skeletons/Skeletons';
 import { notificationPreferencesApi, type NotificationPreference } from '../../api/endpoints';
 import { spacing, useTheme } from '../../theme';
 
@@ -65,8 +66,7 @@ export function NotificationPreferencesSection() {
         <LoadFailed message="Couldn't load your notification settings." tone="danger" onRetry={retryLoad} />
       ) : prefs === null ? (
         <SkeletonGroup>
-          <SkeletonSettingsRow trailing="switch" />
-          <SkeletonSettingsRow trailing="switch" divider={false} />
+          <NotificationPreferencesRowsSkeleton />
         </SkeletonGroup>
       ) : (
         <>

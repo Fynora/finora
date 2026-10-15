@@ -160,4 +160,16 @@ describe('placeholders take the room the real text takes', () => {
     withTheme(<SkeletonFormField />);
     expect(screen.getByTestId('skeleton-field-message', { hidden: true })).toBeTruthy();
   });
+
+  it('text that sets its own line height gets that line, not the measured default', () => {
+    withTheme(<SkeletonLines count={2} size="caption" line={16} />);
+    screen.getAllByTestId('skeleton-line', { hidden: true })
+      .forEach((l) => expect(flat(l.props.style).height).toBe(16));
+  });
+
+  it('a settings row whose description wraps shows a bar per description line', () => {
+    withTheme(<SkeletonSettingsRow trailing="switch" metaLines={3} />);
+    // title + 3 description lines + switch
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(5);
+  });
 });

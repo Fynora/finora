@@ -75,6 +75,13 @@ describe('NotificationPreferencesSection loading states', () => {
     expectSkeletonNotSpinner();
   });
 
+  it('the skeleton has the rows the loaded section has: wrapped descriptions and the footnote', () => {
+    api.list.mockReturnValue(never());
+    renderSection();
+    // email (title, 3 description lines, switch) + push (title, 2 lines, switch) + footnote 2 lines
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(5 + 4 + 2);
+  });
+
   it('after a failed load, Try again loads them again', async () => {
     api.list.mockRejectedValueOnce(new Error('down'));
     renderSection();

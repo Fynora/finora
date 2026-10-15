@@ -341,4 +341,28 @@ class HeldItemAdminAlertServiceTest {
     private static EmailMessage argThatEmailTo(String email) {
         return org.mockito.ArgumentMatchers.argThat(m -> m != null && email.equals(m.to()));
     }
+
+    @Test
+    void alertClaudeFixCapReached_emailsEverySuperAdminWithTheMonthAndTheCapOnly() {
+        User superAdmin = adminUser("super-admin@example.com");
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE))
+                .thenReturn(List.of(superAdmin));
+
+        service.alertClaudeFixCapReached(java.time.YearMonth.of(2026, 11), 50);
+
+        org.mockito.ArgumentCaptor<EmailMessage> sent = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(sent.capture());
+        assertThat(sent.getValue().to()).isEqualTo("super-admin@example.com");
+        assertThat(sent.getValue().subject()).isEqualTo("Claude fix: this month's 50 runs are used");
+        assertThat(sent.getValue().html()).contains("2026-11").contains("https://admin.example.com/held-statements");
+    }
+
+    @Test
+    void alertClaudeFixCapReached_sendsNothingWithoutASuperAdmin() {
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE)).thenReturn(List.of());
+
+        service.alertClaudeFixCapReached(java.time.YearMonth.of(2026, 11), 50);
+
+        verify(emailProvider, never()).send(any());
+    }
 }

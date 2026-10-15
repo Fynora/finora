@@ -242,6 +242,24 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * The automatic Claude fix job reached its monthly cap ({@code app.claude-fix.monthly-cap}): held
+     * statements go to a person until the month ends. Sent to every active Super Admin, once a month
+     * ({@code FixJobStarter} claims the month before calling). Names the month and the cap only.
+     */
+    public void alertClaudeFixCapReached(java.time.YearMonth month, int cap) {
+        List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);
+        if (superAdmins.isEmpty()) {
+            log.warn("No active Super Admin -- no Claude fix cap alert sent for {}", month);
+            return;
+        }
+        String html = "<p>The automatic Claude fix job has started its " + cap + " runs for " + escape(month.toString())
+                + " (India time). Until the month ends, held statements are not sent to Claude: they wait for a "
+                + "person in the held queues.</p>"
+                + "<p><a href=\"" + adminBaseUrl() + "/held-statements\">Open the held-statements queue</a></p>";
+        send(superAdmins, "Claude fix: this month's " + cap + " runs are used", html);
+    }
+
+    /**
      * Deliberately reads {@code getAdminAppBaseUrl()} directly rather than going through {@link
      * EmailProperties#resolveBaseUrl}, even though that method already has a null-fallback: its
      * fallback is the USER-facing frontend's URL, chosen for password-reset links where a request

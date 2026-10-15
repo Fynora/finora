@@ -93,6 +93,7 @@ public class HeldStatementService {
     private final ImportService importService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.fix.FixJobStarter fixJobStarter;
     private final OriginalViewHistory originalViewHistory;
     private final StatementOriginalViewRepository originalViews;
     private final ApplicationEventPublisher events;
@@ -114,7 +115,9 @@ public class HeldStatementService {
                                 com.finora.imports.passwords.StatementPasswordService statementPasswordService,
                                 OriginalViewHistory originalViewHistory,
                                 StatementOriginalViewRepository originalViews,
-                                ApplicationEventPublisher events) {
+                                ApplicationEventPublisher events,
+                                com.finora.imports.fix.FixJobStarter fixJobStarter) {
+        this.fixJobStarter = fixJobStarter;
         this.originalViewHistory = originalViewHistory;
         this.originalViews = originalViews;
         this.events = events;
@@ -504,6 +507,10 @@ public class HeldStatementService {
         String heldId = held.getHeldId();
         AfterCommit.run("held-item admin alert (trust review)",
                 () -> heldItemAdminAlertService.alertTrustReviewHeld(heldId));
+        // The automatic Claude fix decides whether to start, keyed on the import job; deferred for
+        // the same reasons, and it hands off to its own thread at once.
+        UUID jobId = job.getId();
+        AfterCommit.run("claude fix start (trust review)", () -> fixJobStarter.onHeld(jobId));
         return held;
     }
 
@@ -1175,35 +1182,70 @@ public class HeldStatementService {
     @Transactional
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
+        ImportJob job = blankedCopyJob(held);
+        byte[] content = blankedCopyBytes(actingAdminId, held, job);
+        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+    }
+
+    /**
+     * As {@link #contentForBlankedCopy}, for the automatic Claude fix job: no person is involved, so
+     * the audit entry has no actor and says {@code actor: claude-fix}; every gate is the staff
+     * method's. The reference is the import job's id, not the Held ID, so both queues' fix jobs key
+     * on the import job.
+     */
+    @Transactional
+    public StaffStatementContent contentForSystemBlankedCopy(String heldId) {
+        HeldStatement held = require(heldId);
+        ImportJob job = blankedCopyJob(held);
+        byte[] content = blankedCopyBytes(null, held, job);
+        return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
+    }
+
+    private ImportJob blankedCopyJob(HeldStatement held) {
         refuseIfNotOpen(held, "copied");
         refuseIfLockedWithoutPassword(held, "copied");
-        ImportJob job = requireJob(held);
+        return requireJob(held);
+    }
+
+    private byte[] blankedCopyBytes(UUID actingAdminId, HeldStatement held, ImportJob job) {
         boolean savedPassword = hasSavedPassword(job);
         // Its own transaction, as the view's: a failed read rolls this one back, and the attempt is
         // the event being recorded.
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.put("savedPasswordOnFile", savedPassword);
         auditService.recordEvenOnRollback(actingAdminId, "HELD_STATEMENT_BLANKED_COPY", "HeldStatement",
-                held.getId(), Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId(),
-                        "savedPasswordOnFile", savedPassword));
+                held.getId(), details);
         byte[] content = readStatement(held, job);
         if (savedPassword) {
             // A file the saved password did not open is refused, not handed over.
             content = statementPasswordService.unlockedForBlankedCopy(job, content, held.getHeldId());
         }
-        return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
+        return content;
+    }
+
+    /** Who acted, for an audit entry: the admin's id, or {@code actor: claude-fix} when no person did. */
+    private static Map<String, Object> actorDetails(UUID actingAdminId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (actingAdminId == null) {
+            details.put("actor", "claude-fix");
+        } else {
+            details.put("actorId", actingAdminId.toString());
+        }
+        return details;
     }
 
     /**
      * The second audit entry for a blanked copy, as {@code AdminHeldImportService
      * .recordBlankedCopyResult}: written once the copy is made or the privacy scan refused it, with
-     * the ids and the check's result, never statement text.
+     * the ids and the check's result, never statement text. A {@code null} actor is the Claude fix
+     * job.
      */
     @Transactional
     public void recordBlankedCopyResult(UUID actingAdminId, String heldId, BlankedCopyOutcome outcome) {
         HeldStatement held = require(heldId);
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("actorId", actingAdminId.toString());
+        Map<String, Object> details = actorDetails(actingAdminId);
         details.put("subjectUserId", held.getUserId().toString());
         details.put("heldId", held.getHeldId());
         details.putAll(outcome.auditDetails());

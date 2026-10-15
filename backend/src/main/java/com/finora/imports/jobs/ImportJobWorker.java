@@ -134,6 +134,7 @@ public class ImportJobWorker {
     private final com.finora.service.HeldStatementService heldStatementService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final com.finora.imports.fix.FixJobStarter fixJobStarter;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     @Value("${app.import.queue.enabled:false}")
@@ -150,7 +151,9 @@ public class ImportJobWorker {
                             com.finora.service.HeldStatementService heldStatementService,
                             ParserVersionProvider parserVersionProvider,
                             HeldItemAdminAlertService heldItemAdminAlertService,
-                            com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                            com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                            com.finora.imports.fix.FixJobStarter fixJobStarter) {
+        this.fixJobStarter = fixJobStarter;
         this.jobStore = jobStore;
         this.importService = importService;
         this.statementContentService = statementContentService;
@@ -755,6 +758,9 @@ public class ImportJobWorker {
                 // object.
                 AfterCommit.run("held-item admin alert",
                         () -> heldItemAdminAlertService.alertImportHeld(jobId));
+                // The automatic Claude fix decides whether to start (docs/superpowers/specs/
+                // 2026-10-15-claude-fix-job-design.md); it hands off to its own thread at once.
+                AfterCommit.run("claude fix start", () -> fixJobStarter.onHeld(jobId));
             }
             switch (outcome[0]) {
                 case DEAD_LETTERED -> {

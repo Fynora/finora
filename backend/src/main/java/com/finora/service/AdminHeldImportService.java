@@ -210,15 +210,41 @@ public class AdminHeldImportService {
      */
     @Transactional
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, UUID jobId) {
+        return blankedCopyContent(actingAdminId, jobId);
+    }
+
+    /**
+     * As {@link #contentForBlankedCopy}, for the automatic Claude fix job: no person is involved, so
+     * the audit entry has no actor and says {@code actor: claude-fix}. Every other gate is the
+     * staff method's: held only, a saved password unlocks the file or the copy is refused, and an
+     * unreadable file is a 409.
+     */
+    @Transactional
+    public StaffStatementContent contentForSystemBlankedCopy(UUID jobId) {
+        return blankedCopyContent(null, jobId);
+    }
+
+    private StaffStatementContent blankedCopyContent(UUID actingAdminId, UUID jobId) {
         ImportJob job = require(jobId);
         requireHeld(job, "copied");
         boolean savedPassword = hasSavedPassword(job);
-        auditService.recordEvenOnRollback(actingAdminId, "HELD_IMPORT_BLANKED_COPY", "ImportJob", jobId,
-                Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", job.getUserId().toString(),
-                        "savedPasswordOnFile", savedPassword));
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", job.getUserId().toString());
+        details.put("savedPasswordOnFile", savedPassword);
+        auditService.recordEvenOnRollback(actingAdminId, "HELD_IMPORT_BLANKED_COPY", "ImportJob", jobId, details);
         byte[] content = readUnlocked(job, savedPassword, "a blanked copy", "no blanked copy can be made");
         return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
+    }
+
+    /** Who acted, for an audit entry: the admin's id, or {@code actor: claude-fix} when no person did. */
+    private static Map<String, Object> actorDetails(UUID actingAdminId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        if (actingAdminId == null) {
+            details.put("actor", "claude-fix");
+        } else {
+            details.put("actorId", actingAdminId.toString());
+        }
+        return details;
     }
 
     /**
@@ -226,13 +252,12 @@ public class AdminHeldImportService {
      * refused it: the ids and the check's result, never statement text. The first entry, written
      * before the read by {@link #contentForBlankedCopy}, records the access; this one what came of
      * it. Nothing here rolls back on a refusal: the caller is not in a transaction, and this
-     * method's own commits before the refusal is thrown.
+     * method's own commits before the refusal is thrown. A {@code null} actor is the Claude fix job.
      */
     @Transactional
     public void recordBlankedCopyResult(UUID actingAdminId, UUID jobId, BlankedCopyOutcome outcome) {
         ImportJob job = require(jobId);
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("actorId", actingAdminId.toString());
+        Map<String, Object> details = actorDetails(actingAdminId);
         details.put("subjectUserId", job.getUserId().toString());
         details.putAll(outcome.auditDetails());
         auditService.record(actingAdminId, "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", jobId, details);

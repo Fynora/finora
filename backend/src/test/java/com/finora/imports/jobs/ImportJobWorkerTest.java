@@ -56,6 +56,7 @@ class ImportJobWorkerTest {
     private ImportVerificationRecorder verificationRecorder;
     private com.finora.service.HeldStatementService heldStatementService;
     private HeldItemAdminAlertService heldItemAdminAlertService;
+    private com.finora.imports.fix.FixJobStarter fixJobStarter;
     private ImportJobWorker worker;
 
     private ImportJob job;
@@ -78,10 +79,12 @@ class ImportJobWorkerTest {
 
         heldStatementService = mock(com.finora.service.HeldStatementService.class);
         heldItemAdminAlertService = mock(HeldItemAdminAlertService.class);
+        fixJobStarter = mock(com.finora.imports.fix.FixJobStarter.class);
 
         worker = new ImportJobWorker(jobStore, importService, statementContentService, observability,
                 stageRecorder, new ExceptionClassifier(), statementStatusNotifier, verificationRecorder,
-                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
+                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
+                fixJobStarter);
 
         job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
         job.markClaimed("worker", Instant.now());
@@ -496,6 +499,7 @@ class ImportJobWorkerTest {
         runAnotherPass();
 
         verify(heldItemAdminAlertService).alertImportHeld(job.getId());
+        verify(fixJobStarter).onHeld(job.getId());
     }
 
     /** The negative case {@code aStatementThatShowsNoActivityIsNotHeld} already proves the job stays
@@ -508,6 +512,7 @@ class ImportJobWorkerTest {
         worker.drainOnce();
 
         verify(heldItemAdminAlertService, never()).alertImportHeld(any());
+        verify(fixJobStarter, never()).onHeld(any());
     }
 
     /** A curated failure carrying recovered-lines evidence still enters HELD_FOR_REVIEW (see

@@ -1,4 +1,4 @@
-import { AccessibilityInfo, Animated } from 'react-native';
+import { AccessibilityInfo, Animated, AppState } from 'react-native';
 import { act, render, screen } from '@testing-library/react-native';
 import { Shimmer, __activeShimmerCountForTests } from './Shimmer';
 import { ThemeProvider } from '../../theme';
@@ -146,5 +146,77 @@ describe('Reduce Motion', () => {
     await act(async () => {});
 
     expect(loop).toHaveBeenCalled();
+  });
+});
+
+// Measured on the simulator, 2026-10-15: with a skeleton held on screen and the app in the
+// background, the app's main thread took 209 samples in 8 s and its JS thread 83, against 29 and 1
+// for the same app backgrounded with no skeleton -- the pulse kept running where nobody can see it.
+describe('app in the background', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('stops the pulse while the app is in the background and resumes it on return', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_e, fn) => {
+      listeners.push(fn as (s: string) => void);
+      return { remove: jest.fn() } as never;
+    });
+    const loop = jest.spyOn(Animated, 'loop');
+    const view = renderShimmer();
+    await act(async () => {});
+    const first = loop.mock.results[0].value as Animated.CompositeAnimation;
+    const stop = jest.spyOn(first, 'stop');
+
+    act(() => listeners.forEach((fn) => fn('background')));
+    expect(stop).toHaveBeenCalled();
+
+    act(() => listeners.forEach((fn) => fn('active')));
+    await act(async () => {});
+    expect(loop).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it('does not restart the pulse on return when nothing is loading any more', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_e, fn) => {
+      listeners.push(fn as (s: string) => void);
+      return { remove: jest.fn() } as never;
+    });
+    const loop = jest.spyOn(Animated, 'loop');
+    const view = renderShimmer();
+    await act(async () => {});
+    act(() => listeners.forEach((fn) => fn('background')));
+    view.unmount();
+
+    act(() => listeners.forEach((fn) => fn('active')));
+    await act(async () => {});
+    expect(loop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app in the background, then a new load', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('a skeleton mounted after returning pulses, even if the last one unmounted while backgrounded', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const listeners: ((s: string) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_e, fn) => {
+      listeners.push(fn as (s: string) => void);
+      return { remove: () => listeners.splice(listeners.indexOf(fn as (s: string) => void), 1) } as never;
+    });
+    const loop = jest.spyOn(Animated, 'loop');
+
+    const first = renderShimmer();
+    await act(async () => {});
+    act(() => listeners.forEach((fn) => fn('background')));
+    first.unmount();
+
+    // Back in the foreground with nothing listening (no 'active' event reached the pulse); a new
+    // first load starts. AppState's own current state is not 'background' here.
+    renderShimmer();
+    await act(async () => {});
+    expect(loop).toHaveBeenCalledTimes(2);
   });
 });

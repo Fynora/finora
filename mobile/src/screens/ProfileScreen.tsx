@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -19,6 +19,8 @@ import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { ProfileSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { GlassSurface } from '../components/GlassSurface';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
@@ -46,7 +48,7 @@ export function ProfileScreen({ navigation }: Props) {
   const [justSaved, confirmSaved] = useTransientFlag();
   const [error, setError] = useState<string | null>(null);
 
-  const { data: user, isLoading, isError, isFetching, refetch } = useQuery({
+  const { data: user, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['user-settings'],
     queryFn: () => userApi.get(),
   });
@@ -90,18 +92,20 @@ export function ProfileScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <ProfileSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
 
-  if (isError || !user) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!user) {
     return (
       <GlassScreen style={styles.centered}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your profile — please try again later.
-        </Text>
+        <LoadFailed variant="screen" message="Couldn't load your profile — please try again later." onRetry={() => void refetch()} />
       </GlassScreen>
     );
   }
@@ -212,7 +216,6 @@ export function ProfileScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   identity: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,8 @@ import { supportApi, type SupportTicketCategory, type SupportTicketStatus } from
 import { fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import { useGlassSurfaceStyle } from '../components/GlassSurface';
+import { SupportTicketCardsSkeleton } from '../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup } from '../components/skeletons/Skeletons';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
@@ -83,7 +85,9 @@ export function SupportTicketsScreen() {
         }
         ListEmptyComponent={
           ticketsQuery.isLoading ? (
-            <ActivityIndicator size="large" color={c.primary} style={styles.centered} />
+            <SkeletonGroup>
+              <SupportTicketCardsSkeleton />
+            </SkeletonGroup>
           ) : ticketsQuery.isError ? (
             // Distinct from "no tickets" on purpose -- see frontend's identical fix and its own
             // comment for why collapsing the two is a real bug, not a cosmetic one.

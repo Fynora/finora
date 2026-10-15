@@ -8,6 +8,8 @@ import { accountsApi } from '../api/endpoints';
 import { AccountFormSheet } from './AccountFormSheet';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
+import { LoadFailed } from '../components/LoadFailed';
+import { AccountsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -56,7 +58,7 @@ export function AccountsScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: accounts = [], isLoading, isError } = useQuery({
+  const { data: accounts = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
   });
@@ -131,8 +133,13 @@ export function AccountsScreen() {
 
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView
+          contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)}
+          scrollIndicatorInsets={{ bottom: tabBar }}
+        >
+          <AccountsSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -150,7 +157,7 @@ export function AccountsScreen() {
       {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
 
       {isError ? (
-        <Text style={[styles.error, { color: c.dangerInk }]}>Could not load accounts.</Text>
+        <LoadFailed message="Could not load accounts." tone="danger" onRetry={() => void refetch()} />
       ) : accounts.length === 0 ? (
         <Card>
           <EmptyState message="No accounts yet. Import a statement or add one manually to get started." />
@@ -276,7 +283,6 @@ export function AccountsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm,

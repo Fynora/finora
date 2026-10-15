@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -11,6 +11,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { TicketDetailSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
@@ -66,8 +67,10 @@ export function SupportTicketDetailScreen({ route }: Props) {
 
   if (ticketQuery.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <TicketDetailSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -80,6 +83,13 @@ export function SupportTicketDetailScreen({ route }: Props) {
         <Text style={[styles.notFoundBody, { color: c.muted }]}>
           {toUserMessage(ticketQuery.error, "This ticket doesn't exist, or isn't yours to view.")}
         </Text>
+        {/* A 404 is a real answer, but a network failure reaches this same branch: without a way
+            back the screen would stay stuck on it. Nothing to retry without a ticket id. */}
+        {ticketId ? (
+          <Pressable onPress={() => void ticketQuery.refetch()} accessibilityRole="button" style={styles.retry} hitSlop={8}>
+            <Text style={[styles.retryText, { color: c.primary }]}>Try again</Text>
+          </Pressable>
+        ) : null}
       </GlassScreen>
     );
   }
@@ -138,6 +148,8 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg, gap: spacing.xs },
   notFoundTitle: { fontSize: 14, fontWeight: '600' },
   notFoundBody: { fontSize: 12, textAlign: 'center' },
+  retry: { minHeight: 44, justifyContent: 'center' },
+  retryText: { fontSize: 13, fontWeight: '600' },
   content: { padding: spacing.md },
   card: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },

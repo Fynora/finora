@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { VerifiedBadge } from '../components/AccountUI';
 import { Button } from '../components/Button';
@@ -12,6 +12,8 @@ import { fmtRelativeTime } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { SettingsSecuritySkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export function SettingsSecurityScreen() {
@@ -26,8 +28,10 @@ export function SettingsSecurityScreen() {
 
   if (userQ.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <SettingsSecuritySkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -36,12 +40,12 @@ export function SettingsSecurityScreen() {
   // genuine load failure (isError, data stays undefined) looked identical to still-loading --
   // the spinner never stopped and no error was ever shown. The pre-redesign monolith showed an
   // explicit message here instead.
-  if (userQ.isError || !user) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!user) {
     return (
       <GlassScreen style={styles.centered}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your settings — please try again later.
-        </Text>
+        <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />
       </GlassScreen>
     );
   }
@@ -115,7 +119,6 @@ export function SettingsSecurityScreen() {
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { inflowApi } from '../api/endpoints';
 import { Button } from './Button';
@@ -8,6 +8,8 @@ import { toUserMessage } from '../lib/apiError';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { CountsAs, InflowKind } from '../types';
 import { spacing, useTheme } from '../theme';
+import { LoadFailed } from './LoadFailed';
+import { SkeletonGroup, SkeletonText } from './skeletons/Skeletons';
 
 /** "Counts as" in a transaction's explanation: what this credit counts as, and the user's way to
  *  change or clear it (Plan 2). The caller hides it for debits. Mirrors
@@ -38,10 +40,17 @@ export function CountsAsSection({ transactionId }: { transactionId: string }) {
     }
   }
 
-  if (countsAsQ.isLoading) return <ActivityIndicator />;
+  if (countsAsQ.isLoading) {
+    return (
+      <SkeletonGroup>
+        <SkeletonText size="meta" width="25%" />
+        <SkeletonText size="body" width="60%" />
+      </SkeletonGroup>
+    );
+  }
   if (countsAsQ.isError || !countsAsQ.data) {
     return (
-      <Text style={[styles.small, { color: c.dangerInk }]}>Couldn't load what this payment counts as.</Text>
+      <LoadFailed message="Couldn't load what this payment counts as." tone="danger" onRetry={() => void countsAsQ.refetch()} />
     );
   }
   const countsAs = countsAsQ.data;

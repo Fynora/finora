@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SupportTicketDetailScreen } from './SupportTicketDetailScreen';
 import { supportApi, type SupportTicketDetail } from '../api/endpoints';
 import type { MoreStackParamList } from '../navigation/types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   supportApi: { list: jest.fn(), create: jest.fn(), detail: jest.fn(), downloadAttachment: jest.fn() },
@@ -83,5 +84,33 @@ describe('SupportTicketDetailScreen', () => {
 
     expect(await screen.findByText('Ticket not found')).toBeTruthy();
     expect(api.detail).not.toHaveBeenCalled();
+  });
+});
+
+describe('SupportTicketDetailScreen first load', () => {
+  beforeEach(() => api.detail.mockReset());
+
+  it('shows the ticket skeleton, not a spinner, on first load', () => {
+    api.detail.mockReturnValue(never());
+    renderScreen('t-1');
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('ticket-detail-skeleton')).toBeTruthy();
+  });
+
+  it('offers Try again under "Ticket not found", and it refetches', async () => {
+    api.detail.mockRejectedValueOnce(new Error('down'));
+    renderScreen('t-1');
+    expect(await screen.findByText('Ticket not found')).toBeTruthy();
+
+    api.detail.mockReturnValueOnce(never());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('ticket-detail-skeleton')).toBeTruthy();
+    expect(api.detail).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers no Try again when there is no ticket to fetch', () => {
+    renderScreen(undefined);
+    expect(screen.getByText('Ticket not found')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
   });
 });

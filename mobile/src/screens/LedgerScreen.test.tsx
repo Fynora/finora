@@ -15,6 +15,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
 import { useScrollToTop } from '@react-navigation/native';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 // Controllable stand-in for useRoute, same pattern ImportScreen.test.tsx uses for its own
 // reimport-arrival params (Track C/C4).
@@ -2073,5 +2074,13 @@ describe('a second tap on this screen\'s tab', () => {
       expect(calls.length).toBeGreaterThan(0);
       expect(typeof calls[calls.length - 1][0].current?.scrollToOffset).toBe('function');
     });
+  });
+});
+
+describe('LedgerScreen first load', () => {
+  it('reads as one "Loading" region to a screen reader during the first load', () => {
+    transactions.search.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
   });
 });

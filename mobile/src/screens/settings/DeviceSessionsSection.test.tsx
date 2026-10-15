@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DeviceSessionsSection } from './DeviceSessionsSection';
 import { devicesApi, type DeviceSession } from '../../api/endpoints';
 import { ThemeProvider } from '../../theme';
+import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
 
 jest.mock('../../api/endpoints', () => ({
   devicesApi: { list: jest.fn(), revoke: jest.fn() },
@@ -89,5 +90,35 @@ describe('DeviceSessionsSection', () => {
       expect.anything()
     );
     alertSpy.mockRestore();
+  });
+});
+
+describe('DeviceSessionsSection loading states', () => {
+  beforeEach(() => devices.list.mockReset());
+
+  it('shows a skeleton, not a spinner, while sessions load', () => {
+    devices.list.mockReturnValue(never());
+    renderSection();
+    expectSkeletonNotSpinner();
+  });
+
+  it('the skeleton is two session cards, each a device line over two detail lines', () => {
+    devices.list.mockReturnValue(never());
+    renderSection();
+    expect(screen.getAllByTestId('skeleton-session-card', { hidden: true })).toHaveLength(2);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 3);
+  });
+
+  it('after a failed load, Try again refetches the sessions', async () => {
+    devices.list.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    expect(await screen.findByText(/Couldn.t load your active sessions/)).toBeTruthy();
+
+    devices.list.mockReturnValueOnce(never());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    // The refetch's state update lands a tick after the press.
+    expect(await screen.findAllByLabelText('Loading')).not.toHaveLength(0);
+    expectSkeletonNotSpinner();
+    expect(devices.list).toHaveBeenCalledTimes(2);
   });
 });

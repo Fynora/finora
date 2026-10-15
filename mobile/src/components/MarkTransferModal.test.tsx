@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MarkTransferModal } from './MarkTransferModal';
 import { transactionsApi } from '../api/endpoints';
 import type { Transaction } from '../types';
+import { ActivityIndicator } from 'react-native';
+import { never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { search: jest.fn(), markTransfer: jest.fn() },
@@ -157,5 +159,26 @@ describe('MarkTransferModal (Phase 6)', () => {
     fireEvent.press(await screen.findByTestId('transfer-candidate-c-b'));
 
     await waitFor(() => expect(transactions.markTransfer).toHaveBeenCalledWith('t-2', 'c-b'));
+  });
+});
+
+describe('MarkTransferModal loading states', () => {
+  it('shows a skeleton, not a spinner, while a search loads', async () => {
+    transactions.search.mockReturnValue(never());
+    renderModal(txn());
+    fireEvent.changeText(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), 'rent');
+    expect(await screen.findByLabelText('Loading')).toBeTruthy();
+    expect(screen.UNSAFE_queryAllByType(ActivityIndicator)).toHaveLength(0);
+  });
+
+  it('a failed search says so, not "no matching transactions", and can try again', async () => {
+    transactions.search.mockRejectedValueOnce(new Error('down'));
+    renderModal(txn());
+    fireEvent.changeText(screen.getByPlaceholderText(SEARCH_PLACEHOLDER), 'rent');
+    expect(await screen.findByText("Couldn't search your transactions.")).toBeTruthy();
+    expect(screen.queryByText('No matching transactions found.')).toBeNull();
+    transactions.search.mockResolvedValueOnce(page([]));
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('No matching transactions found.')).toBeTruthy();
   });
 });

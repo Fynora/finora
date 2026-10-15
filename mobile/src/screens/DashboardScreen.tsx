@@ -24,7 +24,9 @@ import { GoalsRow } from '../components/dashboard/GoalsRow';
 import { HealthFactorsRow } from '../components/dashboard/HealthFactorsRow';
 import { HealthHero } from '../components/dashboard/HealthHero';
 import { LedgerSnapshotCard } from '../components/dashboard/LedgerSnapshotCard';
-import { SkeletonCard, SkeletonChart, SkeletonKpiGrid, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import {
+  SkeletonCard, SkeletonChart, SkeletonGroup, SkeletonKpiGrid, SkeletonTransactionRow,
+} from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/dashboard/JourneyWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
@@ -591,7 +593,7 @@ export function DashboardScreen() {
         {summary ? (
           <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} note={soFarNote} />
         ) : (
-          <SkeletonKpiGrid />
+          <SkeletonGroup><SkeletonKpiGrid /></SkeletonGroup>
         )}
         {/* Money that came in this reporting month but is not counted in Income -- a transfer from
             a person, an unexplained credit on a card (see FlowClassifier on the backend). Without
@@ -657,7 +659,7 @@ export function DashboardScreen() {
               />
             )
           ) : (
-            <SkeletonChart variant="donut" />
+            <SkeletonGroup><SkeletonChart variant="donut" /></SkeletonGroup>
           )}
         </View>
       </DashboardCard>
@@ -692,11 +694,11 @@ export function DashboardScreen() {
         />
         <View style={styles.cardBody}>
           {recentTxnsQ.isLoading ? (
-            <>
+            <SkeletonGroup>
               <SkeletonTransactionRow />
               <SkeletonTransactionRow />
               <SkeletonTransactionRow />
-            </>
+            </SkeletonGroup>
           ) : recentTxnsQ.isError ? (
             // A failed request is not an answer of zero -- same reasoning as LedgerScreen's own
             // isError branch. Without this, a persistent failure here would fall through to the
@@ -1034,7 +1036,7 @@ export function DashboardScreen() {
             chip still claims the full period. Better to say so than to draw a shape that isn't
             true. */}
         {cashFlowSettling ? (
-          <SkeletonChart width={chartWidth} />
+          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
         ) : cashFlowUnavailable ? (
           <Text style={[typography.bodyM, { color: c.dangerInk }]}>Couldn’t load your cash flow.</Text>
         ) : (
@@ -1070,7 +1072,7 @@ export function DashboardScreen() {
         />
         <View style={[styles.cardBody, styles.budgetList]}>
           {budgetsQ.isLoading ? (
-            <SkeletonCard lines={2} />
+            <SkeletonGroup><SkeletonCard lines={2} /></SkeletonGroup>
           ) : budgetsQ.isError ? (
             <Text style={[typography.bodyM, { color: c.dangerInk }]}>Couldn&apos;t load your budgets.</Text>
           ) : budgets.length === 0 ? (

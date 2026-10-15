@@ -4,6 +4,7 @@ import { GmailConnectionSection } from './GmailConnectionSection';
 import { gmailApi, type GmailConnectionStatus } from '../../api/endpoints';
 import { connectGmail } from '../../lib/gmailAuth';
 import { ThemeProvider } from '../../theme';
+import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
 
 jest.mock('../../api/endpoints', () => ({
   gmailApi: { status: jest.fn(), syncNow: jest.fn(), disconnect: jest.fn() },
@@ -214,5 +215,27 @@ describe('GmailConnectionSection', () => {
 
     expect(api.disconnect).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('GmailConnectionSection loading states', () => {
+  beforeEach(() => jest.mocked(gmailApi.status).mockReset());
+
+  it('shows a skeleton, not a spinner, while the connection loads', () => {
+    jest.mocked(gmailApi.status).mockReturnValue(never());
+    renderSection();
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches the connection', async () => {
+    jest.mocked(gmailApi.status).mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    expect(await screen.findByText(/Couldn.t load your Gmail connection/)).toBeTruthy();
+    jest.mocked(gmailApi.status).mockReturnValueOnce(never());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    // The refetch's state update lands a tick after the press.
+    expect(await screen.findAllByLabelText('Loading')).not.toHaveLength(0);
+    expectSkeletonNotSpinner();
+    expect(gmailApi.status).toHaveBeenCalledTimes(2);
   });
 });

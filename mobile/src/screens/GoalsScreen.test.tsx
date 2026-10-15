@@ -4,6 +4,7 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import { GoalsScreen } from './GoalsScreen';
 import { goalsApi } from '../api/endpoints';
 import type { Goal } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   goalsApi: {
@@ -247,5 +248,14 @@ describe('screen capture protection (Track D/D3)', () => {
     renderScreen();
 
     expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+});
+
+describe('GoalsScreen first load', () => {
+  it('shows the goals skeleton, not a spinner, on first load', () => {
+    api.list.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('goals-skeleton')).toBeTruthy();
   });
 });

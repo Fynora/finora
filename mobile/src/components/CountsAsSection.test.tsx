@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CountsAsSection } from './CountsAsSection';
 import { inflowApi } from '../api/endpoints';
 import type { CountsAs, InflowKind } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   inflowApi: { countsAs: jest.fn(), kinds: jest.fn(), setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn() },
@@ -89,5 +90,24 @@ describe('CountsAsSection', () => {
     renderSection();
     fireEvent.press(await screen.findByText('Clear my choice'));
     await waitFor(() => expect(inflow.clearChoice).toHaveBeenCalledWith('t1', 'ROW'));
+  });
+});
+
+describe('CountsAsSection loading states', () => {
+  beforeEach(() => inflow.countsAs.mockReset());
+
+  it('shows a skeleton, not a spinner, while it loads', () => {
+    inflow.countsAs.mockReturnValue(never());
+    renderSection();
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches', async () => {
+    inflow.countsAs.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    expect(await screen.findByText("Couldn't load what this payment counts as.")).toBeTruthy();
+    inflow.countsAs.mockResolvedValueOnce(unresolved);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('counts-as-section')).toBeTruthy();
   });
 });

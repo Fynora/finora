@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
-import { SkeletonChart } from '../components/skeletons/Skeletons';
+import { SkeletonBarRow, SkeletonChart, SkeletonGroup, SkeletonLines } from '../components/skeletons/Skeletons';
+import { LoadFailed } from '../components/LoadFailed';
 import { HorizontalBarList } from '../components/charts/HorizontalBarList';
 import { LearningGrowthChart } from '../components/charts/LearningGrowthChart';
 import { SpendTrendChart } from '../components/charts/SpendTrendChart';
@@ -33,6 +34,20 @@ const NO_RATIO = -1;
  * upgrade prompt on open rather than hiding the entry point, same reasoning as web's Sidebar.tsx
  * ("Hiding it entirely would mean a Free user can't discover the feature exists at all").
  */
+/** Four bar-list rows: the shape of a HorizontalBarList while its first load is in flight. */
+function SectionSkeleton() {
+  return (
+    <SkeletonGroup style={styles.barListSkeleton}>
+      {[0, 1, 2, 3].map((i) => <SkeletonBarRow key={i} />)}
+    </SkeletonGroup>
+  );
+}
+
+/** A first load that failed, which used to fall through to the empty message as if there were no data. */
+function SectionFailed({ onRetry }: { onRetry: () => void }) {
+  return <LoadFailed message="Couldn't load this section." tone="danger" onRetry={onRetry} />;
+}
+
 export function AdvancedReportsScreen() {
   usePreventScreenCapture();
   const c = useTheme();
@@ -178,7 +193,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       <Card style={styles.section}>
         <SectionHeading title="Top Merchants" />
         {topMerchantsQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SectionSkeleton />
+        ) : topMerchantsQ.isError && topMerchantsQ.data === undefined ? (
+          <SectionFailed onRetry={() => void topMerchantsQ.refetch()} />
         ) : (
           <HorizontalBarList
             rows={(topMerchantsQ.data ?? []).map((m) => ({
@@ -193,7 +210,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       <Card style={styles.section}>
         <SectionHeading title="Top Categories" />
         {topCategoriesQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SectionSkeleton />
+        ) : topCategoriesQ.isError && topCategoriesQ.data === undefined ? (
+          <SectionFailed onRetry={() => void topCategoriesQ.refetch()} />
         ) : (
           <HorizontalBarList
             rows={(topCategoriesQ.data ?? []).map((cat) => ({
@@ -210,7 +229,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
       <Card style={styles.section}>
         <SectionHeading title="International Spend" />
         {internationalQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SkeletonGroup style={styles.sectionSkeleton}><SkeletonLines count={3} size="body" /></SkeletonGroup>
+        ) : internationalQ.isError && internationalQ.data === undefined ? (
+          <SectionFailed onRetry={() => void internationalQ.refetch()} />
         ) : !internationalQ.data || internationalQ.data.transactionCount === 0 ? (
           <Text style={[styles.panelHint, { color: c.muted }]}>
             Card transactions your statement lists under International Transactions will appear here.
@@ -253,7 +274,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
         <SectionHeading title="Spend Trend" />
         <Text style={[styles.panelHint, { color: c.muted }]}>Merchant-attributed spend over your trailing 6 months.</Text>
         {trendQ.isLoading ? (
-          <SkeletonChart width={chartWidth} />
+          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
         ) : (
           <SpendTrendChart
             points={(trendQ.data ?? []).map((p) => ({ label: monthLabel(p.month), value: p.totalSpend }))}
@@ -284,7 +305,10 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           </Pressable>
         </View>
         {multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SectionSkeleton />
+        ) : (multiYearIncomeQ.isError && multiYearIncomeQ.data === undefined)
+            || (multiYearSpendQ.isError && multiYearSpendQ.data === undefined) ? (
+          <SectionFailed onRetry={() => { void multiYearIncomeQ.refetch(); void multiYearSpendQ.refetch(); }} />
         ) : (
           <HorizontalBarList
             rows={
@@ -352,7 +376,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
         <SectionHeading title="Category Trends" />
         <Text style={[styles.panelHint, { color: c.muted }]}>Your top spending categories, year over year.</Text>
         {multiYearCategoriesQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SectionSkeleton />
+        ) : multiYearCategoriesQ.isError && multiYearCategoriesQ.data === undefined ? (
+          <SectionFailed onRetry={() => void multiYearCategoriesQ.refetch()} />
         ) : (
           <HorizontalBarList
             rows={categoryYears.flatMap((y) => topCategoryNames.map((name) => ({
@@ -376,7 +402,9 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           How sure the categorization engine is about each category, on average, across your merchants.
         </Text>
         {confidenceQ.isLoading ? (
-          <ActivityIndicator color={c.primary} style={styles.loader} />
+          <SectionSkeleton />
+        ) : confidenceQ.isError && confidenceQ.data === undefined ? (
+          <SectionFailed onRetry={() => void confidenceQ.refetch()} />
         ) : (
           <HorizontalBarList
             rows={(confidenceQ.data ?? []).map((p) => ({
@@ -395,7 +423,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           Categorizations the engine learned on its own vs. ones you corrected, per month.
         </Text>
         {learningQ.isLoading ? (
-          <SkeletonChart width={chartWidth} />
+          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
         ) : (
           <LearningGrowthChart
             points={(learningQ.data ?? []).map((p) => ({
@@ -446,5 +474,7 @@ const styles = StyleSheet.create({
   modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   modeButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6 },
   panelHint: { fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
-  loader: { paddingVertical: spacing.md },
+  sectionSkeleton: { gap: spacing.sm, paddingVertical: spacing.sm },
+  // HorizontalBarList's own list: rows 8 apart, no padding around them.
+  barListSkeleton: { gap: spacing.sm },
 });

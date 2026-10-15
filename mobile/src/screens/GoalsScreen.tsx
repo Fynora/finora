@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
+  Pressable, RefreshControl, ScrollView, StyleSheet, Text, View
 } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ import { parsePositiveAmount } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { Goal } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
+import { GoalsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Port of frontend/src/pages/Goals.tsx. */
@@ -159,8 +160,13 @@ export function GoalsScreen() {
 
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView
+          contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)}
+          scrollIndicatorInsets={{ bottom: tabBar }}
+        >
+          <GoalsSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -312,7 +318,6 @@ export function GoalsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: {
     flexDirection: 'row',

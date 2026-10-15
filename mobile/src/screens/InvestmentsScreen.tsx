@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text,
+  Pressable, RefreshControl, ScrollView, StyleSheet, Text,
   useWindowDimensions, View
 } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
@@ -26,6 +26,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 import { withBypass } from '../lib/changeSync';
 import { GlassScreen } from '../components/GlassScreen';
+import { InvestmentsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 // Same options as the web page's <select>.
@@ -199,8 +200,12 @@ export function InvestmentsScreen() {
 
   if (loading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          {/* The accounts list is cached across launches, so it often already knows how many
+              holdings there are while net worth is still loading. */}
+          <InvestmentsSkeleton holdingsCount={accountsQ.data ? holdings.length : undefined} />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -410,7 +415,6 @@ export function InvestmentsScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: { alignItems: 'flex-end', marginBottom: spacing.sm },
   headerAction: { fontSize: 14, fontWeight: '600' },

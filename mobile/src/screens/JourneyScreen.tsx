@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState } from '../components/Card';
@@ -9,6 +9,7 @@ import { badgeForEvent, groupByYear } from '../lib/timeline';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { JourneySkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Journey'>;
@@ -36,8 +37,10 @@ export function JourneyScreen({ navigation }: Props) {
   // which would flash "Your journey starts here" for every user, even one with a full history.
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <JourneySkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -102,7 +105,6 @@ export function JourneyScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, gap: spacing.md },
   note: { fontSize: 13 },
   year: { fontSize: 16, fontWeight: '600', marginBottom: spacing.sm },

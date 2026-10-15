@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SupportTicketsScreen } from './SupportTicketsScreen';
 import { supportApi, type SupportTicketSummary } from '../api/endpoints';
 import { spacing } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -116,5 +117,20 @@ describe('SupportTicketsScreen', () => {
     fireEvent.press(screen.getByText('Fake New Ticket Sheet'));
 
     expect(mockNavigate).toHaveBeenCalledWith('SupportTicketDetail', { ticketId: 'new-ticket-1' });
+  });
+});
+
+describe('SupportTicketsScreen first load', () => {
+  it('shows ticket skeletons, not a spinner, on first load', () => {
+    api.list.mockReset().mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+  });
+
+  it('the skeleton is ticket cards: number and tag, subject, dates, and the status badge', () => {
+    api.list.mockReset().mockReturnValue(never());
+    renderScreen();
+    expect(screen.getAllByTestId('skeleton-ticket-card', { hidden: true })).toHaveLength(3);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3 * 5);
   });
 });

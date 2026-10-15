@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../components/Button';
@@ -11,6 +11,8 @@ import { useAuth } from '../context/AuthContext';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { SettingsAccountSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsAccount'>;
@@ -46,8 +48,10 @@ export function SettingsAccountScreen({ navigation }: Props) {
 
   if (userQ.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <SettingsAccountSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -55,12 +59,12 @@ export function SettingsAccountScreen({ navigation }: Props) {
   // Bug found in a fresh review pass: same issue as SettingsSecurityScreen -- collapsing
   // isLoading and !userQ.data into one branch meant a load failure looked identical to
   // still-loading, spinning forever instead of showing the pre-redesign monolith's error message.
-  if (userQ.isError || !userQ.data) {
+  // Only when there is nothing to show: a refetch that fails after a good load keeps the content
+  // already on screen (React Query keeps its data) instead of hiding it behind this message.
+  if (!userQ.data) {
     return (
       <GlassScreen style={styles.centered}>
-        <Text style={[styles.message, { color: c.muted }]}>
-          Couldn&apos;t load your settings — please try again later.
-        </Text>
+        <LoadFailed variant="screen" message="Couldn't load your settings — please try again later." onRetry={() => void userQ.refetch()} />
       </GlassScreen>
     );
   }
@@ -113,7 +117,6 @@ export function SettingsAccountScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
-  message: { fontSize: 14, textAlign: 'center' },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   fieldLabel: { fontSize: 12, fontWeight: '500', marginBottom: 6 },
   hint: { fontSize: 11, lineHeight: 16, marginTop: spacing.sm },

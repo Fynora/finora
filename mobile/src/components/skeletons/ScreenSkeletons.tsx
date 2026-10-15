@@ -228,6 +228,26 @@ export function ReferralsSkeleton({ heroAspectRatio }: { heroAspectRatio: number
   );
 }
 
+export function TicketDetailSkeleton() {
+  return (
+    <SkeletonGroup testID="ticket-detail-skeleton">
+      <Card>
+        <View style={styles.rowStart}>
+          <View style={styles.fill}>
+            <SkeletonText size="caption" width="45%" />
+            <SkeletonText size="subject" width="75%" style={styles.tight} />
+            <SkeletonText size="caption" width="30%" style={styles.tight} />
+          </View>
+          <SkeletonBox size="badge" width="22%" />
+        </View>
+        <View style={styles.gapMd}>
+          <SkeletonLines count={3} size="body" />
+        </View>
+      </Card>
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },

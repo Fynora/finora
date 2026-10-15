@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -120,6 +121,12 @@ public class FixJobStarter {
         }
     }
 
+    /** As {@link #onHeld}, on the caller's thread: the follow-up's catch-up, already on the fix
+     *  job's own thread. Never throws. */
+    public void startNow(UUID jobId) {
+        start(jobId);
+    }
+
     private void start(UUID jobId) {
         try {
             decide(jobId);
@@ -160,10 +167,22 @@ public class FixJobStarter {
                     properties.getMonthlyCap());
             return;
         }
+        ClaudeFixJob row = ClaudeFixJob.reserved(jobId, now);
+        try {
+            jobs.saveAndFlush(row);
+        } catch (DataIntegrityViolationException e) {
+            log.info("Claude fix for held job {}: another start already holds it", jobId);
+            return;
+        }
+        // From here a failure leaves the reservation's ERROR ("could not start"): start() finds the
+        // row and writes nothing more.
         Attempt attempt = copyAndSend(job, 1);
-        jobs.save(attempt.wasSent()
-                ? ClaudeFixJob.sent(jobId, attempt.commitSha(), clock.instant())
-                : ClaudeFixJob.notStarted(jobId, attempt.notSentReason(), now));
+        if (attempt.wasSent()) {
+            row.firstSent(attempt.commitSha(), clock.instant());
+        } else {
+            row.notSent(attempt.notSentReason(), clock.instant());
+        }
+        jobs.save(row);
         log.info("Claude fix for held job {}: {}", jobId,
                 attempt.wasSent() ? "attempt 1 sent" : "not started (" + attempt.notSentReason() + ")");
     }

@@ -331,7 +331,20 @@ public class HeldStatementService {
         }
         job.attachReviewRecord(held.getId());
         importJobRepository.save(job);
+        startClaudeFixAfterCommit(job.getId());
         return new StagedHold(job.getId(), true);
+    }
+
+    /**
+     * The automatic Claude fix decides whether to start, once the hold has committed (it hands off
+     * to its own thread at once). Called where a trust hold is complete -- the job held and its
+     * review record attached -- and deliberately not from {@link #openHold}: on the worker's path
+     * {@code openHold} commits before the worker moves the job into the hold and records its
+     * findings, so a start from there could find the job not yet held. The worker starts it itself
+     * once both are done.
+     */
+    private void startClaudeFixAfterCommit(UUID jobId) {
+        AfterCommit.run("claude fix start (trust review)", () -> fixJobStarter.onHeld(jobId));
     }
 
     /** What {@link #holdStagedUpload} did: the job the client follows while the rows are blocked
@@ -452,6 +465,7 @@ public class HeldStatementService {
         HeldStatement held = openHold(job, staged, decision, job.getParserVersion());
         job.attachReviewRecord(held.getId());
         importJobRepository.save(job);
+        startClaudeFixAfterCommit(job.getId());
 
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, "REVIEW_RECORD_OPENED",
                 null, held.getStatus().name(), null));
@@ -510,10 +524,6 @@ public class HeldStatementService {
         String heldId = held.getHeldId();
         AfterCommit.run("held-item admin alert (trust review)",
                 () -> heldItemAdminAlertService.alertTrustReviewHeld(heldId));
-        // The automatic Claude fix decides whether to start, keyed on the import job; deferred for
-        // the same reasons, and it hands off to its own thread at once.
-        UUID jobId = job.getId();
-        AfterCommit.run("claude fix start (trust review)", () -> fixJobStarter.onHeld(jobId));
         return held;
     }
 

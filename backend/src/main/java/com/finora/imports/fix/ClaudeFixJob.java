@@ -76,6 +76,36 @@ public class ClaudeFixJob implements Persistable<UUID> {
         return job;
     }
 
+    /**
+     * The row a start writes before anything leaves production: "could not start" until the send
+     * says otherwise. Written first so the primary key, not a read, decides which start sends (two
+     * instances during a deploy), and so a send whose bookkeeping then fails still leaves a row.
+     */
+    public static ClaudeFixJob reserved(UUID jobId, Instant now) {
+        return notStarted(jobId, Reason.ERROR, now);
+    }
+
+    /** A reserved row whose attempt 1 was sent. */
+    public void firstSent(String commitSha, Instant now) {
+        require(isReservation(), "firstSent");
+        this.reason = null;
+        this.attempt = 1;
+        this.sentCommitSha = commitSha;
+        this.sentAt = now;
+        move(State.SENT, now);
+    }
+
+    /** A reserved row whose copy was not sent, and why. */
+    public void notSent(Reason why, Instant now) {
+        require(isReservation(), "notSent");
+        this.reason = why;
+        this.updatedAt = now;
+    }
+
+    private boolean isReservation() {
+        return state == State.NOT_STARTED && reason == Reason.ERROR && attempt == 0;
+    }
+
     /** The run opened its two PRs. */
     public void prOpened(int publicPr, int privatePr, Instant now) {
         require(state == State.SENT, "prOpened");

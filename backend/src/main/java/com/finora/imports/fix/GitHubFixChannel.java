@@ -40,6 +40,9 @@ public class GitHubFixChannel implements FixChannel {
 
     public enum PrState { OPEN, MERGED, CLOSED }
 
+    /** One public PR's state, and its merge commit once merged. */
+    public record PublicPr(PrState state, String mergeSha) {}
+
     /** The two PRs one attempt opened. */
     public record PrPair(int publicPr, PrState publicState, int privatePr) {}
 
@@ -96,12 +99,14 @@ public class GitHubFixChannel implements FixChannel {
         return Optional.of(new PrPair(pub.path("number").asInt(), state, privatePrs.get(0).path("number").asInt()));
     }
 
-    /** The public PR's merge commit, once it is merged. */
-    public Optional<String> mergeCommit(int publicPr) {
-        JsonNode pr = get("read public PR", publicRepo() + "/pulls/" + publicPr, true);
-        if (!pr.path("merged").asBoolean(false)) return Optional.empty();
-        String sha = pr.path("merge_commit_sha").asText("");
-        return sha.isEmpty() ? Optional.empty() : Optional.of(sha);
+    /** The public PR's state by its number, with its merge commit once it is merged. */
+    public PublicPr publicPr(int number) {
+        JsonNode pr = get("read public PR", publicRepo() + "/pulls/" + number, true);
+        if (pr.path("merged").asBoolean(false)) {
+            String sha = pr.path("merge_commit_sha").asText("");
+            return new PublicPr(PrState.MERGED, sha.isEmpty() ? null : sha);
+        }
+        return new PublicPr("open".equals(pr.path("state").asText()) ? PrState.OPEN : PrState.CLOSED, null);
     }
 
     /** Whether the deployed commit contains the merge commit. No deployed commit (local dev) is no. */

@@ -20,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -47,6 +48,14 @@ public class FixJobFollowUp {
 
     /** How long a sent attempt may show no run before it counts as failed. */
     static final Duration RUN_GRACE = Duration.ofMinutes(90);
+    /** How long a run may show as queued or in progress before it counts as failed: the workflow
+     *  stops itself well before this, so a run still not finished is stuck (no runner, no minutes). */
+    static final Duration RUN_LIMIT = Duration.ofHours(3);
+    /** How far back the catch-up looks for a hold with no decision, and how long it leaves a fresh
+     *  hold to its own after-commit start (which also waits for the hold's findings). */
+    static final Duration CATCH_UP_WINDOW = Duration.ofHours(24);
+    static final Duration CATCH_UP_DELAY = Duration.ofMinutes(5);
+    static final int CATCH_UP_BATCH = 20;
 
     private final ClaudeFixJobRepository jobs;
     private final GitHubFixChannel channel;
@@ -90,10 +99,10 @@ public class FixJobFollowUp {
         });
     }
 
-    /** @return how many rows changed */
+    /** @return how many rows changed, holds caught up included */
     public int followUp(Instant now) {
         if (!properties.isEnabled()) return 0;
-        int changed = 0;
+        int changed = catchUp(now);
         for (ClaudeFixJob row : jobs.findByStateIn(ClaudeFixJob.OPEN)) {
             try {
                 if (step(row, now)) changed++;
@@ -103,6 +112,26 @@ public class FixJobFollowUp {
             }
         }
         return changed;
+    }
+
+    /**
+     * Starts the decision for recent holds that have none: their after-commit start was dropped
+     * (the fix job's queue was full) or lost (the server restarted before it ran). Without this
+     * such a hold would show nothing and never be tried.
+     */
+    private int catchUp(Instant now) {
+        List<UUID> missed;
+        try {
+            missed = jobs.findHeldWithoutDecision(now.minus(CATCH_UP_WINDOW), now.minus(CATCH_UP_DELAY), CATCH_UP_BATCH);
+        } catch (RuntimeException e) {
+            log.warn("Claude fix catch-up could not look for missed holds ({})", FixJobStarter.typeName(e));
+            return 0;
+        }
+        for (UUID jobId : missed) {
+            log.info("Claude fix for held job {}: its start never ran; starting it now", jobId);
+            starter.startNow(jobId);
+        }
+        return missed.size();
     }
 
     private boolean step(ClaudeFixJob row, Instant now) {
@@ -117,9 +146,10 @@ public class FixJobFollowUp {
     private boolean sent(ClaudeFixJob row, Instant now) {
         UUID id = row.getJobId();
         Optional<RunState> run = channel.runFor(row.getSentCommitSha());
-        if (run.isPresent() && run.get() == RunState.IN_PROGRESS) return false;
-        if (run.isEmpty() && Duration.between(row.getUpdatedAt(), now).compareTo(RUN_GRACE) < 0) return false;
-        if (run.isPresent()) {
+        Duration sinceSent = Duration.between(row.getUpdatedAt(), now);
+        if (run.isPresent() && run.get() == RunState.IN_PROGRESS && sinceSent.compareTo(RUN_LIMIT) < 0) return false;
+        if (run.isEmpty() && sinceSent.compareTo(RUN_GRACE) < 0) return false;
+        if (run.isPresent() && run.get() != RunState.IN_PROGRESS) {
             // A run that failed after opening both PRs (say, in its clean-up step) still opened them.
             Optional<PrPair> prs = channel.prsFor(id, row.getAttempt());
             if (prs.isPresent()) {
@@ -145,9 +175,9 @@ public class FixJobFollowUp {
 
     private boolean prOpen(ClaudeFixJob row, Instant now) {
         UUID id = row.getJobId();
-        Optional<PrPair> prs = channel.prsFor(id, row.getAttempt());
-        if (prs.isEmpty()) return false;
-        switch (prs.get().publicState()) {
+        // By the PR's number, not its branch: the branch is deleted once the PR is merged or closed.
+        GitHubFixChannel.PublicPr pr = channel.publicPr(row.getPublicPr());
+        switch (pr.state()) {
             case OPEN -> {
                 return false;
             }
@@ -158,8 +188,7 @@ public class FixJobFollowUp {
                 // MERGED: below.
             }
         }
-        Optional<String> merge = channel.mergeCommit(prs.get().publicPr());
-        if (merge.isEmpty() || !channel.deployedContains(merge.get(), build.currentFullCommit())) return false;
+        if (pr.mergeSha() == null || !channel.deployedContains(pr.mergeSha(), build.currentFullCommit())) return false;
 
         Optional<ImportJob> job = importJobs.findById(id);
         if (job.isEmpty() || !FixJobStarter.isHeld(job.get())) {

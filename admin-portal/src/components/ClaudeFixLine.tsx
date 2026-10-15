@@ -24,7 +24,7 @@ function describe(fix: HeldClaudeFix): ReactNode {
   if (fix.state === 'OFF') return 'Claude fix off';
   switch (fix.state) {
     case 'NOT_STARTED':
-      if (fix.reason === 'OFF') return 'Claude fix off';
+      if (fix.reason === 'OFF') return 'Needs a person: the Claude fix was off when this was held';
       if (fix.reason === 'CAP_REACHED') return `Needs a person: this month's ${fix.monthlyCap} Claude runs are used`;
       return (fix.reason && NOT_TRIED[fix.reason]) ?? 'Needs a person: the Claude fix could not start';
     case 'SENT':

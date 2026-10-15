@@ -33,7 +33,7 @@ public record ClaudeFixStatus(String state, String reason, Integer publicPr, Int
         if (OFF.equals(state)) return "off";
         return switch (ClaudeFixJob.State.valueOf(state)) {
             case NOT_STARTED -> switch (why) {
-                case OFF -> "off";
+                case OFF -> "not tried (it was off when this was held)";
                 case DIFFERS -> "not tried (the blanked copy does not match)";
                 case NOT_CHECKED -> "not tried (the blanked copy was not checked)";
                 case REFUSED -> "not tried (the blanked copy was refused)";

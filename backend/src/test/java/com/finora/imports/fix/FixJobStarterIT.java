@@ -47,6 +47,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestPropertySource(properties = {
         "app.claude-fix.enabled=true",
         "app.claude-fix.github-token=test-token",
+        // The follow-up is FixJobFollowUpTest's: kept from polling the stand-in during this class.
+        "app.claude-fix.follow-up-initial-delay-ms=86400000",
         "app.statement-storage.provider=filesystem",
         "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-claude-fix-it"
 })
@@ -151,14 +153,23 @@ class FixJobStarterIT extends AbstractIntegrationTest {
         }
     }
 
-    /** The starter runs on its own thread; waits for its row. */
+    /** The starter runs on its own thread, and reserves its row ("could not start") before it
+     *  makes the copy; waits for the decision that replaces the reservation. */
     private ClaudeFixJob rowFor(UUID jobId) throws InterruptedException {
         for (int i = 0; i < 300; i++) {
             Optional<ClaudeFixJob> row = fixJobs.findById(jobId);
-            if (row.isPresent()) return row.get();
+            if (row.isPresent() && row.get().getReason() != ClaudeFixJob.Reason.ERROR) return row.get();
             Thread.sleep(100);
         }
-        throw new AssertionError("no fix job row for " + jobId + " after 30 s");
+        throw new AssertionError("no decided fix job row for " + jobId + " after 30 s");
+    }
+
+    /** As {@link #rowFor}, for a start whose send fails: the reservation's ERROR is its decision.
+     *  Waits for the failed call, then for the starter to finish with it. */
+    private ClaudeFixJob rowAfterAFailedSend(UUID jobId) throws InterruptedException {
+        for (int i = 0; i < 300 && PUT_PATHS.isEmpty(); i++) Thread.sleep(100);
+        Thread.sleep(1000);
+        return fixJobs.findById(jobId).orElseThrow();
     }
 
     private static String decoded(String putBody) {
@@ -230,7 +241,7 @@ class FixJobStarterIT extends AbstractIntegrationTest {
         ImportJob job = importHold(matching());
 
         starter.onHeld(job.getId());
-        ClaudeFixJob row = rowFor(job.getId());
+        ClaudeFixJob row = rowAfterAFailedSend(job.getId());
 
         assertThat(row.getState()).isEqualTo(ClaudeFixJob.State.NOT_STARTED);
         assertThat(row.getReason()).isEqualTo(ClaudeFixJob.Reason.ERROR);

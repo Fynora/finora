@@ -72,6 +72,7 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
     @Autowired private ImportSessionService importSessionService;
     @Autowired private ImportService importService;
     @Autowired private ImportJobWorker worker;
+    @Autowired private com.finora.imports.fix.ClaudeFixJobRepository claudeFixJobs;
     @Autowired private JwtService jwtService;
     @Autowired private com.finora.repository.RefreshTokenRepository refreshTokens;
     @Autowired private com.finora.repository.HeldStatementEventRepository heldStatementEventRepository;
@@ -319,6 +320,39 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
         ImportJob reloaded = jobRepository.findById(held.getId()).orElseThrow();
         ReflectionTestUtils.setField(reloaded, "heldStatementId", null);
         return jobRepository.save(reloaded);
+    }
+
+
+    /** The Claude fix starter runs on its own thread after the hold commits; waits for its row
+     *  (the switch is off under test, so the row records OFF). */
+    private com.finora.imports.fix.ClaudeFixJob claudeFixRowFor(UUID jobId) throws InterruptedException {
+        for (int i = 0; i < 150; i++) {
+            var row = claudeFixJobs.findById(jobId);
+            if (row.isPresent()) return row.get();
+            Thread.sleep(100);
+        }
+        throw new AssertionError("no Claude fix row for " + jobId + " after 15 s");
+    }
+
+    /** The worker's trust hold starts the Claude fix decision once the job is held. */
+    @Test
+    void aWorkerTrustHoldRecordsAClaudeFixDecision() throws Exception {
+        ImportJob held = heldUpload(user());
+
+        assertThat(claudeFixRowFor(held.getId()).getReason()).isEqualTo(com.finora.imports.fix.ClaudeFixJob.Reason.OFF);
+    }
+
+    /** A review an operator opens for a hold the worker could not record starts the decision too. */
+    @Test
+    void openingAReviewForARecordLessHoldRecordsAClaudeFixDecision() throws Exception {
+        User owner = user();
+        ImportJob held = heldWithNoReviewRecord(owner);
+        claudeFixRowFor(held.getId());
+        claudeFixJobs.deleteById(held.getId());
+
+        heldStatementService.openReviewForHoldWithoutRecord(owner.getId(), held.getId());
+
+        assertThat(claudeFixRowFor(held.getId()).getReason()).isEqualTo(com.finora.imports.fix.ClaudeFixJob.Reason.OFF);
     }
 
     @Test

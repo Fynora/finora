@@ -91,6 +91,7 @@ overdue email carries a "Claude:" line.
 | State / reason | Admin page | Overdue email |
 |---|---|---|
 | switch off | Claude fix off | Claude: off |
+| not started: OFF (held while the switch was off; shown once it is on) | Needs a person: the Claude fix was off when this was held | Claude: not tried (it was off when this was held) |
 | not started: DIFFERS, NOT_CHECKED, REFUSED, CSV | Needs a person: the blanked copy does not match / was not checked / was refused, or the statement is a CSV | Claude: not tried (the same reason) |
 | not started: CAP_REACHED | Needs a person: this month's 50 Claude runs are used | Claude: not tried (monthly limit reached) |
 | not started: ERROR | Needs a person: the Claude fix could not start | Claude: could not start |
@@ -123,13 +124,25 @@ it completes.
   commit contains the merge. A requeue refused because the same file is live under another import
   is tried again every 10 minutes.
 - **Turning the switch off** stops everything at once: no new jobs, no sends, no polling. Open jobs
-  pick up where they were when it is turned on again.
+  pick up where they were when it is turned on again. Statements held while it was off are
+  recorded as such and stay with a person: turning it on does not send them.
+- **A hold whose start never ran** (the fix job's queue was full, or the server restarted first) is
+  started by the follow-up's catch-up within about 10 minutes, if it was held in the last 24 hours.
+- **A run that never finishes** (no runner, no Actions minutes left) counts as failed after 3 hours.
 
 ## Cost
 
 Each attempt is one `fix.yml` run in the private repository, billed against the 2,000-minute
-monthly allowance, at most 75 minutes. Not yet measured. The cap (50 jobs a month, at most 2
-attempts each) bounds it. Claude's own usage counts against the owner's Max plan.
+monthly allowance, at most 90 minutes (Claude's 60, then the full unit and private-trace suite).
+Not yet measured. Each private PR the bot opens also runs `traces.yml` and `privacy-scan.yml`
+(about 9 minutes). Claude's own usage counts against the owner's Max plan.
+
+**The cap does not keep this inside the allowance.** 50 jobs a month, at most 2 attempts each, is
+up to 100 runs: at the 90-minute ceiling that is 9,000 minutes, and even at 20 minutes a run it is
+2,000, the whole allowance, which `traces.yml` and `retention.yml` also need. If the allowance runs
+out, those stop too, and retention is how a deleted customer's trace leaves the private repository.
+Measure the first supervised run's minutes, then set `APP_CLAUDE_FIX_MONTHLY_CAP` so that
+cap x 2 x minutes-per-run leaves room for the nightly workflows (about 180 minutes a month).
 
 ## Known limits
 

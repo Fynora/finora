@@ -26,6 +26,8 @@ import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +61,8 @@ class FixJobStarterTest {
     private HeldItemAdminAlertService alerts;
     private ClaudeFixProperties properties;
     private FixJobStarter starter;
+    /** The last version saved of each row, in the order rows were first saved. */
+    private final Map<UUID, ClaudeFixJob> rows = new LinkedHashMap<>();
     private final List<ClaudeFixJob> saved = new ArrayList<>();
 
     @BeforeEach
@@ -79,10 +83,15 @@ class FixJobStarterTest {
         when(importProvider.getObject()).thenReturn(importQueue);
         ObjectProvider<HeldStatementService> trustProvider = mock(ObjectProvider.class);
         when(trustProvider.getObject()).thenReturn(trustQueue);
-        when(jobs.save(any(ClaudeFixJob.class))).thenAnswer(inv -> {
-            saved.add(inv.getArgument(0));
-            return inv.getArgument(0);
-        });
+        org.mockito.stubbing.Answer<ClaudeFixJob> store = inv -> {
+            ClaudeFixJob row = inv.getArgument(0);
+            rows.put(row.getJobId(), row);
+            saved.clear();
+            saved.addAll(rows.values());
+            return row;
+        };
+        when(jobs.save(any(ClaudeFixJob.class))).thenAnswer(store);
+        when(jobs.saveAndFlush(any(ClaudeFixJob.class))).thenAnswer(store);
         starter = new FixJobStarter(jobs, importJobs, heldStatements, findings, copies, channel, importProvider,
                 trustProvider, alerts, properties, new ObjectMapper(), Runnable::run, Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -319,6 +328,53 @@ class FixJobStarterTest {
 
         assertThat(onlySaved().getState()).isEqualTo(ClaudeFixJob.State.NOT_STARTED);
         assertThat(onlySaved().getReason()).isEqualTo(ClaudeFixJob.Reason.ERROR);
+    }
+
+    @Test
+    void theRowIsReservedBeforeTheCopyLeaves() {
+        ImportJob job = importHold("PDF");
+        copyChecks(BlankedCopy.Check.MATCHES);
+        UUID id = job.getId();
+        ClaudeFixJob[] atSend = {null};
+        when(channel.send(eq(id), eq(1), eq(TRACE), anyString())).thenAnswer(inv -> {
+            atSend[0] = rows.get(id);
+            return "sha-1";
+        });
+
+        starter.onHeld(id);
+
+        assertThat(atSend[0]).as("a row existed when the copy was sent").isNotNull();
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(jobs, channel);
+        order.verify(jobs).saveAndFlush(any(ClaudeFixJob.class));
+        order.verify(channel).send(eq(id), eq(1), eq(TRACE), anyString());
+        assertThat(onlySaved().getState()).isEqualTo(ClaudeFixJob.State.SENT);
+        assertThat(onlySaved().getReason()).isNull();
+    }
+
+    @Test
+    void anotherStartHoldingTheRowMeansThisOneSendsNothing() {
+        ImportJob job = importHold("PDF");
+        when(jobs.saveAndFlush(any(ClaudeFixJob.class)))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+
+        starter.onHeld(job.getId());
+
+        verifyNoInteractions(copies, channel);
+        verify(jobs, never()).save(any(ClaudeFixJob.class));
+    }
+
+    @Test
+    void aSendWhoseBookkeepingFailsLeavesTheReservedRow() {
+        ImportJob job = importHold("PDF");
+        copyChecks(BlankedCopy.Check.MATCHES);
+        when(channel.send(any(), anyInt(), anyString(), anyString())).thenReturn("sha-1");
+        when(jobs.save(any(ClaudeFixJob.class))).thenThrow(new IllegalStateException("database blip"));
+        when(jobs.existsById(job.getId())).thenAnswer(inv -> rows.containsKey(job.getId()));
+
+        starter.onHeld(job.getId());
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.values().iterator().next().getJobId()).isEqualTo(job.getId());
     }
 
     @Test

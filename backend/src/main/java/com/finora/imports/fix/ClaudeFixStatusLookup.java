@@ -17,13 +17,16 @@ public class ClaudeFixStatusLookup {
     }
 
     /**
-     * The job's row, if there is one. With no row: {@code OFF} while the switch is off, and null
-     * while it is on (the decision has not been recorded yet, or the hold is older than the
-     * switch).
+     * The job's row, if there is one. While the switch is off, a row that only says it was off, or
+     * no row, reads {@code OFF}; while it is on, no row reads null (the decision is not recorded
+     * yet), and a row recorded while it was off stays {@code NOT_STARTED / OFF}: "the fix was off
+     * when this was held".
      */
     public ClaudeFixStatus forJob(UUID jobId) {
-        return jobs.findById(jobId)
-                .map(job -> ClaudeFixStatus.of(job, properties.getMonthlyCap()))
-                .orElse(properties.isEnabled() ? null : ClaudeFixStatus.off(properties.getMonthlyCap()));
+        int cap = properties.getMonthlyCap();
+        java.util.Optional<ClaudeFixJob> row = jobs.findById(jobId);
+        boolean recordedOff = row.map(r -> r.getReason() == ClaudeFixJob.Reason.OFF).orElse(false);
+        if (!properties.isEnabled() && (row.isEmpty() || recordedOff)) return ClaudeFixStatus.off(cap);
+        return row.map(r -> ClaudeFixStatus.of(r, cap)).orElse(null);
     }
 }

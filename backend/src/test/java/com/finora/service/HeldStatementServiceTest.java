@@ -89,7 +89,9 @@ class HeldStatementServiceTest {
         service.createHold(job, staged, periodIntegrityDecision(), "abc123");
 
         verify(heldItemAdminAlertService).alertTrustReviewHeld("HELD-00099");
-        verify(fixJobStarter).onHeld(job.getId());
+        // The worker's hold is not complete when createHold commits: the job moves into the hold,
+        // and its findings are recorded, after. The worker starts the Claude fix itself then.
+        verify(fixJobStarter, never()).onHeld(any());
     }
 
     /**

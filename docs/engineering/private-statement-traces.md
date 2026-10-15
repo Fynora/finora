@@ -96,7 +96,7 @@ ones are free. The private workflows are kept small:
 | `traces.yml` | push to the private `main`, pull requests there, once a day at 04:30 UTC, on demand | 5 min 19 s (26 classes, 86 tests), billed as 6 minutes |
 | `privacy-scan.yml` | every push (except to `incoming`) and pull request in the private repository, on demand | 2 min 48 s, billed as 3 minutes |
 | `retention.yml` | once a day at 05:00 UTC, on demand | not yet measured; with no trace to delete it makes one HTTP call |
-| `fix.yml` | each Claude fix attempt production sends to `incoming` (at most 50 jobs a month, 2 attempts each) | not yet measured; at most 75 minutes |
+| `fix.yml` | each Claude fix attempt production sends to `incoming` (at most 50 jobs a month, 2 attempts each) | not yet measured; at most 90 minutes (see the cost warning in `claude-fix-job.md`) |
 
 So a quiet month costs about 180 minutes for the nightly `traces.yml` runs plus the daily
 retention runs, and each push to the private `main` adds about 9 (both push workflows). No private

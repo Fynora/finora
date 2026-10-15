@@ -218,12 +218,14 @@ class GitHubFixChannelTest {
     }
 
     @Test
-    void mergeCommitIsTheMergedPullsMergeSha() {
-        answer(PUBLIC + "/pulls/41", 200, "{\"merged\":true,\"merge_commit_sha\":\"m1\"}");
-        answer(PUBLIC + "/pulls/42", 200, "{\"merged\":false,\"merge_commit_sha\":\"test-merge\"}");
+    void publicPrReadsTheStateAndMergeCommitByNumber() {
+        answer(PUBLIC + "/pulls/41", 200, "{\"state\":\"closed\",\"merged\":true,\"merge_commit_sha\":\"m1\"}");
+        answer(PUBLIC + "/pulls/42", 200, "{\"state\":\"open\",\"merged\":false,\"merge_commit_sha\":\"test-merge\"}");
+        answer(PUBLIC + "/pulls/43", 200, "{\"state\":\"closed\",\"merged\":false,\"merge_commit_sha\":\"test-merge\"}");
 
-        assertThat(channel.mergeCommit(41)).contains("m1");
-        assertThat(channel.mergeCommit(42)).isEmpty();
+        assertThat(channel.publicPr(41)).isEqualTo(new GitHubFixChannel.PublicPr(GitHubFixChannel.PrState.MERGED, "m1"));
+        assertThat(channel.publicPr(42)).isEqualTo(new GitHubFixChannel.PublicPr(GitHubFixChannel.PrState.OPEN, null));
+        assertThat(channel.publicPr(43)).isEqualTo(new GitHubFixChannel.PublicPr(GitHubFixChannel.PrState.CLOSED, null));
     }
 
     @Test

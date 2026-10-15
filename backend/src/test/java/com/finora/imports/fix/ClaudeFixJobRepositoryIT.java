@@ -24,6 +24,10 @@ class ClaudeFixJobRepositoryIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
 
     private ImportJob heldJob() {
+        return heldJobAt(Instant.now());
+    }
+
+    private ImportJob heldJobAt(Instant heldAt) {
         User owner = new User();
         owner.setEmail("claude-fix-it-" + UUID.randomUUID() + "@example.com");
         owner.setPasswordHash("irrelevant-for-this-test");
@@ -37,7 +41,7 @@ class ClaudeFixJobRepositoryIT extends AbstractIntegrationTest {
         job.markClaimed("worker", Instant.now());
         job.recordFailure("IllegalStateException: no header row", "IllegalStateException",
                 ErrorCode.RetryPolicy.RETRY_ONCE_THEN_ALERT, Instant.now());
-        job.holdForReview("IllegalStateException", Instant.now());
+        job.holdForReview("IllegalStateException", heldAt);
         return importJobRepository.save(job);
     }
 
@@ -101,6 +105,49 @@ class ClaudeFixJobRepositoryIT extends AbstractIntegrationTest {
         assertThat(repository.claimCapAlert("1999-11", Instant.now())).isEqualTo(1);
         assertThat(repository.claimCapAlert("1999-11", Instant.now())).isZero();
         assertThat(repository.claimCapAlert("1999-12", Instant.now())).isEqualTo(1);
+    }
+
+    @Test
+    void theCatchUpFindsRecentHoldsWithNoDecisionOnly() {
+        // Held far in the past, so holds other tests leave in the shared table never fall in it.
+        Instant from = Instant.parse("2001-06-01T00:00:00Z");
+        Instant to = Instant.parse("2001-06-02T00:00:00Z");
+        ImportJob undecided = heldJobAt(Instant.parse("2001-06-01T10:00:00Z"));
+        ImportJob decided = heldJobAt(Instant.parse("2001-06-01T11:00:00Z"));
+        repository.save(ClaudeFixJob.notStarted(decided.getId(), ClaudeFixJob.Reason.OFF, Instant.now()));
+        ImportJob tooOld = heldJobAt(Instant.parse("2001-05-31T23:59:59Z"));
+        ImportJob tooNew = heldJobAt(to);
+        ImportJob ridingNoRecord = heldJobAt(Instant.parse("2001-06-01T12:00:00Z"));
+        ridingNoRecord.returnToQueueForReprocess(Instant.now());
+        ridingNoRecord.markClaimed("worker", Instant.now());
+        ridingNoRecord.holdForTrustReview(UUID.randomUUID(), null, Instant.parse("2001-06-01T12:00:00Z"));
+        importJobRepository.save(ridingNoRecord);
+
+        assertThat(repository.findHeldWithoutDecision(from, to, 20)).containsExactly(undecided.getId());
+        assertThat(tooOld.getId()).isNotNull();
+        assertThat(tooNew.getId()).isNotNull();
+    }
+
+    @Test
+    void aReservedRowBecomesSentOrNotSentOnce() {
+        Instant now = Instant.now();
+        ClaudeFixJob sent = ClaudeFixJob.reserved(UUID.randomUUID(), now);
+        assertThat(sent.getState()).isEqualTo(ClaudeFixJob.State.NOT_STARTED);
+        assertThat(sent.getReason()).isEqualTo(ClaudeFixJob.Reason.ERROR);
+        sent.firstSent("sha", now);
+        assertThat(sent.getState()).isEqualTo(ClaudeFixJob.State.SENT);
+        assertThat(sent.getReason()).isNull();
+        assertThat(sent.getAttempt()).isEqualTo(1);
+        assertThat(sent.getSentAt()).isEqualTo(now);
+        assertThatThrownBy(() -> sent.firstSent("again", now)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> sent.notSent(ClaudeFixJob.Reason.DIFFERS, now)).isInstanceOf(IllegalStateException.class);
+
+        ClaudeFixJob differs = ClaudeFixJob.reserved(UUID.randomUUID(), now);
+        differs.notSent(ClaudeFixJob.Reason.DIFFERS, now);
+        assertThat(differs.getReason()).isEqualTo(ClaudeFixJob.Reason.DIFFERS);
+        assertThatThrownBy(() -> differs.firstSent("sha", now)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> ClaudeFixJob.notStarted(UUID.randomUUID(), ClaudeFixJob.Reason.OFF, now).firstSent("s", now))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

@@ -20,7 +20,7 @@ class ClaudeFixStatusTest {
 
     @ParameterizedTest
     @CsvSource({
-            "OFF, off",
+            "OFF, not tried (it was off when this was held)",
             "DIFFERS, not tried (the blanked copy does not match)",
             "NOT_CHECKED, not tried (the blanked copy was not checked)",
             "REFUSED, not tried (the blanked copy was refused)",
@@ -74,5 +74,20 @@ class ClaudeFixStatusTest {
         assertThat(lookup.forJob(UUID.randomUUID()).state()).isEqualTo("OFF");
         properties.setEnabled(true);
         assertThat(lookup.forJob(UUID.randomUUID())).isNull();
+    }
+
+    @Test
+    void aHoldRecordedWhileOffSaysSoOnceTheSwitchIsOn() {
+        ClaudeFixJobRepository jobs = mock(ClaudeFixJobRepository.class);
+        UUID id = UUID.randomUUID();
+        when(jobs.findById(id)).thenReturn(Optional.of(ClaudeFixJob.notStarted(id, ClaudeFixJob.Reason.OFF, NOW)));
+        ClaudeFixProperties properties = new ClaudeFixProperties();
+        ClaudeFixStatusLookup lookup = new ClaudeFixStatusLookup(jobs, properties);
+
+        assertThat(lookup.forJob(id).state()).isEqualTo("OFF");
+        properties.setEnabled(true);
+        assertThat(lookup.forJob(id).state()).isEqualTo("NOT_STARTED");
+        assertThat(lookup.forJob(id).reason()).isEqualTo("OFF");
+        assertThat(lookup.forJob(id).emailLine()).isEqualTo("not tried (it was off when this was held)");
     }
 }

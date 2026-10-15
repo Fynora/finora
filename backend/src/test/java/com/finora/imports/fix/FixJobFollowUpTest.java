@@ -115,7 +115,7 @@ class FixJobFollowUpTest {
         ClaudeFixJob row = sentRow(1);
         when(channel.runFor("sha-a1")).thenReturn(Optional.of(RunState.IN_PROGRESS));
 
-        assertThat(followUp.followUp(SENT_AT.plus(Duration.ofHours(5)))).isZero();
+        assertThat(followUp.followUp(SENT_AT.plus(Duration.ofHours(2)))).isZero();
         assertThat(row(row).getState()).isEqualTo(ClaudeFixJob.State.SENT);
         verifyNoInteractions(starter);
     }
@@ -249,12 +249,51 @@ class FixJobFollowUpTest {
         verifyNoInteractions(starter);
     }
 
+    @Test
+    void aRunStillQueuedAfterThreeHoursCountsAsFailed() {
+        ClaudeFixJob row = sentRow(1);
+        ImportJob job = job(row.getJobId(), ImportJob.Status.HELD_FOR_REVIEW);
+        when(channel.runFor("sha-a1")).thenReturn(Optional.of(RunState.IN_PROGRESS));
+        when(starter.copyAndSend(job, 2)).thenReturn(new FixJobStarter.Attempt("sha-a2", null));
+
+        assertThat(followUp.followUp(SENT_AT.plus(Duration.ofMinutes(179)))).isZero();
+        assertThat(followUp.followUp(SENT_AT.plus(Duration.ofHours(3)))).isEqualTo(1);
+
+        assertThat(row(row).getAttempt()).isEqualTo(2);
+        verify(channel, never()).prsFor(any(), anyInt());
+    }
+
+    // --- catch-up --------------------------------------------------------------------------------
+
+    @Test
+    void aRecentHoldWithNoDecisionIsStartedNow() {
+        UUID missed = UUID.randomUUID();
+        Instant now = SENT_AT.plus(Duration.ofDays(1));
+        when(jobs.findHeldWithoutDecision(now.minus(Duration.ofHours(24)), now.minus(Duration.ofMinutes(5)), 20))
+                .thenReturn(List.of(missed));
+
+        assertThat(followUp.followUp(now)).isEqualTo(1);
+
+        verify(starter).startNow(missed);
+    }
+
+    @Test
+    void aFailedCatchUpLookupStillFollowsTheOpenRows() {
+        ClaudeFixJob row = sentRow(1);
+        when(jobs.findHeldWithoutDecision(any(), any(), anyInt())).thenThrow(new IllegalStateException("db"));
+        when(channel.runFor("sha-a1")).thenReturn(Optional.of(RunState.SUCCEEDED));
+        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.OPEN, 7)));
+
+        assertThat(followUp.followUp(SENT_AT.plus(Duration.ofMinutes(30)))).isEqualTo(1);
+        assertThat(row(row).getState()).isEqualTo(ClaudeFixJob.State.PR_OPEN);
+    }
+
     // --- PR_OPEN ---------------------------------------------------------------------------------
 
     @Test
     void anOpenPrChangesNothing() {
         ClaudeFixJob row = prOpenRow();
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.OPEN, 7)));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.OPEN, null));
 
         assertThat(followUp.followUp(SENT_AT.plus(Duration.ofDays(3)))).isZero();
         assertThat(row(row).getState()).isEqualTo(ClaudeFixJob.State.PR_OPEN);
@@ -263,7 +302,7 @@ class FixJobFollowUpTest {
     @Test
     void aPublicPrClosedUnmergedGivesUpWithNoPr() {
         ClaudeFixJob row = prOpenRow();
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.CLOSED, 7)));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.CLOSED, null));
 
         followUp.followUp(SENT_AT.plus(Duration.ofDays(3)));
 
@@ -275,8 +314,7 @@ class FixJobFollowUpTest {
     void noRereadBeforeTheFixIsDeployed() {
         ClaudeFixJob row = prOpenRow();
         job(row.getJobId(), ImportJob.Status.HELD_FOR_REVIEW);
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(false);
 
         assertThat(followUp.followUp(SENT_AT.plus(Duration.ofDays(1)))).isZero();
@@ -289,22 +327,21 @@ class FixJobFollowUpTest {
     void aDeployedFixRereadsAnImportHoldThroughTheQueuesReprocess() {
         ClaudeFixJob row = prOpenRow();
         job(row.getJobId(), ImportJob.Status.HELD_FOR_REVIEW);
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(true);
 
         assertThat(followUp.followUp(SENT_AT.plus(Duration.ofDays(1)))).isEqualTo(1);
 
         assertThat(row(row).getState()).isEqualTo(ClaudeFixJob.State.REREADING);
         verify(importQueue).reprocess(null, row.getJobId());
+        verify(channel, never()).prsFor(any(), anyInt());
     }
 
     @Test
     void aReprocessThatIsRefusedLeavesThePrOpenForTheNextRun() {
         ClaudeFixJob row = prOpenRow();
         job(row.getJobId(), ImportJob.Status.HELD_FOR_REVIEW);
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(true);
         UUID id = row.getJobId();
         when(importQueue.reprocess(null, id)).thenThrow(new ApiException(HttpStatus.CONFLICT, "live duplicate"));
@@ -324,8 +361,7 @@ class FixJobFollowUpTest {
         when(held.getHeldId()).thenReturn("HELD-00001");
         when(held.getStatus()).thenReturn(HeldStatement.Status.HELD);
         when(heldStatements.findByImportJobId(row.getJobId())).thenReturn(Optional.of(held));
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(true);
         when(trustQueue.rerunParser(null, "HELD-00001"))
                 .thenReturn(new HeldStatementRerunResultDto("a", "b", true, false, List.of(), null));
@@ -343,8 +379,7 @@ class FixJobFollowUpTest {
         when(held.getHeldId()).thenReturn("HELD-00001");
         when(held.getStatus()).thenReturn(HeldStatement.Status.HELD);
         when(heldStatements.findByImportJobId(row.getJobId())).thenReturn(Optional.of(held));
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(true);
         when(trustQueue.rerunParser(null, "HELD-00001"))
                 .thenReturn(new HeldStatementRerunResultDto("a", "b", true, true, List.of("still"), null));
@@ -359,8 +394,7 @@ class FixJobFollowUpTest {
     void aHoldDecidedByAPersonBeforeTheDeployStopsTheJob() {
         ClaudeFixJob row = prOpenRow();
         job(row.getJobId(), ImportJob.Status.CANCELLED);
-        when(channel.prsFor(row.getJobId(), 1)).thenReturn(Optional.of(new PrPair(41, PrState.MERGED, 7)));
-        when(channel.mergeCommit(41)).thenReturn(Optional.of("merge-sha"));
+        when(channel.publicPr(41)).thenReturn(new GitHubFixChannel.PublicPr(PrState.MERGED, "merge-sha"));
         when(channel.deployedContains("merge-sha", DEPLOYED)).thenReturn(true);
 
         followUp.followUp(SENT_AT.plus(Duration.ofDays(1)));
@@ -444,6 +478,7 @@ class FixJobFollowUpTest {
 
         verifyNoInteractions(channel, starter, importQueue, trustQueue);
         verify(jobs, never()).findByStateIn(any());
+        verify(jobs, never()).findHeldWithoutDecision(any(), any(), anyInt());
     }
 
     @Test

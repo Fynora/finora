@@ -15,9 +15,9 @@ describe('ClaudeFixLine', () => {
     expect(line()).toBe('Claude fixClaude fix off');
   });
 
-  it('says the fix is off for a hold recorded while the switch was off', () => {
+  it('says a hold recorded while the switch was off needs a person', () => {
     render(<ClaudeFixLine fix={fix({ reason: 'OFF' })} />);
-    expect(screen.getByText('Claude fix off')).toBeInTheDocument();
+    expect(screen.getByText('Needs a person: the Claude fix was off when this was held')).toBeInTheDocument();
   });
 
   it.each([

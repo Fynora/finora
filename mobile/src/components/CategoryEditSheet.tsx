@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from './Button';
 import { TextField } from './TextField';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { iconNameFor } from '../lib/categoryIcons';
@@ -64,8 +64,10 @@ export function CategoryEditSheet({ mode, initialName, category, onClose, onSave
         const saved = mode === 'create'
           ? await categoriesApi.create(name.trim(), icon, color)
           : await categoriesApi.update(category!.id, { name: name.trim(), icon, color });
+        hapticSuccess();
         onSaved(saved);
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, mode === 'create' ? 'category-edit:create' : 'category-edit:update', startedAt);
         setError(toUserMessage(e, 'Could not save this category.'));
       } finally {

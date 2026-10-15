@@ -46,6 +46,8 @@ describe('InflowKindPicker', () => {
     fireEvent.press(screen.getByText("○ No, don't count it"));
     fireEvent.press(screen.getByText('Create'));
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('Split with flatmate', false));
+    // The answer ticked; the create gives one success once it resolves.
+    await waitFor(() => expectHaptics({ selection: 1, success: 1 }));
   });
 
   it('shows the server message when a name is taken', async () => {
@@ -56,5 +58,6 @@ describe('InflowKindPicker', () => {
     fireEvent.press(screen.getByText('○ Yes, count it'));
     fireEvent.press(screen.getByText('Create'));
     expect(await screen.findByText('Could not create this kind.')).toBeOnTheScreen();
+    expectHaptics({ selection: 1, error: 1 });
   });
 });

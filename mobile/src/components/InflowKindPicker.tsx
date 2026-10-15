@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Button } from './Button';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import type { InflowKind } from '../types';
 import { radius, spacing, useTheme } from '../theme';
@@ -28,10 +28,12 @@ export function InflowKindPicker({ kinds, selectedId, onPick, onCreate, busy }: 
     setError(null);
     try {
       await onCreate(name.trim(), countsAsIncome);
+      hapticSuccess();
       setCreating(false);
       setName('');
       setCountsAsIncome(null);
     } catch (e) {
+      hapticError();
       setError(toUserMessage(e, 'Could not create this kind.'));
     } finally {
       setSaving(false);

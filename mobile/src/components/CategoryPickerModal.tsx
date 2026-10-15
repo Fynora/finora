@@ -113,10 +113,15 @@ export function CategoryPickerModal({
     onClose();
   }
 
-  function handleSelect(category: CategoryOption) {
-    hapticSelectionIfChanged(selectedName, category.name);
+  function choose(category: CategoryOption) {
     onSelect(category);
     close();
+  }
+
+  /** A row tapped: one tick when it changes the selection. */
+  function handleSelect(category: CategoryOption) {
+    hapticSelectionIfChanged(selectedName, category.name);
+    choose(category);
   }
 
   function afterCategoriesChanged() {
@@ -265,7 +270,8 @@ export function CategoryPickerModal({
             // close the picker out from under them.
             const shouldSelect = editing.mode === 'create' || editing.category.name === selectedName;
             setEditing(null);
-            if (shouldSelect) handleSelect(saved);
+            // No tick: the sheet's save already gave this action its one haptic.
+            if (shouldSelect) choose(saved);
           }}
         />
       ) : null}

@@ -10,6 +10,7 @@ import { InflowKindRowsSkeleton, SenderRuleRowsSkeleton } from './skeletons/Scre
 import { SkeletonGroup } from './skeletons/Skeletons';
 import { apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { AppAlert } from '../lib/appAlert';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { InflowKind, SenderRule } from '../types';
 import { radius, spacing, useTheme } from '../theme';
@@ -28,15 +29,19 @@ export function InflowKindsSettings() {
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
-  async function attempt(action: () => Promise<unknown>, fallback: string): Promise<boolean> {
+  /** `outcomeHaptic` is false for the income switch: a switch that saves at once has had its one
+   *  haptic, the tick, already (AppSwitch). A failure still shows its message. */
+  async function attempt(action: () => Promise<unknown>, fallback: string, outcomeHaptic = true): Promise<boolean> {
     setMessage(null);
     try {
       await action();
+      if (outcomeHaptic) hapticSuccess();
       invalidateFinancialData(queryClient);
       void kindsQ.refetch();
       void rulesQ.refetch();
       return true;
     } catch (e) {
+      if (outcomeHaptic) hapticError();
       const d = apiErrorDetails<{ rows?: number; senders?: number }>(e);
       const usage = d?.rows == null || d?.senders == null ? ''
         : ` Used by ${plural(d.rows, 'payment', 'payments')} and ${plural(d.senders, 'sender', 'senders')}.`;
@@ -93,7 +98,7 @@ export function InflowKindsSettings() {
                 <AppSwitch
                   accessibilityLabel={`${k.name} counts as income`}
                   value={k.countsAsIncome}
-                  onValueChange={(v) => { void attempt(() => inflowApi.updateKind(k.id, { countsAsIncome: v }), 'Could not change this kind.'); }}
+                  onValueChange={(v) => { void attempt(() => inflowApi.updateKind(k.id, { countsAsIncome: v }), 'Could not change this kind.', false); }}
                 />
               )}
               {renaming === k.id ? (

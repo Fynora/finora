@@ -51,6 +51,7 @@ describe('CategoryEditSheet — create mode', () => {
 
     await waitFor(() => expect(api.create).toHaveBeenCalledWith('Subscriptions', 'tag', 'gray'));
     expect(onSaved).toHaveBeenCalledWith(saved);
+    expectHaptics({ success: 1 });
   });
 
   it('creates with a picked icon and color', async () => {
@@ -103,6 +104,7 @@ describe('CategoryEditSheet — create mode', () => {
 
     expect(await screen.findByText('A category with this name already exists.')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 });
 
@@ -129,6 +131,7 @@ describe('CategoryEditSheet — edit mode', () => {
       expect(api.update).toHaveBeenCalledWith('c-1', { name: 'Groceries & Home', icon: 'home', color: 'blue' })
     );
     expect(onSaved).toHaveBeenCalledWith(saved);
+    expectHaptics({ success: 1 });
   });
 
   it('shows why Fynora created this category', async () => {

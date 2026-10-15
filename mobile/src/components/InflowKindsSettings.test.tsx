@@ -6,6 +6,7 @@ import { inflowApi } from '../api/endpoints';
 import { AppAlert } from '../lib/appAlert';
 import type { InflowKind } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   inflowApi: {
@@ -66,6 +67,17 @@ describe('InflowKindsSettings', () => {
     renderSettings();
     fireEvent(await screen.findByLabelText('Rent from tenant counts as income'), 'valueChange', false);
     await waitFor(() => expect(inflow.updateKind).toHaveBeenCalledWith('k6', { countsAsIncome: false }));
+    // A switch that saves at once: its tick is the action's one haptic.
+    await waitFor(() => expect(inflow.kinds).toHaveBeenCalledTimes(2));
+    expectHaptics({ selection: 1 });
+  });
+
+  it('a failed flip shows its message and adds no error haptic to the tick', async () => {
+    inflow.updateKind.mockRejectedValueOnce(new Error('down'));
+    renderSettings();
+    fireEvent(await screen.findByLabelText('Rent from tenant counts as income'), 'valueChange', false);
+    expect(await screen.findByText('Could not change this kind.')).toBeOnTheScreen();
+    expectHaptics({ selection: 1 });
   });
 
   it('explains why a kind in use cannot be deleted', async () => {
@@ -77,6 +89,7 @@ describe('InflowKindsSettings', () => {
     renderSettings();
     fireEvent.press(await screen.findByLabelText('Delete Rent from tenant'));
     expect(await screen.findByText(/Used by 2 payments and 1 sender\./)).toBeOnTheScreen();
+    expectHaptics({ error: 1 });
   });
 
   it('forgets a sender', async () => {
@@ -85,6 +98,18 @@ describe('InflowKindsSettings', () => {
     renderSettings();
     fireEvent.press(await screen.findByLabelText('Forget ASHA VERMA'));
     await waitFor(() => expect(inflow.forgetSender).toHaveBeenCalledWith('r1'));
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('renames a kind with one success', async () => {
+    inflow.updateKind.mockResolvedValue({ ...rent, name: 'Rent' });
+    renderSettings();
+    await screen.findByText('Rent from tenant');
+    fireEvent.press(screen.getAllByText('Rename')[1]);
+    fireEvent.changeText(screen.getByLabelText('New name for Rent from tenant'), 'Rent');
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(inflow.updateKind).toHaveBeenCalledWith('k6', { name: 'Rent' }));
+    await waitFor(() => expectHaptics({ success: 1 }));
   });
 });
 

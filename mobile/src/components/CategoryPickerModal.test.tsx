@@ -2,6 +2,7 @@ import { Dimensions } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryPickerModal } from './CategoryPickerModal';
+import { CategoryEditSheet } from './CategoryEditSheet';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { expectHaptics } from '../test/haptics';
 
@@ -136,6 +137,24 @@ describe('CategoryPickerModal', () => {
 
     expect(screen.queryByTestId('category-Food')).toBeNull();
     expect(screen.getByTestId('category-Travel')).toBeTruthy();
+  });
+
+  // A category created (or the selected one renamed) here is selected for the caller, but the
+  // edit sheet's save already gave the one success haptic: one action, one haptic.
+  it('selects a category saved from its edit sheet without a second, selection haptic', async () => {
+    renderPicker({ selectedName: 'Food' });
+    await settle();
+    await screen.findByTestId('category-Food');
+    fireEvent.changeText(screen.getByLabelText('Search categories'), 'Subscriptions');
+    await settle();
+    fireEvent.press(screen.getByText('Create "Subscriptions"'));
+    await settle();
+
+    const saved: CategoryOption = { id: 'c-9', name: 'Subscriptions', isSystem: false, icon: 'tag', color: 'gray' };
+    await act(async () => { screen.UNSAFE_getByType(CategoryEditSheet).props.onSaved(saved); });
+
+    expect(onSelect).toHaveBeenCalledWith(saved);
+    expectHaptics({});
   });
 
   it('offers to create a new category only when the typed name has no exact match', async () => {

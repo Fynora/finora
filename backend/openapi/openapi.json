@@ -22757,6 +22757,9 @@
                     },
                     "comparison": {
                         "$ref": "#/components/schemas/MonthComparison"
+                    },
+                    "complete": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -24324,6 +24327,9 @@
                     },
                     "savingsRateGateReason": {
                         "type": "string"
+                    },
+                    "statementBehind": {
+                        "$ref": "#/components/schemas/StatementBehindDto"
                     }
                 }
             },
@@ -24353,6 +24359,22 @@
                         "type": "string"
                     },
                     "score": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "StatementBehindDto": {
+                "type": "object",
+                "properties": {
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "coveredThrough": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "accountCount": {
                         "type": "integer",
                         "format": "int32"
                     }
@@ -24475,6 +24497,9 @@
                     },
                     "savingsRateGateReason": {
                         "type": "string"
+                    },
+                    "statementBehind": {
+                        "$ref": "#/components/schemas/StatementBehindDto"
                     }
                 }
             },

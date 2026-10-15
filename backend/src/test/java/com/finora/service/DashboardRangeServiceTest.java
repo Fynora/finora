@@ -39,6 +39,7 @@ class DashboardRangeServiceTest {
     private UserRepository userRepository;
     private NetWorthSnapshotRepository netWorthSnapshotRepository;
     private ReportService reportService;
+    private StatementReachService statementReach;
     private DashboardRangeService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -49,8 +50,9 @@ class DashboardRangeServiceTest {
         userRepository = mock(UserRepository.class);
         netWorthSnapshotRepository = mock(NetWorthSnapshotRepository.class);
         reportService = mock(ReportService.class);
+        statementReach = mock(StatementReachService.class);
         service = new DashboardRangeService(accountRepository, transactionRepository, userRepository,
-                netWorthSnapshotRepository, reportService);
+                netWorthSnapshotRepository, reportService, statementReach);
 
         when(userRepository.findById(any())).thenReturn(Optional.empty());
         when(accountRepository.findByUserId(any())).thenReturn(List.of());
@@ -82,6 +84,50 @@ class DashboardRangeServiceTest {
         assertThat(dto.endDate()).isEqualTo(LocalDate.of(2026, 3, 31));
         assertThat(dto.previousStartDate()).isEqualTo(LocalDate.of(2025, 4, 1));
         assertThat(dto.previousEndDate()).isEqualTo(LocalDate.of(2025, 9, 30));
+    }
+
+    @Test
+    void aRangeEndingInAMonthAnAccountsStatementsDoNotReach_carriesTheSoFarNote_andKeepsTheTotals() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2026, 9, 30));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2025, 1, 5));
+        when(reportService.forRange(eq(userId), any(), any()))
+                .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5));
+        var note = new com.finora.dto.StatementBehindDto("HDFC Card", LocalDate.of(2026, 9, 11), 1);
+        // The preset anchors on the newest month with data, so the range ends in September.
+        when(statementReach.behindFor(eq(userId), eq(java.time.YearMonth.of(2026, 9)), eq(java.time.YearMonth.of(2026, 9))))
+                .thenReturn(Optional.of(note));
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
+
+        assertThat(dto.statementBehind()).isEqualTo(note);
+        assertThat(dto.incomeTotal()).isEqualByComparingTo(BigDecimal.TEN); // labelled, not withheld
+    }
+
+    @Test
+    void aCustomRangeEndingInAnOldMonth_isJudgedByThatMonth_soTheNewestMonthsAccountsDoNotColourIt() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2026, 9, 30));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2025, 1, 5));
+        // Only the range's own last month (March) is asked about; nothing is stubbed for it, so
+        // the mock answers "not behind" -- and September is never consulted at all.
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.CUSTOM,
+                LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31));
+
+        assertThat(dto.statementBehind()).isNull();
+        org.mockito.Mockito.verify(statementReach).behindFor(eq(userId), eq(java.time.YearMonth.of(2026, 3)), eq(java.time.YearMonth.of(2026, 9)));
+    }
+
+    @Test
+    void noTransactionHistory_hasNoSoFarNote_andIsNeverAsked() {
+        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(null);
+        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(null);
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
+
+        DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
+
+        assertThat(dto.statementBehind()).isNull();
+        org.mockito.Mockito.verify(statementReach, org.mockito.Mockito.never()).behindFor(any(), any(), any());
     }
 
     @Test

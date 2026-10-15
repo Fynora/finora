@@ -11,8 +11,13 @@ import { spacing, typography, useTheme } from '../../theme';
  * here as text; scripts/check-reporting-period-labels.py scans this file to keep it so.
  */
 export function LedgerMonthCard({
-  kpis, title, deltaLabel, deltaSpokenLabel, stacked,
-}: { kpis: KpiItem[]; title: string; deltaLabel: string; deltaSpokenLabel: string; stacked: boolean }) {
+  kpis, title, deltaLabel, deltaSpokenLabel, stacked, note,
+}: {
+  kpis: KpiItem[]; title: string; deltaLabel: string; deltaSpokenLabel: string; stacked: boolean;
+  /** Said once when the month is "so far" -- an account's statements stop short of it. Built from
+   *  the server's own month and account (lib/statementBehind), never written here. */
+  note?: string | null;
+}) {
   const c = useTheme();
   const income = kpis.find((k) => k.label === 'Income');
   const expenses = kpis.find((k) => k.label === 'Expenses');
@@ -52,6 +57,9 @@ export function LedgerMonthCard({
         {column(income)}
         {column(expenses)}
       </View>
+      {note ? (
+        <Text testID="so-far-note" style={[typography.caption, styles.note, { color: c.mutedInk }]}>{note}</Text>
+      ) : null}
     </DashboardCard>
   );
 }
@@ -63,6 +71,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   comparison: { flexShrink: 1, textAlign: 'right' },
+  note: { marginTop: spacing.sm },
   sideBySide: { flexDirection: 'row', gap: spacing.md },
   stacked: { flexDirection: 'column', gap: spacing.ms },
   column: { flex: 1, gap: spacing.xs },

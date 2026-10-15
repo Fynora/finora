@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
+import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
@@ -41,6 +43,7 @@ class ReportControllerIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private TransactionRepository transactionRepository;
+    @Autowired private StatementImportRepository statementImportRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
@@ -158,6 +161,97 @@ class ReportControllerIT extends AbstractIntegrationTest {
 
         assertThat(comparison.get("reliable").asBoolean()).isFalse();
         assertThat(comparison.get("gateReason").asText()).isEqualTo("PRIOR_BEFORE_HISTORY");
+    }
+
+    // --- a card whose statement cycle ends on the 11th while the bank account runs to month-end ---
+
+    private UUID createCard(User user, Account.PrimarySource source) {
+        Account card = new Account();
+        card.setUserId(user.getId());
+        card.setName("Report IT Card");
+        card.setAccountType(Account.Type.CREDIT_CARD);
+        card.setBalance(BigDecimal.ZERO);
+        card.setAccountHolderName("Report IT Test User");
+        card.setPrimarySource(source);
+        return accountRepository.save(card).getId();
+    }
+
+    private void statement(User user, UUID accountId, LocalDate start, LocalDate end, UUID supersededBy) {
+        StatementImport s = new StatementImport();
+        s.setUserId(user.getId());
+        s.setAccountId(accountId);
+        s.setFileName("card.pdf");
+        s.setSourceFormat("PDF");
+        s.setFileContent(new byte[] {1});
+        s.setContentHash("report-it-" + UUID.randomUUID());
+        s.setStatementPeriodStart(start);
+        s.setStatementPeriodEnd(end);
+        s.setSupersededBy(supersededBy);
+        statementImportRepository.save(s);
+    }
+
+    /** Bank account to 30 Sep (four full months), plus a card active in Aug and Sep whose latest
+     *  statement ends 11 Sep. */
+    private User userWithACardBehind(Account.PrimarySource cardSource) {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+        UUID card = createCard(user, cardSource);
+        expense(user, card, "200.00", LocalDate.of(2026, 8, 20));
+        expense(user, card, "150.00", LocalDate.of(2026, 9, 5));
+        statement(user, card, LocalDate.of(2026, 8, 12), LocalDate.of(2026, 9, 11), null);
+        return user;
+    }
+
+    @Test
+    void aCardWhoseStatementEndsOnThe11th_holdsBackSeptember_butNotAugust() throws Exception {
+        User user = userWithACardBehind(Account.PrimarySource.MANUAL);
+
+        JsonNode september = data(get("/api/v1/reports?month=2026-09", user)).get("comparison");
+        assertThat(september.get("reliable").asBoolean()).isFalse();
+        assertThat(september.get("gateReason").asText()).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
+
+        // The same statement (to 11 Sep) fully covers August.
+        assertThat(data(get("/api/v1/reports?month=2026-08", user)).get("comparison").get("reliable").asBoolean()).isTrue();
+
+        JsonNode trend = data(get("/api/v1/reports/trend?months=4", user));
+        assertThat(trend.get(2).get("complete").asBoolean()).isTrue();   // August
+        assertThat(trend.get(3).get("complete").asBoolean()).isFalse();  // September
+    }
+
+    @Test
+    void theMonthReport_saysWhetherTheMonthIsWhole_soAChartCanMarkAPartialOne() throws Exception {
+        User user = userWithACardBehind(Account.PrimarySource.MANUAL);
+
+        assertThat(data(get("/api/v1/reports?month=2026-08", user)).get("complete").asBoolean()).isTrue();
+        assertThat(data(get("/api/v1/reports?month=2026-09", user)).get("complete").asBoolean()).isFalse();
+    }
+
+    @Test
+    void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+
+        assertThat(data(get("/api/v1/reports?month=2026-09", user)).get("complete").asBoolean()).isTrue();
+    }
+
+    @Test
+    void aStatementThatHasBeenSupersededDoesNotCountAsCoverage() throws Exception {
+        User user = userWithACardBehind(Account.PrimarySource.MANUAL);
+        UUID card = accountRepository.findByUserId(user.getId()).stream()
+                .filter(a -> a.getAccountType() == Account.Type.CREDIT_CARD).findFirst().orElseThrow().getId();
+        // A newer-looking statement that was replaced must not make the card look fully covered.
+        statement(user, card, LocalDate.of(2026, 9, 12), LocalDate.of(2026, 9, 30), UUID.randomUUID());
+
+        JsonNode september = data(get("/api/v1/reports?month=2026-09", user)).get("comparison");
+
+        assertThat(september.get("gateReason").asText()).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
+    }
+
+    @Test
+    void anAccountAggregatorCard_hasNoStatementReachToBeBehindOn() throws Exception {
+        User user = userWithACardBehind(Account.PrimarySource.ACCOUNT_AGGREGATOR);
+
+        JsonNode september = data(get("/api/v1/reports?month=2026-09", user)).get("comparison");
+
+        assertThat(september.get("reliable").asBoolean()).isTrue();
     }
 
     @Test

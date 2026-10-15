@@ -256,6 +256,16 @@ export interface HealthScorePoint {
   score: number;
 }
 
+/** An account whose data -- a statement, or a linked account's sync -- ends before the month does.
+ *  See DashboardSummary.statementBehind. */
+export interface StatementBehind {
+  accountName: string;
+  /** "YYYY-MM-DD", the last day that account's statements cover. */
+  coveredThrough: string;
+  /** How many accounts are behind, the named one included. */
+  accountCount: number;
+}
+
 export interface DashboardSummary {
   currentBalance: number;
   totalAssets: number;
@@ -270,6 +280,10 @@ export interface DashboardSummary {
    */
   savingsRatePct: number | null;
   savingsRateGateReason?: 'NO_INCOME' | 'UNRESOLVED_EXCEEDS_INCOME' | null;
+  /** Set when the reporting month is "so far": an account's latest data ends before the month
+   *  does. The figures are still real -- label them, never hide them. Optional: an older server
+   *  does not send it. */
+  statementBehind?: StatementBehind | null;
   incomeDeltaPct: number | null;
   expenseDeltaPct: number | null;
   netDeltaPct: number | null;

@@ -44,14 +44,18 @@ public class DashboardService {
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
     private final InflowChoiceService inflowChoices;
 
+    /** Whether the reporting month is "so far" because an account's statements stop short of it. */
+    private final StatementReachService statementReach;
+
     public DashboardService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                              CategoryRepository categoryRepository, BudgetRepository budgetRepository,
                              UserRepository userRepository,
                              com.finora.repository.StatementImportRepository statementImportRepository,
                              TransactionGraphService transactionGraphService,
                              HealthScoreSnapshotRepository healthScoreSnapshotRepository,
-                            InflowChoiceService inflowChoices) {
+                            InflowChoiceService inflowChoices, StatementReachService statementReach) {
         this.inflowChoices = inflowChoices;
+        this.statementReach = statementReach;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.categoryRepository = categoryRepository;
@@ -368,7 +372,12 @@ public class DashboardService {
                 categorizationConfidenceScore, categorizationConfidenceTransactionCount, MIN_TRANSACTIONS_FOR_CONFIDENCE_SCORE,
                 incomeDeltaPct != null ? priorMonth : null, incomeDeltaPct != null ? incomePrior : null,
                 unresolvedCur, unresolvedCountCur, unresolvedTopReason == null ? null : unresolvedTopReason.name(),
-                savingsReading.gateReason()
+                savingsReading.gateReason(),
+                // `months` is ascending, so its last entry is the newest month with data; the
+                // reporting month IS that month, so this asks about the month the KPIs describe.
+                currentMonth == null || months.isEmpty() ? null
+                        : statementReach.behindFor(userId, YearMonth.parse(currentMonth),
+                                YearMonth.parse(months.get(months.size() - 1))).orElse(null)
         );
     }
 

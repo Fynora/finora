@@ -151,6 +151,29 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     List<StatementMetadata> findMetadataWithPeriodByUserIdAndAccountId(@Param("userId") UUID userId,
                                                                         @Param("accountId") UUID accountId);
 
+    /** One row per account: how far its newest active statement reaches. */
+    interface LatestPeriodEnd {
+        UUID getAccountId();
+        LocalDate getLatestEnd();
+    }
+
+    /**
+     * How far each of these accounts' statements reach -- the newest period end among its active
+     * (not superseded) statements that state a period. An account with no such statement has no row.
+     * Backs the Reports comparison's "is this account's latest statement behind this month" check.
+     */
+    @Query("""
+           SELECT si.accountId AS accountId, MAX(si.statementPeriodEnd) AS latestEnd
+             FROM StatementImport si
+            WHERE si.userId = :userId
+              AND si.accountId IN :accountIds
+              AND si.supersededBy IS NULL
+              AND si.statementPeriodEnd IS NOT NULL
+            GROUP BY si.accountId
+           """)
+    List<LatestPeriodEnd> findLatestPeriodEndsByAccount(@Param("userId") UUID userId,
+                                                         @Param("accountIds") java.util.Collection<UUID> accountIds);
+
     /**
      * The latest statement period end already on file for this account, ignoring one row.
      *

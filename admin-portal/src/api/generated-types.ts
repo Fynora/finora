@@ -9412,6 +9412,7 @@ export interface components {
             /** Format: int32 */
             unresolvedInflowCount?: number;
             comparison?: components["schemas"]["MonthComparison"];
+            complete?: boolean;
         };
         ApiResponseListReportTrendPoint: {
             success?: boolean;
@@ -10025,6 +10026,7 @@ export interface components {
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
+            statementBehind?: components["schemas"]["StatementBehindDto"];
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -10038,6 +10040,13 @@ export interface components {
             yearMonth?: string;
             /** Format: int32 */
             score?: number;
+        };
+        StatementBehindDto: {
+            accountName?: string;
+            /** Format: date */
+            coveredThrough?: string;
+            /** Format: int32 */
+            accountCount?: number;
         };
         ApiResponseDashboardRangeSummaryDto: {
             success?: boolean;
@@ -10089,6 +10098,7 @@ export interface components {
             unresolvedInflowCount?: number;
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
+            statementBehind?: components["schemas"]["StatementBehindDto"];
         };
         ApiResponseChangeStampDto: {
             success?: boolean;

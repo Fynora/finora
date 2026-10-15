@@ -40,7 +40,11 @@ class AccountCoverageServiceTest {
     void setUp() {
         accountRepository = mock(AccountRepository.class);
         statementImportRepository = mock(StatementImportRepository.class);
-        service = new AccountCoverageService(accountRepository, statementImportRepository);
+        service = new AccountCoverageService(accountRepository, statementImportRepository,
+                mock(com.finora.integrations.setu.AccountAggregatorLinkRepository.class),
+                new com.finora.integrations.setu.AccountAggregatorLinkStalenessService(24),
+                mock(com.finora.repository.TransactionRepository.class),
+                mock(com.finora.repository.UserRepository.class));
     }
 
     private Account account(UUID id, UUID ownerId) {

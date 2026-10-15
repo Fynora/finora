@@ -58,7 +58,8 @@ class ReportServiceTest {
         accountCoverageService = mock(AccountCoverageService.class);
         when(accountCoverageService.gapsForUser(any())).thenReturn(List.of());
         reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService,
-                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository), accountCoverageService);
+                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository), accountCoverageService,
+                new StatementReachService(accountCoverageService, accountRepository, transactionRepository));
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, Transaction.ReconciliationStatus status) {
@@ -663,6 +664,64 @@ class ReportServiceTest {
         assertThat(c.netDelta()).isNull();
     }
 
+    // --- complete: the month's own "is this a whole month" flag, for charts ---
+
+    @Test
+    void complete_isTrueForAWholeMonthInTheMiddleOfHistory() {
+        stubTwoComparableMonths();
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isTrue();
+    }
+
+    @Test
+    void complete_isFalseForTheRaggedNewestMonth() {
+        stubTwoComparableMonths();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 26)); // data ends on the 26th
+        stubMonth(2026, 9, txnOn(LocalDate.of(2026, 9, 5), "900.00", Transaction.Type.EXPENSE));
+
+        assertThat(reportService.forMonth(userId, "2026-09").complete()).isFalse();
+    }
+
+    @Test
+    void complete_isFalseForAMonthSharingADayWithAMissingStatement() {
+        stubTwoComparableMonths();
+        when(accountCoverageService.gapsForUser(userId)).thenReturn(List.of(
+                new AccountCoverageService.DateRange(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 20))));
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isFalse();
+    }
+
+    @Test
+    void complete_isFalseWhenAnActiveAccountsDataStopsShortOfTheMonth() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11));
+
+        assertThat(reportService.forMonth(userId, "2026-08").complete()).isFalse();
+    }
+
+    @Test
+    void complete_doesNotDependOnWhetherTheComparisonCouldBeMade() {
+        // July is a whole month with only two transactions, so its COMPARISON is withheld (too few
+        // in the month before it) -- but the month itself is complete, and a chart must not hatch it.
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE));
+
+        ReportDto july = reportService.forMonth(userId, "2026-07");
+
+        assertThat(july.comparison().reliable()).isFalse();
+        assertThat(july.complete()).isTrue();
+    }
+
+    @Test
+    void complete_isTrueForAUserWithNoLiveAccount() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        assertThat(reportService.forMonth(userId, "2026-07").complete()).isTrue();
+    }
+
     @Test
     void comparison_forTheFirstMonthOfHistory_hasNothingToCompareWith() {
         stubNothingByDefault();
@@ -860,6 +919,68 @@ class ReportServiceTest {
                 .findEarliestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
         verify(transactionRepository, org.mockito.Mockito.atLeastOnce())
                 .findLatestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
+    }
+
+    // --- an account whose latest statement stops short of the month ---
+
+    private void givenTheAccountsLatestStatementEnds(LocalDate end) {
+        when(accountCoverageService.latestCoverageEnds(userId)).thenReturn(java.util.Map.of(liveAccount.getId(), end));
+        when(transactionRepository.findAccountIdsWithTransactionsBetween(eq(userId), any(), any(), any()))
+                .thenReturn(List.of(liveAccount.getId()));
+    }
+
+    @Test
+    void comparison_whenAnActiveAccountsStatementEndsBeforeTheMonthDoes_isHeldBack() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11)); // August ends on the 31st
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("ACCOUNT_STATEMENT_BEHIND");
+    }
+
+    @Test
+    void comparison_whenTheStatementReachesPastTheMonth_isMade() {
+        stubTwoComparableMonths();
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 9, 11)); // the next cycle covers August
+
+        assertThat(reportService.forMonth(userId, "2026-08").comparison().reliable()).isTrue();
+    }
+
+    @Test
+    void comparison_forAMonthOlderThanTheTwoNewest_doesNotEvenAskWhichAccountsWereActive() {
+        stubTwoComparableMonths(); // newest month with data is September, so July is not recent
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 6, 1));
+
+        reportService.forMonth(userId, "2026-07");
+
+        verify(transactionRepository, never()).findAccountIdsWithTransactionsBetween(any(), any(), any(), any());
+    }
+
+    @Test
+    void comparison_withNoStatementBackedAccount_doesNotRunTheActivityQuery() {
+        stubTwoComparableMonths(); // latestCoverageEnds is empty by default
+
+        reportService.forMonth(userId, "2026-08");
+
+        verify(transactionRepository, never()).findAccountIdsWithTransactionsBetween(any(), any(), any(), any());
+    }
+
+    @Test
+    void trend_marksTheRecentMonthsAnAccountsStatementDoesNotReachAsIncomplete() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        givenTheAccountsLatestStatementEnds(LocalDate.of(2026, 8, 11));
+
+        List<ReportService.ReportTrendPoint> points = reportService.trend(userId, null, 6);
+
+        assertThat(points).extracting(ReportService.ReportTrendPoint::month, ReportService.ReportTrendPoint::complete)
+                .containsExactly(
+                        org.assertj.core.api.Assertions.tuple("2026-06", true),
+                        org.assertj.core.api.Assertions.tuple("2026-07", true),   // too old to be judged
+                        org.assertj.core.api.Assertions.tuple("2026-08", false),
+                        org.assertj.core.api.Assertions.tuple("2026-09", false));
     }
 
     @Test

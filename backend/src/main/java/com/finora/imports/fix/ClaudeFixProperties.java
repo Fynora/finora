@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Configuration;
 /**
  * The automatic Claude fix job (docs/superpowers/specs/2026-10-15-claude-fix-job-design.md). Off by
  * default: while off nothing is started, sent or polled. The token is the owner's fine-grained
- * token for the private repository only (Contents write, Actions read, no Workflows); it is never
+ * token for the private repository only (Contents write, Actions read, Pull requests read, no
+ * Workflows); the optional public-read token reads Finora's own PRs and commits. Neither is ever
  * logged.
  */
 @Configuration
@@ -16,6 +17,7 @@ public class ClaudeFixProperties {
     private boolean enabled = false;
     private int monthlyCap = 50;
     private String githubToken = "";
+    private String publicReadToken = "";
     private String privateRepo = "Fynora/finora-statement-traces";
     private String publicRepo = "Fynora/finora";
     private String incomingBranch = "incoming";
@@ -27,6 +29,8 @@ public class ClaudeFixProperties {
     public void setMonthlyCap(int monthlyCap) { this.monthlyCap = monthlyCap; }
     public String getGithubToken() { return githubToken; }
     public void setGithubToken(String githubToken) { this.githubToken = githubToken == null ? "" : githubToken; }
+    public String getPublicReadToken() { return publicReadToken; }
+    public void setPublicReadToken(String publicReadToken) { this.publicReadToken = publicReadToken == null ? "" : publicReadToken; }
     public String getPrivateRepo() { return privateRepo; }
     public void setPrivateRepo(String privateRepo) { this.privateRepo = privateRepo; }
     public String getPublicRepo() { return publicRepo; }

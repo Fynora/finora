@@ -824,8 +824,12 @@ app:
     # Jobs started per calendar month (India time); the next hold goes to a person.
     monthly-cap: ${APP_CLAUDE_FIX_MONTHLY_CAP:50}
     # A fine-grained token limited to the private repository: Contents read/write, Actions read,
-    # no Workflows. Set by the owner in Railway and nowhere in this repository.
+    # Pull requests read, no Workflows. Set by the owner in Railway and nowhere in this repository.
     github-token: ${APP_CLAUDE_FIX_GITHUB_TOKEN:}
+    # A read-only fine-grained token for Fynora/finora (Contents read, Pull requests read), used to
+    # read the fix PR and compare it with the deployed commit. Optional while Finora is public (the
+    # token above can read a public repository); required once Finora is private.
+    public-read-token: ${APP_CLAUDE_FIX_PUBLIC_READ_TOKEN:}
     # How often production polls GitHub for each open job's run and PRs.
     follow-up-interval-ms: ${APP_CLAUDE_FIX_FOLLOW_UP_INTERVAL_MS:600000}
   audit:

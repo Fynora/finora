@@ -280,11 +280,17 @@ a simulator; their calls are checked through the tests and a debug log.
   touch feedback) on and off. Only a person can tell whether the phone actually vibrated; the call is
   made either way.
 
+**Platforms.** The code is shared, so both changes ship to iPhone and Android alike. How
+`expo-haptics` 57 maps each of the five kinds onto Android vibration is read from its source during
+the plan and recorded, not assumed. Android is tested by the owner on a build after both pull
+requests merge (owner's decision, 2026-10-15), using an Android section of the same checklist.
+
 ## Not covered by me
 
 - Whether a phone actually vibrated, and whether the phones' own settings silence the app's haptics:
   the owner's checklist covers it.
-- Android, if no Android phone or signed-in emulator is available.
+- Android: the owner tests it on a build after merge; I check it only through the tests and the
+  Android bundle export.
 
 ## Completion criteria
 

@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { RefreshControl } from 'react-native';
+import { ActivityIndicator, RefreshControl } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AdvancedReportsScreen } from './AdvancedReportsScreen';
 import { analyticsApi, entitlementsApi, reportsApi, type EntitlementsDto } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { never } from '../test/loadingStates';
 
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
 // Premium paths that still exist stay tested; individual tests turn it off.
@@ -402,5 +403,33 @@ describe('AdvancedReportsScreen', () => {
     renderScreen();
 
     expect(await screen.findByText('Once you have year-over-year category spend, it appears here.')).toBeTruthy();
+  });
+});
+
+describe('AdvancedReportsScreen sections', () => {
+  beforeEach(() => entitlements.mine.mockResolvedValue(granted()));
+
+  it('shows section skeletons, not spinners, while sections first load', async () => {
+    analytics.topMerchants.mockReturnValue(never());
+    analytics.topCategories.mockReturnValue(never());
+    analytics.international.mockReturnValue(never());
+    analytics.multiYearIncome.mockReturnValue(never());
+    analytics.multiYearCategories.mockReturnValue(never());
+    analytics.categoryConfidence.mockReturnValue(never());
+    renderScreen();
+    await screen.findByText('Top Merchants');
+    expect(screen.getAllByLabelText('Loading').length).toBeGreaterThanOrEqual(6);
+    expect(screen.UNSAFE_queryAllByType(ActivityIndicator)).toHaveLength(0);
+  });
+
+  it('a failed section says so, instead of claiming there is nothing yet, and can try again', async () => {
+    analytics.topMerchants.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText("Couldn't load this section.")).toBeTruthy();
+    expect(screen.queryByText('Import a statement or add transactions to see your top merchants.')).toBeNull();
+
+    analytics.topMerchants.mockResolvedValueOnce([]);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Import a statement or add transactions to see your top merchants.')).toBeTruthy();
   });
 });

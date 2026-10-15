@@ -34,6 +34,7 @@ class ReportServiceTest {
     private CategoryRepository categoryRepository;
     private InflowKindRepository inflowKindRepository;
     private SenderInflowRuleRepository senderInflowRuleRepository;
+    private AccountCoverageService accountCoverageService;
     private ReportService reportService;
     private final UUID userId = UUID.randomUUID();
     private Account liveAccount;
@@ -54,8 +55,10 @@ class ReportServiceTest {
 
         inflowKindRepository = mock(InflowKindRepository.class);
         senderInflowRuleRepository = mock(SenderInflowRuleRepository.class);
+        accountCoverageService = mock(AccountCoverageService.class);
+        when(accountCoverageService.gapsForUser(any())).thenReturn(List.of());
         reportService = new ReportService(transactionRepository, accountRepository, categoryRepository, transactionGraphService,
-                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository));
+                new InflowChoiceService(inflowKindRepository, senderInflowRuleRepository), accountCoverageService);
     }
 
     private Transaction txn(BigDecimal amount, Transaction.Type type, Transaction.ReconciliationStatus status) {
@@ -131,9 +134,14 @@ class ReportServiceTest {
 
         reportService.forMonth(userId, "2026-07");
 
+        // Two fetches now: the selected month, and the month before it for the comparison. Both
+        // must be scoped to the live accounts -- the prior month is exactly as exposed to the
+        // deleted-account leak as the selected one.
         verify(transactionRepository).findByUserIdAndTxnDateBetweenAndAccountIdIn(
-                eq(userId), any(), any(), eq(List.of(liveAccount.getId())));
-        verify(transactionRepository).findByUserIdAndReconciliationStatusInAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 7, 1)), eq(LocalDate.of(2026, 7, 31)), eq(List.of(liveAccount.getId())));
+        verify(transactionRepository).findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(LocalDate.of(2026, 6, 1)), eq(LocalDate.of(2026, 6, 30)), eq(List.of(liveAccount.getId())));
+        verify(transactionRepository, org.mockito.Mockito.atLeastOnce()).findByUserIdAndReconciliationStatusInAndAccountIdIn(
                 eq(userId), any(), eq(List.of(liveAccount.getId())));
     }
 
@@ -559,5 +567,308 @@ class ReportServiceTest {
 
         assertThat(totals.expense()).isEqualByComparingTo("700.00");
         assertThat(totals.income()).isEqualByComparingTo("0");
+    }
+
+    // --- Comparison with the previous month, and the per-month trend. ---
+
+    private Transaction txnOn(LocalDate date, String amount, Transaction.Type type) {
+        Transaction t = txn(new BigDecimal(amount), type, Transaction.ReconciliationStatus.OK);
+        t.setTxnDate(date);
+        return t;
+    }
+
+    /** Whatever the repository is asked about, answer empty unless a month is stubbed below. */
+    private void stubNothingByDefault() {
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(any(), any(), any()))
+                .thenReturn(List.of());
+    }
+
+    private void stubMonth(int year, int month, Transaction... txns) {
+        java.time.YearMonth ym = java.time.YearMonth.of(year, month);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), eq(ym.atDay(1)), eq(ym.atEndOfMonth()), any())).thenReturn(List.of(txns));
+    }
+
+    private void stubHistory(LocalDate earliest, LocalDate latest) {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(earliest);
+        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(latest);
+    }
+
+    /** History Jun 1 - Sep 30, July (prior) with 3 transactions, August (selected) with 2. */
+    private void stubTwoComparableMonths() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 7, 20), "100.00", Transaction.Type.EXPENSE));
+        stubMonth(2026, 8,
+                txnOn(LocalDate.of(2026, 8, 2), "1500.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 8, 12), "500.00", Transaction.Type.EXPENSE));
+    }
+
+    @Test
+    void comparison_isReliable_andReportsPercentChangesAndANetAmountChange() {
+        stubTwoComparableMonths();
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isTrue();
+        assertThat(c.gateReason()).isNull();
+        assertThat(c.previousMonth()).isEqualTo("2026-07");
+        assertThat(c.previousIncome()).isEqualByComparingTo("1000.00");
+        assertThat(c.previousExpense()).isEqualByComparingTo("400.00");
+        assertThat(c.incomeDeltaPct()).isEqualTo(50.0);   // 1000 -> 1500
+        assertThat(c.expenseDeltaPct()).isEqualTo(25.0);  // 400 -> 500
+        // net 600 last month, 1000 this month: reported as an amount, not a percent of a net.
+        assertThat(c.netDelta()).isEqualByComparingTo("400.00");
+    }
+
+    @Test
+    void comparison_withAZeroPriorIncome_hasNoIncomePercent_butIsStillReliable() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "100.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 7, 3), "100.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 7, 4), "100.00", Transaction.Type.EXPENSE));
+        stubMonth(2026, 8, txnOn(LocalDate.of(2026, 8, 2), "1500.00", Transaction.Type.INCOME));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isTrue();
+        assertThat(c.incomeDeltaPct()).isNull();           // a change from nothing has no percentage
+        assertThat(c.expenseDeltaPct()).isEqualTo(-100.0); // 300 -> 0 is a real, defined change
+    }
+
+    @Test
+    void comparison_forTheNewestMonth_whenItIsStillInProgress_isNotMadeAgainstAFullMonth() {
+        stubTwoComparableMonths();
+        // Data ends on the 26th: September is a partial slice of a continuous window.
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 26));
+        stubMonth(2026, 9, txnOn(LocalDate.of(2026, 9, 5), "900.00", Transaction.Type.EXPENSE));
+        stubMonth(2026, 8,
+                txnOn(LocalDate.of(2026, 8, 2), "1500.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 8, 12), "500.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 8, 13), "500.00", Transaction.Type.EXPENSE));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-09").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("SELECTED_MONTH_PARTIAL");
+        assertThat(c.previousIncome()).isNull();
+        assertThat(c.expenseDeltaPct()).isNull();
+        assertThat(c.netDelta()).isNull();
+    }
+
+    @Test
+    void comparison_forTheFirstMonthOfHistory_hasNothingToCompareWith() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 8, txnOn(LocalDate.of(2026, 8, 2), "1500.00", Transaction.Type.INCOME));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("PRIOR_BEFORE_HISTORY");
+    }
+
+    @Test
+    void comparison_whenThePriorMonthIsTheRaggedStartOfHistory_isNotUsedAsABaseline() {
+        stubTwoComparableMonths();
+        stubHistory(LocalDate.of(2026, 7, 20), LocalDate.of(2026, 9, 30)); // July starts on the 20th
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("PARTIAL_PRIOR_MONTH");
+    }
+
+    @Test
+    void comparison_whenAStatementIsMissingInEitherMonth_isNotMade() {
+        stubTwoComparableMonths();
+        when(accountCoverageService.gapsForUser(userId)).thenReturn(List.of(
+                new AccountCoverageService.DateRange(LocalDate.of(2026, 7, 10), LocalDate.of(2026, 7, 20))));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("COVERAGE_GAP");
+    }
+
+    @Test
+    void comparison_whenThePriorMonthHasFewerThanThreeTransactions_isNotMade() {
+        stubTwoComparableMonths();
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("TOO_FEW_PRIOR_TRANSACTIONS");
+    }
+
+    @Test
+    void comparison_whenThePriorMonthHasExactlyThreeTransactions_isMade() {
+        stubTwoComparableMonths(); // July carries exactly 3
+
+        assertThat(reportService.forMonth(userId, "2026-08").comparison().reliable()).isTrue();
+    }
+
+    @Test
+    void comparison_forAMonthWithNoTransactions_isNotMadeAsAHundredPercentDrop() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 7, 20), "100.00", Transaction.Type.EXPENSE));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        assertThat(c.reliable()).isFalse();
+        assertThat(c.gateReason()).isEqualTo("NO_TRANSACTIONS_IN_MONTH");
+    }
+
+    @Test
+    void comparison_isNullForAUserWithNoLiveAccount_andTheCountsAreZero() {
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.comparison()).isNull();
+        assertThat(report.transactionCount()).isZero();
+        assertThat(report.unresolvedInflowCount()).isZero();
+    }
+
+    @Test
+    void transactionCount_isTheRowsTheTotalsWereBuiltFrom_notEveryRowInTheMonth() {
+        Transaction groceries = txn(new BigDecimal("2000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        Transaction sip = txn(new BigDecimal("3000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(groceries, sip));
+
+        assertThat(reportService.forMonth(userId, "2026-07").transactionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void comparison_priorSideIsBuiltTheSameWayAsTheSelectedSide_refundsAndInvestmentTransfersIncluded() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+        Transaction sip = txnOn(LocalDate.of(2026, 7, 5), "3000.00", Transaction.Type.EXPENSE);
+        sip.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        Transaction refundLeg = txnOn(LocalDate.of(2026, 7, 6), "999.00", Transaction.Type.INCOME);
+        refundLeg.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        stubMonth(2026, 7,
+                txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME),
+                txnOn(LocalDate.of(2026, 7, 10), "300.00", Transaction.Type.EXPENSE),
+                txnOn(LocalDate.of(2026, 7, 11), "100.00", Transaction.Type.EXPENSE),
+                sip, refundLeg);
+        stubMonth(2026, 8, txnOn(LocalDate.of(2026, 8, 2), "1500.00", Transaction.Type.INCOME));
+
+        ReportDto.MonthComparison c = reportService.forMonth(userId, "2026-08").comparison();
+
+        // The SIP is not spend and the refund leg is not income, on the prior side exactly as on
+        // the selected side -- otherwise the percentage compares two differently-built numbers.
+        assertThat(c.previousIncome()).isEqualByComparingTo("1000.00");
+        assertThat(c.previousExpense()).isEqualByComparingTo("400.00");
+        assertThat(c.previousIncome()).isEqualByComparingTo(
+                reportService.forMonth(userId, "2026-07").income());
+    }
+
+    // --- trend ---
+
+    @Test
+    void trend_returnsOneEqualToForMonthPointPerMonth_oldestFirst_withNoPaddingBeforeHistory() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 7, 1), LocalDate.of(2026, 9, 30));
+        stubMonth(2026, 7, txnOn(LocalDate.of(2026, 7, 2), "1000.00", Transaction.Type.INCOME));
+        stubMonth(2026, 8, txnOn(LocalDate.of(2026, 8, 2), "200.00", Transaction.Type.EXPENSE));
+        stubMonth(2026, 9, txnOn(LocalDate.of(2026, 9, 2), "300.00", Transaction.Type.EXPENSE));
+
+        List<ReportService.ReportTrendPoint> points = reportService.trend(userId, null, 6);
+
+        assertThat(points).extracting(ReportService.ReportTrendPoint::month).containsExactly("2026-07", "2026-08", "2026-09");
+        ReportDto august = reportService.forMonth(userId, "2026-08");
+        ReportService.ReportTrendPoint augustPoint = points.get(1);
+        assertThat(augustPoint.income()).isEqualByComparingTo(august.income());
+        assertThat(augustPoint.expense()).isEqualByComparingTo(august.expense());
+        assertThat(augustPoint.transactionCount()).isEqualTo(august.transactionCount());
+    }
+
+    @Test
+    void trend_endsAtTheAnchorMonth_andIsClampedToTheNewestMonthWithData() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 9, 30));
+
+        assertThat(reportService.trend(userId, java.time.YearMonth.of(2026, 5), 2))
+                .extracting(ReportService.ReportTrendPoint::month).containsExactly("2026-04", "2026-05");
+        assertThat(reportService.trend(userId, java.time.YearMonth.of(2027, 3), 1))
+                .extracting(ReportService.ReportTrendPoint::month).containsExactly("2026-09");
+    }
+
+    @Test
+    void trend_clampsTheRequestedWindowToBetweenOneAndTwelveMonths() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 9, 30));
+
+        assertThat(reportService.trend(userId, null, 0)).hasSize(1);
+        assertThat(reportService.trend(userId, null, -5)).hasSize(1);
+        assertThat(reportService.trend(userId, null, 99)).hasSize(12);
+    }
+
+    @Test
+    void trend_marksARaggedEdgeMonthAndAGapMonthIncomplete() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 15), LocalDate.of(2026, 9, 30)); // June starts on the 15th
+        when(accountCoverageService.gapsForUser(userId)).thenReturn(List.of(
+                new AccountCoverageService.DateRange(LocalDate.of(2026, 8, 5), LocalDate.of(2026, 8, 9))));
+
+        List<ReportService.ReportTrendPoint> points = reportService.trend(userId, null, 6);
+
+        assertThat(points).extracting(ReportService.ReportTrendPoint::month, ReportService.ReportTrendPoint::complete)
+                .containsExactly(
+                        org.assertj.core.api.Assertions.tuple("2026-06", false),  // ragged start
+                        org.assertj.core.api.Assertions.tuple("2026-07", true),
+                        org.assertj.core.api.Assertions.tuple("2026-08", false),  // statement gap
+                        org.assertj.core.api.Assertions.tuple("2026-09", true));
+    }
+
+    @Test
+    void trend_forAnAnchorBeforeHistoryBegan_isEmpty_notAListOfFabricatedZeroMonths() {
+        stubNothingByDefault();
+        stubHistory(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 30));
+
+        assertThat(reportService.trend(userId, java.time.YearMonth.of(2025, 1), 6)).isEmpty();
+    }
+
+    @Test
+    void historyBounds_areScopedToTheLiveAccounts_soADeletedAccountCannotMoveThem() {
+        // The earliest/latest dates decide both whether a month has a prior to compare with and
+        // where the trend starts. A deleted account's transactions keep deleted_at unset, so if
+        // these were scoped by user only, an old deleted account would push the history back
+        // years and every comparison would read as "has a prior month" against empty space.
+        stubTwoComparableMonths();
+
+        reportService.forMonth(userId, "2026-08");
+        reportService.trend(userId, null, 3);
+
+        verify(transactionRepository, org.mockito.Mockito.atLeastOnce())
+                .findEarliestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
+        verify(transactionRepository, org.mockito.Mockito.atLeastOnce())
+                .findLatestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
+    }
+
+    @Test
+    void trend_isEmptyWithNoLiveAccount_andWithNoTransactionHistory() {
+        stubHistory(null, null);
+        assertThat(reportService.trend(userId, null, 6)).isEmpty();
+
+        when(accountRepository.findByUserId(userId)).thenReturn(List.of());
+        assertThat(reportService.trend(userId, null, 6)).isEmpty();
+        verify(transactionRepository, never()).findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any());
     }
 }

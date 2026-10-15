@@ -1,5 +1,6 @@
 package com.finora.transactions;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.Transaction;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -113,6 +114,7 @@ public record TransactionDto(
      * and the large existing test suite) rather than forcing an unrelated change on all of them for
      * one new, optional field.
      */
+    @Schema(name = "TransactionCreateRequest")
     public record CreateRequest(UUID accountId, String categoryName, LocalDate date,
                                  @Size(max = 500, message = DESCRIPTION_SIZE_MESSAGE) String description,
                                  BigDecimal amount, String type,
@@ -133,6 +135,7 @@ public record TransactionDto(
      * decision (it changes which account's balance the amount should count against) that this
      * form doesn't offer — delete and re-create under the right account instead.
      */
+    @Schema(name = "TransactionUpdateRequest")
     public record UpdateRequest(LocalDate date,
                                  @Size(max = 500, message = DESCRIPTION_SIZE_MESSAGE) String description,
                                  @Size(max = 255, message = "Merchant can't exceed 255 characters") String merchant,

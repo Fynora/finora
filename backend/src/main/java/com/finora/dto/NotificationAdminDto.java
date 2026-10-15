@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationStatus;
 
@@ -65,6 +66,7 @@ public record NotificationAdminDto(
      * FAILED value here would always report zero and silently under-count every real failure, so
      * it is deliberately excluded.
      */
+    @Schema(name = "NotificationAdminSummary")
     public record Summary(long sent, long failed, List<ChannelSummary> byChannel) {}
 
     public record ChannelSummary(String channel, long sent, long failed) {}

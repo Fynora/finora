@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.ImportJob;
 
 import java.time.Instant;
@@ -82,5 +83,6 @@ public record HeldImportDto(
      * finished yet, so a second admin does not reprocess the same thing again; it is deliberately
      * a count of QUEUED jobs that were once held, not of all QUEUED jobs.
      */
+    @Schema(name = "HeldImportSummary")
     public record Summary(long held, long reprocessing) {}
 }

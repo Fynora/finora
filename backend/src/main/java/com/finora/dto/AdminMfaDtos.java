@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.List;
@@ -9,6 +10,7 @@ public class AdminMfaDtos {
 
     private AdminMfaDtos() {}
 
+    @Schema(name = "AdminMfaStatusResponse")
     public record StatusResponse(boolean enabled) {}
 
     /** {@code provisioningUri} is what a QR-code renderer turns into a scannable image
@@ -16,11 +18,13 @@ public class AdminMfaDtos {
      *  value in typeable form, for an authenticator app's manual-entry fallback. */
     public record EnrollResponse(String secret, String provisioningUri) {}
 
+    @Schema(name = "AdminMfaConfirmRequest")
     public record ConfirmRequest(@NotBlank String code) {}
 
     /** {@code recoveryCodes} is the ONLY time these are ever returned in the clear -- only
      *  hashes are persisted (see AdminMfaRecoveryCode). The frontend's job is to make the user
      *  actually look at these before dismissing this response, not to let them be re-fetched. */
+    @Schema(name = "AdminMfaConfirmResponse")
     public record ConfirmResponse(List<String> recoveryCodes) {}
 
     /** {@code code} is a live TOTP code or an unused recovery code -- required in addition to

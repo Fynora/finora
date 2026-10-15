@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -18,6 +19,7 @@ public record InsightsDto(
         String reportingMonth,
         boolean reportingMonthIsCurrent
 ) {
+    @Schema(name = "InsightsCategoryMover")
     public record CategoryMover(String category, BigDecimal current, BigDecimal priorAverage, Double pctChange) {}
 
     // Structured twins of the "%s was your biggest category at ₹%,.0f." / "Your top merchant ...

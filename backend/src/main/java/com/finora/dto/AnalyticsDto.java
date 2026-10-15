@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.UUID;
  *  learningGrowth views. See AnalyticsService's class comment. */
 public class AnalyticsDto {
 
+    @Schema(name = "AnalyticsTopMerchant")
     public record TopMerchant(UUID merchantId, String merchantName, BigDecimal totalSpend, int transactionCount) {}
 
     /** month is "YYYY-MM" (matches YearMonth.toString()), oldest first -- a line chart's natural x-axis order. */
@@ -22,6 +24,7 @@ public class AnalyticsDto {
 
     /** Same shape as TopMerchant, grouped by category instead of merchant -- Workspace Analytics'
      *  "Top Categories" view. */
+    @Schema(name = "AnalyticsTopCategory")
     public record TopCategory(UUID categoryId, String categoryName, BigDecimal totalSpend, int transactionCount) {}
 
     /** One slice of the dashboard's spend-by-category breakdown: grouped by category NAME, with

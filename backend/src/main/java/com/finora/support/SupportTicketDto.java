@@ -1,5 +1,6 @@
 package com.finora.support;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.SupportTicket;
 import com.finora.entity.SupportTicketInternalNote;
@@ -20,6 +21,7 @@ public final class SupportTicketDto {
     /** List-row shape: everything a "My Tickets" row or an admin queue row needs, and nothing that
      *  requires a second query to produce. Deliberately excludes {@code description} — the same
      *  reason {@code HeldImportDto}'s list shape excludes the raw parser error. */
+    @Schema(name = "SupportTicketSummary")
     public record Summary(
             UUID id,
             String ticketNumber,
@@ -41,6 +43,7 @@ public final class SupportTicketDto {
     /** Single-ticket shape, including the attachment list. Served by one route to two audiences —
      *  see {@code SupportTicketService.getDetail}'s own doc for why there is no separate admin
      *  detail endpoint. */
+    @Schema(name = "SupportTicketDetail")
     public record Detail(
             UUID id,
             String ticketNumber,

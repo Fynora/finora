@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -24,6 +25,7 @@ public final class ImportRowTraceDto {
      * was confirmed by a client that predates echoing {@code ConfirmedRow.rowPosition} -- "no
      * position data available for this import" is a real, statable answer, not an error.
      */
+    @Schema(name = "ImportRowTrace")
     public record Trace(UUID statementImportId, List<RowOutcome> rows) {}
 
     /** Sorted by {@code rowPosition} ascending -- only rows this import actually has a position

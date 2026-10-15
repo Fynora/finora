@@ -482,6 +482,19 @@ Found and fixed on the way:
 - A failed referral-code copy left a rejected promise unhandled. It is now caught: nothing is shown
   and nothing fires.
 
+Found in the bug pass after the pull request opened:
+
+- **A pick that is itself the save was felt twice** (the picker's tick, then the save's outcome):
+  the ledger's category correction, Category Review, Quick Sort and the recurring question's
+  "Something else". The category picker takes `silent` for these callers, so the save's success or
+  error is the one haptic. Mark as Transfer ticked on the tap and gave nothing for the outcome; it
+  now gives the outcome instead.
+- **Saves and deletes that gave no outcome:** deleting a transaction and unmarking a transfer (the
+  ledger gave an error but no success), discarding an unfinished import, removing a saved statement
+  password (one or all), the recurring question's answer, and the statement-refresh banner's
+  "Update" (only when something was updated) and its password update (a refused password is an
+  error).
+
 ### The table, row by row, and the tests that pin it
 
 | Row | Tests |
@@ -493,14 +506,14 @@ Found and fixed on the way:
 | Switches | `AppSwitch.test.tsx`; `LedgerFiltersSheet.test.tsx` (International row); `SettingsGeneralScreen.test.tsx` (Haptics: on = one tick, off = none); `InflowKindsSettings.test.tsx` (a switch that saves at once: one tick, no outcome haptic even when the save fails) |
 | Pull to refresh | `AppRefreshControl.test.tsx`; `DashboardScreen.test.tsx`; `LedgerScreen.test.tsx`; guard: no list uses its own `onRefresh` |
 | Long press | `LedgerScreen.test.tsx` (impact 1, twice) |
-| Save, add, import or delete: success | the success test beside each action's existing one, in 31 test files |
+| Save, add, import or delete: success | the success test beside each action's existing one, in 36 test files |
 | Refused or failed: error | the failure test beside each, same files; `ChangeEmailSheet.test.tsx` (fails then succeeds: error, then success) |
 | Blocked send: warning | Goals ×3, Investments ×2 (four bad values = four warnings), Profile, Settings › General |
 | Referral code copy | `ReferralsScreen.test.tsx` (copied = success; copy fails = none) |
 | Cancel | `AccountsScreen.test.tsx`, `AccountFormSheet.test.tsx`, `NewTicketSheet.test.tsx`, Bank Sync disconnect Cancel, subscription pause dismissed, Change Password's missing-session stop |
 | Never while scrolling | `LedgerScreen.test.tsx` (scrolling, including past the pull point: none) |
 | Never for what the person did not do | `DashboardScreen.test.tsx` (a background refresh finishing: none); Gmail sync (hands off to a job: none) |
-| One action, one haptic | double press on Add Transaction and on Add Goal (one request, one success); optimistic dismiss on Home and Insights (none as the row leaves; one success, or one error with the row back) |
+| One action, one haptic | double press on Add Transaction and on Add Goal (one request, one success); optimistic dismiss on Home and Insights (none as the row leaves; one success, or one error with the row back); a pick that saves at once (ledger correction and Mark as Transfer: success only; Category Review, Quick Sort, recurring question: the picker is `silent`) |
 | The switch itself | `haptics.test.ts` (not yet read, missing, failed read, stored off, on/off, fast toggling, a failed save, restart, a rejecting native call) |
 
 ### On the simulator

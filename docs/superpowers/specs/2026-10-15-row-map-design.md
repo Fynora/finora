@@ -39,9 +39,14 @@ description came from.
    display mapping from PR #2118):
 
    ```
-   # rowmap: section 1
-   # row 12: p2 y=401.20,412.80,424.40
+   # rowmap v1
+   # rowmap section 1 row 12: p2 401.20 412.80 424.40
    ```
+
+   (Format as built, 2026-10-15; the first draft wrote `# rowmap: section 1` and `# row 12: p2
+   y=...`. Sections and rows count from 1, as the panel names them; a page is numbered as the
+   trace's page column numbers it, and a row whose lines cross a page names each page before its
+   positions.)
 
    Positions only. Every `y` named is already in the copy's own run lines. The trace reader treats
    these as comment lines, so existing tools that read a trace are unaffected.

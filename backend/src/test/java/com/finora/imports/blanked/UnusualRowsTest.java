@@ -98,4 +98,14 @@ class UnusualRowsTest {
         assertThat(UnusualRows.of(Map.of())).isEmpty();
         assertThat(UnusualRows.of(Map.of(0, Map.of(0, RowLines.NONE)))).isEmpty();
     }
+
+    @Test
+    void aGapTooWideForAnIntIsStillMeasured() {
+        // -15,000,000pt to +15,000,000pt is 3,000,000,000 hundredths: past an int. The page's six
+        // gaps are four of 14pt and two huge ones, so the median is 14pt.
+        Map<Integer, Map<Integer, RowLines>> map = Map.of(0, Map.of(
+                0, new RowLines(List.of(new RowLines.Line(0, -1_500_000_000), new RowLines.Line(0, 1_500_000_000))),
+                1, row(0, 100), 2, row(0, 114), 3, row(0, 128), 4, row(0, 142), 5, row(0, 156)));
+        assertThat(UnusualRows.of(map)).containsExactly(new Flag(0, 0, Kind.FAR_LINE, 2, 1));
+    }
 }

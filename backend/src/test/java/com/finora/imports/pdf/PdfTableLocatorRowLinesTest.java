@@ -416,4 +416,25 @@ class PdfTableLocatorRowLinesTest {
                 List.of(), List.of(Map.of("Date", "01/05/2026")), PdfTableLocator.ExtractionEvidence.NONE);
         assertThat(section.rowLines()).isEmpty();
     }
+
+    @Test
+    void aStrayRunAtAnImpossiblePositionNeverStopsTheReading() {
+        List<PositionedText> plain = new ArrayList<>(header(100f, 0));
+        transaction(plain, "01/05/2026", "SAMPLE SHOP ONE", "100.00", "900.00", 114f, 0);
+        transaction(plain, "02/05/2026", "SAMPLE SHOP TWO", "50.00", "850.00", 128f, 0);
+        List<PositionedText> damaged = new ArrayList<>(plain);
+        damaged.add(run("STRAY", DESC_X, 1e12f, 0));
+        damaged.add(run("STRAY TOO", DESC_X, Float.NaN, 0));
+
+        PdfTableLocator.LocatedDocument expected = new PdfTableLocator().locateAll(plain);
+        PdfTableLocator.LocatedDocument read = new PdfTableLocator().locateAll(damaged);
+
+        // Whatever the reader makes of the stray runs, it is what it made of them before the row
+        // map existed: the two genuine rows keep their lines, and nothing throws.
+        PdfTableLocator.LocatedSection section = read.sections().get(0);
+        assertThat(section.rowLines()).hasSameSizeAs(section.rows());
+        assertThat(section.rows().subList(0, 2)).isEqualTo(expected.sections().get(0).rows());
+        assertThat(section.rowLines().subList(0, 2)).containsExactly(
+                new RowLines(List.of(line(0, 114f))), new RowLines(List.of(line(0, 128f))));
+    }
 }

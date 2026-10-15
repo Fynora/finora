@@ -56,4 +56,16 @@ class RowMapBlockTest {
         String trace = TraceFormat.format(List.of(new PositionedText("Xxxx", 10f, 100f, 0, 5f)));
         assertThat(TraceFormat.parse(trace + RowMapBlock.format(MAP))).isEqualTo(TraceFormat.parse(trace));
     }
+
+    @Test
+    void aPositionAboveThePageTopRoundTrips() {
+        Map<Integer, Map<Integer, RowLines>> map = Map.of(0, Map.of(0, lines(new RowLines.Line(0, -150),
+                new RowLines.Line(0, 5)), 1, lines(new RowLines.Line(1, 2_000_000_000))));
+        assertThat(RowMapBlock.format(map)).isEqualTo("""
+                # rowmap v1
+                # rowmap section 1 row 1: p0 -1.50 0.05
+                # rowmap section 1 row 2: p1 20000000.00
+                """);
+        assertThat(RowMapBlock.parse(RowMapBlock.format(map))).isEqualTo(map);
+    }
 }

@@ -31,15 +31,32 @@ public record RowLines(List<Line> lines) {
         lines = List.copyOf(lines);
     }
 
-    /** One physical row is one line, at its topmost run. */
+    /** Beyond this a y in hundredths no longer fits an int. No real page comes near it; only a
+     *  malformed text matrix does. */
+    static final float LARGEST_RECORDED_Y = 20_000_000f;
+
+    /**
+     * One physical row is one line, at its topmost run.
+     *
+     * <p>A run at a position no page has (not finite, or past {@link #LARGEST_RECORDED_Y}) is left
+     * out, and a row with no other run records nothing. The reader runs this on every row of every
+     * import, so a malformed PDF's stray coordinate must never be able to throw here.
+     */
     public static RowLines of(List<PositionedText> physicalRow) {
         if (physicalRow == null || physicalRow.isEmpty()) return NONE;
         PositionedText top = physicalRow.stream()
-                .min(Comparator.comparingDouble(PositionedText::y)).orElseThrow();
+                .filter(run -> recordable(run.y()))
+                .min(Comparator.comparingDouble(PositionedText::y)).orElse(null);
+        if (top == null) return NONE;
         return new RowLines(List.of(new Line(top.pageIndex(), hundredths(top.y()))));
     }
 
-    /** The y a trace would print, as an integer number of hundredths. */
+    static boolean recordable(float y) {
+        return Float.isFinite(y) && Math.abs(y) <= LARGEST_RECORDED_Y;
+    }
+
+    /** The y a trace would print, as an integer number of hundredths. Only for a
+     *  {@link #recordable} y. */
     static int hundredths(float y) {
         return new BigDecimal(String.format(Locale.ROOT, "%.2f", y)).movePointRight(2).intValueExact();
     }

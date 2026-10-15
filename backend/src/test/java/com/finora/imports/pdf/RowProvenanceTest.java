@@ -83,4 +83,29 @@ class RowProvenanceTest {
         p.transfer(before, after);
         assertThat(p.of(after).lines()).containsExactly(new RowLines.Line(1, 10000));
     }
+
+    // A malformed PDF can put a run anywhere: the row map must never be the reason a statement
+    // fails to read. A position a trace could not write as hundredths is simply not recorded.
+
+    @Test
+    void aRunAtANonFiniteOrHugePositionIsNotALine() {
+        assertThat(RowLines.of(List.of(run("a", 10, Float.NaN, 0)))).isEqualTo(RowLines.NONE);
+        assertThat(RowLines.of(List.of(run("a", 10, Float.POSITIVE_INFINITY, 0)))).isEqualTo(RowLines.NONE);
+        assertThat(RowLines.of(List.of(run("a", 10, 1e12f, 0)))).isEqualTo(RowLines.NONE);
+        assertThat(RowLines.of(List.of(run("a", 10, -1e12f, 0)))).isEqualTo(RowLines.NONE);
+    }
+
+    @Test
+    void aRowWithOneBadRunStillTakesItsGoodRun() {
+        assertThat(RowLines.of(List.of(run("a", 10, Float.NaN, 0), run("b", 90, 120f, 0))).lines())
+                .containsExactly(new RowLines.Line(0, 12000));
+        assertThat(RowLines.of(List.of(run("a", 10, -1e12f, 0), run("b", 90, 120f, 0))).lines())
+                .containsExactly(new RowLines.Line(0, 12000));
+    }
+
+    @Test
+    void theLargestWritablePositionIsKept() {
+        assertThat(RowLines.of(List.of(run("a", 10, 1_000_000f, 3))).lines())
+                .containsExactly(new RowLines.Line(3, 100_000_000));
+    }
 }

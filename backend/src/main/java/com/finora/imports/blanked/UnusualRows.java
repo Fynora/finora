@@ -66,10 +66,11 @@ public final class UnusualRows {
         }
         Map<Integer, Double> medians = new TreeMap<>();
         for (Map.Entry<Integer, TreeSet<Integer>> page : ysByPage.entrySet()) {
-            List<Integer> gaps = new ArrayList<>();
+            // long: two y values in hundredths can be further apart than an int holds.
+            List<Long> gaps = new ArrayList<>();
             Integer previous = null;
             for (int y : page.getValue()) {
-                if (previous != null) gaps.add(y - previous);
+                if (previous != null) gaps.add((long) y - previous);
                 previous = y;
             }
             if (gaps.size() < MIN_GAPS_TO_JUDGE) continue;
@@ -88,7 +89,7 @@ public final class UnusualRows {
             if (above.page() != below.page()) continue;
             Double median = medianGapByPage.get(below.page());
             if (median == null) continue;
-            if (below.yHundredths() - above.yHundredths() > FAR_GAP_MULTIPLE * median) return true;
+            if ((long) below.yHundredths() - above.yHundredths() > FAR_GAP_MULTIPLE * median) return true;
         }
         return false;
     }

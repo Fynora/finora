@@ -177,6 +177,18 @@ deleted, edited, added, sent or answered there.
   "Transactions" label at 1.3 times showed as "Transacti…". A 320 pt wide phone gives each slot
   about 56 pt even at the default size. Fixed test-first (`adjustsFontSizeToFit`,
   `minimumFontScale` 0.7) and seen fixed on the simulator.
+- **The pill's row is a tab list for screen readers** (`accessibilityRole="tablist"`), as the
+  library's own bar is (`BottomTabBar.tsx`: `role="tablist"`). Found in the bug review after the
+  first push: without it VoiceOver and TalkBack read the items as unrelated buttons. React Native
+  maps the role to the iOS tab-bar trait (`RCTConversions.h`) and handles it on Android
+  (`ReactAccessibilityDelegate.kt`). On the simulator each tab reads "button" and the open one
+  "selected"; the row's own trait was not read back on the device.
+- **Import's "Import complete" summary scrolls.** Found in the same review: it was a plain view with
+  a warnings list of any length and three buttons below it, and the screen now runs under the pill,
+  whose top edge sits about 9 pt higher than the old bar's. A long warnings list or large text would
+  have left "View in Ledger" under the pill with no way to reach it. The guard did not catch it
+  because the same file scrolls in its other states; a scan of every non-scrolling state in the 35
+  screens found no other such case (the rest are centred loading and error messages).
 - **Two Settings screens had no theme hook** to place the new hook after; it went after their first
   hook (`SettingsScreen`) or first in the component (`SettingsConnectedAppsScreen`, which has none).
 

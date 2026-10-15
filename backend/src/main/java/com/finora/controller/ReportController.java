@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.YearMonth;
 import java.util.List;
 
 @RestController
@@ -36,5 +37,17 @@ public class ReportController {
     @GetMapping("/income-trend")
     public ApiResponse<List<ReportService.IncomeTrendPoint>> incomeTrend() {
         return ApiResponse.ok(reportService.incomeTrend(currentUser.id()));
+    }
+
+    /** Income and expense per month, ending at {@code month} (the newest month with data when
+     *  omitted). {@code months} is clamped to 1-12 rather than rejected: asking for more history
+     *  than exists, or less than one month, has an obvious nearest answer. A malformed {@code month}
+     *  or a non-numeric {@code months} is a 400 from GlobalExceptionHandler, the same response
+     *  {@code /reports?month=} gives. */
+    @GetMapping("/trend")
+    public ApiResponse<List<ReportService.ReportTrendPoint>> monthlyTrend(@RequestParam(required = false) String month,
+                                                                          @RequestParam(defaultValue = "6") int months) {
+        YearMonth anchor = month == null || month.isBlank() ? null : YearMonth.parse(month);
+        return ApiResponse.ok(reportService.trend(currentUser.id(), anchor, months));
     }
 }

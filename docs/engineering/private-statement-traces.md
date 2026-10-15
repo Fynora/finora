@@ -87,10 +87,13 @@ against `main` goes red and opens an issue there.
 Private repositories' Actions minutes count against the owner's 2,000-a-month allowance; public
 ones are free. The private workflows are kept small:
 
-| Workflow | When | Measured duration |
+| Workflow | When | Measured on 2026-10-15 |
 |---|---|---|
-| `traces.yml` | push to the private `main`, pull requests there, once a day at 04:30 UTC, on demand | see below |
-| `privacy-scan.yml` | push and pull requests in the private repository | see below |
-| `retention.yml` | once a day at 05:00 UTC, on demand | see below |
+| `traces.yml` | push to the private `main`, pull requests there, once a day at 04:30 UTC, on demand | 5 min 19 s (26 classes, 86 tests), billed as 6 minutes |
+| `privacy-scan.yml` | every push and pull request in the private repository, on demand | 2 min 48 s, billed as 3 minutes |
+| `retention.yml` | once a day at 05:00 UTC, on demand | not yet measured; with no trace to delete it makes one HTTP call |
 
-No private workflow is scheduled more than once a day.
+So a quiet month costs about 180 minutes for the nightly `traces.yml` runs plus the daily
+retention runs, and each push to the private `main` adds about 9 (both push workflows). No private
+workflow is scheduled more than once a day. A pre-merge commit there that cannot pass against
+public `main` can carry `[skip ci]` to save the minutes.

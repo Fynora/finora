@@ -70,7 +70,9 @@ public final class PdfTraceRedactor {
     // character is masked, a lone C/D is kept only as a whole run, and a changed run's x is rounded
     // like its width. TraceValidator.privacyKinds refuses what these rules never keep, and
     // TraceValidator.copyLeaks compares the copy with the statement digit by digit.
-    public static final int REDACTOR_VERSION = 5;
+    // Version 6: a printed line whose whole text is a listed bank sentence (BankSentences) is kept
+    // as printed. A line holding a sentence and anything else is masked as before.
+    public static final int REDACTOR_VERSION = 6;
 
     /**
      * A short hash of the effective allowlist, recomputed from the live vocabulary every call.
@@ -88,13 +90,26 @@ public final class PdfTraceRedactor {
      * fixture by hand and noticing the words were wrong.
      *
      * Derived from the vocabulary rather than hand-maintained precisely so it cannot be forgotten:
-     * editing STRUCTURAL_WORDS changes it whether or not anyone thought about the traces.
+     * editing STRUCTURAL_WORDS changes it whether or not anyone thought about the traces. From
+     * version 6 the bank sentences ({@link BankSentences}) are part of it, so a list change changes
+     * it too.
      */
     public static String allowlistFingerprint() {
+        return allowlistFingerprint(BankSentences.listed());
+    }
+
+    /** {@link #allowlistFingerprint()} with the given bank sentences in place of the production list. */
+    static String allowlistFingerprint(Set<String> sentences) {
         StringBuilder canonical = new StringBuilder();
         // Sorted so the fingerprint depends on the allowlist's CONTENT, not on the order words
         // happen to be declared in -- reordering the list is not a reason to invalidate the corpus.
         new java.util.TreeSet<>(vocabulary()).forEach(word -> canonical.append(word).append('\n'));
+        // The bank sentences, from version 6, after a separator no word contains. Only when there
+        // are any, so an empty list leaves the fingerprint every trace was captured under unchanged.
+        if (!sentences.isEmpty()) {
+            canonical.append("--- bank sentences\n");
+            new java.util.TreeSet<>(sentences).forEach(sentence -> canonical.append(sentence).append('\n'));
+        }
         try {
             byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -332,15 +347,24 @@ public final class PdfTraceRedactor {
      * of that number. Digits are therefore read per printed line first (see {@link NumberGroups}),
      * and a token is kept only when its digits are a value that is not part of a long number. A
      * changed run's x and width are rounded to a whole point.
+     *
+     * <p><b>Bank sentences.</b> From version 6, every run of a printed line whose whole text is a
+     * listed bank sentence is copied as printed (see {@link #runsOfListedLines}).
      */
     public static List<PositionedText> redact(List<PositionedText> runs) {
+        return redact(runs, BankSentences.listed());
+    }
+
+    /** {@link #redact(List)} with the given bank sentences in place of the production list. */
+    static List<PositionedText> redact(List<PositionedText> runs, Set<String> sentences) {
+        Set<Integer> keep = runsOfListedLines(runs, sentences);
         Set<String> vocabulary = vocabulary();
         NumberGroups.Kind[][] kinds = NumberGroups.scanByLine(runs);
         List<PositionedText> out = new ArrayList<>(runs.size());
         for (int r = 0; r < runs.size(); r++) {
             PositionedText run = runs.get(r);
-            String redacted = redactText(run.text(), vocabulary,
-                    new Context(run.text(), kinds[r]));
+            String redacted = keep.contains(r) ? run.text()
+                    : redactText(run.text(), vocabulary, new Context(run.text(), kinds[r]));
             boolean unmasked = java.util.Objects.equals(redacted, run.text());
             // A changed run's x is rounded like its width: an exact x beside a rounded width would
             // let the width be recovered from the gap to the next run.
@@ -348,6 +372,25 @@ public final class PdfTraceRedactor {
                     run.pageIndex(), unmasked ? run.width() : Math.round(run.width())));
         }
         return out;
+    }
+
+    /**
+     * The runs of every printed line whose whole joined text, normalised, is a listed bank sentence
+     * (see {@link BankSentences}). Lines are the redactor's own ({@link NumberGroups#lines}, with
+     * its margin), the same lines its digit rules read. A line holding a sentence and anything else
+     * is not a match, so nothing printed beside a sentence is kept with it; a sentence wrapped over
+     * two printed lines matches on neither.
+     */
+    static Set<Integer> runsOfListedLines(List<PositionedText> runs, Set<String> sentences) {
+        if (sentences.isEmpty()) return Set.of();
+        Set<Integer> keep = new java.util.HashSet<>();
+        for (NumberGroups.Line line : NumberGroups.lines(runs, NumberGroups.REDACTOR_GAP_MARGIN)) {
+            if (!sentences.contains(BankSentences.normalise(line.text()))) continue;
+            for (int[] o : line.origin()) {
+                if (o != null) keep.add(o[0]);
+            }
+        }
+        return keep;
     }
 
     /** One line of text masked exactly as a run with this text would be by {@link #redact}. */

@@ -140,7 +140,9 @@ export function ImportTimeline({
     return null;
   }
   const dismissible = timeline.status === 'FAILED' || isHeld(timeline);
-  if (timeline.stages.length === 0 && !dismissible && !(!autoRefresh && pollError)) return null;
+  const openedForFixOn = timeline.openedForFixOn ?? [];
+  if (timeline.stages.length === 0 && !dismissible && !(!autoRefresh && pollError)
+      && openedForFixOn.length === 0) return null;
 
   // An admin's message, when someone resolved this import, is the most specific thing we can say --
   // it wins over the curated reason for the code.
@@ -165,6 +167,18 @@ export function ImportTimeline({
             <TimelineRow key={`${stage.stage}-${stage.attempt}-${i}`} stage={stage} />
           ))}
         </ol>
+      )}
+
+      {openedForFixOn.length > 0 && (
+        /* The customer is told when our team opened the statement they uploaded, and why -- never
+           who. The same words go out by push and email when it happens. */
+        <ul className={`space-y-1 ${timeline.stages.length > 0 ? 'mt-4' : ''}`} data-testid="import-timeline-opened">
+          {openedForFixOn.map((day) => (
+            <li key={day} className="text-xs text-muted">
+              Opened by our team on {formatOpenedDay(day)} to fix a reading problem.
+            </li>
+          ))}
+        </ul>
       )}
 
       {dismissible && (
@@ -218,6 +232,18 @@ export function ImportTimeline({
       )}
     </div>
   );
+}
+
+/** The server's month abbreviations (Java's "MMM" in English), so this line and the push and email
+ *  name a day the same way. Intl's en-GB writes "Sept", which they never do. */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "15 Oct 2026" from "2026-10-15". The date is already the India day the server chose, so it is
+ *  read as written, never through a time zone that could move it a day. */
+function formatOpenedDay(day: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  const month = match ? MONTHS[Number(match[2]) - 1] : undefined;
+  return match && month ? `${Number(match[3])} ${month} ${match[1]}` : day;
 }
 
 const OUTCOME_ICON: Partial<Record<ImportTimelineStage['outcome'], typeof CheckCircle2>> = {

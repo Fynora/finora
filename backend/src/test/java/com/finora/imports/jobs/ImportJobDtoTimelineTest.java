@@ -29,7 +29,7 @@ class ImportJobDtoTimelineTest {
         ImportJob job = heldJob();
         job.resolveWithoutFix(Instant.now(), "Please download the statement again from your bank.");
 
-        ImportJobDto.Timeline timeline = ImportJobDto.Timeline.of(job, List.of());
+        ImportJobDto.Timeline timeline = ImportJobDto.Timeline.of(job, List.of(), List.of());
 
         assertThat(timeline.status()).isEqualTo("FAILED");
         assertThat(timeline.resolutionMessage()).isEqualTo("Please download the statement again from your bank.");
@@ -39,7 +39,7 @@ class ImportJobDtoTimelineTest {
     /** A held job is not over: nothing an admin might be drafting, and no message yet, may leak. */
     @Test
     void aStillHeldJobCarriesNoMessage() {
-        assertThat(ImportJobDto.Timeline.of(heldJob(), List.of()).resolutionMessage()).isNull();
+        assertThat(ImportJobDto.Timeline.of(heldJob(), List.of(), List.of()).resolutionMessage()).isNull();
     }
 
     @Test
@@ -48,6 +48,6 @@ class ImportJobDtoTimelineTest {
         job.markClaimed("worker", Instant.now());
         job.recordFailure("no activity", "IMPORT_NO_ACTIVITY_IN_PERIOD", ErrorCode.RetryPolicy.FAIL_FAST, Instant.now());
 
-        assertThat(ImportJobDto.Timeline.of(job, List.of()).resolutionMessage()).isNull();
+        assertThat(ImportJobDto.Timeline.of(job, List.of(), List.of()).resolutionMessage()).isNull();
     }
 }

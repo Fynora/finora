@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, Download, PlayCircle, RefreshCw } from 'lucide-react';
+import { Clock, Eye, PlayCircle, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
@@ -8,6 +8,7 @@ import { Pagination } from '../components/Pagination';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
+import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldImportRow, HeldImportDetail } from '../types';
 
@@ -207,8 +208,8 @@ function HeldImportsContent() {
           // Keyed on selectedId, not just conditionally rendered: the table rows stay clickable
           // with the panel open (this isn't a modal), so clicking "Details" on a different row
           // changes selectedId without ever passing through null -- the panel would otherwise keep
-          // its same component instance and carry the previous job's `downloading`/`downloadError`
-          // local state into the newly-selected job's view. Found in review.
+          // its same component instance and carry the previous job's local state (an open viewer,
+          // a half-typed message) into the newly-selected job's view. Found in review.
           key={selectedId}
           detail={detail.data}
           loading={detail.isLoading}
@@ -248,31 +249,12 @@ function HeldImportDetailPanel({
   // recalled, so the operator reads the exact text once more before it goes.
   const [confirming, setConfirming] = useState(false);
   const { roles } = useAdminAuth();
-  const canDownload = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  // The real statement is pinned to these roles on the server too.
+  const canViewOriginal = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+  const [viewingOriginal, setViewingOriginal] = useState(false);
   // Whether the server's blanked-copy switch is on. The copy is offered to anyone working this
   // queue, not only the admin roles the real document is pinned to: it is blanked.
   const blankedStatus = useQuery({ queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status });
-
-  async function handleDownload() {
-    if (!detail) return;
-    setDownloading(true);
-    setDownloadError(null);
-    try {
-      await adminHeldImportApi.download(detail.job.id, detail.job.fileName);
-    } catch (err) {
-      // Same reasoning as onActionError above: adminHeldImportApi.download runs its failures
-      // through withBlobErrorMessage, which reshapes a blob error response into a plain
-      // {message, errorCode} object -- so a specific, actionable server message (e.g. this job
-      // was resolved out from under the admin) is available here too, not just a generic string.
-      // Found in review: this used to discard it unconditionally.
-      const response = (err as { response?: { data?: { message?: string } } })?.response;
-      setDownloadError(response?.data?.message ?? 'Could not download this statement.');
-    } finally {
-      setDownloading(false);
-    }
-  }
 
   return (
     <div className="bg-card border border-border rounded-xl2 p-6 space-y-5">
@@ -290,15 +272,14 @@ function HeldImportDetailPanel({
                 ? <p className="text-xs text-muted py-1.5">Blanked copy not available for CSV yet.</p>
                 : null
           )}
-          {detail && canDownload && (
+          {detail && canViewOriginal && (
             <button
               type="button"
-              onClick={() => void handleDownload()}
-              disabled={downloading}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
+              onClick={() => setViewingOriginal(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card"
             >
-              <Download className="h-3.5 w-3.5" />
-              {downloading ? 'Downloading…' : 'Download statement'}
+              <Eye className="h-3.5 w-3.5" />
+              View original
             </button>
           )}
           <button className="text-muted hover:text-ink text-sm" onClick={onClose}>
@@ -306,7 +287,9 @@ function HeldImportDetailPanel({
           </button>
         </div>
       </div>
-      {downloadError && <p className="text-xs text-danger">{downloadError}</p>}
+      {detail && viewingOriginal && (
+        <OriginalStatementViewer queue="IMPORT" itemId={detail.job.id} onClose={() => setViewingOriginal(false)} />
+      )}
 
       {loading && <p className="text-muted text-sm">Loading…</p>}
 

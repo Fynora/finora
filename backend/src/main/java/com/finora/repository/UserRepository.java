@@ -145,6 +145,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     long countActiveUsersWithRole(@Param("roleName") String roleName,
                                   @Param("activeStatus") String activeStatus);
 
+    /** Active accounts holding {@code roleName} by either grant mechanism -- the same rule as
+     *  {@link #countActiveUsersWithRole}, listed rather than counted. */
+    @Query("""
+           SELECT DISTINCT u FROM User u LEFT JOIN u.roles r
+           WHERE (u.role = :roleName OR r.name = :roleName) AND u.status = :activeStatus
+           """)
+    List<User> findActiveUsersWithRole(@Param("roleName") String roleName,
+                                       @Param("activeStatus") String activeStatus);
+
     /**
      * Reads just the phone-verified flag for one user, for {@code PhoneVerificationFilter}.
      *

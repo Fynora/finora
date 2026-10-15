@@ -5,6 +5,7 @@ import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.jobs.ImportJobWorker;
+import com.finora.imports.original.OriginalContent;
 import com.finora.repository.ImportJobRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,10 +21,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -101,47 +104,70 @@ class AdminHeldImportServiceTest {
     }
 
     @Test
-    void download_auditsAndReturnsTheStatementBytes() {
+    void contentForOriginalView_auditsWithTheReasonAndReturnsTheStatementBytes() {
         ImportJob job = heldJob();
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
         byte[] bytes = "%PDF-1.4 fixture".getBytes();
         when(statementContentService.read(job)).thenReturn(bytes);
 
-        AdminHeldImportService.DownloadedStatement result = service.download(adminUserId, job.getId());
+        OriginalContent result = service.contentForOriginalView(adminUserId, job.getId(),
+                "Rows on page 2 are missing from the preview");
 
         assertThat(result.content()).isEqualTo(bytes);
-        assertThat(result.fileName()).isEqualTo(job.getFileName());
-        assertThat(result.contentType()).isEqualTo("application/pdf");
-        verify(auditService).record(eq(adminUserId), eq("HELD_IMPORT_DOWNLOADED"), eq("ImportJob"),
-                eq(job.getId()), any());
+        assertThat(result.queue()).isEqualTo("IMPORT");
+        assertThat(result.itemRef()).isEqualTo(job.getId().toString());
+        assertThat(result.toString()).doesNotContain("%PDF").contains(bytes.length + " bytes");
+        verify(auditService).recordEvenOnRollback(eq(adminUserId), eq("HELD_IMPORT_ORIGINAL_VIEWED"),
+                eq("ImportJob"), eq(job.getId()),
+                argThat(m -> "Rows on page 2 are missing from the preview".equals(m.get("reason"))));
     }
 
     /**
-     * Caught in review: an earlier version of this method accepted any job regardless of status,
-     * the same gap {@code reprocess_isRejectedForAJobThatIsNotHeld} exists to catch for reprocess.
-     * Download hands out raw statement bytes, so a job that never entered this triage queue at all
-     * -- QUEUED here, but equally a COMPLETED or plain FAILED one -- must not be downloadable
-     * through it just because its id is known.
+     * Caught in review on the download this replaced: an earlier version accepted any job regardless
+     * of status, the same gap {@code reprocess_isRejectedForAJobThatIsNotHeld} exists to catch for
+     * reprocess. A view shows a customer's statement, so a job that never entered this triage queue
+     * at all -- QUEUED here, but equally a COMPLETED or plain FAILED one -- must not be shown through
+     * it just because its id is known.
      */
     @Test
-    void download_isRejectedForAJobThatIsNotHeld() {
+    void contentForOriginalView_isRejectedForAJobThatIsNotHeld() {
         ImportJob job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
         when(repository.findById(job.getId())).thenReturn(Optional.of(job));
 
-        assertThatThrownBy(() -> service.download(adminUserId, job.getId()))
+        assertThatThrownBy(() -> service.contentForOriginalView(adminUserId, job.getId(),
+                "Rows on page 2 are missing from the preview"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("QUEUED");
-        verify(auditService, never()).record(any(), anyString(), anyString(), any(), any());
+        verify(auditService, never()).recordEvenOnRollback(any(), anyString(), anyString(), any(), any());
+        verify(statementContentService, never()).read(any());
     }
 
     @Test
-    void download_throwsNotFoundForAnUnknownJob() {
+    void contentForOriginalView_throwsNotFoundForAnUnknownJob() {
         UUID missing = UUID.randomUUID();
         when(repository.findById(missing)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.download(adminUserId, missing))
+        assertThatThrownBy(() -> service.contentForOriginalView(adminUserId, missing,
+                "Rows on page 2 are missing from the preview"))
                 .isInstanceOf(ApiException.class);
-        verify(auditService, never()).record(any(), anyString(), anyString(), any(), any());
+        verify(auditService, never()).recordEvenOnRollback(any(), anyString(), anyString(), any(), any());
+    }
+
+    /** A page fetch reads again, without a second audit entry, and only while the job is held. */
+    @Test
+    void contentForOpenView_isNotAuditedAndStopsOnceTheJobIsNoLongerHeld() {
+        ImportJob job = heldJob();
+        when(repository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(statementContentService.read(job)).thenReturn("%PDF-1.4 fixture".getBytes());
+
+        assertThat(service.contentForOpenView(job.getId()).queue()).isEqualTo("IMPORT");
+        verifyNoInteractions(auditService);
+
+        ImportJob queued = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
+        when(repository.findById(queued.getId())).thenReturn(Optional.of(queued));
+        assertThatThrownBy(() -> service.contentForOpenView(queued.getId()))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
     }
 
     /**

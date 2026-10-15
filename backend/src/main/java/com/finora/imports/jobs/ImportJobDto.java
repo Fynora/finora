@@ -4,6 +4,7 @@ import com.finora.entity.ImportJob;
 import com.finora.exception.ErrorCode;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -173,16 +174,22 @@ public final class ImportJobDto {
             // What an admin told the user when they resolved a held import. Only ever set once the
             // job has FAILED, like failureCode: a held job's admin is still deciding, and nothing
             // drafted may show before they send it.
-            String resolutionMessage
+            String resolutionMessage,
+            // The India days on which an Admin opened this statement's real pages to fix a reading
+            // problem, oldest first, one per day -- the customer's own record of it, beside the push
+            // and email. Never who, never why beyond that. Empty when it never happened.
+            List<LocalDate> openedForFixOn
     ) {
-        public static Timeline of(ImportJob job, List<com.finora.imports.jobs.ImportJobStage> rows) {
+        public static Timeline of(ImportJob job, List<com.finora.imports.jobs.ImportJobStage> rows,
+                                  List<LocalDate> openedForFixOn) {
             String failureCode = job.getStatus() == ImportJob.Status.FAILED
                     ? ErrorCode.wireCodeOrNull(job.getFailureCode())
                     : null;
             return new Timeline(job.getId(), job.getStatus().name(),
                     failureCode, rows.stream().map(TimelineStage::of).toList(),
                     UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()),
-                    job.getStatus() == ImportJob.Status.FAILED ? job.getResolutionMessage() : null);
+                    job.getStatus() == ImportJob.Status.FAILED ? job.getResolutionMessage() : null,
+                    List.copyOf(openedForFixOn));
         }
     }
 }

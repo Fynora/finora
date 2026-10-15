@@ -7,6 +7,7 @@ import com.finora.exception.ApiException;
 import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
+import com.finora.imports.original.OriginalContent;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.storage.StatementStorageException;
 import com.finora.repository.ImportJobRepository;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -126,55 +128,74 @@ public class AdminHeldImportService {
         return HeldImportDto.Detail.from(job);
     }
 
-    /** What the download endpoint hands back -- everything the controller needs to set the
-     *  response headers, in one value. Same shape as {@code HeldStatementService.DownloadedStatement},
-     *  for the same reason: a byte array plus the two headers a browser download needs. */
-    public record DownloadedStatement(String fileName, byte[] content, String contentType) {}
-
     /**
-     * The one place in this queue that hands a customer's bank statement to a member of staff --
-     * mirrors {@code HeldStatementService.download}'s reasoning exactly. Audited BEFORE the bytes
-     * are read, not after, for the identical reason that doc gives: a failed read must still leave
-     * a record that the attempt was made.
+     * The held job's real bytes for an Admin's in-browser view: the one path left that shows staff a
+     * customer's statement. Audited with the typed reason in its own transaction before the bytes are
+     * read, as the blanked copy is; a read that then fails leaves the record of the attempt.
      *
      * <p>Restricted to {@code HELD_FOR_REVIEW} the same way {@link #reprocess} and {@link #resolve}
-     * already are -- caught in review: an earlier version of this method only called {@link
-     * #require}, which (like {@link #detail}) accepts any job regardless of status. That is fine for
-     * {@code detail}, which discloses no statement content, but this endpoint hands out the raw
-     * bytes, and the sibling {@code HeldStatementService.download} is structurally scoped to
-     * held-only records (it looks up a {@code HeldStatement}, which by construction exists only for
-     * held items). Without this check, {@code IMPORT_TRIAGE_MANAGE} would let staff pull any
-     * customer's statement by guessing or enumerating a job id, not only the ones actually sitting in
-     * this triage queue.
-     *
-     * <p>Not {@code readOnly}: it writes the audit entry. See {@code HeldStatementService.download}'s
-     * own doc for the read-only-swallows-writes bug this avoids by omission.
+     * are: {@link #require} alone accepts any job, and without the check {@code IMPORT_TRIAGE_MANAGE}
+     * would reach any customer's statement by job id, not only the ones sitting in this queue. A
+     * saved password that does not open the file is refused rather than handed over locked. The role
+     * pin and the reason's length rule live one layer up, on the controller and the view service.
      */
     @Transactional
-    public DownloadedStatement download(UUID actingAdminId, UUID jobId) {
+    public OriginalContent contentForOriginalView(UUID viewerId, UUID jobId, String reason) {
         ImportJob job = require(jobId);
-        requireHeld(job, "downloaded");
-        // Recorded before the bytes are read (see above), so it can only say a saved password exists
-        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
-        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.hasJobPassword(job.getId());
-        auditService.record(actingAdminId, "HELD_IMPORT_DOWNLOADED", "ImportJob", jobId,
-                Map.of("actorId", actingAdminId.toString(),
+        requireHeld(job, "opened");
+        boolean savedPassword = hasSavedPassword(job);
+        auditService.recordEvenOnRollback(viewerId, "HELD_IMPORT_ORIGINAL_VIEWED", "ImportJob", jobId,
+                Map.of("actorId", viewerId.toString(),
                         "subjectUserId", job.getUserId().toString(),
+                        "reason", reason,
                         "savedPasswordOnFile", savedPassword));
-        byte[] content = statementContentService.read(job);
-        if (savedPassword) {
-            // A protected PDF whose password the user saved is unlocked in memory for this download
-            // only, so the reviewer can read it; no unlocked copy is stored.
-            content = statementPasswordService.reviewCopy(job, content).content();
+        return originalContentOf(job, readUnlocked(job, savedPassword, "a view", OriginalContent.CANNOT_BE_SHOWN));
+    }
+
+    /** The same bytes for a page of a view already opened (and audited). Not audited again; refuses a
+     *  job no longer held, so a release ends every open view. */
+    @Transactional(readOnly = true)
+    public OriginalContent contentForOpenView(UUID jobId) {
+        ImportJob job = require(jobId);
+        requireHeld(job, "opened");
+        return originalContentOf(job, readUnlocked(job, hasSavedPassword(job), "a view", OriginalContent.CANNOT_BE_SHOWN));
+    }
+
+    private static OriginalContent originalContentOf(ImportJob job, byte[] content) {
+        return new OriginalContent(job.getId(), job.getUserId(), "IMPORT", job.getId().toString(),
+                job.getSourceFormat().toUpperCase(Locale.ROOT), content);
+    }
+
+    private boolean hasSavedPassword(ImportJob job) {
+        return "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+    }
+
+    /**
+     * The stored bytes, unlocked in memory when a password is saved; no unlocked copy is stored. A
+     * stored file that cannot be read is a 409 naming the job, as {@code HeldStatementService
+     * .readStatement} answers on the trust queue, rather than the catch-all 500: nothing about the
+     * request was wrong, the file is gone. A saved password that does not open the file is refused,
+     * the refusal ending with {@code consequence}.
+     */
+    private byte[] readUnlocked(ImportJob job, boolean savedPassword, String purpose, String consequence) {
+        byte[] content;
+        try {
+            content = statementContentService.read(job);
+        } catch (StatementStorageException e) {
+            log.warn("Stored statement behind held import {} could not be read for {}", job.getId(), purpose, e);
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "The stored statement file behind held import " + job.getId() + " could not be read.");
         }
-        return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+        return savedPassword
+                ? statementPasswordService.unlockedOrRefused(job, content, "held import " + job.getId(), consequence)
+                : content;
     }
 
     /**
      * The held job's bytes for a blanked copy, unlocked in memory when a password is saved. Same
-     * gates as {@link #download}, under its own action, and without the role pin: the copy that
-     * leaves the server is blanked, which is what a support role may receive. The bytes go to
+     * gates as {@link #contentForOriginalView}, under its own action, and without the role pin: the
+     * copy that leaves the server is blanked, which is what a support role may receive. The bytes go to
      * {@code BlankedCopyService} and nowhere else; the reference is the job id, never its file name.
      *
      * <p>Audited in its own transaction, before the bytes are read: a failed read rolls this
@@ -185,26 +206,12 @@ public class AdminHeldImportService {
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, UUID jobId) {
         ImportJob job = require(jobId);
         requireHeld(job, "copied");
-        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.hasJobPassword(job.getId());
+        boolean savedPassword = hasSavedPassword(job);
         auditService.recordEvenOnRollback(actingAdminId, "HELD_IMPORT_BLANKED_COPY", "ImportJob", jobId,
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
                         "savedPasswordOnFile", savedPassword));
-        byte[] content;
-        try {
-            content = statementContentService.read(job);
-        } catch (StatementStorageException e) {
-            // A 409 naming the job, as HeldStatementService.readStatement does on the trust queue,
-            // rather than the catch-all 500: nothing about the request was wrong, the file is gone.
-            log.warn("Stored statement behind held import {} could not be read for a blanked copy", jobId, e);
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "The stored statement file behind held import " + jobId + " could not be read.");
-        }
-        if (savedPassword) {
-            // Unlike download, a file the saved password did not open is refused, not handed over.
-            content = statementPasswordService.unlockedForBlankedCopy(job, content, "held import " + jobId);
-        }
+        byte[] content = readUnlocked(job, savedPassword, "a blanked copy", "no blanked copy can be made");
         return new StaffStatementContent(job.getId().toString(), job.getSourceFormat(), content);
     }
 
@@ -223,17 +230,6 @@ public class AdminHeldImportService {
         details.put("subjectUserId", job.getUserId().toString());
         details.putAll(outcome.auditDetails());
         auditService.record(actingAdminId, "HELD_IMPORT_BLANKED_COPY_RESULT", "ImportJob", jobId, details);
-    }
-
-    /** Same switch {@code HeldStatementService.contentTypeFor} makes, over the formats this system
-     *  actually stores -- not a filename-extension lookup, which is attacker-influenced. */
-    private static String contentTypeFor(String sourceFormat) {
-        if (sourceFormat == null) return "application/octet-stream";
-        return switch (sourceFormat.toUpperCase()) {
-            case "CSV" -> "text/csv";
-            case "PDF" -> "application/pdf";
-            default -> "application/octet-stream";
-        };
     }
 
     /**

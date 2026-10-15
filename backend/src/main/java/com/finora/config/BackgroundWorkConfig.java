@@ -171,6 +171,27 @@ public class BackgroundWorkConfig {
         return executor;
     }
 
+    /**
+     * Sends the Super Admin email when a held statement's real pages are opened
+     * ({@code OriginalViewNotices}) off the opening request, which holds one of the import slots
+     * customers' uploads share. Unlike the layout alert, a full queue runs the email on the caller
+     * rather than dropping it: this email is how Super Admins learn a customer's statement was
+     * opened, and openings are rare, so a queue of 50 only fills under a fault.
+     */
+    @Bean("originalViewAlertExecutor")
+    public Executor originalViewAlertExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("original-view-alert-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("importQueueExecutor")
     public Executor importQueueExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

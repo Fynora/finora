@@ -9,6 +9,9 @@ import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -86,6 +89,31 @@ public class StatementStatusNotifier {
 
     static String waitingPhrase(int waitingCount) {
         return waitingCount == 1 ? "Your statement is" : waitingCount + " of your statements are";
+    }
+
+    private static final DateTimeFormatter NOTICE_DATE =
+            DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
+
+    /**
+     * Tells the user, after the fact, that an administrator opened their statement to fix a reading
+     * problem: the date and the purpose, never who. One per job per India day, by the key: a second
+     * opening that day says nothing new.
+     *
+     * <p>SECURITY, not FINANCIAL (owner's decision, 2026-10-15): a customer must not be able to turn
+     * off being told that staff opened their statement. {@code DatabaseNotificationPreferenceResolver}
+     * forces SECURITY on for every channel, and the email carries no "turn these off" line.
+     *
+     * @param day the opening's date in {@code UserZone.DEFAULT}, the caller's conversion
+     */
+    public void notifyOpenedForFix(UUID userId, UUID jobId, LocalDate day) {
+        notificationService.request(NotificationRequest.of(
+                userId,
+                NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
+                NotificationCategory.SECURITY,
+                NotificationPriority.NORMAL,
+                "IMPORT_OPENED_FOR_FIX_" + jobId + "_" + day,
+                Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),
+                Map.of("date", NOTICE_DATE.format(day))));
     }
 
     public void notifyHeld(ImportJob job) {

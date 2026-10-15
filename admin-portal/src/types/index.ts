@@ -1282,6 +1282,19 @@ export interface HeldImportRow {
   heldAt: string | null;
 }
 
+/** What the automatic Claude fix did for one held statement -- mirrors the backend's
+ *  `ClaudeFixStatus` (schema `HeldClaudeFix`). A state, a reason, the attempt and PR numbers; never
+ *  statement text. `state` is `OFF` when the switch is off and nothing was recorded. */
+export interface HeldClaudeFix {
+  state: 'OFF' | 'NOT_STARTED' | 'SENT' | 'PR_OPEN' | 'REREADING' | 'FIXED' | 'GAVE_UP';
+  reason: 'OFF' | 'CSV' | 'DIFFERS' | 'NOT_CHECKED' | 'REFUSED' | 'CAP_REACHED' | 'ERROR'
+    | 'RUN_FAILED' | 'NO_PR' | 'STILL_HELD' | 'DECIDED' | null;
+  publicPr: number | null;
+  privatePr: number | null;
+  attempt: number;
+  monthlyCap: number;
+}
+
 /** A held import plus the diagnostics an engineer needs. Every fetch of this is audited. */
 export interface HeldImportDetail {
   job: HeldImportRow;
@@ -1291,6 +1304,9 @@ export interface HeldImportDetail {
   /** Who opened the real statement, and when, oldest first -- never the reason. Optional because
    *  an older backend does not send it. */
   originalOpenings?: { openedAt: string; openedBy: string }[];
+  /** Null while the switch is on and nothing is recorded yet; optional because an older backend
+   *  does not send it. */
+  claudeFix?: HeldClaudeFix | null;
 }
 
 /** One place a held statement's blanked copy reads differently from the real one -- mirrors the
@@ -1491,6 +1507,8 @@ export interface HeldStatementDetail {
   fileName: string | null;
   findings: HeldStatementFinding[];
   timeline: HeldStatementEvent[];
+  /** As on `HeldImportDetail`. */
+  claudeFix?: HeldClaudeFix | null;
 }
 
 /** What one parser re-run found -- mirrors the backend's `HeldStatementRerunResultDto` exactly. */

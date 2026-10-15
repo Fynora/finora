@@ -20285,6 +20285,33 @@
                     }
                 }
             },
+            "HeldClaudeFix": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "publicPr": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "privatePr": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "attempt": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "monthlyCap": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "HeldStatementDetailDto": {
                 "type": "object",
                 "properties": {
@@ -20305,6 +20332,9 @@
                         "items": {
                             "$ref": "#/components/schemas/EventView"
                         }
+                    },
+                    "claudeFix": {
+                        "$ref": "#/components/schemas/HeldClaudeFix"
                     }
                 }
             },
@@ -29373,6 +29403,9 @@
                         "items": {
                             "$ref": "#/components/schemas/HeldImportOriginalOpening"
                         }
+                    },
+                    "claudeFix": {
+                        "$ref": "#/components/schemas/HeldClaudeFix"
                     }
                 }
             },

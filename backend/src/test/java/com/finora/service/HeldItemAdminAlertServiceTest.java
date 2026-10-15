@@ -31,6 +31,7 @@ class HeldItemAdminAlertServiceTest {
     private EmailProvider emailProvider;
     private EmailProperties emailProperties;
     private HeldItemAdminAlertService service;
+    private com.finora.imports.fix.ClaudeFixStatusLookup claudeFix;
 
     @BeforeEach
     void setUp() {
@@ -39,12 +40,13 @@ class HeldItemAdminAlertServiceTest {
         heldStatementRepository = mock(HeldStatementRepository.class);
         emailProvider = mock(EmailProvider.class);
         emailProperties = mock(EmailProperties.class);
+        claudeFix = mock(com.finora.imports.fix.ClaudeFixStatusLookup.class);
         when(emailProperties.getAdminAppBaseUrl()).thenReturn("https://admin.example.com");
         when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "msg-1"));
 
         service = new HeldItemAdminAlertService(userRepository, importJobRepository,
                 heldStatementRepository, emailProvider, emailProperties,
-                mock(com.finora.imports.original.StatementOriginalViewRepository.class));
+                mock(com.finora.imports.original.StatementOriginalViewRepository.class), claudeFix);
     }
 
     private User adminUser(String email) {
@@ -364,5 +366,63 @@ class HeldItemAdminAlertServiceTest {
         service.alertClaudeFixCapReached(java.time.YearMonth.of(2026, 11), 50);
 
         verify(emailProvider, never()).send(any());
+    }
+
+    private String overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus status) {
+        ImportJob job = heldJob();
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope("IMPORT_TRIAGE_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+        when(claudeFix.forJob(job.getId())).thenReturn(status);
+        service.alertHoldOverdue(job.getId());
+        return onlyEmailSent().html();
+    }
+
+    @Test
+    void alertHoldOverdue_saysClaudeIsOffWhenTheSwitchIsOff() {
+        assertThat(overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus.off(50)))
+                .contains("<li><strong>Claude:</strong> off</li>");
+    }
+
+    @Test
+    void alertHoldOverdue_linksTheFinoraPrClaudeOpened() {
+        com.finora.imports.fix.ClaudeFixJob job =
+                com.finora.imports.fix.ClaudeFixJob.sent(UUID.randomUUID(), "sha", Instant.now());
+        job.prOpened(41, 7, Instant.now());
+
+        assertThat(overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus.of(job, 50)))
+                .contains("<li><strong>Claude:</strong> PR #41 opened (<a href=\"https://github.com/Fynora/finora/pull/41\">"
+                        + "Finora PR #41</a>)</li>")
+                .doesNotContain("finora-statement-traces");
+    }
+
+    @Test
+    void alertHoldOverdue_saysTheDeployedFixLeftTheStatementHeld() {
+        com.finora.imports.fix.ClaudeFixJob job =
+                com.finora.imports.fix.ClaudeFixJob.sent(UUID.randomUUID(), "sha", Instant.now());
+        job.prOpened(41, 7, Instant.now());
+        job.rereading(Instant.now());
+        job.gaveUp(com.finora.imports.fix.ClaudeFixJob.Reason.STILL_HELD, Instant.now());
+
+        assertThat(overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus.of(job, 50)))
+                .contains("<li><strong>Claude:</strong> fix deployed, statement still held</li>");
+    }
+
+    @Test
+    void alertHoldOverdue_hasNoClaudeLineWhileTheSwitchIsOnAndNothingIsRecorded() {
+        assertThat(overdueImportEmailWith(null)).doesNotContain("Claude:");
+    }
+
+    @Test
+    void alertHoldOverdue_stillSendsWhenTheClaudeStatusCannotBeRead() {
+        ImportJob job = heldJob();
+        when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
+        when(userRepository.findByPermissionNameAndAccountScope("IMPORT_TRIAGE_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(adminUser("triage-admin@example.com")));
+        when(claudeFix.forJob(job.getId())).thenThrow(new IllegalStateException("database down"));
+
+        service.alertHoldOverdue(job.getId());
+
+        assertThat(onlyEmailSent().html()).contains("<li><strong>Claude:</strong> status could not be read</li>");
     }
 }

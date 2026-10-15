@@ -94,6 +94,7 @@ public class HeldStatementService {
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
     private final com.finora.imports.fix.FixJobStarter fixJobStarter;
+    private final com.finora.imports.fix.ClaudeFixStatusLookup claudeFix;
     private final OriginalViewHistory originalViewHistory;
     private final StatementOriginalViewRepository originalViews;
     private final ApplicationEventPublisher events;
@@ -116,8 +117,10 @@ public class HeldStatementService {
                                 OriginalViewHistory originalViewHistory,
                                 StatementOriginalViewRepository originalViews,
                                 ApplicationEventPublisher events,
-                                com.finora.imports.fix.FixJobStarter fixJobStarter) {
+                                com.finora.imports.fix.FixJobStarter fixJobStarter,
+                                com.finora.imports.fix.ClaudeFixStatusLookup claudeFix) {
         this.fixJobStarter = fixJobStarter;
+        this.claudeFix = claudeFix;
         this.originalViewHistory = originalViewHistory;
         this.originalViews = originalViews;
         this.events = events;
@@ -567,7 +570,8 @@ public class HeldStatementService {
         String fileName = importJobRepository.findById(held.getImportJobId())
                 .map(ImportJob::getFileName).orElse(null);
         return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows),
-                timeline(events, originalViewHistory.forJob(held.getImportJobId())));
+                timeline(events, originalViewHistory.forJob(held.getImportJobId())),
+                claudeFix.forJob(held.getImportJobId()));
     }
 
     private List<FindingView> findings(List<ImportVerificationFinding> rows) {

@@ -252,6 +252,9 @@ class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
         JsonNode timeline = mapper.readTree(response.getBody()).path("data").path("timeline");
         assertThat(timeline.findValuesAsText("eventType"))
                 .containsExactly("HELD_CREATED", "ASSIGNED");
+        // The switch is off under test and no decision is recorded.
+        assertThat(mapper.readTree(response.getBody()).path("data").path("claudeFix").path("state").asText())
+                .isEqualTo("OFF");
     }
 
     /** Still no statement content: the detail view explains a decision, it does not display the

@@ -69,7 +69,7 @@ class HeldStatementServiceTest {
                 org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class),
                 org.mockito.Mockito.mock(com.finora.imports.original.StatementOriginalViewRepository.class),
                 org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class),
-                fixJobStarter);
+                fixJobStarter, org.mockito.Mockito.mock(com.finora.imports.fix.ClaudeFixStatusLookup.class));
     }
 
     private ImportJob job() {

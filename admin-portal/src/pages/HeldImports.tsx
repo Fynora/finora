@@ -8,6 +8,7 @@ import { Pagination } from '../components/Pagination';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
+import ClaudeFixLine from '../components/ClaudeFixLine';
 import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldImportRow, HeldImportDetail } from '../types';
@@ -304,6 +305,8 @@ function HeldImportDetailPanel({
             <p className="text-ink font-medium">{detail.job.fileName}</p>
             <p className="text-muted text-xs mt-1 font-mono">{detail.job.failureCode ?? '—'}</p>
           </div>
+
+          <ClaudeFixLine fix={detail.claudeFix} />
 
           {(detail.originalOpenings?.length ?? 0) > 0 && (
             <div className="rounded-lg border border-border p-3" data-testid="held-import-original-openings">

@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AdminHeldImportControllerIT extends AbstractIntegrationTest {
 
+    @Autowired private com.finora.imports.fix.ClaudeFixJobRepository claudeFixJobs;
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
@@ -171,6 +172,30 @@ class AdminHeldImportControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode data = mapper.readTree(response.getBody()).path("data");
         assertThat(data.path("lastError").asText()).contains("no header row found");
+        // The switch is off under test and no decision is recorded.
+        assertThat(data.path("claudeFix").path("state").asText()).isEqualTo("OFF");
+    }
+
+    @Test
+    void detailResponse_carriesTheClaudeFixStateAndPrNumbersOnly() throws Exception {
+        User admin = createUser("ADMIN");
+        ImportJob job = heldJob(createUser("USER").getId());
+        com.finora.imports.fix.ClaudeFixJob fix =
+                com.finora.imports.fix.ClaudeFixJob.sent(job.getId(), "commit-sha-not-shown", java.time.Instant.now());
+        fix.prOpened(41, 7, java.time.Instant.now());
+        claudeFixJobs.save(fix);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/held-imports/" + job.getId(),
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        JsonNode claudeFix = mapper.readTree(response.getBody()).path("data").path("claudeFix");
+        assertThat(claudeFix.path("state").asText()).isEqualTo("PR_OPEN");
+        assertThat(claudeFix.path("publicPr").asInt()).isEqualTo(41);
+        assertThat(claudeFix.path("privatePr").asInt()).isEqualTo(7);
+        assertThat(claudeFix.path("attempt").asInt()).isEqualTo(1);
+        assertThat(claudeFix.path("monthlyCap").asInt()).isEqualTo(50);
+        assertThat(response.getBody()).doesNotContain("commit-sha-not-shown");
     }
 
     /** The privacy commitment the feature rests on, proved through the real AuditService. */

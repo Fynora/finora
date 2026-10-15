@@ -55,11 +55,14 @@ public class HeldItemAdminAlertService {
     private final EmailProvider emailProvider;
     private final EmailProperties emailProperties;
     private final StatementOriginalViewRepository originalViewRepository;
+    private final com.finora.imports.fix.ClaudeFixStatusLookup claudeFix;
 
     public HeldItemAdminAlertService(UserRepository userRepository, ImportJobRepository importJobRepository,
                                       HeldStatementRepository heldStatementRepository, EmailProvider emailProvider,
                                       EmailProperties emailProperties,
-                                      StatementOriginalViewRepository originalViewRepository) {
+                                      StatementOriginalViewRepository originalViewRepository,
+                                      com.finora.imports.fix.ClaudeFixStatusLookup claudeFix) {
+        this.claudeFix = claudeFix;
         this.userRepository = userRepository;
         this.importJobRepository = importJobRepository;
         this.heldStatementRepository = heldStatementRepository;
@@ -143,6 +146,7 @@ public class HeldItemAdminAlertService {
         }
         ImportJob job = found.get();
         String heldAt = escape(formatTimestamp(job.getFinishedAt()));
+        String claudeLine = claudeFixLine(jobId);
         String opening = "<p>A user was promised an answer on this statement within 48 hours. That time has "
                 + "passed with no decision.</p>";
         switch (job.getStatus()) {
@@ -155,6 +159,7 @@ public class HeldItemAdminAlertService {
                             opening + "<ul>"
                                     + "<li><strong>Held ID:</strong> " + escape(heldId) + "</li>"
                                     + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                                    + claudeLine
                                     + "</ul>"
                                     + "<p><a href=\"" + adminBaseUrl() + "/held-statements/" + escape(heldId)
                                     + "\">Open this held statement</a></p>");
@@ -164,6 +169,7 @@ public class HeldItemAdminAlertService {
                             opening + "<ul>"
                                     + "<li><strong>Job ID:</strong> " + job.getId() + "</li>"
                                     + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                                    + claudeLine
                                     + "</ul>"
                                     + "<p>It has no review record yet; open one from the held-statements queue.</p>"
                                     + "<p><a href=\"" + adminBaseUrl() + "/held-statements\">Open the held-statements "
@@ -177,11 +183,33 @@ public class HeldItemAdminAlertService {
                             + "<li><strong>Job ID:</strong> " + job.getId() + "</li>"
                             + "<li><strong>Failure code:</strong> " + escape(job.getFailureCode()) + "</li>"
                             + "<li><strong>Held since:</strong> " + heldAt + "</li>"
+                            + claudeLine
                             + "</ul>"
                             + "<p><a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a></p>");
             default -> log.info("Overdue-hold alert for import job {} not sent: it is {} now, no longer held",
                     jobId, job.getStatus());
         }
+    }
+
+    /**
+     * The overdue email's line on the automatic Claude fix (docs/superpowers/specs/
+     * 2026-10-15-claude-fix-job-design.md, section 4): its state in words, and a link to the Finora
+     * PR when there is one. Nothing when the switch is on and no decision is recorded; a failed read
+     * says so rather than stopping the email.
+     */
+    private String claudeFixLine(UUID jobId) {
+        com.finora.imports.fix.ClaudeFixStatus status;
+        try {
+            status = claudeFix.forJob(jobId);
+        } catch (RuntimeException e) {
+            log.warn("Overdue-hold alert for import job {}: Claude fix status could not be read", jobId, e);
+            return "<li><strong>Claude:</strong> status could not be read</li>";
+        }
+        if (status == null) return "";
+        Integer pr = status.linkedPublicPr();
+        String link = pr == null ? ""
+                : " (<a href=\"https://github.com/Fynora/finora/pull/" + pr + "\">Finora PR #" + pr + "</a>)";
+        return "<li><strong>Claude:</strong> " + escape(status.emailLine()) + link + "</li>";
     }
 
     /**

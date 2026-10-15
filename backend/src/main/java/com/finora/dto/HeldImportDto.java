@@ -58,15 +58,20 @@ public record HeldImportDto(
     public record Detail(HeldImportDto job, String lastError, String correlationId, String objectKey,
                          // Who opened the real statement, and when, oldest first -- never the reason,
                          // which is on the audit entry only.
-                         List<Opening> originalOpenings) {
+                         List<Opening> originalOpenings,
+                         // What the automatic Claude fix did: a state, a reason and PR numbers only.
+                         // Null while the switch is on and nothing is recorded yet.
+                         com.finora.imports.fix.ClaudeFixStatus claudeFix) {
 
-        public static Detail from(ImportJob job, List<Opening> originalOpenings) {
+        public static Detail from(ImportJob job, List<Opening> originalOpenings,
+                                  com.finora.imports.fix.ClaudeFixStatus claudeFix) {
             return new Detail(
                     HeldImportDto.from(job),
                     job.getLastError(),
                     job.getCorrelationId(),
                     job.getObjectKey(),
-                    List.copyOf(originalOpenings));
+                    List.copyOf(originalOpenings),
+                    claudeFix);
         }
     }
 

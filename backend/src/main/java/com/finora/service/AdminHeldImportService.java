@@ -70,6 +70,7 @@ public class AdminHeldImportService {
     private final StatementStatusNotifier statusNotifier;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
     private final OriginalViewHistory originalViewHistory;
+    private final com.finora.imports.fix.ClaudeFixStatusLookup claudeFix;
 
     /**
      * The longest message an admin may send a user. Bounded well inside the notification columns
@@ -84,7 +85,9 @@ public class AdminHeldImportService {
                                   StatementContentService statementContentService,
                                   StatementStatusNotifier statusNotifier,
                                   com.finora.imports.passwords.StatementPasswordService statementPasswordService,
-                                  OriginalViewHistory originalViewHistory) {
+                                  OriginalViewHistory originalViewHistory,
+                                  com.finora.imports.fix.ClaudeFixStatusLookup claudeFix) {
+        this.claudeFix = claudeFix;
         this.originalViewHistory = originalViewHistory;
         this.statusNotifier = statusNotifier;
         this.statementPasswordService = statementPasswordService;
@@ -131,7 +134,7 @@ public class AdminHeldImportService {
                         "failureCode", String.valueOf(job.getFailureCode())));
         return HeldImportDto.Detail.from(job, originalViewHistory.forJob(jobId).stream()
                 .map(o -> new HeldImportDto.Opening(o.openedAt(), o.openedBy()))
-                .toList());
+                .toList(), claudeFix.forJob(jobId));
     }
 
     /**

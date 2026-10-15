@@ -723,6 +723,9 @@ export interface ImportJobTimeline {
    *  that went out by email and push. Only present once the job has FAILED. */
   resolutionMessage?: string | null;
   stages: ImportTimelineStage[];
+  /** The days (India dates, `yyyy-MM-dd`, oldest first) on which our team opened this statement to
+   *  fix a reading problem. Optional because an older backend does not send it -- absent means none. */
+  openedForFixOn?: string[];
 }
 
 export const importJobsApi = {

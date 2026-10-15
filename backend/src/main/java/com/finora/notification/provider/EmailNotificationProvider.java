@@ -31,7 +31,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
 
     /**
      * Product decision, 2026-09-06: an email a customer might reasonably want to reply to and
-     * reach a person -- a statement held for review, released and ready, or rejected -- goes out as
+     * reach a person -- a statement held for review, released and ready, rejected, or opened by our
+     * team to fix a reading problem -- goes out as
      * {@code support@}, not {@code noreply@}. {@code PASSWORD_CHANGED}'s template row exists
      * ({@code V127}) but has no live caller (the actual password-changed email is
      * {@code ResendEmailProvider.sendPasswordChangedEmail}, a hand-built send outside this outbox
@@ -41,7 +42,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
     private static final Set<NotificationType> SUPPORT_SENDER_TYPES =
             EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY,
                     NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED,
-                    NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER);
+                    NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
+                    NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;

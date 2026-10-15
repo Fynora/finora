@@ -225,8 +225,9 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
 
         ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
-        ResponseEntity<byte[]> real = restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId() + "/document",
-                HttpMethod.GET, new HttpEntity<>(bearerFor(support)), byte[].class);
+        ResponseEntity<String> real = restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId() + "/original-view",
+                HttpMethod.POST, new HttpEntity<>(java.util.Map.of("reason", "Rows on page 2 are missing from the preview"),
+                        bearerFor(support)), String.class);
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(real.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
@@ -585,14 +586,15 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         assertNothingLeft(response.getBody(), auditOf(held.getId()), output);
     }
 
-    /** Same account both ways, so the 403 on the document is the role pin, not a missing permission. */
+    /** Same account both ways, so the 403 on the original view is the role pin, not a missing permission. */
     @Test
     void aSupportAccountGetsTheTrustQueueCopyButNotTheStatement() {
         seedHold("HLD-2026-610002");
         User support = createSupportUser("TRUST_REVIEW_MANAGE");
         ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610002/blanked-copy", support);
-        ResponseEntity<byte[]> real = restTemplate.exchange("/api/v1/admin/held-statements/HLD-2026-610002/document",
-                HttpMethod.GET, new HttpEntity<>(bearerFor(support)), byte[].class);
+        ResponseEntity<String> real = restTemplate.exchange("/api/v1/admin/held-statements/HLD-2026-610002/original-view",
+                HttpMethod.POST, new HttpEntity<>(java.util.Map.of("reason", "Rows on page 2 are missing from the preview"),
+                        bearerFor(support)), String.class);
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(real.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }

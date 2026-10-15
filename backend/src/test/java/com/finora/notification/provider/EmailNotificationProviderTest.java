@@ -257,6 +257,19 @@ class EmailNotificationProviderTest {
         assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 
+    /** The notice that our team opened a statement is one a customer may well reply to. */
+    @Test
+    void send_usesTheSupportSenderForTheOpenedForFixNotice() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+
+        provider.send(notification(NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX));
+
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
     /**
      * The message is operator-typed free text placed in a customer's inbox. It must arrive as text:
      * markup an admin pastes (or a compromised admin session injects) is escaped, never rendered.

@@ -7,7 +7,7 @@ import type {
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
   HeldStatementTelemetrySummary, HeldStatementStagedRows,
-  HoldWithoutReviewRecordRow, BlankedCopy,
+  HoldWithoutReviewRecordRow, BlankedCopy, OriginalViewOpened,
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
@@ -57,14 +57,16 @@ const PORTAL_SCOPE = 'ADMIN';
  * applies to error responses too, so on a 4xx/5xx `error.response.data` is a Blob rather than the
  * parsed envelope, and client.ts's own interceptor finds no `.message` on it to surface.
  */
-async function withBlobErrorMessage(err: unknown): Promise<unknown> {
+async function withBlobErrorMessage(
+  err: unknown, fallback = 'The download failed and the server did not explain why.',
+): Promise<unknown> {
   const response = (err as { response?: { data?: unknown } })?.response;
   if (!(response?.data instanceof Blob)) return err;
   try {
     const parsed = JSON.parse(await response.data.text());
     response.data = { message: parsed?.message, errorCode: parsed?.errorCode };
   } catch {
-    response.data = { message: 'The download failed and the server did not explain why.' };
+    response.data = { message: fallback };
   }
   return err;
 }
@@ -437,18 +439,6 @@ export const adminHeldImportApi = {
   // `message` is what the USER is told, by email and push, and is required by the server.
   resolve: (jobId: string, message: string) =>
     api.post<HeldImportRow>(`/admin/held-imports/${jobId}/resolve`, { message }).then((r) => r.data),
-  // Same pattern as adminHeldStatementApi.download -- a plain <a href> can't carry the Bearer
-  // token, so this rides the authenticated axios instance and triggers the browser download
-  // client-side. Uses the statement's real fileName (available from the already-loaded detail),
-  // unlike the trust-review sibling's hardcoded ".pdf" -- CSV imports can be held too.
-  download: async (jobId: string, fileName: string) => {
-    try {
-      const res = await api.get(`/admin/held-imports/${jobId}/document`, { responseType: 'blob' });
-      downloadBlob(res.data as Blob, fileName);
-    } catch (err) {
-      throw await withBlobErrorMessage(err);
-    }
-  },
 };
 
 /** The trust-review queue -- statements the pipeline held back because the extraction's own
@@ -494,27 +484,30 @@ export const adminHeldStatementApi = {
   openReview: (jobId: string) =>
     api.post<HeldStatementRow>(`/admin/held-statements/without-review-record/${jobId}/open-review`)
       .then((r) => r.data),
-  // A plain <a href> can't carry the Bearer token, so this goes through the same authenticated
-  // axios instance as everything else and triggers the browser download client-side instead --
-  // same pattern as the user frontend's statementImportsApi.downloadFile.
-  //
-  // fileName comes from the caller (the already-loaded detail's own fileName), not parsed back out
-  // of the response's Content-Disposition header -- nothing else in this codebase parses that
-  // header either (see accountLifecycleApi.exportData's identical comment on the user frontend).
-  // Found in review: this used to hardcode `${heldId}.pdf`, which was wrong for every CSV-sourced
-  // hold -- the download still worked (the bytes and content-type were always correct), but saved
-  // under a misleading filename and extension.
-  download: async (heldId: string, fileName: string) => {
-    try {
-      const res = await api.get(`/admin/held-statements/${heldId}/document`, { responseType: 'blob' });
-      downloadBlob(res.data as Blob, fileName);
-    } catch (err) {
-      throw await withBlobErrorMessage(err);
-    }
-  },
 };
 
-/** Blanked copies of held statements. Every fetch is audited server-side, like a download. */
+/** The real statement, shown in the browser only. Opening is audited with the reason, emails the
+ *  Super Admins and tells the customer; there is no download. Page images ride the authenticated
+ *  axios instance because an <img src> cannot carry the Bearer token, and a page's error comes back
+ *  as a blob, so it is re-read for the server's message. */
+export const adminOriginalViewApi = {
+  openImport: (jobId: string, reason: string) =>
+    api.post<OriginalViewOpened>(`/admin/held-imports/${jobId}/original-view`, { reason }).then((r) => r.data),
+  openTrust: (heldId: string, reason: string) =>
+    api.post<OriginalViewOpened>(`/admin/held-statements/${heldId}/original-view`, { reason }).then((r) => r.data),
+  pageBlob: async (viewId: string, n: number) => {
+    try {
+      const res = await api.get(`/admin/original-views/${viewId}/pages/${n}`, { responseType: 'blob' });
+      return res.data as Blob;
+    } catch (err) {
+      throw await withBlobErrorMessage(err, 'This page could not be shown, and the server did not explain why.');
+    }
+  },
+  csv: (viewId: string) =>
+    api.get<{ lines: string[] }>(`/admin/original-views/${viewId}/csv`).then((r) => r.data.lines),
+};
+
+/** Blanked copies of held statements. Every fetch is audited server-side, like an opening. */
 export const adminBlankedCopyApi = {
   status: () => api.get<{ enabled: boolean }>('/admin/blanked-copy/status').then((r) => r.data),
   heldImport: (jobId: string) =>

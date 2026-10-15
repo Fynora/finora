@@ -122,6 +122,57 @@ describe('ImportTimeline', () => {
     expect(screen.getByRole('button', { name: 'Import another statement' })).toBeInTheDocument();
   });
 
+  it('says on which day our team opened the statement to fix a reading problem', async () => {
+    api.timeline.mockResolvedValue(timeline({ openedForFixOn: ['2026-10-15'] }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByText('Opened by our team on 15 Oct 2026 to fix a reading problem.')).toBeInTheDocument();
+  });
+
+  it('lists one line per day, keeping the India date as sent rather than shifting it', async () => {
+    api.timeline.mockResolvedValue(timeline({ openedForFixOn: ['2026-10-14', '2026-10-15'] }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByText('Opened by our team on 14 Oct 2026 to fix a reading problem.')).toBeInTheDocument();
+    expect(screen.getByText('Opened by our team on 15 Oct 2026 to fix a reading problem.')).toBeInTheDocument();
+  });
+
+  it('writes the month the way the email and push do, "Sep" not "Sept"', async () => {
+    api.timeline.mockResolvedValue(timeline({ openedForFixOn: ['2026-09-05'] }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByText('Opened by our team on 5 Sep 2026 to fix a reading problem.')).toBeInTheDocument();
+  });
+
+  it('says nothing about an opening when there was none, or from an older server that does not say', async () => {
+    api.timeline.mockResolvedValue(timeline({ openedForFixOn: [] }));
+    const { unmount } = render(<ImportTimeline jobId="job-1" />);
+    await advance(100);
+    expect(screen.queryByText(/Opened by our team/)).toBeNull();
+    unmount();
+
+    api.timeline.mockResolvedValue(timeline());
+    render(<ImportTimeline jobId="job-1" />);
+    await advance(100);
+    expect(screen.getByTestId('import-timeline')).toBeInTheDocument();
+    expect(screen.queryByText(/Opened by our team/)).toBeNull();
+  });
+
+  it('shows the opening line even when no stages were recorded', async () => {
+    api.timeline.mockResolvedValue(timeline({ stages: [], openedForFixOn: ['2026-10-15'] }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByText('Opened by our team on 15 Oct 2026 to fix a reading problem.')).toBeInTheDocument();
+  });
+
   it('lists every stage once the first poll lands', async () => {
     api.timeline.mockResolvedValue(timeline());
     render(<ImportTimeline jobId="job-1" />);

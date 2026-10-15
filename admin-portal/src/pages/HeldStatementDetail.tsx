@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
+import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import { formatWhen } from '../lib/formatWhen';
 import type { HeldStatementFinding, HeldStatementRerunResult, HeldStatementStagedRows } from '../types';
@@ -115,12 +116,20 @@ function StagedRowsView({ data }: { data: HeldStatementStagedRows }) {
   );
 }
 
+/** Readable names for History entries that are not the hold's own state changes. The rest keep
+ *  their event type as before. */
+const EVENT_LABEL: Record<string, string> = {
+  ORIGINAL_VIEWED: 'Original statement opened',
+};
+
 function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const { roles } = useAdminAuth();
-  const canDownload = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+  // The real statement and its staged rows are pinned to these roles on the server too.
+  const canViewOriginal = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
   const queryClient = useQueryClient();
 
   const [actionError, setActionError] = useState<string | null>(null);
+  const [viewingOriginal, setViewingOriginal] = useState(false);
   const [approveNote, setApproveNote] = useState('');
   const [markFalsePositive, setMarkFalsePositive] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -244,21 +253,12 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
   });
-  // On request only: every read is audited server-side, the same as a download.
+  // On request only: every read is audited server-side, the same as opening the original.
   const loadStagedRows = useMutation({
     mutationFn: () => adminHeldStatementApi.stagedRows(heldId),
     onSuccess: (result) => { setActionError(null); setStagedRows(result); },
     onError,
   });
-  const download = useMutation({
-    // Falls back to `${heldId}.pdf` only in the rare case detail.data.fileName is null -- the
-    // underlying ImportJob no longer exists (requireJob's own doc: deleted out from under an open
-    // review) -- and even then the download itself still fails server-side with a 409 before this
-    // fallback name would ever actually get used to save anything.
-    mutationFn: () => adminHeldStatementApi.download(heldId, detail.data?.fileName ?? `${heldId}.pdf`),
-    onError,
-  });
-
   if (detail.isLoading) {
     return <p className="text-muted text-sm">Loading…</p>;
   }
@@ -269,7 +269,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const { summary, findings, timeline } = detail.data;
   const resolved = RESOLVED_STATUSES.has(summary.status);
   // A locked PDF staged without its password being kept: nobody can open the stored file, so
-  // download and re-run are not offered and the rows below are the review.
+  // the original and re-run are not offered and the rows below are the review.
   const locked = summary.lockedWithoutPassword === true;
   const busy = approve.isPending || reject.isPending || reopen.isPending || assignToMe.isPending
     || assignToEngineer.isPending || investigate.isPending || rerunParser.isPending
@@ -293,24 +293,28 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           {blankedStatus.data?.enabled && !resolved && !locked && (
             <BlankedCopyPanel key={heldId} fetchCopy={() => adminBlankedCopyApi.heldStatement(heldId)} />
           )}
-          {canDownload && !locked && (
+          {/* Only an open hold can be opened (the server refuses a decided one with a 409), and a
+              locked file without its password cannot be opened at all. */}
+          {canViewOriginal && !locked && !resolved && (
             <button
               type="button"
-              onClick={() => download.mutate()}
-              disabled={download.isPending}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
+              onClick={() => setViewingOriginal(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card"
             >
-              <Download className="h-3.5 w-3.5" />
-              {download.isPending ? 'Downloading…' : 'Download statement'}
+              <Eye className="h-3.5 w-3.5" />
+              View original
             </button>
           )}
         </div>
       </div>
-      {canDownload && !locked && (
+      {canViewOriginal && !locked && !resolved && (
         <p className="text-xs text-muted">
-          Downloading this statement has been logged against your account, because it shows
-          content from a customer&apos;s bank statement.
+          Viewing the original needs a reason. It is logged against your account, the Super Admins are
+          emailed, and the customer is told the date.
         </p>
+      )}
+      {viewingOriginal && (
+        <OriginalStatementViewer queue="TRUST" itemId={heldId} onClose={() => setViewingOriginal(false)} />
       )}
       {locked && (
         <div className="rounded-lg border border-warning p-3" data-testid="locked-without-password">
@@ -343,7 +347,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
       </section>
 
       {/* Staged rows */}
-      {canDownload && (
+      {canViewOriginal && (
         <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
           <h3 className="text-sm font-semibold text-ink">Staged rows</h3>
           <p className="text-xs text-muted">
@@ -645,7 +649,7 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         <ul className="space-y-2">
           {timeline.map((event, index) => (
             <li key={index} className="text-xs border-l-2 border-border pl-3">
-              <span className="text-ink font-medium">{event.eventType}</span>{' '}
+              <span className="text-ink font-medium">{EVENT_LABEL[event.eventType] ?? event.eventType}</span>{' '}
               <span className="text-muted">{formatWhen(event.createdAt)}</span>
               {event.notes && <p className="text-muted mt-0.5">{event.notes}</p>}
             </li>

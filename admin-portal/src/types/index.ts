@@ -1288,6 +1288,9 @@ export interface HeldImportDetail {
   lastError: string | null;
   correlationId: string | null;
   objectKey: string | null;
+  /** Who opened the real statement, and when, oldest first -- never the reason. Optional because
+   *  an older backend does not send it. */
+  originalOpenings?: { openedAt: string; openedBy: string }[];
 }
 
 /** One place a held statement's blanked copy reads differently from the real one -- mirrors the
@@ -1307,6 +1310,16 @@ export interface BlankedCopy {
   check: 'MATCHES' | 'DIFFERS' | 'NOT_CHECKED';
   notCheckedReason: string | null;
   differences: BlankedCopyDifference[];
+}
+
+/** An opened view of a held statement's real pages -- mirrors `OriginalViewDto.Opened`. `format` is
+ *  "PDF" (fetch pages 1..pageCount as images) or "CSV" (fetch the lines); `expiresAt` is when the
+ *  server stops serving it. */
+export interface OriginalViewOpened {
+  viewId: string;
+  format: string;
+  pageCount: number;
+  expiresAt: string;
 }
 
 /** `reprocessing` counts jobs already sent back to the queue, not every queued import. */

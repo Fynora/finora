@@ -22,6 +22,8 @@ import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
+import com.finora.imports.original.OriginalContent;
+import com.finora.imports.original.OriginalViewHistory;
 import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.trust.HeldStatementIdGenerator;
@@ -86,6 +88,7 @@ public class HeldStatementService {
     private final ImportService importService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final OriginalViewHistory originalViewHistory;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public HeldStatementService(HeldStatementRepository repository,
@@ -101,7 +104,9 @@ public class HeldStatementService {
                                 ImportService importService,
                                 ParserVersionProvider parserVersionProvider,
                                 HeldItemAdminAlertService heldItemAdminAlertService,
-                                com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                                com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                                OriginalViewHistory originalViewHistory) {
+        this.originalViewHistory = originalViewHistory;
         this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.eventRepository = eventRepository;
@@ -543,7 +548,8 @@ public class HeldStatementService {
         // than turning an otherwise-fine detail page into a 409 over a field the page barely uses.
         String fileName = importJobRepository.findById(held.getImportJobId())
                 .map(ImportJob::getFileName).orElse(null);
-        return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows), timeline(events));
+        return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows),
+                timeline(events, originalViewHistory.forJob(held.getImportJobId())));
     }
 
     private List<FindingView> findings(List<ImportVerificationFinding> rows) {
@@ -569,10 +575,19 @@ public class HeldStatementService {
         }
     }
 
-    private List<EventView> timeline(List<HeldStatementEvent> events) {
-        return events.stream()
-                .map(e -> new EventView(e.getEventType(), e.getFromStatus(), e.getToStatus(),
-                        e.getNotes(), e.getActorId(), e.getCreatedAt()))
+    /**
+     * The hold's own events, with each opening of the real statement merged in by time, so the
+     * History says who looked at the customer's statement and when. Openings are read from the view
+     * rows rather than written as events too: one record, and never the reason, which is on the
+     * audit entry only.
+     */
+    private List<EventView> timeline(List<HeldStatementEvent> events, List<OriginalViewHistory.Opening> openings) {
+        return java.util.stream.Stream.concat(
+                        events.stream().map(e -> new EventView(e.getEventType(), e.getFromStatus(), e.getToStatus(),
+                                e.getNotes(), e.getActorId(), e.getCreatedAt())),
+                        openings.stream().map(o -> new EventView("ORIGINAL_VIEWED", null, null,
+                                "Opened by " + o.openedBy(), o.viewerId(), o.openedAt())))
+                .sorted(java.util.Comparator.comparing(EventView::createdAt))
                 .toList();
     }
 
@@ -1007,9 +1022,9 @@ public class HeldStatementService {
      * The rows this hold staged -- what approving releases, and the whole review when the file
      * itself cannot be opened ({@link HeldStatement#isLockedWithoutPassword()}).
      *
-     * <p>Statement content, so it is audited like {@link #download}: before the rows are read, in a
-     * transaction of its own so the refusal below does not roll the record back. The controller pins
-     * it to the same roles as the document.
+     * <p>Statement content, so it is audited like {@link #contentForOriginalView}: before the rows
+     * are read, in a transaction of its own so the refusal below does not roll the record back. The
+     * controller pins it to the same roles as the original view.
      *
      * <p>409 when the rows are gone -- a rejected-then-reopened hold whose session was swept -- with
      * the way back that applies: a re-run for a file the parser can read, a new upload otherwise.
@@ -1054,81 +1069,92 @@ public class HeldStatementService {
                         account.openingBalance(), account.closingBalance(), totalParsed, view);
     }
 
-    /** What the download endpoint hands back -- everything the controller needs to set the
-     *  response headers, in one value. Same shape as {@code StatementImportService.FileDownload},
-     *  for the same reason. */
-    public record DownloadedStatement(String fileName, byte[] content, String contentType) {}
-
     /**
-     * The one place in the product that hands a customer's bank statement to a member of staff.
+     * The held statement's real bytes for an Admin's in-browser view: the one path left that shows
+     * staff a customer's statement.
      *
-     * <p>Audited BEFORE the bytes are read, not after -- a failed transfer (a storage outage, a
-     * decrypt failure) must still leave a record that the attempt was made, since the attempt
-     * itself is the sensitive event, not only a successful one. The role gate that makes this safe
-     * to expose at all lives on the controller, one layer up: {@code TRUST_REVIEW_MANAGE} alone
-     * would let anyone who can work the queue reach this method, and that permission is grantable
-     * to a future support role that must never receive a customer's statement -- see the
-     * repository owner's decision, 2026-09-04, in the Plan 2 document.
+     * <p>Audited with the typed reason BEFORE the bytes are read, in a transaction of its own: a
+     * failed read (a storage outage, a decrypt failure, a saved password that does not open the
+     * file) must still leave a record that the attempt was made, since the attempt itself is the
+     * sensitive event. The role gate lives on the controller, one layer up: {@code
+     * TRUST_REVIEW_MANAGE} alone would let anyone who can work the queue reach this method, and that
+     * permission is grantable to a support role that must never see a customer's statement -- the
+     * repository owner's decision, 2026-09-04.
      *
-     * <p>Deliberately plain {@code @Transactional}, not {@code readOnly = true}, even though the
-     * method never mutates a row -- it writes one, the audit entry. {@code AdminNotificationService
-     * .detail}'s own doc already caught this exact bug once: a read-only transaction sets
-     * Hibernate's flush mode to {@code MANUAL}, so the audit row registered via {@code
-     * auditLogRepository.save()} is silently never flushed to the database -- no exception, the
-     * row just never existed. Caught here by {@code everyDownloadIsAudited} actually querying
-     * Postgres for the row rather than asserting a mock was called.
+     * <p>Two refusals come before the audit, because nothing is read: a decided hold (a view is for
+     * working the queue, which a decided hold has left), and a locked PDF whose password was not
+     * kept (a statement nobody can open).
+     *
+     * <p>Plain {@code @Transactional}, not {@code readOnly}: a read-only transaction sets Hibernate's
+     * flush mode to {@code MANUAL}, which once silently dropped an audit row written this way.
      */
     @Transactional
-    public DownloadedStatement download(UUID actingAdminId, String heldId) {
+    public OriginalContent contentForOriginalView(UUID viewerId, String heldId, String reason) {
         HeldStatement held = require(heldId);
-        // Before the audit entry: nothing is handed over. The stored file is still locked, and a
-        // copy nobody can open is a customer's statement given to staff for no purpose.
-        refuseIfLockedWithoutPassword(held, "downloaded");
+        refuseIfNotOpen(held, "opened");
+        refuseIfLockedWithoutPassword(held, "opened");
         ImportJob job = requireJob(held);
-
-        // Recorded before the bytes are read (see above), so it can only say a saved password exists
-        // and an unlocked copy will be attempted -- reviewCopy falls back to the stored file.
-        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.hasJobPassword(job.getId());
-        // Its own transaction: the 409s below (a missing file, an unreadable one) roll this one
-        // back, and the attempt is the event being recorded.
-        auditService.recordEvenOnRollback(actingAdminId, "TRUST_REVIEW_DOCUMENT_DOWNLOADED", "HeldStatement",
-                held.getId(), Map.of("actorId", actingAdminId.toString(),
+        boolean savedPassword = hasSavedPassword(job);
+        auditService.recordEvenOnRollback(viewerId, "TRUST_REVIEW_ORIGINAL_VIEWED", "HeldStatement",
+                held.getId(), Map.of("actorId", viewerId.toString(),
                         "subjectUserId", held.getUserId().toString(),
                         "heldId", held.getHeldId(),
+                        "reason", reason,
                         "savedPasswordOnFile", savedPassword));
+        return originalContentOf(held, job, savedPassword);
+    }
 
+    /** The same bytes for a page of a view already opened (and audited). Not audited again; refuses a
+     *  hold decided since, so a decision ends every open view. */
+    @Transactional(readOnly = true)
+    public OriginalContent contentForOpenView(String heldId) {
+        HeldStatement held = require(heldId);
+        refuseIfNotOpen(held, "opened");
+        refuseIfLockedWithoutPassword(held, "opened");
+        ImportJob job = requireJob(held);
+        return originalContentOf(held, job, hasSavedPassword(job));
+    }
+
+    private OriginalContent originalContentOf(HeldStatement held, ImportJob job, boolean savedPassword) {
         byte[] content = readStatement(held, job);
         if (savedPassword) {
-            // A protected PDF whose password the user saved is unlocked in memory for this download
-            // only, so the reviewer can read it; no unlocked copy is stored.
-            content = statementPasswordService.reviewCopy(job, content).content();
+            // Unlocked in memory for this view only; no unlocked copy is stored. A file the saved
+            // password did not open is refused, not shown locked.
+            content = statementPasswordService.unlockedOrRefused(job, content, held.getHeldId(),
+                    OriginalContent.CANNOT_BE_SHOWN);
         }
-        return new DownloadedStatement(job.getFileName(), content, contentTypeFor(job.getSourceFormat()));
+        return new OriginalContent(job.getId(), held.getUserId(), "TRUST", held.getHeldId(),
+                job.getSourceFormat().toUpperCase(java.util.Locale.ROOT), content);
+    }
+
+    private boolean hasSavedPassword(ImportJob job) {
+        return "PDF".equalsIgnoreCase(job.getSourceFormat())
+                && statementPasswordService.hasJobPassword(job.getId());
+    }
+
+    /** A view and a blanked copy are for working the queue: {@link #require} finds a decided hold
+     *  too, and one has left it. */
+    private static void refuseIfNotOpen(HeldStatement held, String verb) {
+        if (held.getStatus().isResolved()) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Only an open hold can be " + verb + "; " + held.getHeldId() + " is " + held.getStatus() + ".");
+        }
     }
 
     /**
-     * As {@link #download}, for a blanked copy: same gates and audit-before-read, under its own
-     * action, and without the role pin -- the copy that leaves the server is blanked. The bytes go
-     * to {@code BlankedCopyService} and nowhere else; the reference is the Held ID, never the file
-     * name.
-     *
-     * <p>One gate {@code download} does not have: only an open hold is copied. {@link #require}
-     * finds a decided hold too, and a blanked copy is for working the queue, which a decided hold
-     * has left.
+     * As {@link #contentForOriginalView}, for a blanked copy: same gates and audit-before-read, under
+     * its own action, and without the role pin -- the copy that leaves the server is blanked. The
+     * bytes go to {@code BlankedCopyService} and nowhere else; the reference is the Held ID, never the
+     * file name.
      */
     @Transactional
     public StaffStatementContent contentForBlankedCopy(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
-        if (held.getStatus().isResolved()) {
-            throw new ApiException(HttpStatus.CONFLICT,
-                    "Only an open hold can be copied; " + held.getHeldId() + " is " + held.getStatus() + ".");
-        }
+        refuseIfNotOpen(held, "copied");
         refuseIfLockedWithoutPassword(held, "copied");
         ImportJob job = requireJob(held);
-        boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat())
-                && statementPasswordService.hasJobPassword(job.getId());
-        // Its own transaction, as download's: a failed read rolls this one back, and the attempt is
+        boolean savedPassword = hasSavedPassword(job);
+        // Its own transaction, as the view's: a failed read rolls this one back, and the attempt is
         // the event being recorded.
         auditService.recordEvenOnRollback(actingAdminId, "HELD_STATEMENT_BLANKED_COPY", "HeldStatement",
                 held.getId(), Map.of("actorId", actingAdminId.toString(),
@@ -1137,7 +1163,7 @@ public class HeldStatementService {
                         "savedPasswordOnFile", savedPassword));
         byte[] content = readStatement(held, job);
         if (savedPassword) {
-            // Unlike download, a file the saved password did not open is refused, not handed over.
+            // A file the saved password did not open is refused, not handed over.
             content = statementPasswordService.unlockedForBlankedCopy(job, content, held.getHeldId());
         }
         return new StaffStatementContent(held.getHeldId(), job.getSourceFormat(), content);
@@ -1158,17 +1184,6 @@ public class HeldStatementService {
         details.putAll(outcome.auditDetails());
         auditService.record(actingAdminId, "HELD_STATEMENT_BLANKED_COPY_RESULT", "HeldStatement",
                 held.getId(), details);
-    }
-
-    /** Same switch {@code StatementImportService.contentTypeFor} makes, over the formats this
-     *  system actually stores -- not a filename-extension lookup, which is attacker-influenced. */
-    private static String contentTypeFor(String sourceFormat) {
-        if (sourceFormat == null) return "application/octet-stream";
-        return switch (sourceFormat.toUpperCase()) {
-            case "CSV" -> "text/csv";
-            case "PDF" -> "application/pdf";
-            default -> "application/octet-stream";
-        };
     }
 
     // --- internals -------------------------------------------------------------------------------
@@ -1307,7 +1322,7 @@ public class HeldStatementService {
      * A locked PDF staged through the synchronous endpoint, which keeps no password (V258): the
      * stored file cannot be opened, so it cannot be read by a reviewer or by the parser. 409 naming
      * what the review is made from instead, rather than a re-run that fails on the password or a
-     * download nobody can open.
+     * view nobody can open.
      */
     private static void refuseIfLockedWithoutPassword(HeldStatement held, String verb) {
         if (held.isLockedWithoutPassword()) {

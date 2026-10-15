@@ -822,7 +822,8 @@ public class AccountPurgeSweepService {
             // cascade-delete transitively off importJobRepository.deleteByUserId above --
             // held_statements.import_job_id is a NOT NULL UNIQUE FK to import_jobs(id) ON DELETE
             // CASCADE (V144), and held_statement_events cascades again off held_statement_id. Verified
-            // by reading V144 directly, not assumed.
+            // by reading V144 directly, not assumed. statement_original_views (V271) cascades off
+            // import_jobs the same way.
 
             // Evidence outlives the account (no FK, by design -- see this class's own doc on why),
             // but two of its columns aren't evidence, they're personal. See

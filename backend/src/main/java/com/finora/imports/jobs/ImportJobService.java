@@ -3,11 +3,13 @@ package com.finora.imports.jobs;
 import com.finora.entity.ImportJob;
 import com.finora.exception.ApiException;
 import com.finora.imports.StatementUpload;
+import com.finora.imports.original.StatementOriginalViewRepository;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.imports.storage.StatementStorage;
 import com.finora.repository.ImportJobRepository;
 import com.finora.security.crypto.EncryptingStream;
 import com.finora.security.crypto.EncryptionService;
+import com.finora.util.UserZone;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -74,6 +77,7 @@ public class ImportJobService {
     private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private final EncryptionService encryptionService;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
+    private final StatementOriginalViewRepository originalViews;
 
     @org.springframework.beans.factory.annotation.Value("${app.import.queue.enabled:false}")
     private boolean queueEnabled;
@@ -85,7 +89,8 @@ public class ImportJobService {
                              ImportJobWorker worker,
                              org.springframework.transaction.support.TransactionTemplate transactionTemplate,
                              EncryptionService encryptionService,
-                             com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                             com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                             StatementOriginalViewRepository originalViews) {
         this.jobStore = jobStore;
         this.repository = repository;
         this.stageRepository = stageRepository;
@@ -94,6 +99,7 @@ public class ImportJobService {
         this.transactionTemplate = transactionTemplate;
         this.encryptionService = encryptionService;
         this.statementPasswordService = statementPasswordService;
+        this.originalViews = originalViews;
     }
 
     /**
@@ -397,7 +403,13 @@ public class ImportJobService {
     public ImportJobDto.Timeline timeline(UUID userId, UUID jobId) {
         ImportJob job = repository.findByIdAndUserId(jobId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
-        return ImportJobDto.Timeline.of(job, stageRepository.findByJobIdOrderByRecordedAtAsc(jobId));
+        // The days our team opened this statement to fix a reading problem, in India time, once
+        // each -- what the customer was told by push and email, kept where they can look it up.
+        List<LocalDate> openedOn = originalViews.findByJobIdOrderByOpenedAtAsc(jobId).stream()
+                .map(v -> v.getOpenedAt().atZone(UserZone.DEFAULT).toLocalDate())
+                .distinct()
+                .toList();
+        return ImportJobDto.Timeline.of(job, stageRepository.findByJobIdOrderByRecordedAtAsc(jobId), openedOn);
     }
 
     /**

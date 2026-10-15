@@ -10,6 +10,8 @@ import com.finora.security.JwtService;
 import com.finora.testsupport.TestSessions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.imports.original.StatementOriginalView;
+import com.finora.imports.original.StatementOriginalViewRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -64,6 +66,7 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
     @Autowired private ImportJobRepository jobRepository;
+    @Autowired private StatementOriginalViewRepository originalViews;
     @Autowired private com.finora.repository.StatementPasswordRepository passwordRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
@@ -668,6 +671,38 @@ class ImportJobEndpointIT extends AbstractIntegrationTest {
         assertThat(stages.get(0).get("outcome").asText())
                 .as("the worker's first stage must have actually finished, not still say RUNNING")
                 .isEqualTo("COMPLETED");
+    }
+
+    /**
+     * The customer's import page lists each India day our team opened the statement to fix a
+     * reading problem (project 2 of the 2026-10-14 statement-fixing spec): one entry per day,
+     * oldest first, and nothing about who. A view at 20:00 UTC on 14 Oct and one at 09:00 UTC on
+     * 15 Oct are both 15 Oct in India.
+     */
+    @Test
+    void theTimelineListsEachDayTheStatementWasOpenedOnce() {
+        User user = user();
+        ResponseEntity<String> accepted = restTemplate.exchange(
+                "/api/v1/import/jobs", HttpMethod.POST, upload(user, "statement.csv", CSV), String.class);
+        UUID jobId = UUID.fromString(read(accepted).get("data").get("jobId").asText());
+        String none = read(restTemplate.exchange("/api/v1/import/jobs/" + jobId + "/timeline", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class)).get("data").get("openedForFixOn").toString();
+        assertThat(none).isEqualTo("[]");
+
+        originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-15T09:00:00Z")));
+        originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-14T20:00:00Z")));
+        originalViews.save(StatementOriginalView.open(jobId, user.getId(), UUID.randomUUID(), "IMPORT",
+                jobId.toString(), "CSV", 0, Instant.parse("2026-10-16T05:00:00Z")));
+
+        ResponseEntity<String> timeline = restTemplate.exchange(
+                "/api/v1/import/jobs/" + jobId + "/timeline", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class);
+
+        JsonNode opened = read(timeline).get("data").get("openedForFixOn");
+        assertThat(opened.toString()).isEqualTo("[\"2026-10-15\",\"2026-10-16\"]");
+        assertThat(timeline.getBody()).doesNotContain("Rows on page 2").doesNotContain("viewerId");
     }
 
     @Test

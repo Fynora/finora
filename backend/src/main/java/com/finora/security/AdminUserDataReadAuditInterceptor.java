@@ -18,8 +18,8 @@ import java.util.UUID;
 /**
  * Records an audit row every time an admin READS one specific user's data.
  *
- * <p>Every admin mutation is audited by the service that performs it, and the held-statement
- * document download records {@code TRUST_REVIEW_DOCUMENT_DOWNLOADED} -- but a plain GET of a
+ * <p>Every admin mutation is audited by the service that performs it, and opening a held
+ * statement records {@code TRUST_REVIEW_ORIGINAL_VIEWED} -- but a plain GET of a
  * user's transactions, workspace, analytics, merchants or relationships left no trace at all
  * (audit, 2026-09-24). For a financial product that is the one access pattern an insider-misuse
  * review actually asks about. An interceptor rather than a call in each controller so that the

@@ -5,8 +5,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldStatementDetail from './HeldStatementDetail';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminHeldStatementApi, adminOriginalViewApi } from '../api/endpoints';
 import type { HeldStatementDetail as HeldStatementDetailDto, HeldStatementRow } from '../types';
+
+/** A view that is still open: the viewer takes pages down once expiresAt passes. */
+const LATER = new Date(Date.now() + 30 * 60_000).toISOString();
 
 vi.mock('../context/ThemeContext', () => ({
   useTheme: () => ({ theme: 'system', resolvedTheme: 'light', setTheme: vi.fn() }),
@@ -26,8 +29,13 @@ vi.mock('../api/endpoints', () => ({
     saveFindings: vi.fn(),
     rerunParser: vi.fn(),
     suggestDiagnosis: vi.fn(),
-    download: vi.fn(),
     stagedRows: vi.fn(),
+  },
+  adminOriginalViewApi: {
+    openImport: vi.fn(),
+    openTrust: vi.fn(),
+    pageBlob: vi.fn(),
+    csv: vi.fn(),
   },
   adminBlankedCopyApi: {
     status: vi.fn(),
@@ -37,6 +45,9 @@ vi.mock('../api/endpoints', () => ({
 }));
 // jsdom has no URL.createObjectURL; the panel's own test covers what is handed to the download.
 vi.mock('../lib/download', () => ({ downloadBlob: vi.fn() }));
+// Nor object URLs for the original view's page images.
+URL.createObjectURL = vi.fn(() => 'blob:page');
+URL.revokeObjectURL = vi.fn();
 
 const summary: HeldStatementRow = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -329,75 +340,77 @@ describe('HeldStatementDetail', () => {
       .toHaveBeenCalledWith('HLD-2026-100001', undefined, undefined));
   });
 
-  it('shows the download control for an ADMIN role', async () => {
+  it('shows the view control for an ADMIN role', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     renderPage();
     await screen.findByText(/count disagree/i);
 
-    expect(screen.getByRole('button', { name: /download statement/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View original' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
   });
 
-  /**
-   * Found in review: this used to always save under `${heldId}.pdf`, which was wrong for every
-   * CSV-sourced hold -- the download itself worked, but the saved file's name and extension lied
-   * about its format. The real name (whatever format it actually is) now comes from the detail
-   * the page already loaded.
-   */
-  it('downloads the statement under its real original filename, not a hardcoded .pdf', async () => {
+  /** The real statement is viewed in the browser through the trust queue, after a typed reason. */
+  it('opens this hold through the trust queue after a reason, and shows its pages', async () => {
+    vi.mocked(adminOriginalViewApi.openTrust).mockResolvedValue(
+      { viewId: 'v1', format: 'PDF', pageCount: 2, expiresAt: LATER });
+    vi.mocked(adminOriginalViewApi.pageBlob).mockResolvedValue(new Blob(['x'], { type: 'image/png' }));
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     renderPage();
     await screen.findByText(/count disagree/i);
 
-    fireEvent.click(screen.getByRole('button', { name: /download statement/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'View original' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Rows on page 2 are missing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Open statement' }));
 
-    await waitFor(() => expect(adminHeldStatementApi.download)
-      .toHaveBeenCalledWith('HLD-2026-100001', 'hdfc-june.pdf'));
+    await waitFor(() => expect(adminOriginalViewApi.openTrust)
+      .toHaveBeenCalledWith('HLD-2026-100001', 'Rows on page 2 are missing'));
+    expect(await screen.findAllByRole('img', { name: /Page \d of 2/ })).toHaveLength(2);
+    expect(adminOriginalViewApi.openImport).not.toHaveBeenCalled();
   });
 
-  /** The one case fileName can be null -- the underlying ImportJob is gone -- still needs a
-   *  filename to hand the browser; falling back to the old naming is safe here specifically
-   *  because the download itself will already 409 before this name is ever used to save anything. */
-  it('falls back to a heldId-based name when the underlying job no longer exists', async () => {
-    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({ ...detail, fileName: null });
+  it('says that viewing is logged, emailed and told to the customer', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
     renderPage();
     await screen.findByText(/count disagree/i);
 
-    fireEvent.click(screen.getByRole('button', { name: /download statement/i }));
-
-    await waitFor(() => expect(adminHeldStatementApi.download)
-      .toHaveBeenCalledWith('HLD-2026-100001', 'HLD-2026-100001.pdf'));
+    expect(await screen.findByText(/viewing the original needs a reason/i)).toBeInTheDocument();
   });
 
-  it('discloses that downloading is logged, matching the held-imports queue', async () => {
-    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
-    renderPage();
-    await screen.findByText(/count disagree/i);
-
-    expect(await screen.findByText(/downloading this statement has been logged against your account/i))
-      .toBeInTheDocument();
-  });
-
-  it('does not show the download-is-logged disclosure to a role that cannot download', async () => {
+  it('does not show that notice to a role that cannot view the original', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
     renderPage();
     await screen.findByText(/count disagree/i);
 
-    expect(screen.queryByText(/downloading this statement has been logged/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/viewing the original needs a reason/i)).not.toBeInTheDocument();
   });
 
   /**
-   * The repository owner's decision, 2026-09-04: the download is pinned to ADMIN/SUPER_ADMIN, not
-   * merely to TRUST_REVIEW_MANAGE. An operator holding only the permission (able to reach this
+   * The repository owner's decision, 2026-09-04: the real statement is pinned to ADMIN/SUPER_ADMIN,
+   * not merely to TRUST_REVIEW_MANAGE. An operator holding only the permission (able to reach this
    * page and work the queue) must not see a control for an action the backend would refuse anyway
    * -- rendering a button that always 403s is worse than not rendering one.
    */
-  it('hides the download control from a non-admin role', async () => {
+  /** An opening of the real statement is merged into the History by the server. */
+  it('shows an opening of the real statement in the History', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      timeline: [...detail.timeline, { eventType: 'ORIGINAL_VIEWED', fromStatus: null, toStatus: null,
+        notes: 'Opened by ops-admin@example.com', actorId: 'a1', createdAt: '2026-10-15T05:00:00Z' }],
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    expect(screen.getByText('Original statement opened')).toBeInTheDocument();
+    expect(screen.getByText('Opened by ops-admin@example.com')).toBeInTheDocument();
+  });
+
+  it('hides the view control from a non-admin role', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
     renderPage();
     await screen.findByText(/count disagree/i);
 
-    expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
   });
 
   /** A resolved hold's approve/reject controls are disabled and the state is named, not just
@@ -414,6 +427,8 @@ describe('HeldStatementDetail', () => {
     expect(screen.getByRole('button', { name: /^approve$/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /^reject$/i })).toBeDisabled();
     expect(screen.getByText(/already imported/i)).toBeInTheDocument();
+    // The server refuses to open a decided hold, so it is not offered.
+    expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
   });
 
   /**
@@ -575,24 +590,24 @@ describe('HeldStatementDetail', () => {
   describe('a locked statement whose password was not kept', () => {
     const locked: HeldStatementDetailDto = { ...detail, summary: { ...summary, lockedWithoutPassword: true } };
 
-    it('says why, and offers neither the download nor a re-run', async () => {
+    it('says why, and offers neither the original nor a re-run', async () => {
       vi.mocked(adminHeldStatementApi.get).mockResolvedValue(locked);
       mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
       renderPage();
 
       expect(await screen.findByTestId('locked-without-password')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Download statement' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Re-run parser' })).toBeDisabled();
       // Still decidable: the rows and the findings are the review.
       expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Show staged rows' })).toBeInTheDocument();
     });
 
-    it('keeps the download and the re-run for an ordinary hold', async () => {
+    it('keeps the original and the re-run for an ordinary hold', async () => {
       mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
       renderPage();
 
-      expect(await screen.findByRole('button', { name: 'Download statement' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'View original' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Re-run parser' })).toBeEnabled();
       expect(screen.queryByTestId('locked-without-password')).not.toBeInTheDocument();
     });
@@ -667,7 +682,7 @@ describe('HeldStatementDetail', () => {
 
       await waitFor(() => expect(adminBlankedCopyApi.heldStatement).toHaveBeenCalledWith('HLD-2026-100001'));
       expect(await screen.findByText('Matches the real statement')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /download statement/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'View original' })).not.toBeInTheDocument();
     });
 
     /** The page stays mounted across a move to another hold; one hold's verdict must not be read

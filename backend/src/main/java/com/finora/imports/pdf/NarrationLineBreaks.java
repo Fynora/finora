@@ -149,7 +149,7 @@ final class NarrationLineBreaks {
             }
             List<String> auxiliary = new ArrayList<>(section.auxiliaryText().size());
             for (String line : section.auxiliaryText()) auxiliary.add(withoutGeometryMarks(line));
-            sections.add(new PdfTableLocator.LocatedSection(auxiliary, rows, section.evidence()));
+            sections.add(new PdfTableLocator.LocatedSection(auxiliary, rows, section.evidence(), section.rowLines()));
         }
         if (ctx != null) {
             if (controlBreaks) ctx.record("NARRATION_CONTROL_CHARACTER_AS_LINE_BREAK");

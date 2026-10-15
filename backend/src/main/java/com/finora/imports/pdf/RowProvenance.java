@@ -18,6 +18,11 @@ final class RowProvenance {
         add(row, RowLines.of(physicalRow));
     }
 
+    /** The row was built from these lines, already gathered by the caller. */
+    void record(Map<String, String> row, RowLines rowLines) {
+        add(row, rowLines);
+    }
+
     /** {@code source} was merged into {@code target}: the target now also stands on its lines. */
     void merge(Map<String, String> target, Map<String, String> source) {
         if (target == source) return;

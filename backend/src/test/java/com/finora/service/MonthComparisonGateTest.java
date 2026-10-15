@@ -104,7 +104,7 @@ class MonthComparisonGateTest {
         var ends = new java.util.HashMap<java.util.UUID, LocalDate>();
         ends.put(BANK, LocalDate.of(2026, 9, 30));
         if (cardEnd != null) ends.put(CARD, cardEnd);
-        return MonthComparisonGate.awaitingStatement(month, newest, ends, active);
+        return !MonthComparisonGate.behindAccountIds(month, newest, ends, active).isEmpty();
     }
 
     @Test
@@ -154,7 +154,7 @@ class MonthComparisonGateTest {
     void aStatementBackedAccountIsTheOnlyKindJudged_anAccountWithNoStatementIsNotInTheMap() {
         // BANK is in the map; a manual-only account is not, so even if it is active it cannot count.
         var ends = java.util.Map.of(BANK, LocalDate.of(2026, 9, 30));
-        assertThat(MonthComparisonGate.awaitingStatement(SEP, SEP, ends, java.util.Set.of(CARD))).isFalse();
+        assertThat(MonthComparisonGate.behindAccountIds(SEP, SEP, ends, java.util.Set.of(CARD))).isEmpty();
     }
 
     @Test

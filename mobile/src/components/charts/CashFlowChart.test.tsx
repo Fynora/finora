@@ -25,3 +25,25 @@ describe('CashFlowChart axis', () => {
     expect(screen.getByLabelText(/^Cash flow over 6 months\. Apr 26: income ₹1,000, expense ₹500\./)).toBeTruthy();
   });
 });
+
+describe('CashFlowChart partial month', () => {
+  const withPartialLast = points.map((p, i) => (i === points.length - 1 ? { ...p, partial: true } : p));
+
+  it('stars the partial month, rings its points, explains the star, and says so to assistive tech', () => {
+    render(<ThemeProvider><CashFlowChart points={withPartialLast} width={313} /></ThemeProvider>);
+    expect(screen.getByText('Sep 26*', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByText('Aug 26', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByTestId('cash-flow-partial-income-Sep 26')).toBeTruthy();
+    expect(screen.getByTestId('cash-flow-partial-expense-Sep 26')).toBeTruthy();
+    expect(screen.queryByTestId('cash-flow-partial-income-Aug 26')).toBeNull();
+    expect(screen.getByTestId('cash-flow-partial-note')).toBeTruthy();
+    expect(screen.getByLabelText(/Sep 26 \(partial month\): income/)).toBeTruthy();
+  });
+
+  it('draws every month as an ordinary point, with no note, when none is partial', () => {
+    render(<ThemeProvider><CashFlowChart points={points} width={313} /></ThemeProvider>);
+    expect(screen.queryByTestId('cash-flow-partial-note')).toBeNull();
+    expect(screen.queryByText(/\*/, { includeHiddenElements: true })).toBeNull();
+    expect(screen.queryByLabelText(/partial month/)).toBeNull();
+  });
+});

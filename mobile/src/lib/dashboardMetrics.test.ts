@@ -7,9 +7,16 @@ describe('deriveNetSavingsSeries', () => {
       { label: 'Feb', income: 40000, expense: 45000 },
     ]);
     expect(result).toEqual([
-      { label: 'Jan', net: 20000 },
-      { label: 'Feb', net: -5000 },
+      { label: 'Jan', net: 20000, partial: false },
+      { label: 'Feb', net: -5000, partial: false },
     ]);
+  });
+
+  it('carries a partial month through, and treats a point without the flag as whole', () => {
+    expect(deriveNetSavingsSeries([
+      { label: 'Aug', income: 10, expense: 5 },
+      { label: 'Sep', income: 10, expense: 5, partial: true },
+    ]).map((p) => p.partial)).toEqual([false, true]);
   });
 
   it('returns an empty array for no points', () => {

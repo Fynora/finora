@@ -89,5 +89,13 @@ public record DashboardRangeSummaryDto(
          * was counted as income, so the figure would be decided by money not yet classified). See
          * com.finora.service.SavingsRate.
          */
-        String savingsRateGateReason
+        String savingsRateGateReason,
+
+        /*
+         * Non-null when the range's last month is "so far": an account that was active around it
+         * has a latest statement ending before that month does. The range figures are still
+         * returned -- a client labels them rather than hiding them. Same meaning as
+         * DashboardSummaryDto.statementBehind, judged over the month the range ends in.
+         */
+        StatementBehindDto statementBehind
 ) {}

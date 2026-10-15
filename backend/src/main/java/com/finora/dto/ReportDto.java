@@ -22,7 +22,12 @@ public record ReportDto(
         /* This month against the month before, or null when the user has no live account. Always
          * present otherwise: when the comparison cannot be trusted, reliable is false and gateReason
          * says why, so a client can explain the absence instead of showing nothing. */
-        MonthComparison comparison
+        MonthComparison comparison,
+        /* False when this month is only part of a month: the ragged edge of the user's imported
+         * history, a hole between two statements, or an account whose statements (or Account
+         * Aggregator sync) stop short of it. The figures above are still real; a chart marks the
+         * month rather than plotting it as an ordinary point. True for a user with no history. */
+        boolean complete
 ) {
     public record CategoryAmount(String category, BigDecimal amount) {}
     public record IncomeLine(String label, BigDecimal amount) {}

@@ -1041,6 +1041,11 @@ export interface ReportData {
   unresolvedInflow?: number;
   /** Income split by kind, largest first; sums to income. Optional: an older server does not send it. */
   incomeByKind?: { label: string; amount: number }[];
+  /** False when this is only part of a month: the ragged edge of the user's history, a hole between
+   *  two statements, or an account whose data stops short of it. The figures are still real -- a
+   *  chart marks the month instead of plotting it as an ordinary point. Optional: an older server
+   *  does not send it, and absent means "complete". */
+  complete?: boolean;
 }
 export const reportsApi = {
   availableMonths: () => api.get<string[]>('/reports/months').then((r) => r.data),

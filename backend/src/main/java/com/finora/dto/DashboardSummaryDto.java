@@ -226,7 +226,16 @@ public record DashboardSummaryDto(
          * Why savingsRatePct is null, or null when it is not -- same values and meaning as
          * DashboardRangeSummaryDto.savingsRateGateReason, over the reporting month.
          */
-        String savingsRateGateReason
+        String savingsRateGateReason,
+
+        /*
+         * Non-null when the reporting month is "so far": an account that was active around it has
+         * a latest statement ending before the month does, so every figure above describes only
+         * part of the month for that account. The figures are still returned -- a client labels
+         * them rather than hiding them. Null when every active account's statements reach the end
+         * of the month, and always null for a month that is no longer one of the newest two.
+         */
+        StatementBehindDto statementBehind
 ) {
     @Schema(name = "DashboardSummaryCategoryMover")
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}

@@ -25,6 +25,7 @@ import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
 import { JourneyWidget } from '../components/JourneyWidget';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
+import { longMonthName, statementBehindNote } from '../lib/statementBehind';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
@@ -620,6 +621,11 @@ export default function Dashboard() {
     },
   ] : [];
   const kpis = isThisMonth ? monthKpis : rangeKpis;
+  // "So far": an account's statements stop short of the month these figures end in. The figures
+  // stay -- this only says what they are, once, instead of a dash or a silently low number.
+  const soFarNote = isThisMonth
+    ? statementBehindNote(summary.statementBehind, summary.reportingMonth ? longMonthName(summary.reportingMonth) : 'This month')
+    : statementBehindNote(rangeSummary?.statementBehind, rangeSummary ? longMonthName(rangeSummary.endDate) : '');
 
   return (
     <div>
@@ -775,6 +781,9 @@ export default function Dashboard() {
             />
           ))}
         </div>
+        {soFarNote && (
+          <p className="text-xs text-muted -mt-3 mb-6" data-testid="so-far-note">{soFarNote}</p>
+        )}
         {/* Money that came in over this range but is not counted in the Income card -- a transfer
             from a person, an unexplained credit on a card (see FlowClassifier on the backend).
             Without this line a user whose income drops because a parent's transfer stopped
@@ -1171,6 +1180,11 @@ export default function Dashboard() {
           >
             <CashFlowChart series={cashFlowSeries} />
           </ChartContainer>
+          {cashFlowSeries.some((s) => s.complete === false) && (
+            <p className="text-xs text-muted mt-3" data-testid="cash-flow-partial-note">
+              * A starred month is only partly in: an account's data stops short of it, so its figures run lower than the month's real total.
+            </p>
+          )}
         </FinoraCard>
 
         <FinoraCard padding="lg" className="flex flex-col">
@@ -1791,7 +1805,7 @@ const cashFlowCrosshairPlugin: Plugin<'line'> = {
   },
 };
 
-function CashFlowChart({ series }: { series: { month: string; income: number; expense: number }[] }) {
+function CashFlowChart({ series }: { series: { month: string; income: number; expense: number; complete?: boolean }[] }) {
   const colors = useChartColors();
   // Design review, 2026-09: the range picker (Last 3/6/12/24 Months) is a frequent interaction,
   // not a one-time reveal -- but this chart used the same 900ms easeOutQuart on every re-render,
@@ -1806,7 +1820,12 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
   useEffect(() => {
     hasMountedRef.current = true;
   }, []);
-  const labels = series.map((s) => monthLabel(s.month));
+  // A month that is only part of a month is marked, not plotted as if whole: an asterisk on its
+  // label, a hollow point, and a dashed segment running into it. The figures are still real.
+  const isPartial = (i: number) => series[i]?.complete === false;
+  const labels = series.map((s) => monthLabel(s.month) + (s.complete === false ? '*' : ''));
+  const partialSegment = { borderDash: (ctx: { p1DataIndex: number }) => (isPartial(ctx.p1DataIndex) ? [6, 4] : undefined) };
+  const partialPointRadius = series.map((s) => (s.complete === false ? 4 : 0));
   // Bug fix: a bare <canvas> is invisible to screen readers -- Chart.js/react-chartjs-2 render
   // no accessible text equivalent on their own (see the Charting Data design guideline: "provide
   // both accessibility labels that describe chart values and components"). ChartProps extends
@@ -1815,10 +1834,12 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
   // already carries the same data, so the label has to summarize the trend itself.
   const totalIncome = series.reduce((s, m) => s + m.income, 0);
   const totalExpense = series.reduce((s, m) => s + m.expense, 0);
+  const partialMonths = series.filter((s) => s.complete === false).map((s) => monthLabel(s.month));
   const chartAriaLabel = series.length === 0
     ? 'Cash flow line chart, no data yet'
     : `Cash flow line chart from ${monthLabel(series[0].month)} to ${monthLabel(series[series.length - 1].month)}: `
-      + `total income ${fmt(totalIncome)}, total expenses ${fmt(totalExpense)}.`;
+      + `total income ${fmt(totalIncome)}, total expenses ${fmt(totalExpense)}.`
+      + (partialMonths.length > 0 ? ` Only part of ${partialMonths.join(' and ')} is in, so those months run lower than their real totals.` : '');
   return (
     <Line
       role="img"
@@ -1831,11 +1852,15 @@ function CashFlowChart({ series }: { series: { month: string; income: number; ex
             // Points stay invisible at rest (radius 0, matching how this chart already looked) and
             // only appear on hover -- pointHoverRadius is what actually reads as "hovering did
             // something", not just the tooltip box appearing off to the side.
-            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.success, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            pointRadius: partialPointRadius, pointBackgroundColor: 'transparent', pointBorderColor: colors.success, pointBorderWidth: 2,
+            pointHoverRadius: 5, pointHoverBackgroundColor: colors.success, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            segment: partialSegment,
           },
           {
             label: 'Expenses', data: series.map((s) => s.expense), borderColor: colors.danger, backgroundColor: colors.danger + '14', fill: true, tension: 0.3,
-            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.danger, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            pointRadius: partialPointRadius, pointBackgroundColor: 'transparent', pointBorderColor: colors.danger, pointBorderWidth: 2,
+            pointHoverRadius: 5, pointHoverBackgroundColor: colors.danger, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+            segment: partialSegment,
           },
         ],
       }}

@@ -4,8 +4,14 @@ import com.finora.dto.CoverageDto;
 import com.finora.entity.Account;
 import com.finora.imports.StatementCoverageAnalyzer;
 import com.finora.imports.StatementCoverageAnalyzer.StatementPeriod;
+import com.finora.integrations.setu.AccountAggregatorLink;
+import com.finora.integrations.setu.AccountAggregatorLinkRepository;
+import com.finora.integrations.setu.AccountAggregatorLinkStalenessService;
+import com.finora.integrations.setu.AccountAggregatorLinkStatus;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.StatementImportRepository;
+import com.finora.repository.TransactionRepository;
+import com.finora.repository.UserRepository;
 import com.finora.repository.StatementImportRepository.StatementMetadata;
 import com.finora.security.OwnershipGuard;
 import com.finora.exception.ApiException;
@@ -30,11 +36,23 @@ public class AccountCoverageService {
 
     private final AccountRepository accountRepository;
     private final StatementImportRepository statementImportRepository;
+    private final AccountAggregatorLinkRepository linkRepository;
+    private final AccountAggregatorLinkStalenessService linkStaleness;
+    private final TransactionRepository transactionRepository;
+    private final UserRepository userRepository;
 
     public AccountCoverageService(AccountRepository accountRepository,
-                                   StatementImportRepository statementImportRepository) {
+                                   StatementImportRepository statementImportRepository,
+                                   AccountAggregatorLinkRepository linkRepository,
+                                   AccountAggregatorLinkStalenessService linkStaleness,
+                                   TransactionRepository transactionRepository,
+                                   UserRepository userRepository) {
         this.accountRepository = accountRepository;
         this.statementImportRepository = statementImportRepository;
+        this.linkRepository = linkRepository;
+        this.linkStaleness = linkStaleness;
+        this.transactionRepository = transactionRepository;
+        this.userRepository = userRepository;
     }
 
     /** @throws com.finora.exception.ApiException 404 if no such account, 403 if it belongs to
@@ -80,20 +98,63 @@ public class AccountCoverageService {
     public record DateRange(LocalDate start, LocalDate end) {}
 
     /**
-     * How far each statement-backed live account's statements reach: its newest active period end.
-     * Only accounts whose data comes from imported statements appear. An Account Aggregator account
-     * syncs continuously and has no "statement reaches until" date, and an account with no
-     * statement states no coverage to be behind, so neither is judged by this.
+     * How far each live account's data is known to reach, for the accounts where that can be
+     * known. Two kinds of account appear, and anything else is deliberately not judged:
+     *
+     * <ul>
+     *   <li><b>Statement-imported accounts</b> -- the newest active period end among their
+     *       statements.</li>
+     *   <li><b>Account Aggregator accounts that are not delivering</b> -- an ACTIVE link whose last
+     *       attempt failed, or that has gone quiet past its normal cadence (the same test the rest
+     *       of the app uses, {@link AccountAggregatorLinkStalenessService}). Their reach is the day of
+     *       their last successful sync, or, when the last attempt failed and that day is not kept,
+     *       the date of their newest transaction. A linked account that is syncing normally is
+     *       simply up to date and does not appear: it has no "behind" to report, and listing it
+     *       would label the whole of every month, since a month in progress always ends later than
+     *       today.</li>
+     *   <li><b>Accounts entered by hand</b> are never judged. Nothing says how far a hand-entered
+     *       account is covered, and treating its newest transaction as its reach would call a
+     *       wallet that was simply quiet "behind".</li>
+     * </ul>
      */
     @Transactional(readOnly = true)
-    public java.util.Map<UUID, LocalDate> latestStatementEnds(UUID userId) {
-        List<UUID> statementBackedIds = accountRepository.findByUserId(userId).stream()
+    public java.util.Map<UUID, LocalDate> latestCoverageEnds(UUID userId) {
+        List<Account> accounts = accountRepository.findByUserId(userId);
+        if (accounts.isEmpty()) return java.util.Map.of();
+        java.util.Map<UUID, LocalDate> ends = new java.util.HashMap<>();
+
+        List<UUID> statementBackedIds = accounts.stream()
                 .filter(a -> a.getPrimarySource() != Account.PrimarySource.ACCOUNT_AGGREGATOR)
                 .map(Account::getId).toList();
-        if (statementBackedIds.isEmpty()) return java.util.Map.of();
-        java.util.Map<UUID, LocalDate> ends = new java.util.HashMap<>();
-        statementImportRepository.findLatestPeriodEndsByAccount(userId, statementBackedIds)
-                .forEach(row -> ends.put(row.getAccountId(), row.getLatestEnd()));
+        if (!statementBackedIds.isEmpty()) {
+            statementImportRepository.findLatestPeriodEndsByAccount(userId, statementBackedIds)
+                    .forEach(row -> ends.put(row.getAccountId(), row.getLatestEnd()));
+        }
+
+        List<UUID> linkedIds = accounts.stream()
+                .filter(a -> a.getPrimarySource() == Account.PrimarySource.ACCOUNT_AGGREGATOR)
+                .map(Account::getId).toList();
+        if (!linkedIds.isEmpty()) {
+            List<AccountAggregatorLink> notDelivering = linkRepository
+                    .findByAccountIdInAndStatus(linkedIds, AccountAggregatorLinkStatus.ACTIVE).stream()
+                    .filter(link -> link.getLastSyncStatus() == AccountAggregatorLink.SyncStatus.FAILED
+                            || linkStaleness.isStale(link))
+                    .toList();
+            if (!notDelivering.isEmpty()) {
+                java.time.ZoneId zone = com.finora.util.UserZone.forUser(userRepository, userId);
+                java.util.Map<UUID, LocalDate> newestTxn = new java.util.HashMap<>();
+                transactionRepository.findLatestTxnDatesByAccount(userId,
+                                notDelivering.stream().map(AccountAggregatorLink::getAccountId).toList())
+                        .forEach(row -> newestTxn.put(row.getAccountId(), row.getLatestDate()));
+                for (AccountAggregatorLink link : notDelivering) {
+                    LocalDate reach = link.getLastSyncStatus() == AccountAggregatorLink.SyncStatus.SUCCESS
+                            && link.getLastSyncedAt() != null
+                            ? link.getLastSyncedAt().atZone(zone).toLocalDate()
+                            : newestTxn.get(link.getAccountId());
+                    if (reach != null) ends.put(link.getAccountId(), reach);
+                }
+            }
+        }
         return ends;
     }
 

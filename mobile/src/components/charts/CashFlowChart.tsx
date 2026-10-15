@@ -11,6 +11,9 @@ export interface CashFlowPoint {
   label: string;
   income: number;
   expense: number;
+  /** Only part of the month is in: an account's data stops short of it, so its figures run lower
+   *  than the month's real total. The figures are real, so it is still plotted -- but marked. */
+  partial?: boolean;
 }
 
 /**
@@ -32,6 +35,7 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
     points.map((p, i) => ({ x: xAt(i), y: yAt(pick(p)) }));
   const incomeSeries = toSeries((p) => p.income);
   const expenseSeries = toSeries((p) => p.expense);
+  const partialMonths = points.filter((p) => p.partial).map((p) => p.label);
 
   return (
     <View>
@@ -39,7 +43,7 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
       <View
         accessible
         accessibilityLabel={`Cash flow over ${points.length} months. ${points
-          .map((p) => `${p.label}: income ${fmtCurrency(p.income)}, expense ${fmtCurrency(p.expense)}`)
+          .map((p) => `${p.label}${p.partial ? ' (partial month)' : ''}: income ${fmtCurrency(p.income)}, expense ${fmtCurrency(p.expense)}`)
           .join('. ')}`}
       >
         <Svg width={width} height={CASHFLOW_HEIGHT}>
@@ -67,11 +71,22 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
             // as two distinct series arriving, not one blob.
             delay={CHART_REVEAL_DURATION / 3}
           />
+          {/* A partial month is a hollow ring: still plotted, but not as if it were a whole month. */}
           {points.map((p, i) => (
-            <Circle key={`i-${p.label}`} cx={xAt(i)} cy={yAt(p.income)} r={3} fill={c.success} />
+            <Circle
+              key={`i-${p.label}`}
+              testID={p.partial ? `cash-flow-partial-income-${p.label}` : undefined}
+              cx={xAt(i)} cy={yAt(p.income)} r={3}
+              fill={p.partial ? c.card : c.success} stroke={c.success} strokeWidth={p.partial ? 2 : 0}
+            />
           ))}
           {points.map((p, i) => (
-            <Circle key={`e-${p.label}`} cx={xAt(i)} cy={yAt(p.expense)} r={3} fill={c.danger} />
+            <Circle
+              key={`e-${p.label}`}
+              testID={p.partial ? `cash-flow-partial-expense-${p.label}` : undefined}
+              cx={xAt(i)} cy={yAt(p.expense)} r={3}
+              fill={p.partial ? c.card : c.danger} stroke={c.danger} strokeWidth={p.partial ? 2 : 0}
+            />
           ))}
         </Svg>
       </View>
@@ -81,7 +96,7 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
           // Capped: the labels share the chart's fixed width, so at accessibility sizes they were
           // cut to "Apr...". The chart's own accessibility label carries every month in full.
           <Text key={p.label} style={[styles.axisLabel, { color: c.muted }]} numberOfLines={1} maxFontSizeMultiplier={1.3}>
-            {p.label}
+            {p.partial ? `${p.label}*` : p.label}
           </Text>
         ))}
       </View>
@@ -96,6 +111,11 @@ export function CashFlowChart({ points, width }: { points: CashFlowPoint[]; widt
           <Text style={[styles.legendText, { color: c.muted }]}>Expense</Text>
         </View>
       </View>
+      {partialMonths.length > 0 ? (
+        <Text testID="cash-flow-partial-note" style={[styles.partialNote, { color: c.muted }]}>
+          * A starred month is only partly in: an account's data stops short of it, so its figures run lower than the month's real total.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -129,6 +149,11 @@ const styles = StyleSheet.create({
   },
   legendText: {
     fontSize: 11,
+  },
+  partialNote: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: spacing.sm,
   },
   empty: {
     fontSize: 13,

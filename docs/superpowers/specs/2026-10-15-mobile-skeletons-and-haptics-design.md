@@ -56,6 +56,16 @@ Added to `Skeletons.tsx`, built from `Shimmer` like the existing ones:
 `border` colour at an opacity that moves between 0.35 and 1), the theme's radii and spacing, and the
 `Card` / `DashboardCard` wrappers the real screens use. No new palette, animation or library.
 
+**Skeleton tokens.** The values every skeleton uses are named once, in `theme/skeleton.ts`
+(`skeletonTokens`), drawn from the existing theme rather than new numbers: the fill (`border`), the
+pulse's low and high opacity and its duration, the Reduce Motion opacity, corner radii for text
+lines, blocks and icons, standard heights for a text line, a list row, a settings row and a form
+field, icon sizes, and chart proportions (from `lib/chartGeometry.ts`). `Shimmer` and every skeleton
+block read from it; a source scan fails if a file in `components/skeletons/` writes its own colour,
+radius or row height instead. In both themes the fill against the card and against the glass
+backdrop is measured and recorded (it is decorative, so there is no contrast floor to meet, but it
+must be visible).
+
 **Screen readers.** Each placeholder group is one element with the static label "Loading" and its
 pieces hidden from screen readers; there is no live-region announcement. So a screen reader meets
 "Loading" once per group, nothing in it can be focused, and the real content is read normally once
@@ -102,6 +112,19 @@ stand in for them.
 
 A screen whose real layout is centred today on a spinner moves to its normal top-aligned layout for
 the skeleton, so the content does not jump from the middle to the top when it lands.
+
+**Speed.** Measured, then fixed only where a problem is found:
+
+- The first load of the three heaviest skeleton screens (Home, Transactions, Advanced Reports) is
+  recorded before and after with Time Profiler on the simulator, the method used for the tab pill
+  (three runs each, sample counts on the app's JavaScript and main threads), and checked for dropped
+  frames during the pulse.
+- The shared pulse is confirmed to stop when the last skeleton unmounts, to stay single however many
+  skeletons mount, and to pause while the app is in the background (React Native's `AppState`; if it
+  keeps running there, it is stopped there, test-first).
+- Skeletons are confirmed not to block scrolling or touches.
+- Any slowdown or leak found is fixed test-first and re-measured; if none is found, the numbers go
+  in the build record.
 
 **No artificial delay.** The skeleton shows exactly as long as the first load takes. No minimum time
 is added; if a very fast load is seen to flash on the device, that is raised with the owner then.
@@ -247,14 +270,21 @@ checked for content jumping when it lands, in light and dark and at the largest 
 Motion holding it still; the "Try again" states by turning the network off. Haptics cannot be felt on
 a simulator; their calls are checked through the tests and a debug log.
 
-**On real phones (owner):** haptics on and off, a real save and a failed one, the iPhone System
-Haptics setting, and on Android the touch-feedback setting. These are the owner's to do; this work
-cannot claim them.
+**On real phones.** With an iPhone and an Android phone connected by USB and signed in by the owner:
+
+- Done by me: install the build, walk every converted screen's first load, and drive each row of the
+  haptics table with haptics on and off, confirming from a debug log on the phone that each call
+  fires (or does not) with the right kind and count.
+- Done by the owner, from a short checklist I prepare (about ten actions per phone): feel each kind,
+  with the app's switch on and off, and with the phone's own setting (iPhone System Haptics, Android
+  touch feedback) on and off. Only a person can tell whether the phone actually vibrated; the call is
+  made either way.
 
 ## Not covered by me
 
-- Android, unless the owner signs in on a test build on the emulator.
-- How the haptics feel on a physical phone, and whether the phones' own settings silence them.
+- Whether a phone actually vibrated, and whether the phones' own settings silence the app's haptics:
+  the owner's checklist covers it.
+- Android, if no Android phone or signed-in emulator is available.
 
 ## Completion criteria
 
@@ -290,6 +320,6 @@ An external review of the first version of this document was taken into account:
 - **Corrected against the code:** the review assumed a failed first load could leave a skeleton
   showing forever. It cannot: `isLoading` turns false on failure and for a query paused offline. The
   real gap it pointed at is that seven screens give no way to try again; that is now in scope.
-- **Not adopted:** a skeleton design-token system of its own (the existing tokens already cover it);
-  extra performance work on the shared pulse without a measured problem; physical-device testing as
-  something this work can claim (it is listed as the owner's step).
+- **Adopted after the owner asked (2026-10-15):** named skeleton tokens drawn from the existing
+  theme; a measured speed pass with fixes only for what it finds; a real-phone pass run by me over
+  USB, with the owner feeling the haptics from a checklist.

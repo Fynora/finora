@@ -99,13 +99,17 @@ public class StatementStatusNotifier {
      * problem: the date and the purpose, never who. One per job per India day, by the key: a second
      * opening that day says nothing new.
      *
+     * <p>SECURITY, not FINANCIAL (owner's decision, 2026-10-15): a customer must not be able to turn
+     * off being told that staff opened their statement. {@code DatabaseNotificationPreferenceResolver}
+     * forces SECURITY on for every channel, and the email carries no "turn these off" line.
+     *
      * @param day the opening's date in {@code UserZone.DEFAULT}, the caller's conversion
      */
     public void notifyOpenedForFix(UUID userId, UUID jobId, LocalDate day) {
         notificationService.request(NotificationRequest.of(
                 userId,
                 NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
-                NotificationCategory.FINANCIAL,
+                NotificationCategory.SECURITY,
                 NotificationPriority.NORMAL,
                 "IMPORT_OPENED_FOR_FIX_" + jobId + "_" + day,
                 Set.of(NotificationChannel.PUSH, NotificationChannel.EMAIL),

@@ -7,8 +7,11 @@ import com.finora.exception.ErrorCode;
 import com.finora.imports.storage.ContentAddress;
 import com.finora.imports.storage.StatementStorage;
 import com.finora.notification.domain.Notification;
+import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationPreference;
 import com.finora.notification.domain.NotificationType;
+import com.finora.notification.repository.NotificationPreferenceRepository;
 import com.finora.notification.repository.NotificationRepository;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.UserRepository;
@@ -58,6 +61,7 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
     @Autowired private ImportJobRepository importJobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private NotificationRepository notificationRepository;
+    @Autowired private NotificationPreferenceRepository preferences;
     @Autowired private StatementStorage storage;
     @MockitoBean private EmailProvider emailProvider;
 
@@ -221,6 +225,25 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
                 .extracting(Notification::getMessage)
                 .containsExactlyInAnyOrder("On 14 Oct 2026 our team opened it to fix a reading problem.",
                         "On 15 Oct 2026 our team opened it to fix a reading problem.");
+    }
+
+    /** Sid, 2026-10-15: the notice is SECURITY, always sent. A customer who turned off financial
+     *  emails and pushes still gets both. */
+    @Test
+    void theNoticeReachesACustomerWhoTurnedOffFinancialNotifications() {
+        StatementOriginalView view = savedView(createUser("ADMIN"), "Rows on page 2 are missing from the preview");
+        for (NotificationChannel channel : List.of(NotificationChannel.EMAIL, NotificationChannel.PUSH)) {
+            preferences.save(NotificationPreference.of(view.getSubjectUserId(), NotificationCategory.FINANCIAL,
+                    channel, false));
+        }
+
+        notices.onOpened(new OriginalViewOpened(view));
+
+        assertThat(notificationsFor(view.getSubjectUserId(), NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX))
+                .extracting(Notification::getChannel, Notification::getCategory)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(NotificationChannel.PUSH, NotificationCategory.SECURITY),
+                        org.assertj.core.groups.Tuple.tuple(NotificationChannel.EMAIL, NotificationCategory.SECURITY));
     }
 
     @Test

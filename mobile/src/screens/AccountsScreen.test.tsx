@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AccountsScreen } from './AccountsScreen';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { __activeShimmerCountForTests } from '../components/skeletons/Shimmer';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), update: jest.fn(), remove: jest.fn() },
@@ -152,5 +154,35 @@ describe('AccountsScreen', () => {
     expect(await screen.findByText('This account still has open transfers.')).toBeTruthy();
     expect(screen.getByText('HDFC Savings')).toBeTruthy();
     alertSpy.mockRestore();
+  });
+});
+
+describe('AccountsScreen first load', () => {
+  it('shows the accounts skeleton, not a spinner', () => {
+    api.list.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('accounts-skeleton')).toBeTruthy();
+  });
+
+  it('after a failed first load, Try again shows the skeleton again and then the accounts', async () => {
+    api.list.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText('Could not load accounts.')).toBeTruthy();
+
+    let resolve!: (a: Account[]) => void;
+    api.list.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('accounts-skeleton')).toBeTruthy();
+
+    await act(async () => resolve([account()]));
+    expect(await screen.findByText('HDFC Savings')).toBeTruthy();
+  });
+
+  it('releases the shared pulse when the screen closes mid-load', () => {
+    api.list.mockReturnValue(never());
+    const view = renderScreen();
+    view.unmount();
+    expect(__activeShimmerCountForTests()).toBe(0);
   });
 });

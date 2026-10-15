@@ -7,6 +7,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
 import { spacing } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed');
@@ -51,11 +52,12 @@ const reduceMotionSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').m
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <ReferralsScreen />
     </QueryClientProvider>
   );
+  return { ...utils, queryClient };
 }
 
 async function settle() {
@@ -590,5 +592,33 @@ describe('ReferralsScreen', () => {
       springSpy.mockRestore();
       parallelSpy.mockRestore();
     });
+  });
+});
+
+describe('ReferralsScreen first load', () => {
+  it('shows the referral skeleton, not a spinner, on first load', () => {
+    api.mine.mockReset().mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('referrals-skeleton')).toBeTruthy();
+  });
+});
+
+describe('ReferralsScreen after a failed refresh', () => {
+  it('keeps showing the referral code already loaded', async () => {
+    api.mine.mockReset()
+      .mockResolvedValueOnce({
+        code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+        plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
+      })
+      .mockRejectedValueOnce(new Error('down'));
+    const { queryClient } = renderScreen();
+    await screen.findByText('ABCD1234');
+    await act(() => queryClient.refetchQueries({ queryKey: ['referrals-mine'] }));
+    // React Query delivers the result on a setTimeout(0) batch; let it land before asserting.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(queryClient.getQueryState(['referrals-mine'])?.status).toBe('error');
+    expect(screen.getByText('ABCD1234')).toBeTruthy();
+    expect(screen.queryByText("Couldn't load your referral code.")).toBeNull();
   });
 });

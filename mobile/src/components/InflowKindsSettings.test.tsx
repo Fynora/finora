@@ -5,6 +5,7 @@ import { InflowKindsSettings } from './InflowKindsSettings';
 import { inflowApi } from '../api/endpoints';
 import { AppAlert } from '../lib/appAlert';
 import type { InflowKind } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   inflowApi: {
@@ -84,5 +85,16 @@ describe('InflowKindsSettings', () => {
     renderSettings();
     fireEvent.press(await screen.findByLabelText('Forget ASHA VERMA'));
     await waitFor(() => expect(inflow.forgetSender).toHaveBeenCalledWith('r1'));
+  });
+});
+
+describe('InflowKindsSettings loading', () => {
+  it('shows skeleton rows in both cards while kinds and senders load', () => {
+    inflow.kinds.mockReturnValue(never());
+    inflow.senderRules.mockReturnValue(never());
+    renderSettings();
+    expectSkeletonNotSpinner();
+    // kinds: 2 rows x (name, label); senders: 2 rows x (name, detail, Forget)
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 2 + 2 * 3);
   });
 });

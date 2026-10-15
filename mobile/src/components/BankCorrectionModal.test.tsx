@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BankCorrectionModal } from './BankCorrectionModal';
 import { transactionsApi } from '../api/endpoints';
 import type { BankCorrectionHistoryEntry, Transaction } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { correctionHistory: jest.fn(), acknowledgeBankCorrection: jest.fn() },
@@ -173,5 +174,24 @@ describe('BankCorrectionModal (Plan 6, Track B mobile parity)', () => {
 
     await screen.findByText('Bank reported a different value');
     expect(screen.queryByText('Could not acknowledge this correction.')).toBeNull();
+  });
+});
+
+describe('BankCorrectionModal loading states', () => {
+  beforeEach(() => transactions.correctionHistory.mockReset());
+
+  it('shows a skeleton, not a spinner, while it loads', () => {
+    transactions.correctionHistory.mockReturnValue(never());
+    renderModal(txn());
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches', async () => {
+    transactions.correctionHistory.mockRejectedValueOnce(new Error('down'));
+    renderModal(txn());
+    expect(await screen.findByText("Couldn't load this correction's history.")).toBeTruthy();
+    transactions.correctionHistory.mockResolvedValueOnce([historyEntry()]);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Bank reported a different value')).toBeTruthy();
   });
 });

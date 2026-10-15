@@ -1,8 +1,9 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsGeneralScreen } from './SettingsGeneralScreen';
 import { userApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
@@ -55,4 +56,42 @@ test('re-reads the profile after saving, which is how the change watch learns th
   fireEvent.changeText(input, '5000');
   fireEvent.press(screen.getByText('Save preferences'));
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user-settings'] }));
+});
+
+describe('SettingsGeneralScreen first load', () => {
+  beforeEach(() => user.get.mockReset());
+
+  it('shows the general settings skeleton, not a spinner, on first load', () => {
+    user.get.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('settings-general-skeleton')).toBeTruthy();
+  });
+
+  it('after a failed first load, Try again refetches the settings', async () => {
+    user.get.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText(/Couldn.t load your settings/)).toBeTruthy();
+
+    user.get.mockReturnValueOnce(never());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('settings-general-skeleton')).toBeTruthy();
+  });
+});
+
+test('a failed refetch keeps showing the preferences already loaded', async () => {
+  user.get.mockReset()
+    .mockResolvedValueOnce({
+      email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+      phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+    } as never)
+    .mockRejectedValueOnce(new Error('down'));
+  const { queryClient } = renderScreen();
+  await screen.findByText('Low balance alert');
+  await act(() => queryClient.refetchQueries({ queryKey: ['user-settings'] }));
+  // React Query delivers the result on a setTimeout(0) batch; let it land before asserting.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+  expect(queryClient.getQueryState(['user-settings'])?.status).toBe('error');
+  expect(screen.getByText('Low balance alert')).toBeTruthy();
+  expect(screen.queryByText(/Couldn.t load your settings/)).toBeNull();
 });

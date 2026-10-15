@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsCategorizationScreen } from './SettingsCategorizationScreen';
 import { workspaceApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   workspaceApi: { getSettings: jest.fn(), updateSettings: jest.fn() },
@@ -34,4 +35,25 @@ test('shows an error message, not a silent 90% default, when workspace settings 
   renderScreen();
   expect(await screen.findByText("Couldn't load your settings — please try again later.")).toBeTruthy();
   expect(screen.queryByText('90%')).toBeNull();
+});
+
+describe('SettingsCategorizationScreen first load', () => {
+  beforeEach(() => jest.mocked(workspaceApi.getSettings).mockReset());
+
+  it('shows the categorization skeleton, not a spinner, on first load', () => {
+    jest.mocked(workspaceApi.getSettings).mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('settings-categorization-skeleton')).toBeTruthy();
+  });
+
+  it('after a failed first load, Try again refetches', async () => {
+    jest.mocked(workspaceApi.getSettings).mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText(/Couldn.t load your settings/)).toBeTruthy();
+
+    jest.mocked(workspaceApi.getSettings).mockReturnValueOnce(never());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByTestId('settings-categorization-skeleton')).toBeTruthy();
+  });
 });

@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { FinancialMemorySkeleton } from '../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup, SkeletonListRow } from '../components/skeletons/Skeletons';
 import { recurringApi, workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { fmtCurrency } from '../lib/format';
@@ -47,8 +49,10 @@ export function FinancialMemoryScreen() {
 
   if (summaryQ.isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <FinancialMemorySkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -130,7 +134,11 @@ export function FinancialMemoryScreen() {
       <Card>
         <SectionHeading title="Recognized recurring payments" />
         {recurringQ.isLoading ? (
-          <ActivityIndicator color={c.primary} />
+          <SkeletonGroup>
+            <SkeletonListRow />
+            <SkeletonListRow />
+            <SkeletonListRow divider={false} />
+          </SkeletonGroup>
         ) : recurringFailed ? (
           // isPausedCold: offline with nothing loaded is not "no recurring payments".
           <Text style={[styles.intro, { color: c.muted }]}>
@@ -157,7 +165,6 @@ export function FinancialMemoryScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md, gap: spacing.md },
   intro: { fontSize: 13 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

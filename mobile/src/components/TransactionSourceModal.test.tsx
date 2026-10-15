@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TransactionSourceModal } from './TransactionSourceModal';
 import { transactionsApi } from '../api/endpoints';
 import type { TransactionSource } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { source: jest.fn() },
@@ -166,5 +167,24 @@ describe('TransactionSourceModal (Track C/C7)', () => {
 
       expect(await screen.findByText('1 Mar 2026 – 31 Mar 2026')).toBeTruthy();
     });
+  });
+});
+
+describe('TransactionSourceModal loading states', () => {
+  beforeEach(() => jest.mocked(transactionsApi.source).mockReset());
+
+  it('shows a skeleton, not a spinner, while it loads', () => {
+    jest.mocked(transactionsApi.source).mockReturnValue(never());
+    renderModal('t-1');
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches', async () => {
+    jest.mocked(transactionsApi.source).mockRejectedValueOnce(new Error('down'));
+    renderModal('t-1');
+    expect(await screen.findByText(/Couldn't load where this came from/)).toBeTruthy();
+    jest.mocked(transactionsApi.source).mockResolvedValueOnce(source());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Bank statement')).toBeTruthy();
   });
 });

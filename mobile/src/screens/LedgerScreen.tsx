@@ -19,7 +19,7 @@ import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { MarkTransferModal } from '../components/MarkTransferModal';
 import { TransactionExplanationModal } from '../components/TransactionExplanationModal';
 import { TransactionSourceModal } from '../components/TransactionSourceModal';
-import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { LedgerControls, type ActiveFilterChip, type TypeFilter } from '../components/ledger/LedgerControls';
 import { LedgerDayCard } from '../components/ledger/LedgerDayCard';
 import { LedgerFiltersSheet, statusFilterLabel, type StatusFilter } from '../components/ledger/LedgerFiltersSheet';
@@ -561,7 +561,9 @@ export function LedgerScreen() {
         ListEmptyComponent={
           <View testID="ledger-state-card" style={[styles.stateCard, glassRow]}>
             {isLoading ? (
-              Array.from({ length: 8 }).map((_, i) => <SkeletonTransactionRow key={i} />)
+              <SkeletonGroup>
+                {Array.from({ length: 8 }).map((_, i) => <SkeletonTransactionRow key={i} />)}
+              </SkeletonGroup>
             ) : isError && txns.length === 0 ? (
               /**
                * A failed search must not fall through to the ordinary empty-state text below.

@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { AppModal } from './AppModal';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 import { Button } from './Button';
-import { Card, EmptyState, SectionHeading } from './Card';
+import { Card, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
 import { spacing, useTheme } from '../theme';
+import { LoadFailed } from './LoadFailed';
+import { SkeletonGroup, SkeletonText } from './skeletons/Skeletons';
 
 /**
  * Plan 6, Track B mobile parity -- old-vs-new detail behind the "Bank Correction" badge
@@ -30,7 +32,7 @@ export function BankCorrectionModal({
   const [acknowledging, setAcknowledging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: history, isLoading, isError } = useQuery({
+  const { data: history, isLoading, isError, refetch } = useQuery({
     queryKey: ['correction-history', transaction?.id],
     queryFn: () => transactionsApi.correctionHistory(transaction!.id),
     enabled: transaction !== null,
@@ -74,9 +76,17 @@ export function BankCorrectionModal({
             {transaction.description || transaction.merchant} · currently {fmtCurrency(Math.abs(transaction.amount))} in Fynora
           </Text>
           {isLoading ? (
-            <ActivityIndicator color={c.primary} style={styles.loading} />
+            <SkeletonGroup style={styles.loading}>
+              {[0, 1].map((i) => (
+                <View key={i} style={styles.entry}>
+                  <SkeletonText size="label" width="50%" />
+                  <SkeletonText size="meta" width="40%" />
+                  <SkeletonText size="caption" width="35%" />
+                </View>
+              ))}
+            </SkeletonGroup>
           ) : isError ? (
-            <EmptyState message="Couldn't load this correction's history." />
+            <LoadFailed message="Couldn't load this correction's history." onRetry={() => void refetch()} />
           ) : (
             <View style={styles.body}>
               {(history ?? []).map((entry, i) => (

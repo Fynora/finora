@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SkeletonGroup, SkeletonListRow, SkeletonText } from './skeletons/Skeletons';
 import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from './Card';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
@@ -138,7 +139,12 @@ export function InvestmentActivityCard() {
       </Text>
 
       {q.isLoading && !isPausedCold(q) ? (
-        <ActivityIndicator color={c.primary} />
+        <SkeletonGroup>
+          <SkeletonText size="meta" width="40%" />
+          <SkeletonText size="value" width="50%" style={styles.skeletonValue} />
+          <SkeletonListRow />
+          <SkeletonListRow divider={false} />
+        </SkeletonGroup>
       ) : q.isError || isPausedCold(q) || !activity ? (
         // Not the empty state: "no SIPs yet" would be a false claim to someone whose fetch failed.
         <Text style={[styles.inlineError, { color: c.dangerInk }]}>Could not load your investment activity.</Text>
@@ -175,6 +181,7 @@ export function InvestmentActivityCard() {
 }
 
 const styles = StyleSheet.create({
+  skeletonValue: { marginVertical: spacing.xs },
   card: { marginTop: spacing.md },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm },
   chip: {

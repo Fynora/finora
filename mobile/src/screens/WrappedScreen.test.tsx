@@ -1,8 +1,9 @@
-import { act, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WrappedScreen } from './WrappedScreen';
 import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   dashboardApi: { wrapped: jest.fn() },
@@ -73,5 +74,26 @@ describe('WrappedScreen', () => {
     renderScreen();
 
     expect(await screen.findByText(/Couldn't load your year in review/)).toBeTruthy();
+  });
+});
+
+describe('WrappedScreen first load', () => {
+  beforeEach(() => api.wrapped.mockReset());
+
+  it('shows the year-in-review skeleton, not a spinner, on first load', () => {
+    api.wrapped.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('wrapped-skeleton')).toBeTruthy();
+  });
+
+  it('after a failed first load, Try again refetches and shows the year', async () => {
+    api.wrapped.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText("Couldn't load your year in review. Try again later.")).toBeTruthy();
+
+    api.wrapped.mockResolvedValueOnce({ year: 2026, landmarksReached: 0, goalContributions: 0, landmarkTitles: [] });
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('2026')).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,8 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { isSafeExternalUrl } from '../lib/safeUrl';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
+import { LoadFailed } from '../components/LoadFailed';
+import { SkeletonGroup, SkeletonListRow } from '../components/skeletons/Skeletons';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
@@ -95,7 +97,9 @@ export function SettingsBankSyncScreen() {
     <GlassScreen style={styles.glassRoot}>
     <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {linksQ.isLoading ? (
-        <ActivityIndicator color={c.primary} />
+        <SkeletonGroup>
+          {[0, 1].map((i) => <SkeletonListRow key={i} amount={false} />)}
+        </SkeletonGroup>
       ) : linksQ.isError ? (
         // Bug found in a fresh review pass: without this branch, a load failure fell straight
         // through to the empty-state copy below -- indistinguishable from genuinely having no
@@ -103,7 +107,7 @@ export function SettingsBankSyncScreen() {
         // (`aaError ? <p>Couldn't load...</p> : ...`); this screen is new mobile code, so it had
         // never had the chance to inherit that from an existing monolith the way the other
         // screens' bugs did.
-        <Text style={[styles.hint, { color: c.dangerInk }]}>Couldn't load your linked bank accounts — please try again later.</Text>
+        <LoadFailed message="Couldn't load your linked bank accounts — please try again later." tone="danger" onRetry={() => void linksQ.refetch()} />
       ) : (
         <View>
           {links.length === 0 ? (

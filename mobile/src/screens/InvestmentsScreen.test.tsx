@@ -5,6 +5,7 @@ import { InvestmentsScreen } from './InvestmentsScreen';
 import { accountsApi, categoriesApi, networthApi, transactionsApi } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { Account } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
@@ -332,5 +333,23 @@ describe('screen capture protection (Track D/D3)', () => {
     renderScreen();
 
     expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+});
+
+describe('InvestmentsScreen first load', () => {
+  it('shows the investments skeleton, not a spinner', () => {
+    accounts.list.mockReturnValue(never());
+    networth.current.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('investments-skeleton')).toBeTruthy();
+  });
+
+  it('with the accounts known to hold no investments, the skeleton shows the two empty cards, not a donut', async () => {
+    accounts.list.mockResolvedValue([]);
+    networth.current.mockReturnValue(never());
+    renderScreen();
+    expect(await screen.findAllByTestId('skeleton-empty-state', { hidden: true })).toHaveLength(2);
+    expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TransactionExplanationModal } from './TransactionExplanationModal';
 import { transactionsApi } from '../api/endpoints';
 import type { TransactionExplanation } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { explanation: jest.fn() },
@@ -182,5 +183,24 @@ describe('TransactionExplanationModal (Phase 4)', () => {
     fireEvent.press(await screen.findByText('Close'));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+});
+
+describe('TransactionExplanationModal loading states', () => {
+  beforeEach(() => jest.mocked(transactionsApi.explanation).mockReset());
+
+  it('shows a skeleton, not a spinner, while it loads', () => {
+    jest.mocked(transactionsApi.explanation).mockReturnValue(never());
+    renderModal('t-1');
+    expectSkeletonNotSpinner();
+  });
+
+  it('after a failed load, Try again refetches', async () => {
+    jest.mocked(transactionsApi.explanation).mockRejectedValueOnce(new Error('down'));
+    renderModal('t-1');
+    expect(await screen.findByText(/Couldn't load this explanation/)).toBeTruthy();
+    jest.mocked(transactionsApi.explanation).mockResolvedValueOnce(explanation());
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Matched your rule for "Big Bazaar".')).toBeTruthy();
   });
 });

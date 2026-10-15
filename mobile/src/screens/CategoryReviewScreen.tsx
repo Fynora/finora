@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { QuickSortPanel } from '../components/QuickSortPanel';
-import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -251,9 +251,11 @@ export function CategoryReviewScreen() {
 
       {listsBehindQuickSort ? null : loading ? (
         <Card style={styles.section}>
-          <SkeletonTransactionRow />
-          <SkeletonTransactionRow />
-          <SkeletonTransactionRow />
+          <SkeletonGroup>
+            <SkeletonTransactionRow />
+            <SkeletonTransactionRow />
+            <SkeletonTransactionRow />
+          </SkeletonGroup>
         </Card>
       ) : failed ? (
         <Card style={styles.section}>

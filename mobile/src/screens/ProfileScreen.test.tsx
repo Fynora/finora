@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProfileScreen } from './ProfileScreen';
 import { userApi, type UserSettings } from '../api/endpoints';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
@@ -140,5 +141,40 @@ describe('ProfileScreen', () => {
     renderScreen();
 
     expect(await screen.findByText(/Couldn't load your profile/)).toBeTruthy();
+  });
+});
+
+describe('ProfileScreen first load', () => {
+  beforeEach(() => user.get.mockReset());
+
+  it('shows the profile skeleton, not a spinner, on first load', () => {
+    user.get.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('profile-skeleton')).toBeTruthy();
+  });
+
+  it('after a failed first load, Try again refetches the profile', async () => {
+    user.get.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText(/Couldn.t load your profile/)).toBeTruthy();
+
+    user.get.mockResolvedValueOnce(settings);
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Personal Information')).toBeTruthy();
+  });
+});
+
+describe('ProfileScreen after a failed refresh', () => {
+  it('keeps showing the profile already loaded', async () => {
+    user.get.mockReset().mockResolvedValueOnce(settings).mockRejectedValueOnce(new Error('down'));
+    const { queryClient } = renderScreen();
+    await screen.findAllByText(MASKED_PHONE);
+    await act(() => queryClient.refetchQueries({ queryKey: ['user-settings'] }));
+    // React Query delivers the result on a setTimeout(0) batch; let it land before asserting.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(queryClient.getQueryState(['user-settings'])?.status).toBe('error');
+    expect(screen.getAllByText(MASKED_PHONE).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Couldn.t load your profile/)).toBeNull();
   });
 });

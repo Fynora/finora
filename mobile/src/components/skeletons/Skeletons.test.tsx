@@ -1,8 +1,15 @@
 import { render, screen } from '@testing-library/react-native';
+import { PixelRatio } from 'react-native';
 import {
-  SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonKpiGrid, SkeletonTransactionRow,
+  SkeletonBarRow, SkeletonBox, SkeletonBudgetCard, SkeletonCard, SkeletonChart, SkeletonFormField,
+  SkeletonGroup, SkeletonKpiGrid, SkeletonLines, SkeletonListRow, SkeletonProfileHeader,
+  SkeletonSettingsRow, SkeletonText, SkeletonTransactionRow,
 } from './Skeletons';
 import { ThemeProvider } from '../../theme';
+
+// Text placeholders scale with the system text size, as real text does. Jest's window reports a
+// font scale of 2, so every text height below is the measured line times that scale.
+const FONT_SCALE = PixelRatio.getFontScale();
 
 function withTheme(node: React.ReactElement) {
   return render(<ThemeProvider>{node}</ThemeProvider>);
@@ -60,5 +67,133 @@ describe('SkeletonKpiGrid', () => {
     expect(grid.children).toHaveLength(4);
     // label, number and chip placeholders per tile
     expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(12);
+  });
+});
+
+describe('SkeletonGroup', () => {
+  it('is one element a screen reader reads as "Loading", with its pieces hidden', () => {
+    withTheme(
+      <SkeletonGroup>
+        <SkeletonLines count={2} />
+      </SkeletonGroup>
+    );
+    expect(screen.getAllByLabelText('Loading')).toHaveLength(1);
+    // The pieces exist but only as hidden placeholders.
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+    expect(screen.queryAllByTestId('shimmer-block')).toHaveLength(0);
+  });
+});
+
+describe('sized blocks', () => {
+  function heightOf(testID = 'shimmer-block') {
+    const style = screen.getByTestId(testID, { hidden: true }).props.style;
+    return (Array.isArray(style) ? Object.assign({}, ...style.flat(Infinity).filter(Boolean)) : style).height;
+  }
+
+  it('a text placeholder is as tall as the font size it stands in for, at the system text size', () => {
+    withTheme(<SkeletonText size="title" />);
+    expect(heightOf()).toBe(Math.round(22 * FONT_SCALE));
+  });
+
+  it('a field placeholder is as tall as a TextField input row', () => {
+    withTheme(<SkeletonBox size="field" />);
+    expect(heightOf()).toBe(48);
+  });
+});
+
+describe('row and form blocks', () => {
+  it('SkeletonListRow: icon, two lines and an amount', () => {
+    withTheme(<SkeletonListRow icon="md" />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonListRow without an icon or amount is just the two lines', () => {
+    withTheme(<SkeletonListRow amount={false} />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+  });
+
+  it('SkeletonFormField: a label over a field', () => {
+    withTheme(<SkeletonFormField />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2);
+  });
+
+  it('SkeletonProfileHeader: a circle and three lines', () => {
+    withTheme(<SkeletonProfileHeader />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonSettingsRow with a switch: two lines and the switch', () => {
+    withTheme(<SkeletonSettingsRow trailing="switch" />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(3);
+  });
+
+  it('SkeletonLines draws the requested number of lines', () => {
+    withTheme(<SkeletonLines count={4} />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+
+  it('SkeletonBarRow: the label and count, the bar track, and the amount under it', () => {
+    withTheme(<SkeletonBarRow />);
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(4);
+  });
+});
+
+// Measured on the simulator (iPhone 17 Pro, 2026-10-16): a line of the system font is 1.19 times
+// its font size tall (12 -> 14.0, 14 -> 16.6, 11 -> 13.1, 17 -> 20.1). A placeholder only as tall
+// as the font size made the loaded Profile about 60 pt taller than its skeleton, so content jumped.
+describe('placeholders take the room the real text takes', () => {
+  function flat(style: unknown): Record<string, unknown> {
+    return Array.isArray(style) ? Object.assign({}, ...(style as unknown[]).flat(Infinity).filter(Boolean)) : ((style ?? {}) as Record<string, unknown>);
+  }
+
+  it('a text line occupies a line of text, with the bar at the font size inside it', () => {
+    withTheme(<SkeletonText size="title" />);
+    const bar = screen.getByTestId('shimmer-block', { hidden: true });
+    expect(flat(bar.props.style).height).toBe(Math.round(22 * FONT_SCALE));
+    expect(flat(screen.getByTestId('skeleton-line', { hidden: true }).props.style).height).toBe(Math.round(22 * 1.19 * FONT_SCALE));
+  });
+
+  it('a paragraph is one line of text per line, with no extra gap between them', () => {
+    withTheme(<SkeletonLines count={3} size="body" />);
+    const lines = screen.getAllByTestId('skeleton-line', { hidden: true });
+    expect(lines).toHaveLength(3);
+    lines.forEach((l) => expect(flat(l.props.style).height).toBe(Math.round(14 * 1.19 * FONT_SCALE)));
+    expect(flat(screen.getByTestId('skeleton-lines', { hidden: true }).props.style).gap).toBeUndefined();
+  });
+
+  it('a form field keeps the slot TextField reserves under its input for an error', () => {
+    withTheme(<SkeletonFormField />);
+    expect(screen.getByTestId('skeleton-field-message', { hidden: true })).toBeTruthy();
+  });
+
+  it('text that sets its own line height gets that line, not the measured default', () => {
+    withTheme(<SkeletonLines count={2} size="caption" line={16} />);
+    screen.getAllByTestId('skeleton-line', { hidden: true })
+      .forEach((l) => expect(flat(l.props.style).height).toBe(Math.round(16 * FONT_SCALE)));
+  });
+
+  it('text placeholders grow with the system text size, as the real text does', () => {
+    // Measured on the simulator at the largest text size: real cards grew about threefold while
+    // unscaled placeholders kept their size. Jest's window reports 2, which makes this meaningful.
+    expect(FONT_SCALE).not.toBe(1);
+    withTheme(<SkeletonText size="body" />);
+    expect(flat(screen.getByTestId('skeleton-line', { hidden: true }).props.style).height)
+      .toBe(Math.round(14 * 1.19 * FONT_SCALE));
+  });
+
+  it('a bar row stacks its parts 2 apart, as HorizontalBarList does', () => {
+    withTheme(<SkeletonBarRow />);
+    expect(flat(screen.getByTestId('skeleton-bar-row', { hidden: true }).props.style).gap).toBe(2);
+  });
+
+  it('a settings row puts its description 2 under its title, as every real settings row does', () => {
+    withTheme(<SkeletonSettingsRow />);
+    expect(flat(screen.getByTestId('skeleton-settings-row-main', { hidden: true }).props.style).gap).toBe(2);
+  });
+
+  it('a settings row whose description wraps shows a bar per description line', () => {
+    withTheme(<SkeletonSettingsRow trailing="switch" metaLines={3} />);
+    // title + 3 description lines + switch
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(5);
   });
 });

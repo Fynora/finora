@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
+  FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet,
   Text, TextInput, View
 } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
@@ -19,6 +19,9 @@ import {
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
 import { Card, DetailField, EmptyState, SectionHeading } from '../components/Card';
+import { LoadFailed } from '../components/LoadFailed';
+import { StatementGroupCardsSkeleton } from '../components/skeletons/ScreenSkeletons';
+import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { apiErrorCode, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -73,7 +76,7 @@ export function StatementHistoryScreen() {
   // have not asked yet" from "you answered and the document rejected it".
   const [passwordPrompt, setPasswordPrompt] = useState<{ statement: StatementSummary; wrong: boolean } | null>(null);
 
-  const { data: groups = [], isLoading, isError } = useQuery({
+  const { data: groups = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['statement-imports'],
     queryFn: () => statementImportsApi.listGroupedByAccount(),
   });
@@ -222,10 +225,12 @@ export function StatementHistoryScreen() {
         ) : null}
 
         {isLoading ? (
-          <ActivityIndicator color={c.primary} />
+          <SkeletonGroup>
+            <StatementGroupCardsSkeleton />
+          </SkeletonGroup>
         ) : isError ? (
           <Card style={styles.section}>
-            <EmptyState message="Couldn't load your statement history. Pull back and try again." />
+            <LoadFailed message="Couldn't load your statement history." onRetry={() => void refetch()} />
           </Card>
         ) : groups.length === 0 ? (
           <Card style={styles.section}>
@@ -542,7 +547,7 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
   const largeText = useLargeFontScale();
   const { statement, mode } = detail;
 
-  const { data: transactions, isLoading } = useQuery({
+  const { data: transactions, isLoading, isError, refetch } = useQuery({
     queryKey: ['statement-import-transactions', statement.id],
     queryFn: () => statementImportsApi.transactions(statement.id),
     enabled: mode === 'transactions',
@@ -575,7 +580,11 @@ function StatementDetailModal({ detail, onClose }: { detail: Detail; onClose: ()
               <DetailField label="Duplicates flagged" value={String(statement.duplicateCount)} />
             </View>
           ) : isLoading ? (
-            <ActivityIndicator color={c.primary} style={styles.detailLoading} />
+            <SkeletonGroup style={styles.detailLoading}>
+              {[0, 1, 2, 3].map((i) => <SkeletonTransactionRow key={i} />)}
+            </SkeletonGroup>
+          ) : isError && transactions === undefined ? (
+            <LoadFailed message="Couldn't load this import's transactions." tone="danger" onRetry={() => void refetch()} />
           ) : !transactions || transactions.length === 0 ? (
             <EmptyState message="This import's transactions are no longer on the books." />
           ) : (

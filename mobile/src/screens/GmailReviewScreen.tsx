@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
-import { SkeletonTransactionRow } from '../components/skeletons/Skeletons';
+import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { gmailApi, type GmailReviewItem } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -146,8 +146,10 @@ export function GmailReviewScreen() {
 
       {itemsQ.isLoading ? (
         <Card style={styles.section}>
-          <SkeletonTransactionRow />
-          <SkeletonTransactionRow />
+          <SkeletonGroup>
+            <SkeletonTransactionRow />
+            <SkeletonTransactionRow />
+          </SkeletonGroup>
         </Card>
       ) : itemsQ.isError && items.length === 0 ? (
         <Card style={styles.section}>

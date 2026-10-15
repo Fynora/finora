@@ -28962,6 +28962,36 @@
                         "items": {
                             "$ref": "#/components/schemas/BlankedCopyDifference"
                         }
+                    },
+                    "unusualRows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlankedCopyUnusualRow"
+                        }
+                    }
+                }
+            },
+            "BlankedCopyUnusualRow": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "pages": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

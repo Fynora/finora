@@ -56,7 +56,10 @@ description came from.
 5. **Unusual rows are pointed out.** The admin portal's blanked-copy panel lists, from the row map
    alone:
    - a row whose lines span two pages;
-   - a row that used more than 4 lines;
+   - a row that used more than 4 lines and more than 3 times the median lines per row of its own
+     section (one table); a section of fewer than 5 rows is not judged. (Changed by the owner on
+     2026-10-15: the fixed "more than 4" flagged 228 rows on 8 of 34 statements, mostly tables
+     that wrap every narration, too many to use.)
    - a row with a line far from the line before it in the same row: a gap more than 3 times the
      median gap between consecutive printed lines of the table on that page. That is how a
      swallowed footer or notice looks.

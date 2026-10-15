@@ -37,11 +37,58 @@ class UnusualRowsTest {
                 .containsExactly(new Flag(0, 3, Kind.TWO_PAGES, 2, 2));
     }
 
+    /** One section of rows on page 0, row i taking counts[i] lines, every line 14pt below the last:
+     *  evenly set, so no row has a far line. */
+    private static Map<Integer, RowLines> rowsWithLineCounts(int... counts) {
+        Map<Integer, RowLines> rows = new TreeMap<>();
+        float y = 100;
+        for (int count : counts) {
+            List<RowLines.Line> lines = new ArrayList<>();
+            for (int i = 0; i < count; i++, y += 14) lines.add(new RowLines.Line(0, Math.round(y * 100)));
+            rows.put(rows.size(), new RowLines(lines));
+        }
+        return rows;
+    }
+
     @Test
-    void fiveLinesIsManyAndFourIsNot() {
-        assertThat(UnusualRows.of(page(row(0, 142, 0, 156, 0, 170, 0, 184), 100, 114, 128))).isEmpty();
-        assertThat(UnusualRows.of(page(row(0, 142, 0, 156, 0, 170, 0, 184, 0, 198), 100, 114, 128)))
-                .containsExactly(new Flag(0, 3, Kind.MANY_LINES, 5, 1));
+    void manyLinesIsMoreThanThreeTimesTheSectionsMedian() {
+        // Median 2: exactly 3x (6 lines) is not many; one more is.
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(2, 2, 2, 2, 6)))).isEmpty();
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(2, 2, 2, 2, 7))))
+                .containsExactly(new Flag(0, 4, Kind.MANY_LINES, 7, 1));
+    }
+
+    @Test
+    void manyLinesAlsoNeedsMoreThanFourLines() {
+        // Median 1: four lines is over 3x and still not many; five is.
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 1, 4)))).isEmpty();
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 1, 5))))
+                .containsExactly(new Flag(0, 4, Kind.MANY_LINES, 5, 1));
+    }
+
+    @Test
+    void anEvenNumberOfRowsTakesTheMeanOfTheMiddleTwo() {
+        // Sorted 1,1,1,3,3,6: median 2, so 6 is exactly 3x and not many; 7 is.
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 3, 3, 6)))).isEmpty();
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 3, 3, 7))))
+                .containsExactly(new Flag(0, 5, Kind.MANY_LINES, 7, 1));
+    }
+
+    @Test
+    void aSectionOfFewerThanFiveRowsIsNotJudgedForManyLines() {
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 9)))).isEmpty();
+        assertThat(UnusualRows.of(Map.of(0, rowsWithLineCounts(1, 1, 1, 1, 9))))
+                .containsExactly(new Flag(0, 4, Kind.MANY_LINES, 9, 1));
+    }
+
+    @Test
+    void eachSectionIsComparedWithItsOwnMedian() {
+        // A table that wraps every row to five lines flags none of them; another table's five-line
+        // row among single lines is flagged.
+        Map<Integer, Map<Integer, RowLines>> map = new TreeMap<>();
+        map.put(0, rowsWithLineCounts(5, 5, 5, 5, 5));
+        map.put(1, rowsWithLineCounts(1, 1, 1, 1, 5));
+        assertThat(UnusualRows.of(map)).containsExactly(new Flag(1, 4, Kind.MANY_LINES, 5, 1));
     }
 
     @Test

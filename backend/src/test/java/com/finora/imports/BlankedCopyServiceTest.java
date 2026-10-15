@@ -508,10 +508,13 @@ class BlankedCopyServiceTest {
                 new RowLines.Line(0, 12800), new RowLines.Line(0, 14200), new RowLines.Line(0, 15600)));
         doAnswer(invocation -> {
             RowMapSink sink = invocation.getArgument(3);
-            // Both readings report row 1 as five lines, so the check still matches.
+            // Both readings report row 1 as five lines, so the check still matches. Rows 3 and 4
+            // make the section large enough (five rows) to judge many lines at all.
             RowMapSink reported = (section, lines) -> {
                 Map<Integer, RowLines> altered = new TreeMap<>(lines);
                 altered.put(1, fiveLines);
+                altered.put(3, new RowLines(List.of(new RowLines.Line(1, 10000))));
+                altered.put(4, new RowLines(List.of(new RowLines.Line(1, 11400))));
                 sink.section(section, altered);
             };
             calls.incrementAndGet();

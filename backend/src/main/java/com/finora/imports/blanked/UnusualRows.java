@@ -14,7 +14,11 @@ import java.util.TreeSet;
  *
  * <ul>
  *   <li>{@link Kind#TWO_PAGES}: the row's lines are on more than one page;</li>
- *   <li>{@link Kind#MANY_LINES}: the row took more than {@value #MANY_LINES_ABOVE} lines;</li>
+ *   <li>{@link Kind#MANY_LINES}: the row took more than {@value #MANY_LINES_ABOVE} lines and more
+ *       than {@value #MANY_LINES_MEDIAN_MULTIPLE} times the median lines per row of its own section
+ *       (one table), judged only for a section of at least {@value #MIN_ROWS_TO_JUDGE_MANY_LINES}
+ *       rows. A fixed count alone flagged every row of a table that simply wraps its narration;
+ *       measured on 34 real statements, 228 rows on 8 statements.</li>
  *   <li>{@link Kind#FAR_LINE}: two consecutive lines of the row, on one page, are more than
  *       {@value #FAR_GAP_MULTIPLE} times the median gap apart. The median is taken over every
  *       gap between consecutive lines of that section's table on that page, all rows together, and
@@ -32,6 +36,8 @@ public final class UnusualRows {
     public record Flag(int section, int row, Kind kind, int lines, int pages) {}
 
     static final int MANY_LINES_ABOVE = 4;
+    static final int MANY_LINES_MEDIAN_MULTIPLE = 3;
+    static final int MIN_ROWS_TO_JUDGE_MANY_LINES = 5;
     static final int FAR_GAP_MULTIPLE = 3;
     static final int MIN_GAPS_TO_JUDGE = 3;
 
@@ -42,17 +48,32 @@ public final class UnusualRows {
         List<Flag> flags = new ArrayList<>();
         for (Map.Entry<Integer, Map<Integer, RowLines>> section : new TreeMap<>(bySection).entrySet()) {
             Map<Integer, Double> medianGapByPage = medianGapByPage(section.getValue());
+            Double medianLines = medianLinesPerRow(section.getValue());
             for (Map.Entry<Integer, RowLines> row : new TreeMap<>(section.getValue()).entrySet()) {
                 List<RowLines.Line> lines = row.getValue().lines();
                 int pages = (int) lines.stream().mapToInt(RowLines.Line::page).distinct().count();
                 int s = section.getKey();
                 int r = row.getKey();
                 if (pages > 1) flags.add(new Flag(s, r, Kind.TWO_PAGES, lines.size(), pages));
-                if (lines.size() > MANY_LINES_ABOVE) flags.add(new Flag(s, r, Kind.MANY_LINES, lines.size(), pages));
+                if (medianLines != null && lines.size() > MANY_LINES_ABOVE
+                        && lines.size() > MANY_LINES_MEDIAN_MULTIPLE * medianLines) {
+                    flags.add(new Flag(s, r, Kind.MANY_LINES, lines.size(), pages));
+                }
                 if (hasFarLine(lines, medianGapByPage)) flags.add(new Flag(s, r, Kind.FAR_LINE, lines.size(), pages));
             }
         }
         return List.copyOf(flags);
+    }
+
+    /** The median number of lines per row in one section, or null when it has too few rows to
+     *  judge by. */
+    private static Double medianLinesPerRow(Map<Integer, RowLines> rows) {
+        if (rows.size() < MIN_ROWS_TO_JUDGE_MANY_LINES) return null;
+        List<Integer> counts = new ArrayList<>();
+        for (RowLines row : rows.values()) counts.add(row.lines().size());
+        counts.sort(null);
+        int mid = counts.size() / 2;
+        return counts.size() % 2 == 1 ? counts.get(mid) : (counts.get(mid - 1) + counts.get(mid)) / 2.0;
     }
 
     /** The median gap between consecutive lines on each page, over every row of one section, for

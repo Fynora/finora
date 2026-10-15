@@ -481,6 +481,11 @@ jobs:
       - name: In-repo corpus refusal (self-test)
         run: python3 scripts/test-corpus-run.py
 
+      # The same guard on the bank-sentence candidate script: its output holds lines from real
+      # statements, so it must never land inside a working tree.
+      - name: Bank-sentence candidates refusal (self-test)
+        run: python3 scripts/test-bank-sentence-candidates.py
+
       # Runs from the repo root, not frontend/, because it scans all three apps: a dead support
       # address is equally broken in admin-portal or mobile, and the whole point is that no copy of
       # it escapes.

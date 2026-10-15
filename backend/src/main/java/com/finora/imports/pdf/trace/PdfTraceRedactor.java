@@ -395,6 +395,13 @@ public final class PdfTraceRedactor {
         return keep;
     }
 
+    /** The text of each printed line, joined exactly as {@link #runsOfListedLines} joins it to
+     *  match a bank sentence. For the local seed-candidate probe, which reads the owner's own
+     *  statements and never leaves his machine. */
+    public static List<String> printedLines(List<PositionedText> runs) {
+        return NumberGroups.lines(runs, NumberGroups.REDACTOR_GAP_MARGIN).stream().map(NumberGroups.Line::text).toList();
+    }
+
     /** One line of text masked exactly as a run with this text would be by {@link #redact}. */
     public static String redactLine(String text) {
         return redactText(text, vocabulary());

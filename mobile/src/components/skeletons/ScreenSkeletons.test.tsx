@@ -3,7 +3,7 @@ import { ThemeProvider } from '../../theme';
 import { skeletonTokens } from '../../theme/skeleton';
 import {
   FinancialMemorySkeleton, ProfileSkeleton, ReferralsSkeleton, SettingsCategorizationSkeleton,
-  SettingsGeneralSkeleton, SettingsSecuritySkeleton,
+  SettingsAccountSkeleton, SettingsGeneralSkeleton, SettingsSecuritySkeleton,
 } from './ScreenSkeletons';
 
 function heightOf(el: { props: { style?: unknown } }): unknown {
@@ -94,6 +94,17 @@ describe('SettingsSecuritySkeleton', () => {
     const blurbLines = screen.getAllByTestId('skeleton-line', { hidden: true })
       .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
     expect(blurbLines).toHaveLength(2);
+  });
+});
+
+describe('SettingsAccountSkeleton', () => {
+  it('draws the deactivate hint at three 16pt lines and the delete hint at two', () => {
+    render(<ThemeProvider><SettingsAccountSkeleton /></ThemeProvider>);
+    // each row: label + link; hints 3 + 2
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 * 2 + 3 + 2);
+    const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
+      .filter((l) => heightOf(l) === skeletonTokens.textLine.hint);
+    expect(hintLines).toHaveLength(5);
   });
 });
 

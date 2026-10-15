@@ -428,13 +428,14 @@ export function SettingsAccountSkeleton() {
   const c = useTheme();
   return (
     <SkeletonGroup testID="settings-account-skeleton">
-      {[0, 1].map((i) => (
+      {/* Deactivate's hint wraps to three lines, Delete's to two; each ends in a 13pt link. */}
+      {[3, 2].map((hintLines, i) => (
         <View key={i} style={[styles.dangerRow, i === 0 && { borderBottomColor: c.border, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-          <SkeletonText size="meta" width="40%" />
+          <SkeletonText size="meta" width="40%" style={styles.fieldLabel} />
           <View style={styles.gapSm}>
-            <SkeletonLines count={3} size="caption" />
+            <SkeletonLines count={hintLines} size="caption" line={skeletonTokens.textLine.hint} />
           </View>
-          <SkeletonText size="body" width="35%" style={styles.gapSm} />
+          <SkeletonText size="label" width="35%" />
         </View>
       ))}
     </SkeletonGroup>

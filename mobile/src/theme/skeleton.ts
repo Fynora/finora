@@ -27,8 +27,8 @@ export const skeletonTokens = {
   paragraphBar: 0.7,
   /** Text that sets its own lineHeight instead of the system default. */
   textLine: {
-    /** The settings screens' hints (General, Categorization, the Active Sessions blurb): 11pt on a
-     *  16pt line. */
+    /** The settings screens' hints (General, Categorization, Account, the Active Sessions blurb):
+     *  11pt on a 16pt line. */
     hint: 16,
   },
   text: {

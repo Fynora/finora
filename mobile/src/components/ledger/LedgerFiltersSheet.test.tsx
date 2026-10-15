@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerFiltersSheet, STATUS_FILTERS, statusFilterLabel } from './LedgerFiltersSheet';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics } from '../../test/haptics';
 
 const handlers = {
   onStatus: jest.fn(), onDateFrom: jest.fn(), onDateTo: jest.fn(), onInternational: jest.fn(),
@@ -63,6 +64,12 @@ describe('LedgerFiltersSheet', () => {
     expect(row).toBeChecked();
     fireEvent.press(row);
     expect(handlers.onInternational).toHaveBeenCalledWith(false);
+  });
+
+  it('the International only row fires one selection per toggle', () => {
+    show({ internationalOnly: false });
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    expectHaptics({ selection: 1 });
   });
 
   it('clears everything from one control', () => {

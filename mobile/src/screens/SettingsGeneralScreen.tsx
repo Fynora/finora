@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SaveStatus } from '../components/AccountUI';
+import { AppSwitch } from '../components/AppSwitch';
 import { Button } from '../components/Button';
 import { GlassScreen } from '../components/GlassScreen';
 import { LoadFailed } from '../components/LoadFailed';
@@ -11,6 +12,7 @@ import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
+import { hapticSelectionIfChanged, setHapticsEnabled, useHapticsEnabled } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
@@ -42,6 +44,7 @@ export function SettingsGeneralScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const { setting: themeSetting, setSetting: setThemeSetting } = useThemeSetting();
+  const hapticsOn = useHapticsEnabled();
   const { setOnboardingCompleted } = useAuth();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
@@ -167,7 +170,7 @@ export function SettingsGeneralScreen() {
           return (
             <Pressable
               key={option}
-              onPress={() => setThemeSetting(option)}
+              onPress={() => { hapticSelectionIfChanged(themeSetting, option); setThemeSetting(option); }}
               style={[styles.segment, active && { backgroundColor: c.primaryLight }]}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
@@ -204,6 +207,25 @@ export function SettingsGeneralScreen() {
           <Text style={[styles.hint, { color: c.mutedInk }]}>Replay the onboarding experience anytime.</Text>
         </View>
         <Button label="Retake Tour" onPress={() => void retakeTour()} loading={retakingTour} variant="link" />
+      </View>
+
+      {/* Applies at once, like Retake Tour above, so it sits here rather than in the block that
+          Save preferences saves. Kept on the phone, not on the account (src/lib/haptics.ts). */}
+      <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
+        <View style={styles.retakeTourText}>
+          <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Haptics</Text>
+          <Text style={[styles.hint, { color: c.mutedInk }]}>
+            Small vibrations when you tap, save or pull to refresh. Your phone&apos;s own settings still apply.
+          </Text>
+        </View>
+        <AppSwitch
+          silent
+          value={hapticsOn}
+          onValueChange={setHapticsEnabled}
+          accessibilityLabel="Haptics"
+          trackColor={{ true: c.primary, false: c.border }}
+          thumbColor={hapticsOn ? c.onPrimary : undefined}
+        />
       </View>
 
       <OptionPickerModal

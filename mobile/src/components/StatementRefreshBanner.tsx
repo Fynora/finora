@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import {
-  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { AppSwitch } from './AppSwitch';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -218,7 +219,7 @@ function RefreshPasswordSheet({
                   Stored encrypted, only for this statement. Remove it any time in Settings → Data.
                 </Text>
               </View>
-              <Switch
+              <AppSwitch
                 value={keep}
                 onValueChange={setKeep}
                 disabled={busy}

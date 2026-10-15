@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppSwitch } from '../../components/AppSwitch';
 import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -1042,7 +1043,7 @@ export function ImportScreen() {
                         on our side. Remove it any time in Settings → Data.
                       </Text>
                     </View>
-                    <Switch
+                    <AppSwitch
                       value={savePassword}
                       onValueChange={setSavePassword}
                       trackColor={{ true: c.primary, false: c.border }}
@@ -1511,7 +1512,7 @@ export function ImportScreen() {
                       Fynora could not read a holder name from this statement.
                     </Text>
                   </View>
-                  <Switch
+                  <AppSwitch
                     value={claimHolder}
                     onValueChange={setClaimHolder}
                     trackColor={{ true: c.primary, false: c.border }}

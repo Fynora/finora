@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Switch, Text, View, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
+import { AppSwitch } from '../../components/AppSwitch';
 import { SkeletonGroup, SkeletonSettingsRow } from '../../components/skeletons/Skeletons';
 import * as appLock from '../../lib/appLock';
 import { spacing, useTheme } from '../../theme';
@@ -115,7 +116,7 @@ export function AppLockSection() {
             Require your fingerprint, face, or device passcode to open Fynora.
           </Text>
         </View>
-        <Switch
+        <AppSwitch
           value={enabled}
           onValueChange={(next) => void handleToggle(next)}
           disabled={busy}

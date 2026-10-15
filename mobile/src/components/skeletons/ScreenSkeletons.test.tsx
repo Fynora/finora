@@ -54,16 +54,23 @@ describe('SettingsGeneralSkeleton', () => {
     expect(heights).toContain(skeletonTokens.control.segments);
     const hintLines = screen.getAllByTestId('skeleton-line', { hidden: true })
       .filter((l) => heightOf(l) === scaled(skeletonTokens.textLine.hint));
-    // the theme hint's 2 lines and the retake-tour hint's 1
-    expect(hintLines).toHaveLength(3);
+    // the theme hint's 2 lines, the retake-tour hint's 1 and the haptics hint's 2
+    expect(hintLines).toHaveLength(5);
   });
 
-  it('shows the notification rows with their wrapped descriptions, the footnote and the retake-tour row', () => {
+  it('shows the notification rows with their wrapped descriptions, the footnote, the retake-tour row and the haptics row', () => {
     renderIt();
     // low balance (label, field) + timezone (label, picker) + theme (label, segments) + hint 2
     // + save button + notifications (heading, email 1+3+switch, push 1+2+switch, footnote 2)
-    // + retake tour (label, hint, link)
-    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 + 2 + 2 + 2 + 1 + (1 + 5 + 4 + 2) + 3);
+    // + retake tour (label, hint, link) + haptics (label, hint 2, switch)
+    expect(screen.getAllByTestId('shimmer-block', { hidden: true })).toHaveLength(2 + 2 + 2 + 2 + 1 + (1 + 5 + 4 + 2) + 3 + 4);
+  });
+
+  it('ends with the haptics switch, after the two notification switches', () => {
+    renderIt();
+    const switches = screen.getAllByTestId('shimmer-block', { hidden: true })
+      .filter((b) => heightOf(b) === skeletonTokens.control.switchHeight);
+    expect(switches).toHaveLength(3);
   });
 });
 

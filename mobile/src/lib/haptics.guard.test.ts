@@ -13,3 +13,7 @@ const importers = (re: RegExp) => files(SRC).filter((p) => re.test(readFileSync(
 it('only lib/haptics.ts imports expo-haptics', () => {
   expect(importers(/from 'expo-haptics'/)).toEqual(['lib/haptics.ts']);
 });
+
+it('only AppSwitch imports Switch from react-native', () => {
+  expect(importers(/import \{[^}]*\bSwitch\b[^}]*\} from 'react-native'/)).toEqual(['components/AppSwitch.tsx']);
+});

@@ -1,4 +1,6 @@
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppSwitch } from '../AppSwitch';
+import { hapticSelection } from '../../lib/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppModal } from '../AppModal';
 import { DateField } from '../DateField';
@@ -89,7 +91,9 @@ export function LedgerFiltersSheet({
             <DateField label="To" value={dateTo} onChange={onDateTo} />
 
             <Pressable
-              onPress={() => onInternational(!internationalOnly)}
+              // The switch below has no handler of its own, so the row gives AppSwitch's tick: a
+              // press always flips the value.
+              onPress={() => { onInternational(!internationalOnly); hapticSelection(); }}
               accessibilityRole="switch"
               accessibilityState={{ checked: internationalOnly }}
               accessibilityLabel="Show only international transactions"
@@ -98,7 +102,7 @@ export function LedgerFiltersSheet({
               <Text style={[typography.labelM, styles.switchLabel, { color: c.ink }]}>International only</Text>
               {/* The row is the control; the switch is its picture. */}
               <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                <Switch value={internationalOnly} trackColor={{ true: c.primary, false: c.border }} />
+                <AppSwitch value={internationalOnly} trackColor={{ true: c.primary, false: c.border }} />
               </View>
             </Pressable>
           </ScrollView>

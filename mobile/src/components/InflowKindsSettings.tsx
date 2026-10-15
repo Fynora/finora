@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppSwitch } from './AppSwitch';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { inflowApi } from '../api/endpoints';
 import { Button } from './Button';
@@ -89,7 +90,7 @@ export function InflowKindsSettings() {
               {k.builtIn ? (
                 <Text style={[styles.small, { color: c.muted }]}>{k.countsAsIncome ? 'Income' : 'Not income'}</Text>
               ) : (
-                <Switch
+                <AppSwitch
                   accessibilityLabel={`${k.name} counts as income`}
                   value={k.countsAsIncome}
                   onValueChange={(v) => { void attempt(() => inflowApi.updateKind(k.id, { countsAsIncome: v }), 'Could not change this kind.'); }}

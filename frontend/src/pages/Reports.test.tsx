@@ -1,13 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Reports from './Reports';
-import { reportsApi, type ReportData } from '../api/endpoints';
+import { categoriesApi, insightsApi, reportsApi, type InsightsData, type ReportData } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
-  reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn() },
+  reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn(), trend: vi.fn() },
+  categoriesApi: { list: vi.fn() },
+  insightsApi: { get: vi.fn() },
 }));
+
+// The extras (categories, insights, trend) are optional on the page, so every test starts with
+// "none of them", and the ones about them say otherwise. A real default, not an unset mock: an
+// unset one returns undefined and would throw inside the hook's .then().
+beforeEach(() => {
+  vi.mocked(categoriesApi.list).mockResolvedValue([]);
+  vi.mocked(insightsApi.get).mockResolvedValue({ sentences: [], movers: [] });
+  vi.mocked(reportsApi.trend).mockResolvedValue([]);
+});
 
 function report(overrides: Partial<ReportData> = {}): ReportData {
   return {
@@ -393,5 +404,277 @@ describe('Reports — income and expense cards', () => {
     renderPage();
     await screen.findByText('Total income');
     expect(screen.queryByText(/^(—\s)?vs /)).not.toBeInTheDocument();
+  });
+});
+
+const cat = (name: string, over: Record<string, unknown> = {}) =>
+  ({ id: `id-${name}`, name, isSystem: false, icon: 'tag', color: 'blue', ...over });
+const mover = (category: string, pctChange: number | null, current = 100, priorAverage = 80) =>
+  ({ category, current, priorAverage, pctChange });
+const insights = (over: Partial<InsightsData> = {}): InsightsData => ({
+  sentences: [], movers: [], reportingMonth: '2026-08', reportingMonthIsCurrent: false, ...over,
+});
+
+describe('Reports — where your money went', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it('divides shares by the rows own total, so none can pass 100% when Expense is smaller than the rows', async () => {
+    // Expense leaves out an investment transfer that is still a category row.
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      expense: 500, categories: [{ category: 'Rent', amount: 500 }, { category: 'Investments', amount: 500 }],
+    }));
+    renderPage();
+
+    const rows = await screen.findByTestId('category-rows');
+    expect(within(rows).getAllByText('50%')).toHaveLength(2);
+    expect(within(rows).queryByText(/1\d\d%/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('category-donut')).toHaveAttribute('aria-label', expect.stringContaining('₹1,000 in total'));
+  });
+
+  it('opens the ledger for a real category and month, and is not a link for one the ledger cannot filter to', async () => {
+    vi.mocked(categoriesApi.list).mockResolvedValue([cat('Food & Dining')] as never);
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      categories: [{ category: 'Food & Dining', amount: 600 }, { category: 'Uncategorized', amount: 400 }],
+    }));
+    renderPage();
+
+    const link = await screen.findByRole('link', { name: /Food & Dining: ₹600/ });
+    const href = link.getAttribute('href')!;
+    expect(href.startsWith('/app/transactions?')).toBe(true);
+    const params = new URLSearchParams(href.split('?')[1]);
+    expect(params.get('category')).toBe('Food & Dining');
+    expect(params.get('from')).toBe('2026-08-01');
+    expect(params.get('to')).toBe('2026-08-31');
+    // Uncategorized shows its amount but is plain text: it also holds rows in deleted categories.
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Uncategorized/ })).not.toBeInTheDocument();
+  });
+
+  it("shows each category's change against the recent average, with spending up as the bad direction", async () => {
+    vi.mocked(categoriesApi.list).mockResolvedValue([cat('Shopping'), cat('Food')] as never);
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ movers: [mover('Shopping', -25.4), mover('Food', 12.2)] }));
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      categories: [{ category: 'Shopping', amount: 600 }, { category: 'Food', amount: 400 }],
+    }));
+    renderPage();
+
+    const chips = await screen.findAllByTestId('category-change');
+    expect(chips.map((c) => c.textContent)).toEqual(['▼ 25%', '▲ 12%']);
+    expect(chips[0]).toHaveClass('text-success');
+    expect(chips[1]).toHaveClass('text-danger');
+  });
+
+  it('shows no chip for a category with no history, and none at all when insights are unavailable', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ movers: [mover('Shopping', null)] }));
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [{ category: 'Shopping', amount: 600 }] }));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('category-change')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(insightsApi.get).mockRejectedValue(new Error('boom'));
+    renderPage();
+    expect(await screen.findByTestId('category-rows')).toBeInTheDocument();
+    expect(screen.queryByTestId('category-change')).not.toBeInTheDocument();
+  });
+
+  it('ignores insights that describe a different month than the one on screen', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ reportingMonth: '2026-07', movers: [mover('Food', 40)] }));
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [{ category: 'Food', amount: 400 }] }));
+    renderPage();
+
+    await screen.findByTestId('category-rows');
+    await waitFor(() => expect(insightsApi.get).toHaveBeenCalledWith('2026-08'));
+    expect(screen.queryByTestId('category-change')).not.toBeInTheDocument();
+  });
+
+  it('keeps the page whole when the categories or the insights fail to load', async () => {
+    vi.mocked(categoriesApi.list).mockRejectedValue(new Error('boom'));
+    vi.mocked(insightsApi.get).mockRejectedValue(new Error('boom'));
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [{ category: 'Food', amount: 400 }] }));
+    renderPage();
+
+    expect(await screen.findByTestId('category-rows')).toBeInTheDocument();
+    expect(screen.getByText('Food')).toBeInTheDocument();
+  });
+
+  it('lists the top eight and opens the rest on request', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 11 }, (_, i) => ({ category: `Cat ${i + 1}`, amount: 1000 - i * 10 }));
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: many }));
+    renderPage();
+
+    const rows = await screen.findByTestId('category-rows');
+    expect(within(rows).getAllByRole('listitem')).toHaveLength(8);
+    await user.click(screen.getByRole('button', { name: 'Show all 11 categories' }));
+    expect(within(rows).getAllByRole('listitem')).toHaveLength(11);
+    await user.click(screen.getByRole('button', { name: 'Show fewer' }));
+    expect(within(rows).getAllByRole('listitem')).toHaveLength(8);
+  });
+
+  it('never shows the new month\'s insights against the previous month\'s report while a switch is in flight', async () => {
+    const user = userEvent.setup();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
+    vi.mocked(insightsApi.get).mockImplementation(async (m?: string) =>
+      m === '2026-07'
+        ? insights({ reportingMonth: '2026-07', movers: [mover('Food', -10)] })
+        : insights({ reportingMonth: '2026-08', movers: [mover('Food', 40)] }));
+    vi.mocked(categoriesApi.list).mockResolvedValue([cat('Food')] as never);
+    vi.mocked(reportsApi.forMonth).mockImplementation((m: string) =>
+      m === '2026-08' ? Promise.resolve(report({ categories: [{ category: 'Food', amount: 400 }] })) : pending<ReportData>());
+    renderPage();
+
+    expect((await screen.findAllByTestId('category-change')).map((c) => c.textContent)).toEqual(['▲ 40%']);
+    await user.selectOptions(screen.getByLabelText('Month'), '2026-07');
+    await waitFor(() => expect(insightsApi.get).toHaveBeenCalledWith('2026-07'));
+
+    // August's report is still on screen, July's report has not arrived: July's chip must not appear.
+    expect(screen.queryByText('▼ 10%')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('category-rows')).getByText('₹400')).toBeInTheDocument();
+  });
+
+  it('offers no "show all" for eight or fewer, and says so plainly for a month with no spending', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [{ category: 'Food', amount: 400 }] }));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [] }));
+    renderPage();
+    expect(await screen.findByText('No expenses recorded')).toBeInTheDocument();
+    expect(screen.queryByTestId('category-donut')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — the month switcher', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-06', '2026-07', '2026-08']);
+    vi.mocked(reportsApi.forMonth).mockImplementation(async (m: string) => report({ month: m }));
+  });
+
+  it('names months the way people say them, and starts on the newest', async () => {
+    renderPage();
+    const picker = await screen.findByLabelText('Month');
+    expect(picker).toHaveValue('2026-08');
+    expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['June 2026', 'July 2026', 'August 2026']);
+  });
+
+  it('steps back and forward with the arrows, asking the server for each month', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByLabelText('Month');
+
+    await user.click(screen.getByRole('button', { name: 'Previous month' }));
+    await waitFor(() => expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07'));
+    expect(screen.getByLabelText('Month')).toHaveValue('2026-07');
+
+    await user.click(screen.getByRole('button', { name: 'Next month' }));
+    await waitFor(() => expect(screen.getByLabelText('Month')).toHaveValue('2026-08'));
+  });
+
+  it('disables the arrows at either end instead of wrapping', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByLabelText('Month');
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeEnabled();
+
+    await user.selectOptions(screen.getByLabelText('Month'), '2026-06');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeEnabled();
+  });
+
+  it('has both arrows disabled for a single month', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+    renderPage();
+    await screen.findByLabelText('Month');
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
+  });
+});
+
+describe('Reports — worth noticing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+  });
+
+  it('leads with the biggest move and lists the rest beneath it', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ movers: [mover('Food', 20, 1200, 1000), mover('Shopping', -40, 600, 1000)] }));
+    renderPage();
+
+    expect(await screen.findByTestId('observation-lead')).toHaveTextContent('Shopping is 40% below your recent average (₹600 against ₹1,000).');
+    expect(screen.getByTestId('observation-rest')).toHaveTextContent('Food is 20% above your recent average');
+  });
+
+  it('is not drawn at all when there is nothing to say, or when the insights fail', async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ movers: [mover('Food', 3)] }));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Worth noticing')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(insightsApi.get).mockRejectedValue(new Error('boom'));
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('Worth noticing')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — the last months', () => {
+  const point = (month: string, income: number, expense: number, complete = true) =>
+    ({ month, income, expense, transactionCount: 10, complete });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+  });
+
+  it('draws income and expenses for each month, with the average of the whole months', async () => {
+    vi.mocked(reportsApi.trend).mockResolvedValue([point('2026-06', 1000, 400), point('2026-07', 1000, 600), point('2026-08', 1000, 500)]);
+    renderPage();
+
+    const chart = await screen.findByTestId('trend-chart');
+    expect(chart).toHaveAttribute('aria-label', expect.stringContaining('Jun: income ₹1,000, expenses ₹400'));
+    expect(screen.getByTestId('trend-average-note')).toHaveTextContent('average spend, ₹500');
+    expect(screen.queryByTestId('trend-partial-note')).not.toBeInTheDocument();
+    expect(reportsApi.trend).toHaveBeenCalledWith('2026-08', 6);
+  });
+
+  it('marks a partly-in month, says so, and leaves it out of the average', async () => {
+    vi.mocked(reportsApi.trend).mockResolvedValue([point('2026-06', 1000, 400), point('2026-07', 1000, 600), point('2026-08', 1000, 50, false)]);
+    renderPage();
+
+    expect(await screen.findByTestId('trend-partial-note')).toHaveTextContent('Only part of the month is in');
+    expect(screen.getByTestId('trend-chart')).toHaveAttribute('aria-label', expect.stringContaining('Aug (only part of the month is in)'));
+    expect(screen.getByTestId('trend-average-note')).toHaveTextContent('₹500');
+  });
+
+  it('draws no average line from fewer than two whole months', async () => {
+    vi.mocked(reportsApi.trend).mockResolvedValue([point('2026-07', 1000, 600), point('2026-08', 1000, 50, false)]);
+    renderPage();
+
+    await screen.findByTestId('trend-chart');
+    expect(screen.queryByTestId('trend-average')).not.toBeInTheDocument();
+  });
+
+  it('is not drawn for a single month, for none, or when it fails to load', async () => {
+    vi.mocked(reportsApi.trend).mockResolvedValue([point('2026-08', 1000, 500)]);
+    const first = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('trend-chart')).not.toBeInTheDocument();
+    first.unmount();
+
+    vi.mocked(reportsApi.trend).mockRejectedValue(new Error('boom'));
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('trend-chart')).not.toBeInTheDocument();
   });
 });

@@ -11,6 +11,12 @@ import { fmt, monthLabelLong } from './reportSections/reportFormat';
 import { ReportHero } from './reportSections/ReportHero';
 import { ReportStatCards } from './reportSections/ReportStatCards';
 import { ReviewNotice } from './reportSections/ReviewNotice';
+import { CategoryBreakdown } from './reportSections/CategoryBreakdown';
+import { MonthSwitcher } from './reportSections/MonthSwitcher';
+import { Observations } from './reportSections/Observations';
+import { buildObservations } from './reportSections/observationText';
+import { TrendPanel } from './reportSections/TrendPanel';
+import { useReportExtras } from './reportSections/useReportExtras';
 
 function downloadCsv(report: ReportData) {
   // Category names are user-controlled and end up in the first column, so cells are escaped
@@ -39,7 +45,7 @@ function ToolbarSkeleton() {
 }
 
 /**
- * The KPI grid and Category Breakdown, shared by both loading windows (the months fetch and the
+ * The hero, stat cards and category list, shared by both loading windows (the months fetch and the
  * first forMonth fetch) so the page can't grow two subtly different skeletons for the same content.
  * Rows mirror the real `grid-cols-[120px_1fr_90px]` layout -- label, bar, amount -- so the switch
  * to real data doesn't reflow the column structure.
@@ -52,7 +58,7 @@ function ReportBodySkeleton() {
         {[0, 1].map((i) => <Skeleton.Card key={i} />)}
       </div>
       <FinoraCard>
-        <SectionHeader title="Category Breakdown" />
+        <SectionHeader title="Where your money went" />
         <div className="space-y-2">
           {Array.from({ length: 5 }, (_, i) => (
             <div key={i} className="grid grid-cols-[120px_1fr_90px] items-center gap-3">
@@ -81,6 +87,7 @@ export default function Reports() {
   const [reportLoading, setReportLoading] = useState(true);
   const [error, setError] = useState(false);
   const { beginRequest } = useAsyncGuard();
+  const extras = useReportExtras(month);
 
   useEffect(() => {
     reportsApi.availableMonths().then((m) => {
@@ -109,6 +116,14 @@ export default function Reports() {
       if (isCurrent()) { setError(true); setReportLoading(false); }
     });
   }, [month, beginRequest]);
+
+  // The page keeps showing the previous month's report while a new one loads, but the extras are
+  // fetched for the NEW month. Only extras that belong to the report on screen are shown with it.
+  const extrasForReport = report && report.month === month ? extras : null;
+  const observations = report && extrasForReport
+    ? buildObservations(extrasForReport.insights, monthLabelLong(report.month).split(' ')[0], fmt)
+    : [];
+  const hasSide = observations.length > 0 || (report?.incomeByKind?.length ?? 0) > 1;
 
   const showMonthsSkeleton = useDelayedLoading(loading);
   // First load only -- `report === null` is what separates "nothing to show yet" from "showing last
@@ -174,12 +189,7 @@ export default function Reports() {
             <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
           </div>
         )}
-        <div>
-          <label htmlFor="reports-month" className="block text-xs uppercase text-muted mb-1">Month</label>
-          <select id="reports-month" value={month} onChange={(e) => setMonth(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm">
-            {months.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
+        <MonthSwitcher months={months} month={month} onChange={setMonth} />
         <div className="flex gap-2">
           {/* `uppercase` per call site: Button applies no text-transform of its own, and every
               button on this page had it. Same preservation the earlier phases used. */}
@@ -206,48 +216,32 @@ export default function Reports() {
           <ReviewNotice report={report} />
           <ReportStatCards report={report} />
 
-          {/* Plan 2: income split by what it was -- Family support and the user's own kinds get
-              their own lines -- and a way to sort out what is not counted yet. */}
-          {report.incomeByKind && report.incomeByKind.length > 1 && (
-            <FinoraCard>
-              <SectionHeader title="Income by kind" size="sm" />
-              <ul className="divide-y divide-border">
-                {report.incomeByKind.map((line) => (
-                  <li key={line.label} className="flex justify-between py-2 text-sm">
-                    <span className="text-ink">{line.label}</span>
-                    <span className="text-ink">{fmt(line.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-            </FinoraCard>
-          )}
-          <FinoraCard>
-            <SectionHeader title="Category Breakdown" />
-            {report.categories.length === 0 ? (
-              <EmptyState
-                icon={PieChart}
-                iconBg="bg-accent-purple-bg"
-                iconColor="text-accent-purple"
-                title="No expenses recorded"
-                desc={`Nothing was spent in ${monthLabelLong(month)} in any category.`}
-              />
-            ) : (
-              <div className="space-y-2">
-                {report.categories.map((c) => {
-                  const pct = report.expense > 0 ? (c.amount / report.expense) * 100 : 0;
-                  return (
-                    <div key={c.category} className="grid grid-cols-[120px_1fr_90px] items-center gap-3 text-sm">
-                      <span>{c.category}</span>
-                      <div className="h-2 bg-black/10 rounded overflow-hidden">
-                        <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-right">{fmt(c.amount)}</span>
-                    </div>
-                  );
-                })}
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className={hasSide ? 'lg:col-span-3' : 'lg:col-span-5'}>
+              <CategoryBreakdown report={report} categories={extras.categories} movers={extrasForReport?.insights?.movers ?? null} />
+            </div>
+            {hasSide && (
+              <div className="space-y-6 lg:col-span-2">
+                <Observations items={observations} />
+                {/* Plan 2: income split by what it was -- Family support and the user's own kinds
+                    get their own lines. */}
+                {report.incomeByKind && report.incomeByKind.length > 1 && (
+                  <FinoraCard>
+                    <SectionHeader title="Income by kind" size="sm" />
+                    <ul className="divide-y divide-border">
+                      {report.incomeByKind.map((line) => (
+                        <li key={line.label} className="flex justify-between py-2 text-sm">
+                          <span className="text-ink">{line.label}</span>
+                          <span className="text-ink">{fmt(line.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </FinoraCard>
+                )}
               </div>
             )}
-          </FinoraCard>
+          </div>
+          <TrendPanel points={extrasForReport?.trend ?? null} selectedMonth={report.month} />
         </>
       )}
     </div>

@@ -183,7 +183,7 @@ export const beforeAfter = {
  *   - budgets and goals: Budgets.tsx ("Budgets on Track", "Days Left"), Goals.tsx.
  *   - recurring: RecurringController; Insights "Recurring Payments & Subscriptions"; the
  *     Dashboard's upcoming recurring payments; RecurringDto.nextEstimate.
- *   - reports: Reports.tsx "Category Breakdown", Income / Expense / Net.
+ *   - reports: Reports.tsx "Where your money went", net cash flow, Income / Expenses.
  *   - deeper reports: AnalyticsController.requireAdvancedReports (ADVANCED_REPORTS, Plus).
  *   - what changed: Insights "Category Movers vs. Recent Average".
  *   - Financial Memory: FinancialMemory.tsx ("Merchants identified", "Rules learned", "Manual

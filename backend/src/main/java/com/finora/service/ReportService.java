@@ -131,10 +131,12 @@ public class ReportService {
                                                int transactionCount, List<UUID> liveAccountIds) {
         YearMonth prior = month.minusMonths(1);
         RangeTotals previous = forRange(userId, prior.atDay(1), prior.atEndOfMonth());
-        String reason = MonthComparisonGate.reason(month, prior,
-                transactionRepository.findEarliestTxnDate(userId, liveAccountIds),
-                transactionRepository.findLatestTxnDate(userId, liveAccountIds),
-                accountCoverageService.gapsForUser(userId),
+        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        boolean awaiting = latest != null && awaitingStatement(userId, month, YearMonth.from(latest),
+                accountCoverageService.latestStatementEnds(userId));
+        String reason = MonthComparisonGate.reason(month, prior, earliest, latest,
+                accountCoverageService.gapsForUser(userId), awaiting,
                 transactionCount, previous.transactionCount());
         if (reason != null) {
             return new ReportDto.MonthComparison(prior.toString(), false, reason, null, null, null, null, null);
@@ -144,6 +146,22 @@ public class ReportService {
         return new ReportDto.MonthComparison(prior.toString(), true, null, previous.income(), previous.expense(),
                 deltaPct(income, previous.income()), deltaPct(expense, previous.expense()),
                 net.subtract(previousNet));
+    }
+
+    /**
+     * See {@link MonthComparisonGate#awaitingStatement}. The queries run only when there is a
+     * statement-backed account to judge and the month is recent enough to be judged at all, so a
+     * user with no statement imports, or looking at an old month, pays for neither.
+     */
+    private boolean awaitingStatement(UUID userId, YearMonth month, YearMonth newestDataMonth,
+                                      Map<UUID, LocalDate> latestStatementEnds) {
+        if (latestStatementEnds.isEmpty()
+                || month.isBefore(newestDataMonth.minusMonths(MonthComparisonGate.RECENT_MONTHS - 1L))) {
+            return false;
+        }
+        java.util.Set<UUID> active = new java.util.HashSet<>(transactionRepository.findAccountIdsWithTransactionsBetween(
+                userId, latestStatementEnds.keySet(), month.minusMonths(1).atDay(1), month.atEndOfMonth()));
+        return MonthComparisonGate.awaitingStatement(month, newestDataMonth, latestStatementEnds, active);
     }
 
     /** Percent change from {@code prior} to {@code current}, null when the prior is zero (a change
@@ -184,11 +202,13 @@ public class ReportService {
         if (start.isAfter(end)) return List.of();
 
         List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
+        Map<UUID, LocalDate> statementEnds = accountCoverageService.latestStatementEnds(userId);
         java.util.ArrayList<ReportTrendPoint> points = new java.util.ArrayList<>();
         for (YearMonth m = start; !m.isAfter(end); m = m.plusMonths(1)) {
             RangeTotals totals = forRange(userId, m.atDay(1), m.atEndOfMonth());
             boolean complete = !MonthComparisonGate.isPartialBoundaryMonth(m.toString(), earliest, latest)
-                    && !MonthComparisonGate.overlapsGap(m, gaps);
+                    && !MonthComparisonGate.overlapsGap(m, gaps)
+                    && !awaitingStatement(userId, m, newest, statementEnds);
             points.add(new ReportTrendPoint(m.toString(), totals.income(), totals.expense(),
                     totals.transactionCount(), complete));
         }
@@ -199,9 +219,10 @@ public class ReportService {
      *  OpenAPI schemas are keyed by simple name, so a second one silently replaces the first in the
      *  generated spec and the client types.
      *
-     *  @param complete false when the month is the ragged edge of the user's imported history or
-     *                  shares a day with a missing-statement gap, so its figures describe only part
-     *                  of the month. */
+     *  @param complete false when the month is the ragged edge of the user's imported history,
+     *                  shares a day with a missing-statement gap, or is a recent month an account's
+     *                  latest statement does not yet reach -- its figures describe only part of the
+     *                  month. */
     public record ReportTrendPoint(String month, BigDecimal income, BigDecimal expense,
                                    int transactionCount, boolean complete) {}
 

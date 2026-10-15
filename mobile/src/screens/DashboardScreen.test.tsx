@@ -3,7 +3,7 @@ import { Dimensions, Platform, RefreshControl, StyleSheet } from 'react-native';
 import { shadows } from '../theme';
 import { withBypass } from '../lib/changeSync';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { DashboardScreen } from './DashboardScreen';
 import { ToastProvider } from '../context/ToastContext';
 import {
@@ -1961,5 +1961,19 @@ describe('unresolved inflow banner', () => {
     expect(screen.queryByText('Mostly money received from people')).not.toBeOnTheScreen();
     expect(screen.queryByText('Mostly credits on your cards')).not.toBeOnTheScreen();
     expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeOnTheScreen();
+  });
+});
+
+describe('a second tap on this screen\'s tab', () => {
+  // The library's useScrollToTop scrolls the list it is given back to the top when the tab that is
+  // already open is pressed again (and only then). This checks the screen hands it its list.
+  it('scrolls the screen back to the top: the list is handed to useScrollToTop', async () => {
+    (useScrollToTop as jest.Mock).mockClear();
+    renderScreen();
+    await waitFor(() => {
+      const calls = (useScrollToTop as jest.Mock).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
+    });
   });
 });

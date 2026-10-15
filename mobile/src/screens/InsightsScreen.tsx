@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -142,6 +142,8 @@ export function InsightsScreen() {
   }, [summary]);
 
   const scrollRef = useRef<ScrollView>(null);
+  // A second tap on the Insights tab scrolls this screen back to the top.
+  useScrollToTop(scrollRef);
   // Set true by Overview's "View Recurring" link, consumed by Spending's own Recurring section
   // onLayout (Task 13) -- switching tabs re-renders before Spending's content has mounted or
   // measured, so a scrollTo call fired synchronously in this link's own onPress would land on a

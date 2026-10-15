@@ -288,6 +288,9 @@ jest.mock('@react-navigation/native', () => {
     // its own file-level jest.mock of this module, same as useNavigation above (see
     // ImportScreen.test.tsx / LedgerScreen.test.tsx).
     useRoute: () => ({ params: undefined }),
+    // The tab screens hand their list to this so a second tap on their tab scrolls to the top. The
+    // scrolling itself is the library's; a test can read the ref each screen passed in.
+    useScrollToTop: jest.fn(),
   };
 });
 

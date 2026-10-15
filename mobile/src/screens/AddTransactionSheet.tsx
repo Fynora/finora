@@ -12,7 +12,7 @@ import { TextField } from '../components/TextField';
 import {
   accountsApi, transactionsApi, type CategoryOption, type CreateTransactionPayload,
 } from '../api/endpoints';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -91,10 +91,12 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
           tags: [],
         };
         await transactionsApi.create(payload);
+        hapticSuccess();
         attemptKey.current = null;
         invalidateFinancialData(queryClient);
         onSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'add-transaction:save', startedAt);
         setError(toUserMessage(e, 'Could not add this transaction.'));
       } finally {

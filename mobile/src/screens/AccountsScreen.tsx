@@ -11,6 +11,7 @@ import { Card, EmptyState } from '../components/Card';
 import { LoadFailed } from '../components/LoadFailed';
 import { AccountsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { fmtCurrency, fmtDate } from '../lib/format';
@@ -88,8 +89,10 @@ export function AccountsScreen() {
     const startedAt = requestStartedAt();
     try {
       await accountsApi.remove(id);
+      hapticSuccess();
       invalidateFinancialData(queryClient);
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'accounts:delete', startedAt);
       setError(toUserMessage(e, 'Could not delete this account.'));
     } finally {

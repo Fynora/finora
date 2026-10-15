@@ -9,7 +9,7 @@ import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
 import { accountsApi, type AccountRequest } from '../api/endpoints';
 import type { Account } from '../types';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
@@ -109,8 +109,10 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
           body.balance = balanceNum;
           await accountsApi.create(body);
         }
+        hapticSuccess();
         onSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, isEdit ? 'account-form:update' : 'account-form:create', startedAt);
         setError(toUserMessage(e, isEdit ? 'Could not update this account.' : 'Could not add this account.'));
       } finally {

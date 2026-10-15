@@ -4,6 +4,7 @@ import { AddTransactionSheet } from './AddTransactionSheet';
 import { accountsApi, categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { expectHaptics } from '../test/haptics';
+import { __setHapticsStateForTests } from '../lib/haptics';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { create: jest.fn() },
@@ -127,6 +128,40 @@ describe('AddTransactionSheet', () => {
     })));
     expect(invalidateFinancialData).toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
+  });
+
+  it('a double tap on Add Transaction adds once and gives one success', async () => {
+    transactions.create.mockResolvedValue({} as never);
+    renderSheet();
+    await settle();
+    await screen.findByText('HDFC Savings');
+
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Groceries at the market');
+    fireEvent.changeText(screen.getByLabelText('Amount'), '500');
+    const save = screen.getByRole('button', { name: /^Add Transaction$/ });
+    fireEvent.press(save);
+    fireEvent.press(save);
+    await settle();
+
+    expect(transactions.create).toHaveBeenCalledTimes(1);
+    expectHaptics({ success: 1 });
+  });
+
+  it('nothing fires for a save when haptics are off', async () => {
+    __setHapticsStateForTests('off');
+    transactions.create.mockResolvedValue({} as never);
+    renderSheet();
+    await settle();
+    await screen.findByText('HDFC Savings');
+
+    fireEvent.changeText(screen.getByLabelText('Description'), 'Groceries at the market');
+    fireEvent.changeText(screen.getByLabelText('Amount'), '500');
+    fireEvent.press(screen.getByRole('button', { name: /^Add Transaction$/ }));
+    await settle();
+
+    expect(onSaved).toHaveBeenCalled();
+    expectHaptics({});
   });
 
   it('reuses the same idempotency key on a retry after a failure', async () => {
@@ -142,9 +177,11 @@ describe('AddTransactionSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: /^Add Transaction$/ }));
     await settle();
     expect(await screen.findByText('Could not add this transaction.')).toBeTruthy();
+    expectHaptics({ error: 1 });
 
     fireEvent.press(screen.getByRole('button', { name: /^Add Transaction$/ }));
     await settle();
+    expectHaptics({ error: 1, success: 1 });
 
     expect(transactions.create).toHaveBeenNthCalledWith(1, expect.objectContaining({ idempotencyKey: 'key-1' }));
     expect(transactions.create).toHaveBeenNthCalledWith(2, expect.objectContaining({ idempotencyKey: 'key-1' }));

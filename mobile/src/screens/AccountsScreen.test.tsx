@@ -5,6 +5,7 @@ import { AccountsScreen } from './AccountsScreen';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 import { __activeShimmerCountForTests } from '../components/skeletons/Shimmer';
 
 jest.mock('../api/endpoints', () => ({
@@ -118,6 +119,8 @@ describe('AccountsScreen', () => {
       expect.anything()
     );
     expect(api.remove).not.toHaveBeenCalled();
+    // A tap that opens the confirmation is not the outcome.
+    expectHaptics({});
     alertSpy.mockRestore();
   });
 
@@ -133,6 +136,7 @@ describe('AccountsScreen', () => {
 
     expect(api.remove).toHaveBeenCalledWith('a-1');
     expect(await screen.findByText(/Import a statement or add one manually/)).toBeTruthy();
+    expectHaptics({ success: 1 });
     alertSpy.mockRestore();
   });
 
@@ -153,6 +157,7 @@ describe('AccountsScreen', () => {
 
     expect(await screen.findByText('This account still has open transfers.')).toBeTruthy();
     expect(screen.getByText('HDFC Savings')).toBeTruthy();
+    expectHaptics({ error: 1 });
     alertSpy.mockRestore();
   });
 });

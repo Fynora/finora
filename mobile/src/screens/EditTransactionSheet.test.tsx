@@ -121,6 +121,7 @@ describe('EditTransactionSheet', () => {
     }));
     expect(invalidateFinancialData).toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
   });
 
   it('sends an explicit empty string for notes, not omitting the field, when cleared', async () => {
@@ -173,6 +174,7 @@ describe('EditTransactionSheet', () => {
 
     expect(await screen.findByText('Amount must be a valid money value.')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   async function pickTravel() {
@@ -213,6 +215,8 @@ describe('EditTransactionSheet', () => {
     expect(transactions.update).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /^Save Changes$/ })).toBeEnabled();
+    // The category pick ticked; cancelling the question adds nothing.
+    expectHaptics({ selection: 1 });
     alertSpy.mockRestore();
   });
 

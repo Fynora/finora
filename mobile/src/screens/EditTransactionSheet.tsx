@@ -10,7 +10,7 @@ import { CategoryPickerModal } from '../components/CategoryPickerModal';
 import { DateField } from '../components/DateField';
 import { TextField } from '../components/TextField';
 import { transactionsApi, type CategoryOption, type CategoryScope, type UpdateTransactionPayload } from '../api/endpoints';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -101,12 +101,14 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
           ...(applyTo ? { applyTo } : {}),
         };
         await transactionsApi.update(transaction.id, payload);
+        hapticSuccess();
         // Every screen deriving totals/charts from this transaction (Dashboard, Reports,
         // Insights, Budgets) is now stale -- same invalidation Ledger's own delete/recategorize
         // actions already trigger.
         invalidateFinancialData(queryClient);
         onSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'edit-transaction:save', startedAt);
         setError(toUserMessage(e, 'Could not save these changes.'));
       } finally {

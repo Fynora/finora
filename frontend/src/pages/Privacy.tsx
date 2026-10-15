@@ -377,7 +377,7 @@ export default function Privacy() {
       <PublicSection title="Third-Party Services">
         <p>
           Fynora does not sell your data to third parties. Each infrastructure and service provider listed
-          above under Infrastructure & Service Providers receives only the minimum information needed to
+          above under Infrastructure &amp; Service Providers receives only the minimum information needed to
           perform its specific function (for example, an email provider receives your email address and
           message content, not your transaction history).
         </p>

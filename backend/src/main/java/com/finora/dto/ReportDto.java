@@ -27,7 +27,14 @@ public record ReportDto(
          * history, a hole between two statements, or an account whose statements (or Account
          * Aggregator sync) stop short of it. The figures above are still real; a chart marks the
          * month rather than plotting it as an ordinary point. True for a user with no history. */
-        boolean complete
+        boolean complete,
+        /* The share of this month's income the user kept, (income - expense) / income as a percent,
+         * by the same rule the Dashboard applies (SavingsRate). Null exactly when
+         * savingsRateGateReason is not: a rate that unclassified money decides is withheld. */
+        BigDecimal savingsRatePct,
+        /* Why savingsRatePct is null (NO_INCOME, UNRESOLVED_EXCEEDS_INCOME), or null when it is not.
+         * Same values and meaning as DashboardSummaryDto.savingsRateGateReason. */
+        String savingsRateGateReason
 ) {
     public record CategoryAmount(String category, BigDecimal amount) {}
     public record IncomeLine(String label, BigDecimal amount) {}

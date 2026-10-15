@@ -444,6 +444,79 @@ class ReportServiceTest {
         assertThat(report.unresolvedInflow()).isEqualByComparingTo("1479.00");
     }
 
+    // ---- savings rate: the Dashboard's rule, carried on the report ----
+
+    @Test
+    void savingsRate_isTheShareOfIncomeKept() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction spend = txn(new BigDecimal("12500.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        spend.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, spend));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.savingsRatePct()).isEqualByComparingTo("75");
+        assertThat(report.savingsRateGateReason()).isNull();
+    }
+
+    @Test
+    void savingsRate_isWithheldWithAReason_whenNoIncomeWasCounted() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction spend = txn(new BigDecimal("1000.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        spend.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(spend));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.savingsRatePct()).isNull();
+        assertThat(report.savingsRateGateReason()).isEqualTo(SavingsRate.NO_INCOME);
+    }
+
+    @Test
+    void savingsRate_isWithheldWithAReason_whenUnclassifiedCreditsExceedCountedIncome() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction salary = txn(new BigDecimal("500.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction fromPerson = txn(new BigDecimal("1000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        fromPerson.setAccountId(liveAccount.getId());
+        fromPerson.setDescription("UPI-SUNIL VERMA-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT);
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, fromPerson));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.income()).isEqualByComparingTo("500.00");
+        assertThat(report.unresolvedInflow()).isEqualByComparingTo("1000.00");
+        assertThat(report.savingsRatePct()).isNull();
+        assertThat(report.savingsRateGateReason()).isEqualTo(SavingsRate.UNRESOLVED_EXCEEDS_INCOME);
+    }
+
+    @Test
+    void savingsRate_isNegativeNotWithheld_whenSpendingExceedsRealIncome() {
+        liveAccount.setAccountType(Account.Type.SAVINGS);
+        Transaction salary = txn(new BigDecimal("1000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
+        salary.setAccountId(liveAccount.getId());
+        salary.setDescription("NEFT ACME TECHNOLOGIES SALARY JUL");
+        Transaction spend = txn(new BigDecimal("1500.00"), Transaction.Type.EXPENSE, Transaction.ReconciliationStatus.OK);
+        spend.setAccountId(liveAccount.getId());
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(salary, spend));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        // Overspending with real income is a real (negative) rate, not a reason to hide the figure.
+        assertThat(report.savingsRatePct()).isEqualByComparingTo("-50");
+        assertThat(report.savingsRateGateReason()).isNull();
+    }
+
     @Test
     void forRange_incomeUsesTheSameFlowRules() {
         liveAccount.setAccountType(Account.Type.SAVINGS);

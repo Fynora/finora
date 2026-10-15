@@ -40,6 +40,7 @@ import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export const LEDGER_PAGE_SIZE = 20;
 /**
@@ -129,6 +130,7 @@ export function LedgerScreen() {
   // already guard against, just not yet extended to the Ledger itself.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   // The card the loading, failed and empty states sit in: the same fill and edge as a day's card,
   // solid fallback included.
   const glassRow = useGlassSurfaceStyle();
@@ -521,7 +523,7 @@ export function LedgerScreen() {
         onEndReachedThreshold={0.4}
         refreshing={isFetching && !isFetchingNextPage}
         onRefresh={() => void refetch()}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         ListHeaderComponent={
           <View style={styles.header}>
             <LedgerTitleBlock countLabel={countLabel} onAdd={() => setAddingTransaction(true)} />

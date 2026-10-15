@@ -54,6 +54,7 @@ import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 import { RecurringQuestion } from '../components/RecurringQuestion';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type CashFlowRange = '3M' | '6M' | '12M';
 const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 12 };
@@ -100,6 +101,7 @@ export function DashboardScreen() {
   usePreventScreenCapture();
   usePrefetchAdjacentScreens();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -406,7 +408,7 @@ export function DashboardScreen() {
         put while the content scrolls over it. */}
     <GlassScreen style={styles.flex}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       {/* No persistent in-app header exists on mobile today -- BrandMark only renders on

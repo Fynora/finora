@@ -11,6 +11,7 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { NAV_TAXONOMY, type NavGroupId } from '../navigation/taxonomy';
 import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 
@@ -82,6 +83,7 @@ const DESTINATIONS: Record<string, Destination> = {
 
 export function MoreScreen({ navigation }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
   // Tour target refs (tourSteps.ts) for the 3 rows the mobile tour spotlights on this screen --
@@ -125,7 +127,7 @@ export function MoreScreen({ navigation }: Props) {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
     >
       <Text style={[styles.title, { color: c.ink }]}>More</Text>
 

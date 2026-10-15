@@ -16,6 +16,7 @@ import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /**
  * How long a revealed account number stays visible before hiding again -- a common banking UX
@@ -44,6 +45,7 @@ export function AccountsScreen() {
   // since this is a separate screen.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -138,7 +140,7 @@ export function AccountsScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
     >
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: c.ink }]}>Accounts</Text>

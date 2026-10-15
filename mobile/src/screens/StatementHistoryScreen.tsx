@@ -31,6 +31,7 @@ import type { AccountStatementGroup, StatementSummary } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Mirrors the backend's 7-day retention window for a deleted account's history. */
 function daysUntilRemoved(deletedAt: string): string {
@@ -58,6 +59,7 @@ export function StatementHistoryScreen() {
   // comment for the platform coverage/degrade behavior.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const navigation = useNavigation();
@@ -195,7 +197,7 @@ export function StatementHistoryScreen() {
 
   return (
     <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
-      <ScrollView contentContainerStyle={styles.padded}>
+      <ScrollView contentContainerStyle={padForTabBar(styles.padded, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
         <Text style={[styles.title, { color: c.ink }]}>Statement History</Text>
         <Text style={[styles.body, { color: c.muted, marginBottom: spacing.md }]}>
           Every imported statement, organized by account — not by which file you uploaded.

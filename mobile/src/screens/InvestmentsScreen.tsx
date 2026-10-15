@@ -26,6 +26,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 import { withBypass } from '../lib/changeSync';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 // Same options as the web page's <select>.
 const INVESTMENT_KINDS = ['Mutual Fund', 'Stocks', 'FD', 'PPF/NPS', 'Other'];
@@ -55,6 +56,7 @@ export function InvestmentsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const { width } = useWindowDimensions();
   const queryClient = useQueryClient();
@@ -209,7 +211,7 @@ export function InvestmentsScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >

@@ -11,6 +11,7 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const DASH = '—';
 
@@ -31,6 +32,7 @@ export function FinancialMemoryScreen() {
   // Names real merchants and recurring amounts -- same exposure the other financial screens guard.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const summaryQ = useQuery({
     queryKey: ['workspace-dashboard'], queryFn: () => workspaceApi.dashboard(), staleTime: 30_000,
   });
@@ -86,7 +88,7 @@ export function FinancialMemoryScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={
         <RefreshControl
           refreshing={(summaryQ.isFetching || recurringQ.isFetching) && !summaryQ.isLoading}

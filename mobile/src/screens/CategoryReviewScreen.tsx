@@ -19,6 +19,7 @@ import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /**
  * The categorization correction loop — the mobile half of "Ask Once, Learn Forever".
@@ -39,6 +40,7 @@ import { GlassScreen } from '../components/GlassScreen';
  */
 export function CategoryReviewScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -224,7 +226,7 @@ export function CategoryReviewScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <Text style={[styles.title, { color: c.ink }]}>Review categories</Text>

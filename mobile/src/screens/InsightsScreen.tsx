@@ -31,6 +31,7 @@ import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const OTHER_LABEL = 'Other';
 
@@ -72,6 +73,7 @@ export function InsightsScreen() {
   // guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
@@ -300,7 +302,7 @@ export function InsightsScreen() {
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
       ref={scrollRef}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>

@@ -14,6 +14,7 @@ import { useTheme } from '../theme';
 import { webUrl } from '../lib/webUrl';
 import { paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const IOS_MANAGE_SUBSCRIPTIONS_URL = 'itms-apps://apps.apple.com/account/subscriptions';
 const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/subscriptions';
@@ -40,6 +41,7 @@ const ANDROID_MANAGE_SUBSCRIPTIONS_URL = 'https://play.google.com/store/account/
  *  posture, so "manage on web" leads and Pause/Resume stay functional but secondary there. */
 export function MySubscriptionScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +146,7 @@ export function MySubscriptionScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.container, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <Text style={[styles.planName, { color: c.ink }]}>{visiblePlanName(subscription.planCode, subscription.planName ?? subscription.planCode)}</Text>
 
       {error ? <Text style={[styles.note, { color: c.dangerInk }]}>{error}</Text> : null}

@@ -14,6 +14,7 @@ import type { MoreStackParamList } from '../navigation/types';
 import type { ChoiceScope, InflowKind, UnresolvedSender } from '../types';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** First and last day of the current calendar month, as YYYY-MM-DD. */
 function monthBounds(today = new Date()): { start: string; end: string } {
@@ -26,6 +27,7 @@ function monthBounds(today = new Date()): { start: string; end: string } {
  *  each resolvable for every payment from that sender. Mirrors frontend/src/pages/MoneyReview.tsx. */
 export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamList, 'MoneyReview'> }) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { start, end } = route.params ?? monthBounds();
@@ -81,7 +83,7 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: spacing.lg }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <SectionHeading title="Money not counted yet" />
       <Text style={[styles.small, { color: c.muted }]}>
         {start} – {end}. Tell Fynora what each payment was; it remembers the sender.

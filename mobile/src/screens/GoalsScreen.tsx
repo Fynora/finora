@@ -22,6 +22,7 @@ import { parsePositiveAmount } from '../lib/validation';
 import { spacing, useTheme } from '../theme';
 import type { Goal } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Port of frontend/src/pages/Goals.tsx. */
 export function GoalsScreen() {
@@ -30,6 +31,7 @@ export function GoalsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   // Own title + top inset below -- built when Goals was promoted to a top-level tab (#1306,
   // replacing reliance on MoreStack's native header) and kept unchanged now that Goals has moved
   // back into MoreStack (swapped with Insights, AppTabs.tsx): it's mounted there with
@@ -166,7 +168,7 @@ export function GoalsScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />

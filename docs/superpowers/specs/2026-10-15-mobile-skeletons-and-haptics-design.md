@@ -336,3 +336,98 @@ An external review of the first version of this document was taken into account:
 - **Adopted after the owner asked (2026-10-15):** named skeleton tokens drawn from the existing
   theme; a measured speed pass with fixes only for what it finds; a real-phone pass run by me over
   USB, with the owner feeling the haptics from a checklist.
+
+## Build record (skeletons, 2026-10-16)
+
+Measured on the iPhone 17 Pro simulator (iOS 26, 402 x 874 pt) against production, signed in to the
+owner's account and read only: nothing was saved, sent, deleted or switched. Slow and failed loads
+were made with a local proxy that delays or fails chosen API paths; the app was pointed at it through
+the worktree's own `.env.local` and pointed back afterwards.
+
+### Speed
+
+Busiest-window profiler samples (JS thread / main thread), three runs each, before this branch and
+after it:
+
+| Moment | Before | After |
+|---|---|---|
+| Home, cold start | JS 1390 / 3792 / 2862, main 776 / 1138 / 786 | JS 2479 / 2104 / 2674, main 825 / 773 / 965 |
+| Transactions, first open | JS 716 / 240 / 217, main 680 / 508 / 174 | JS 229 / 232 / 259, main 184 / 395 / 210 |
+| Advanced Reports, first open | JS 486 / 244 / 146, main 1117 / 842 / 798 | JS 191 / 206 / 146, main 646 / 923 / 616 |
+
+After sits inside the before range on all three. Home and Transactions are served from the persisted
+cache, so no skeleton was on screen in those runs. While a skeleton is on screen in the foreground the
+pulse is most of the main thread's work: 1242 of 1623 main-thread samples in one 10-second recording.
+
+### In the background
+
+Before the fix, the pulse kept running while the app was in the background: 62 samples in the native
+animation driver over the recording. The pulse now stops when the app leaves the foreground and starts
+again when it returns with a skeleton still on screen; the same recording afterwards had 0 such
+samples. Covered by three tests in `Shimmer.test.tsx`.
+
+### Gestures
+
+With a skeleton held on screen, the screen scrolls and the tab bar and back button respond.
+
+### The fill against the card and the backdrop
+
+Decorative, so there is no contrast floor, but it must be visible. Measured from screenshot pixels on
+the Goals skeleton:
+
+- Dark: the block at full pulse against the card 1.58:1, against the backdrop 1.90:1.
+- Light: at the dim end of the pulse, 1.05:1 against the card; the fill colour at full opacity works
+  out to about 1.17:1. Visible in every light capture; faint at the dim end.
+- Reduce Motion: three captures over about 12 seconds measured the same colour, so the pulse holds
+  still.
+
+### Content jumping when it lands, screen by screen
+
+Each screen was opened with its data delayed, captured with the skeleton showing, then captured again
+when the content landed, and the two compared by position. Where they differed the skeleton was
+rebuilt from the screen's real layout and measured again.
+
+| Screen | Before the fix | After |
+|---|---|---|
+| Profile | about 60 pt | about 2 pt |
+| Financial Memory | 43 pt | about 4 pt |
+| Refer & Earn | about 16 pt | within about 7 pt |
+| Settings: General | about 30 pt | about 2 pt |
+| Settings: Categorization | about 23 pt | about 2 pt |
+| Settings: Security | several rows off | about 2-3 pt |
+| Settings: Account | a few points | about 2 pt |
+| Statement History | about 19 pt per card | exact |
+| Advanced Reports (lists, trend) | rows about 14 pt short | exact for the rows shown |
+| Investments | trend card about 41 pt short, allocation about 113 pt tall with no holdings | about 1-2 pt |
+| Goals | header and first card | exact |
+
+What made most of the difference: a text placeholder now takes a whole line of room (a line of the
+system font measured 1.19 times its size), rows keep the room the real screen keeps while empty (the
+error slot under a text field, the save-status row above a Save button), and placeholders grow with
+the phone's text size as real text does.
+
+At the largest text size Statement History's jump roughly halved; what remains is long names wrapping
+to extra lines, which depends on the data. List sections show a few placeholder rows against the real
+number of rows, so anything below a list moves by the list's extra length.
+
+### Try again
+
+Checked by failing each load and then letting it through: Profile, Statement History, the Top Merchants
+section of Advanced Reports (the other sections were unaffected), and the notification settings. Each
+went from its message to the skeleton to the content.
+
+Found on the way and fixed: Profile, Refer & Earn and the General, Security and Account settings
+replaced content already on screen with their failure message when a later refresh failed. They now
+show it only when there is nothing to show.
+
+### Not checked, and why
+
+- Journey and Year in Review: their entry is hidden while the timeline loads, so their skeletons are
+  not reachable on the simulator.
+- Ticket detail and My Tickets against real tickets, goal cards and investment holdings: the account
+  has none, and creating one is a write. Their skeletons are built from the screens' code and seen
+  rendering.
+- Accounts: its list is kept between launches, so its skeleton shows only on a first install.
+- Real phones: needs the owner to connect them.
+- `StatementRefreshBanner.test.tsx` failed once in a full parallel run (a lookup timing out) and
+  passed on its own six times out of six and in every later full run.

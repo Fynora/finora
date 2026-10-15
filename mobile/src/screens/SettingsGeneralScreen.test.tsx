@@ -45,6 +45,34 @@ test('saves the low balance threshold', async () => {
   fireEvent.changeText(input, '5000');
   fireEvent.press(screen.getByText('Save preferences'));
   await waitFor(() => expect(user.update).toHaveBeenCalledWith({ lowBalanceThreshold: 5000, timezone: 'Asia/Kolkata' }));
+  await waitFor(() => expectHaptics({ success: 1 }));
+});
+
+test('a save the server refuses gives one error', async () => {
+  user.get.mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+  user.update.mockRejectedValueOnce(new Error('down'));
+  renderScreen();
+  fireEvent.changeText(await screen.findByLabelText('Low balance alert'), '5000');
+  fireEvent.press(screen.getByText('Save preferences'));
+  expect(await screen.findByText('Could not save your preferences.')).toBeTruthy();
+  expectHaptics({ error: 1 });
+});
+
+test('an alert amount that is not a number gives one warning and saves nothing', async () => {
+  user.get.mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+  user.update.mockClear();
+  renderScreen();
+  fireEvent.changeText(await screen.findByLabelText('Low balance alert'), 'abc');
+  fireEvent.press(screen.getByText('Save preferences'));
+  expect(await screen.findByText('Low balance alert must be a number greater than zero.')).toBeTruthy();
+  expect(user.update).not.toHaveBeenCalled();
+  expectHaptics({ warning: 1 });
 });
 
 test('re-reads the profile after saving, which is how the change watch learns the edit was our own', async () => {

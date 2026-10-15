@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProfileScreen } from './ProfileScreen';
 import { userApi, type UserSettings } from '../api/endpoints';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
@@ -70,6 +71,19 @@ describe('ProfileScreen', () => {
     await settle();
 
     await waitFor(() => expect(user.update).toHaveBeenCalledWith({ fullName: 'Ada King' }));
+    expectHaptics({ success: 1 });
+  });
+
+  it('a name the server refuses gives one error', async () => {
+    user.update.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    await screen.findByText('Ada Lovelace');
+
+    fireEvent.changeText(screen.getByLabelText('Full name'), 'Ada King');
+    fireEvent.press(screen.getByRole('button', { name: /Save changes/ }));
+
+    expect(await screen.findByText('Could not save your name. Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('re-reads the profile after saving, which is how the change watch learns the edit was our own', async () => {
@@ -107,6 +121,7 @@ describe('ProfileScreen', () => {
     await settle();
 
     expect(user.update).not.toHaveBeenCalled();
+    expectHaptics({ warning: 1 });
   });
 
   it('masks the phone number rather than printing it in full', async () => {

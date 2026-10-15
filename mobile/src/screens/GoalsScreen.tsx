@@ -15,6 +15,7 @@ import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
 import { goalsApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
@@ -76,10 +77,12 @@ export function GoalsScreen() {
   async function addGoal() {
     const targetAmount = parsePositiveAmount(target);
     if (!name.trim()) {
+      hapticWarning();
       setError('Give this goal a name.');
       return;
     }
     if (targetAmount === null) {
+      hapticWarning();
       setError('Target amount must be a number greater than zero.');
       return;
     }
@@ -87,6 +90,7 @@ export function GoalsScreen() {
     // must not silently become zero either.
     const startingAmount = starting.trim() ? parsePositiveAmount(starting) : 0;
     if (startingAmount === null) {
+      hapticWarning();
       setError('Starting amount must be a number greater than zero, or left blank.');
       return;
     }
@@ -102,10 +106,12 @@ export function GoalsScreen() {
           currentAmount: startingAmount,
           targetDate: targetDate ?? undefined,
         });
+        hapticSuccess();
         setName(''); setTarget(''); setStarting(''); setTargetDate(null);
         setFormOpen(false);
         invalidateSharedCaches();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'goals:create', startedAt);
         setError(toUserMessage(e, 'Could not create this goal. Try again.'));
       } finally {
@@ -126,9 +132,11 @@ export function GoalsScreen() {
       const startedAt = requestStartedAt();
       try {
         await goalsApi.addContribution(contributingTo.id, amount);
+        hapticSuccess();
         setContributingTo(null);
         invalidateSharedCaches();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'goals:contribute', startedAt);
         setContributionError(toUserMessage(e, 'Could not record this contribution. Try again.'));
       } finally {
@@ -151,8 +159,10 @@ export function GoalsScreen() {
       const startedAt = requestStartedAt();
       try {
         await goalsApi.remove(g.id);
+        hapticSuccess();
         invalidateSharedCaches();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'goals:delete', startedAt);
         setError(toUserMessage(e, 'Could not delete this goal. Try again.'));
       }

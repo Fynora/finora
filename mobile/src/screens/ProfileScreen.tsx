@@ -10,6 +10,7 @@ import { ReadOnlyField, SaveStatus, SectionCard, VerifiedBadge } from '../compon
 import { TextField } from '../components/TextField';
 import { userApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtMonthYear, fmtRelativeTime, initials } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
@@ -63,6 +64,7 @@ export function ProfileScreen({ navigation }: Props) {
   async function save() {
     if (!dirty) return;
     if (!nameValid) {
+      hapticWarning();
       setError('Enter a name using letters, spaces, hyphens or apostrophes.');
       return;
     }
@@ -72,6 +74,7 @@ export function ProfileScreen({ navigation }: Props) {
       const startedAt = requestStartedAt();
       try {
         const updated = await userApi.update({ fullName: trimmed });
+        hapticSuccess();
         // Writes straight into the cache rather than only invalidating: the More menu and the
         // Dashboard greeting both read this name, and a refetch round-trip would leave them
         // showing the old one for a beat after the field already updated.
@@ -83,6 +86,7 @@ export function ProfileScreen({ navigation }: Props) {
         setNameDraft(null);
         confirmSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'profile:save-name', startedAt);
         setError(toUserMessage(e, 'Could not save your name. Try again.'));
       } finally {

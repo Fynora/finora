@@ -6,6 +6,8 @@ import { accountsApi, categoriesApi, networthApi, transactionsApi } from '../api
 import { light } from '../theme/palette';
 import type { Account } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
+import { AppAlert } from '../lib/appAlert';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
@@ -152,6 +154,53 @@ describe('InvestmentsScreen', () => {
         expect.objectContaining({ name: 'Gold ETF', accountType: 'INVESTMENT', balance: 25000 })
       )
     );
+    expectHaptics({ success: 1 });
+  });
+
+  it('an add the server refuses gives one error', async () => {
+    accounts.create.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    await loaded();
+
+    fireEvent.press(screen.getByText('+ Add'));
+    fireEvent.changeText(await screen.findByLabelText('Name'), 'Gold ETF');
+    fireEvent.changeText(screen.getByLabelText('Current value'), '25000');
+    fireEvent.press(screen.getByText('Add Holding'));
+
+    expect(await screen.findByText('Could not add this holding.')).toBeTruthy();
+    expectHaptics({ error: 1 });
+  });
+
+  it('a holding with no name gives one warning and sends nothing', async () => {
+    renderScreen();
+    await loaded();
+
+    fireEvent.press(screen.getByText('+ Add'));
+    fireEvent.changeText(await screen.findByLabelText('Current value'), '25000');
+    fireEvent.press(screen.getByText('Add Holding'));
+
+    expect(await screen.findByText('Give this holding a name.')).toBeTruthy();
+    expect(accounts.create).not.toHaveBeenCalled();
+    expectHaptics({ warning: 1 });
+  });
+
+  it('removes a holding with one success once confirmed, and one error when refused', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    await loaded();
+
+    fireEvent.press(screen.getAllByLabelText(/^Delete /)[0]);
+    expectHaptics({});
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Delete')!.onPress!(); });
+    await waitFor(() => expect(accounts.remove).toHaveBeenCalledTimes(1));
+    expectHaptics({ success: 1 });
+
+    accounts.remove.mockRejectedValueOnce(new Error('down'));
+    fireEvent.press(screen.getAllByLabelText(/^Delete /)[0]);
+    await act(async () => { alertSpy.mock.calls[1][2]!.find((b) => b.text === 'Delete')!.onPress!(); });
+    expect(await screen.findByText('Could not delete this holding.')).toBeTruthy();
+    expectHaptics({ success: 1, error: 1 });
+    alertSpy.mockRestore();
   });
 
   /**
@@ -173,6 +222,8 @@ describe('InvestmentsScreen', () => {
     }
 
     expect(accounts.create).not.toHaveBeenCalled();
+    // Each blocked send is felt once.
+    expectHaptics({ warning: 4 });
   });
 
   it('saves a net worth snapshot on request', async () => {
@@ -183,6 +234,18 @@ describe('InvestmentsScreen', () => {
     await settle();
 
     await waitFor(() => expect(networth.saveSnapshot).toHaveBeenCalledTimes(1));
+    expectHaptics({ success: 1 });
+  });
+
+  it('a snapshot the server refuses gives one error', async () => {
+    networth.saveSnapshot.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    await loaded();
+
+    fireEvent.press(screen.getByLabelText("Save today's net worth snapshot"));
+
+    expect(await screen.findByText('Could not save today’s snapshot.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   // A trend needs two points to be a trend; one is a dot.

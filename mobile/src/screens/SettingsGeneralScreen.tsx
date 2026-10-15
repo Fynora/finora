@@ -12,7 +12,9 @@ import { TextField } from '../components/TextField';
 import { userApi, onboardingApi } from '../api/endpoints';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
-import { hapticSelectionIfChanged, setHapticsEnabled, useHapticsEnabled } from '../lib/haptics';
+import {
+  hapticError, hapticSelectionIfChanged, hapticSuccess, hapticWarning, setHapticsEnabled, useHapticsEnabled,
+} from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
@@ -73,6 +75,7 @@ export function SettingsGeneralScreen() {
   async function savePreferences() {
     const amount = parsePositiveAmount(lowBalance);
     if (amount === null) {
+      hapticWarning();
       setPrefsError('Low balance alert must be a number greater than zero.');
       return;
     }
@@ -82,6 +85,7 @@ export function SettingsGeneralScreen() {
       const startedAt = requestStartedAt();
       try {
         const updated = await userApi.update({ lowBalanceThreshold: amount, timezone });
+        hapticSuccess();
         queryClient.setQueryData(['user-settings'], updated);
         // Also re-reads the profile: that is what tells the change watch this edit was ours (see lib/changeSync.ts).
         void queryClient.invalidateQueries({ queryKey: ['user-settings'] });
@@ -90,6 +94,7 @@ export function SettingsGeneralScreen() {
         void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
         confirmPrefsSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'settings-general:save-preferences', startedAt);
         setPrefsError(toUserMessage(e, 'Could not save your preferences.'));
       } finally {

@@ -3,13 +3,16 @@ package com.finora.imports.blanked;
 import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.dto.ImportDto.StagedAccountSection;
 import com.finora.dto.ImportDto.StagedRow;
+import com.finora.imports.pdf.RowLines;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
@@ -29,7 +32,9 @@ import java.util.regex.Pattern;
 public final class BlankedCopyComparison {
 
     public enum Field { SECTION_COUNT, ROW_COUNT, UNPARSEABLE_COUNT, DATE, AMOUNT, DIRECTION, BALANCE,
-        DESCRIPTION, DETECTED_ACCOUNT, PERIOD_START, PERIOD_END, OPENING_BALANCE, CLOSING_BALANCE, FINDINGS }
+        DESCRIPTION, DETECTED_ACCOUNT, PERIOD_START, PERIOD_END, OPENING_BALANCE, CLOSING_BALANCE, FINDINGS,
+        /** The row was read from different printed lines (see {@link RowMapBlock}). */
+        ROW_LINES }
 
     public record Difference(int section, Integer row, Field field, List<String> maskedTokens) {}
 
@@ -44,6 +49,30 @@ public final class BlankedCopyComparison {
         if (real.size() != copy.size()) out.add(new Difference(0, null, Field.SECTION_COUNT, List.of()));
         for (int s = 0; s < Math.min(real.size(), copy.size()); s++) {
             compareSection(s, real.get(s), copy.get(s), out);
+        }
+        return new Result(List.copyOf(out));
+    }
+
+    /**
+     * The same comparison, plus the row maps of the two readings (0-based section, then shown row;
+     * see {@code RowMapSink}): a row present in either map whose lines differ, or that only one map
+     * has, is a {@link Field#ROW_LINES} difference. It carries no tokens: the lines are positions,
+     * and the copy already holds them.
+     */
+    public static Result compare(List<StagedAccountSection> real, List<StagedAccountSection> copy,
+                                 Map<Integer, Map<Integer, RowLines>> realRowMap,
+                                 Map<Integer, Map<Integer, RowLines>> copyRowMap) {
+        List<Difference> out = new ArrayList<>(compare(real, copy).differences());
+        TreeSet<Integer> sections = new TreeSet<>(realRowMap.keySet());
+        sections.addAll(copyRowMap.keySet());
+        for (int s : sections) {
+            Map<Integer, RowLines> a = realRowMap.getOrDefault(s, Map.of());
+            Map<Integer, RowLines> b = copyRowMap.getOrDefault(s, Map.of());
+            TreeSet<Integer> rows = new TreeSet<>(a.keySet());
+            rows.addAll(b.keySet());
+            for (int r : rows) {
+                if (!Objects.equals(a.get(r), b.get(r))) out.add(new Difference(s, r, Field.ROW_LINES, List.of()));
+            }
         }
         return new Result(List.copyOf(out));
     }

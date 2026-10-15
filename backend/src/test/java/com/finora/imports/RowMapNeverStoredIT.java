@@ -10,6 +10,7 @@ import com.finora.dto.ImportDto.NewAccountRequest;
 import com.finora.entity.ImportJob;
 import com.finora.entity.ImportSession;
 import com.finora.entity.User;
+import com.finora.imports.blanked.RowMapBlock;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.RowLines;
@@ -92,6 +93,12 @@ class RowMapNeverStoredIT extends AbstractIntegrationTest {
         assertThat(rowMap.toString()).as("the shapes searched for are what a leaked row map looks like")
                 .contains("RowLines", "yHundredths", "Line[page=");
 
+        // And the positions themselves, written as the blanked copy's block writes them.
+        List<String> positions = new ArrayList<>(ROW_MAP_SHAPES);
+        RowMapBlock.format(rowMap).lines().filter(line -> line.contains(":"))
+                .map(line -> line.substring(line.indexOf(':') + 1)).forEach(positions::add);
+        assertThat(positions).hasSizeGreaterThan(ROW_MAP_SHAPES.size());
+
         List<String> bodies = new ArrayList<>();
 
         // The direct upload, then its session confirmed.
@@ -128,7 +135,7 @@ class RowMapNeverStoredIT extends AbstractIntegrationTest {
                 if (row.contains(direct.getId().toString()) || row.contains(queued.getId().toString())) {
                     sawThisTestsUsers = true;
                 }
-                for (String shape : ROW_MAP_SHAPES) {
+                for (String shape : positions) {
                     assertThat(row).as("table %s", table).doesNotContain(shape);
                 }
             }
@@ -137,9 +144,9 @@ class RowMapNeverStoredIT extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM import_sessions WHERE user_id IN (?, ?)", Long.class,
                 direct.getId(), queued.getId())).as("both paths left a session to scan").isGreaterThanOrEqualTo(2L);
         for (String body : bodies) {
-            for (String shape : ROW_MAP_SHAPES) assertThat(body).doesNotContain(shape);
+            for (String shape : positions) assertThat(body).doesNotContain(shape);
         }
-        for (String shape : ROW_MAP_SHAPES) assertThat(output.getAll()).doesNotContain(shape);
+        for (String shape : positions) assertThat(output.getAll()).doesNotContain(shape);
     }
 
     private List<String> tables() {

@@ -396,4 +396,37 @@ class BlankedCopyComparisonTest {
         assertThat(description.get(0).maskedTokens()).doesNotContain("CALL", "9876543210"); // synthetic-ok
         assertThat(result.toString()).doesNotContain("9876543210", "CALL"); // synthetic-ok
     }
+
+    // ---- the row map: ROW_LINES
+
+    private static Map<Integer, Map<Integer, com.finora.imports.pdf.RowLines>> rowMap(int section, int row, int... ys) {
+        List<com.finora.imports.pdf.RowLines.Line> lines = new java.util.ArrayList<>();
+        for (int y : ys) lines.add(new com.finora.imports.pdf.RowLines.Line(0, y));
+        return Map.of(section, Map.of(row, new com.finora.imports.pdf.RowLines(lines)));
+    }
+
+    @Test
+    void sameLinesAddNoDifference() {
+        assertThat(BlankedCopyComparison.compare(List.of(), List.of(), rowMap(0, 0, 10000, 11400),
+                rowMap(0, 0, 10000, 11400)).differences()).isEmpty();
+    }
+
+    @Test
+    void differentLinesForARowAreARowLinesDifference() {
+        assertThat(BlankedCopyComparison.compare(List.of(), List.of(), rowMap(0, 2, 10000, 11400),
+                rowMap(0, 2, 10000)).differences())
+                .containsExactly(new BlankedCopyComparison.Difference(0, 2, Field.ROW_LINES, List.of()));
+    }
+
+    @Test
+    void aRowInOnlyOneMapIsARowLinesDifference() {
+        Map<Integer, Map<Integer, com.finora.imports.pdf.RowLines>> real = Map.of(1, Map.of(
+                0, new com.finora.imports.pdf.RowLines(List.of(new com.finora.imports.pdf.RowLines.Line(0, 100))),
+                1, new com.finora.imports.pdf.RowLines(List.of(new com.finora.imports.pdf.RowLines.Line(0, 200)))));
+        assertThat(BlankedCopyComparison.compare(List.of(), List.of(), real, rowMap(1, 0, 100)).differences())
+                .containsExactly(new BlankedCopyComparison.Difference(1, 1, Field.ROW_LINES, List.of()));
+        assertThat(BlankedCopyComparison.compare(List.of(), List.of(), real, Map.of()).differences())
+                .containsExactly(new BlankedCopyComparison.Difference(1, 0, Field.ROW_LINES, List.of()),
+                        new BlankedCopyComparison.Difference(1, 1, Field.ROW_LINES, List.of()));
+    }
 }

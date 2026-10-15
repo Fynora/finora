@@ -5,6 +5,7 @@ import com.finora.exception.ApiException;
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.pdf.PositionedText;
+import com.finora.imports.pdf.RowLines;
 import com.finora.imports.pdf.acquisition.AcquiredDocument;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import com.finora.imports.pdf.trace.TraceFormat;
@@ -21,6 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /**
@@ -105,31 +108,40 @@ public class BlankedCopyService {
     }
 
     /** Reads both sides and compares them. A failure on either side marks the copy not checked,
-     *  with a reason that says which side failed and the exception's class name only. */
+     *  with a reason that says which side failed and the exception's class name only.
+     *
+     *  <p>Both readings also report their row maps (which printed lines each shown row came from),
+     *  and the copy ends with the real reading's, as {@link RowMapBlock} comment lines: positions and
+     *  row numbers only, which the privacy scan above did not need to see. When the real reading
+     *  failed there is no row map to add. */
     private BlankedCopy check(String reference, String fileName, String trace, AcquiredDocument real) {
         UUID nobody = UUID.randomUUID();
         List<StagedAccountSection> realReading;
+        Map<Integer, Map<Integer, RowLines>> realRowMap = new TreeMap<>();
         try {
-            realReading = generator.generateSectionsFromAcquired(nobody, READING_NAME, real).sections();
+            realReading = generator.generateSectionsFromAcquired(nobody, READING_NAME, real, realRowMap::put).sections();
         } catch (Exception e) {
             return notChecked(reference, fileName, trace, "the statement's own reading failed",
                     "The statement itself could not be read", e);
         }
+        String traceWithRowMap = trace + RowMapBlock.format(realRowMap);
         List<StagedAccountSection> copyReading;
+        Map<Integer, Map<Integer, RowLines>> copyRowMap = new TreeMap<>();
         try {
             copyReading = generator.generateSectionsFromAcquired(nobody, READING_NAME,
-                    AcquiredDocument.of(TraceFormat.parse(trace))).sections();
+                    AcquiredDocument.of(TraceFormat.parse(trace)), copyRowMap::put).sections();
         } catch (Exception e) {
-            return notChecked(reference, fileName, trace, "the copy's reading failed",
+            return notChecked(reference, fileName, traceWithRowMap, "the copy's reading failed",
                     "The copy could not be read back", e);
         }
         try {
-            BlankedCopyComparison.Result result = BlankedCopyComparison.compare(realReading, copyReading);
-            return new BlankedCopy(fileName, trace,
+            BlankedCopyComparison.Result result =
+                    BlankedCopyComparison.compare(realReading, copyReading, realRowMap, copyRowMap);
+            return new BlankedCopy(fileName, traceWithRowMap,
                     result.matches() ? BlankedCopy.Check.MATCHES : BlankedCopy.Check.DIFFERS,
                     null, result.differences());
         } catch (Exception e) {
-            return notChecked(reference, fileName, trace, "the comparison failed",
+            return notChecked(reference, fileName, traceWithRowMap, "the comparison failed",
                     "The two readings could not be compared", e);
         }
     }

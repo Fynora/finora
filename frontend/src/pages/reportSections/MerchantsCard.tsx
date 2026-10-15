@@ -39,7 +39,10 @@ function MerchantsList({ month }: { month: string }) {
         ))}
       </ul>
       <p className="mt-3 text-xs text-muted">Counted by merchant, so it can differ from the categories above.</p>
-      <Link to="/app/reports/advanced" className="mt-2 inline-block text-xs font-medium text-primary underline underline-offset-2">
+      <Link
+        to="/app/reports/advanced" onClick={() => trackNavigation('advanced-reports', 'contextual')}
+        className="mt-2 inline-block text-xs font-medium text-primary underline underline-offset-2"
+      >
         See more in Advanced Reports
       </Link>
     </FinoraCard>

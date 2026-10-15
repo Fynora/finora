@@ -219,8 +219,11 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
 
     @Test
     void twoOpeningsOnOneDaySendOneCustomerNotice() {
-        StatementOriginalView first = savedView(createUser("ADMIN"), "Rows on page 2 are missing from the preview");
-        StatementOriginalView second = savedViewForSameJob(first, "Second look at the rows on page 2");
+        // A fixed midday instant, not Instant.now(): the second opening is ten minutes after the
+        // first, so a run in the last ten minutes of an India day put the two openings on
+        // different days -- two dedupe keys, two notices -- and failed this test on main's CI.
+        StatementOriginalView first = savedViewAt(createUser("ADMIN"), Instant.parse("2026-10-14T06:30:00Z"));   // 14 Oct, 12:00 IST
+        StatementOriginalView second = savedViewForSameJob(first, "Second look at the rows on page 2");   // 12:10 IST
 
         tellCustomer(first);
         tellCustomer(second);

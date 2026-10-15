@@ -13,9 +13,11 @@ import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export function SettingsDataScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const userQ = useQuery({ queryKey: ['user-settings'], queryFn: () => userApi.get() });
   // Best-effort -- shows "—" for any stat that doesn't load rather than blocking the rest of the
@@ -43,7 +45,7 @@ export function SettingsDataScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <View style={styles.tiles}>
         <MetricTile label="Statements" value={stats ? stats.totalStatements.toLocaleString('en-IN') : '—'} />
         <MetricTile label="Transactions" value={stats ? stats.totalTransactionsImported.toLocaleString('en-IN') : '—'} />

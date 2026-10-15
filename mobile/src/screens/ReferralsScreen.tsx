@@ -20,6 +20,7 @@ import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 import { useGlassSurfaceStyle } from '../components/GlassSurface';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
   { icon: 'share-social-outline', label: 'Share your code', caption: 'Send it to a friend' },
@@ -305,6 +306,7 @@ function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
 
 export function ReferralsScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   // Pressable copy button: glass fill/edge via the hook (a GlassSurface View has no onPress).
   const glass = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
@@ -409,7 +411,7 @@ export function ReferralsScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}>
+    <ScrollView contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {/* Header hidden (AppTabs.tsx) -- this large title is the screen's own, matching the
           design reference's hero weight rather than the small native-header title used
           elsewhere. */}

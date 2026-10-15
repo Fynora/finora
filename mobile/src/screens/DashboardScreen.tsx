@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -54,6 +54,7 @@ import { trackNavSearch, trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList } from '../navigation/types';
 import { StatementRefreshBanner } from '../components/StatementRefreshBanner';
 import { RecurringQuestion } from '../components/RecurringQuestion';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type CashFlowRange = '3M' | '6M' | '12M';
 const RANGE_MONTHS: Record<CashFlowRange, number> = { '3M': 3, '6M': 6, '12M': 12 };
@@ -100,6 +101,10 @@ export function DashboardScreen() {
   usePreventScreenCapture();
   usePrefetchAdjacentScreens();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
+  // A second tap on the Home tab scrolls this screen back to the top.
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -406,7 +411,8 @@ export function DashboardScreen() {
         put while the content scrolls over it. */}
     <GlassScreen style={styles.flex}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      ref={scrollRef}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       {/* No persistent in-app header exists on mobile today -- BrandMark only renders on

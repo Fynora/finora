@@ -12,6 +12,7 @@ import { radius, spacing, useTheme } from '../theme';
 import { useGlassSurfaceStyle } from '../components/GlassSurface';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -35,6 +36,7 @@ const STATUS_STYLE: Record<SupportTicketStatus, { label: string; bg: (c: ReturnT
  *  frontend/src/pages/SupportTickets.tsx. Reached from Settings' "Help & Support" section. */
 export function SupportTicketsScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   // Pressable ticket rows: glass fill/edge via the hook (a GlassSurface View has no onPress).
   const glass = useGlassSurfaceStyle();
   const insets = useSafeAreaInsets();
@@ -54,7 +56,7 @@ export function SupportTicketsScreen() {
       <FlatList
         data={tickets}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+        contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         refreshControl={
           <RefreshControl
             refreshing={ticketsQuery.isFetching && !ticketsQuery.isLoading}

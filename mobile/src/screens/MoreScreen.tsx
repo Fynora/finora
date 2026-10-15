@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useScrollToTop } from '@react-navigation/native';
 import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -11,6 +13,7 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { NAV_TAXONOMY, type NavGroupId } from '../navigation/taxonomy';
 import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'MoreHome'>;
 
@@ -82,6 +85,10 @@ const DESTINATIONS: Record<string, Destination> = {
 
 export function MoreScreen({ navigation }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
+  // A second tap on the More tab returns to this menu first (the stack pops), then scrolls it to the top.
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
   // Tour target refs (tourSteps.ts) for the 3 rows the mobile tour spotlights on this screen --
@@ -125,7 +132,8 @@ export function MoreScreen({ navigation }: Props) {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      ref={scrollRef}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
     >
       <Text style={[styles.title, { color: c.ink }]}>More</Text>
 

@@ -10,6 +10,7 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const CATEGORIES: { route: keyof MoreStackParamList; label: string; description: string; icon: MenuIcon }[] = [
   { route: 'SettingsGeneral', label: 'General', description: 'Preferences, timezone, theme', icon: 'options-outline' },
@@ -36,6 +37,7 @@ const CATEGORIES: { route: keyof MoreStackParamList; label: string; description:
  */
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
+  const tabBar = useTabBarSpace();
   const { setting: themeSetting } = useThemeSetting();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Connected Apps holds only Gmail sync, which is paused (lib/features.ts), so the whole row goes
@@ -50,7 +52,7 @@ export function SettingsScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <MenuGroup>
         {categories.map((cat) => (
           <MenuRow

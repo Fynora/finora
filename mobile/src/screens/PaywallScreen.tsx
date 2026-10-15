@@ -8,6 +8,7 @@ import { isPlanVisible } from '../lib/planDisplay';
 import { useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const PLANS = [
   { code: 'PLUS' as const, name: 'Plus', price: '₹249/mo' },
@@ -44,6 +45,7 @@ async function pollForActivation(
  *  shown when mySubscription() has no active paid payment_provider (design spec §6.3). */
 export function PaywallScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const queryClient = useQueryClient();
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [activatingPlanCode, setActivatingPlanCode] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export function PaywallScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.container, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {error && <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text>}
       {activatingPlanName && (
         <Text style={[styles.note, { color: c.muted }]}>

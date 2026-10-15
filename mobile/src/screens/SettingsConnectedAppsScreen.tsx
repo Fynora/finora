@@ -3,11 +3,13 @@ import { SectionCard } from '../components/AccountUI';
 import { GmailConnectionSection } from './settings/GmailConnectionSection';
 import { spacing } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export function SettingsConnectedAppsScreen() {
+  const tabBar = useTabBarSpace();
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <SectionCard title="Connected Apps" subtitle="Link external accounts Fynora can read transactions from">
         <GmailConnectionSection />
       </SectionCard>

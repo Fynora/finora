@@ -12,6 +12,7 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const AA_FI_TYPE_LABELS: Record<string, string> = { DEPOSIT: 'Bank Account', CREDIT_CARD: 'Credit Card' };
 function aaFiTypeLabel(fiType: string): string { return AA_FI_TYPE_LABELS[fiType] ?? fiType; }
@@ -34,6 +35,7 @@ const AA_TERMINAL_STATUSES = new Set(['REVOKED', 'EXPIRED', 'REJECTED', 'LINK_FA
 
 export function SettingsBankSyncScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
@@ -91,7 +93,7 @@ export function SettingsBankSyncScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {linksQ.isLoading ? (
         <ActivityIndicator color={c.primary} />
       ) : linksQ.isError ? (

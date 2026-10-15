@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -31,6 +31,7 @@ import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const OTHER_LABEL = 'Other';
 
@@ -72,6 +73,7 @@ export function InsightsScreen() {
   // guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
@@ -140,6 +142,8 @@ export function InsightsScreen() {
   }, [summary]);
 
   const scrollRef = useRef<ScrollView>(null);
+  // A second tap on the Insights tab scrolls this screen back to the top.
+  useScrollToTop(scrollRef);
   // Set true by Overview's "View Recurring" link, consumed by Spending's own Recurring section
   // onLayout (Task 13) -- switching tabs re-renders before Spending's content has mounted or
   // measured, so a scrollTo call fired synchronously in this link's own onPress would land on a
@@ -300,7 +304,7 @@ export function InsightsScreen() {
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
       ref={scrollRef}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>

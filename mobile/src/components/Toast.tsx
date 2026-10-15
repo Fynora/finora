@@ -1,19 +1,16 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, spacing, useTheme } from '../theme';
-
-// react-navigation's bottom-tabs default content height, rounded up -- ToastProvider (App.tsx)
-// mounts above RootNavigator, outside the Tab.Navigator tree, so useBottomTabBarHeight() isn't
-// reachable here to get the real, exact figure. Every current caller of showToast fires from a
-// screen inside the tab bar (DashboardScreen), so without this the toast renders low enough to
-// visually overlap the tab bar's icons instead of floating above them.
-const APPROX_TAB_BAR_HEIGHT = 56;
+import { pillCoverHeight } from '../navigation/tabBarLayout';
 
 export function Toast({ title, body }: { title: string; body?: string }) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   return (
-    <View pointerEvents="none" style={[styles.wrap, { bottom: insets.bottom + APPROX_TAB_BAR_HEIGHT + spacing.sm }]}>
+    // ToastProvider (App.tsx) mounts outside the tab navigator, so it cannot read the room the
+    // floating tab pill takes from context; it uses the pill's own geometry instead and floats
+    // just above it. Every current caller of showToast fires from a screen inside the tabs.
+    <View testID="toast" pointerEvents="none" style={[styles.wrap, { bottom: pillCoverHeight(insets.bottom) + spacing.sm }]}>
       <View style={[styles.card, { backgroundColor: c.primaryDark }]}>
         <Text style={[styles.title, { color: c.onPrimary }]}>✓ {title}</Text>
         {body ? <Text style={[styles.body, { color: c.primaryLight }]}>{body}</Text> : null}

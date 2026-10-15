@@ -15,6 +15,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Threshold moves in 5% steps -- fine-grained enough for a confidence cutoff, and it avoids
  *  pulling in a native slider dependency for one control. */
@@ -22,6 +23,7 @@ const THRESHOLD_STEP = 5;
 
 export function SettingsCategorizationScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const queryClient = useQueryClient();
   const singleFlight = useSingleFlight();
@@ -86,7 +88,7 @@ export function SettingsCategorizationScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {/* eslint-disable-next-line react-native-a11y/no-nested-touchables -- redundant reachability
           is the intended design: a screen reader user can swipe on the container (adjustable
           role) or navigate directly to either Pressable and activate it, same as a sighted user

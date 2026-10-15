@@ -6,8 +6,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { QuickActionSheet } from '../components/dashboard/QuickActionSheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassScreen } from '../components/GlassScreen';
-import { GlassSurface } from '../components/GlassSurface';
 import { useRegisterTourTarget } from '../onboarding/TourTargetRegistry';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { LedgerScreen } from '../screens/LedgerScreen';
@@ -46,6 +46,9 @@ import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeSc
 import { useTheme } from '../theme';
 import { trackNavigation } from '../lib/trackNavigation';
 import type { AppTabParamList, MoreStackParamList } from './types';
+import { FloatingTabBar } from './FloatingTabBar';
+import { TabBarSpaceContext } from './useTabBarSpace';
+import { PLUS_SIZE, pillCoverHeight } from './tabBarLayout';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const MoreStack = createNativeStackNavigator<MoreStackParamList>();
@@ -145,7 +148,7 @@ function ImportFabButton({ onPress, register }: { onPress: () => void; register:
           accessibilityRole="button"
           accessibilityLabel="Quick actions"
         >
-          <Ionicons name="add" size={28} color={c.onPrimary} />
+          <Ionicons name="add" size={24} color={c.onPrimary} />
         </Pressable>
       </View>
     </View>
@@ -154,6 +157,7 @@ function ImportFabButton({ onPress, register }: { onPress: () => void; register:
 
 export function AppTabs() {
   const c = useTheme();
+  const insets = useSafeAreaInsets();
   // Real NavigationContainer sits once, above every tree, in RootNavigator.tsx -- useNavigation()
   // called here (rather than deferred into an onPress handler, which hooks can't be) resolves
   // against the Tab.Navigator this same render is about to produce.
@@ -180,20 +184,18 @@ export function AppTabs() {
   };
 
   return (
-    // GlassScreen, not a plain View: the mesh backdrop sits here, behind the in-flow tab bar, so
-    // the bar's GlassSurface has something to read against where the screens' own backdrops end.
-    // The bar is NOT position:'absolute' (content does not scroll under it) -- see the glass
-    // plan's open decision D1; that change needs bottom padding on every scroll root.
+    // GlassScreen, not a plain View: the mesh backdrop sits behind every tab. The tab bar is the
+    // floating glass pill (FloatingTabBar); screens scroll under it and take their bottom room from
+    // TabBarSpaceContext (useTabBarSpace), provided here because React context reaches screens
+    // inside both navigators. Design: docs/superpowers/specs/2026-10-15-mobile-floating-tab-pill-design.md.
     <GlassScreen style={styles.flexFill}>
+      <TabBarSpaceContext.Provider value={pillCoverHeight(insets.bottom)}>
       <Tab.Navigator
+        tabBar={(props) => <FloatingTabBar {...props} />}
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarActiveTintColor: c.primary,
           tabBarInactiveTintColor: c.muted,
-          // Transparent so the GlassSurface below is the only fill; the hairline top edge uses
-          // the glass edge colour rather than the opaque border token.
-          tabBarStyle: { backgroundColor: 'transparent', borderTopColor: c.glassEdge },
-          tabBarBackground: () => <GlassSurface testID="tab-bar-glass" style={StyleSheet.absoluteFill} />,
           tabBarIcon: ({ focused, color, size }) => {
             const icons = TAB_ICON[route.name];
             const register = registerByTab[route.name];
@@ -236,6 +238,7 @@ export function AppTabs() {
         />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>
+      </TabBarSpaceContext.Provider>
       <QuickActionSheet
         visible={sheetVisible}
         onClose={() => setSheetVisible(false)}
@@ -253,12 +256,6 @@ export function AppTabs() {
 const styles = StyleSheet.create({
   flexFill: { flex: 1 },
   fabWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  fab: {
-    width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center',
-    marginTop: -20,
-    // Both platforms' own shadow APIs, not a Platform.OS branch -- iOS reads the shadow* props,
-    // Android reads elevation, each ignoring the property it doesn't use.
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4,
-    elevation: 4,
-  },
+  // A filled circle inside the pill, no longer raised above the bar, so it needs no shadow of its own.
+  fab: { width: PLUS_SIZE, height: PLUS_SIZE, borderRadius: PLUS_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
 });

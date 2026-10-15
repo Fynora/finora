@@ -12,6 +12,7 @@ import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsBankSyncConfirm'>;
 
@@ -24,6 +25,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsBankSyncConfirm
  */
 export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const queryClient = useQueryClient();
   const linkId = route.params?.linkId;
 
@@ -49,7 +51,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
   if (!linkId) {
     return (
       <GlassScreen style={styles.glassRoot}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
         <Text style={[styles.title, { color: c.ink }]}>Link no longer available</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>
           This account link couldn't be found. Go back and try again from Bank Sync.
@@ -107,7 +109,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <Text style={[styles.title, { color: c.ink }]}>Confirm your bank account</Text>
       <Text style={[styles.hint, { color: c.mutedInk }]}>
         We connected a bank account through Account Aggregator, but couldn't automatically match it

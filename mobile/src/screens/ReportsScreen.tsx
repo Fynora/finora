@@ -23,6 +23,7 @@ import type { AppTabParamList, MoreStackParamList } from '../navigation/types';
 import { withBypass } from '../lib/changeSync';
 import { trackNavigation } from '../lib/trackNavigation';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Exporting = 'csv' | 'pdf' | null;
 
@@ -64,6 +65,7 @@ export function ReportsScreen() {
   // already guard against.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   // Lives inside the More stack, not on the tab bar itself -- see BudgetsScreen's identical
@@ -146,7 +148,7 @@ export function ReportsScreen() {
   if (monthsLoading) {
     return (
       <GlassScreen style={styles.glassRoot}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
         <SkeletonCard lines={2} />
         <ReportBodySkeleton />
       </ScrollView>
@@ -179,7 +181,7 @@ export function ReportsScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={
         <RefreshControl
           refreshing={isFetching && !reportLoading}

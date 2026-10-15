@@ -12,53 +12,36 @@ import { TourTargetProvider, useTourTarget } from '../onboarding/TourTargetRegis
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
+  // The floating pill builds its navigate action with this, same as the library's own bar.
+  CommonActions: { navigate: (name: string, params?: object) => ({ type: 'NAVIGATE', payload: { name, params } }) },
 }));
 
 // Same pre-existing ESM/native-stack gap RootNavigator.test.tsx's own mock comment documents --
 // @react-navigation/bottom-tabs' published "main" is the same kind of unbuilt ESM file. Mocked
 // here, scoped to this file, for the same reason.
-jest.mock('@react-navigation/bottom-tabs', () => ({
-  createBottomTabNavigator: () => ({
-    // Exercises the real tabBarIcon function (where the ref-registration this test is actually
-    // about lives) for each of AppTabs' own <Tab.Screen> children, the same way the real
-    // navigator would call it once per tab -- without that, this mock would render AppTabs
-    // without ever calling the code under test. Untyped/plain on purpose: jest.mock's factory is
-    // hoisted above imports, and an inline TS parameter type here confuses the "out-of-scope
-    // variable" check with a false positive on the type name itself.
-    Navigator: (props: any) => {
-      const { Children, isValidElement, Fragment, createElement } = require('react');
-      const { Text } = require('react-native');
-      const screens = Children.toArray(props.children).filter((child: any) => isValidElement(child));
-      return createElement(
-        Fragment,
-        null,
-        screens.map((child: any) => {
-          const name = child.props.name;
-          const options = props.screenOptions ? props.screenOptions({ route: { name } }) : {};
-          // Exposed for the glass tab-bar test below, which asserts on tabBarStyle; same per-tab
-          // call the real navigator makes, so the last one captured is representative.
-          (globalThis as any).__lastTabScreenOptions = options;
-          const icon = typeof options.tabBarIcon === 'function'
-            ? options.tabBarIcon({ focused: false, color: '#000', size: 20 })
-            : null;
-          // Real bottom-tabs renders `tabBarBackground()` behind the bar; rendering it here lets
-          // the glass tab-bar test find the GlassSurface it returns.
-          const background = typeof options.tabBarBackground === 'function'
-            ? options.tabBarBackground()
-            : null;
-          // Also exercises a per-Tab.Screen `options.tabBarButton` override (the floating "+"
-          // button's Import tab) -- real react-native-navigation calls this per-screen options
-          // function the same way it calls the Navigator-level screenOptions above.
-          const button = typeof child.props.options?.tabBarButton === 'function'
-            ? child.props.options.tabBarButton({})
-            : null;
-          return createElement(Fragment, { key: name }, createElement(Text, null, icon), button, background);
-        })
-      );
-    },
-    Screen: () => null,
-  }),
-}));
+jest.mock('@react-navigation/bottom-tabs', () => {
+  const { Children, isValidElement, createContext } = require('react');
+  return {
+    BottomTabBarHeightCallbackContext: createContext(undefined),
+    createBottomTabNavigator: () => ({
+      // Builds the same state/descriptors the real navigator hands its `tabBar`, so the pill under
+      // test renders each tab's real tabBarIcon (where tour registration lives) and the Import
+      // tab's real tabBarButton (the "+"). Untyped on purpose: jest.mock's factory is hoisted
+      // above imports, and an inline TS parameter type here confuses the "out-of-scope variable"
+      // check with a false positive on the type name itself.
+      Navigator: (props: any) => {
+        const screens = Children.toArray(props.children).filter((child: any) => isValidElement(child));
+        const routes = screens.map((child: any) => ({ key: `${child.props.name}-k`, name: child.props.name, params: undefined }));
+        const descriptors = Object.fromEntries(screens.map((child: any, i: number) => [routes[i].key, {
+          options: { ...(props.screenOptions ? props.screenOptions({ route: routes[i] }) : {}), ...(child.props.options ?? {}) },
+        }]));
+        const navigation = { emit: jest.fn(() => ({ defaultPrevented: false })), dispatch: jest.fn() };
+        return props.tabBar({ state: { key: 'tabs-k', index: 0, routes }, descriptors, navigation, insets: { top: 0, bottom: 34, left: 0, right: 0 } });
+      },
+      Screen: () => null,
+    }),
+  };
+});
 
 jest.mock('@react-navigation/native-stack', () => ({
   createNativeStackNavigator: () => ({
@@ -75,7 +58,12 @@ jest.mock('../theme', () => ({
   }),
   radius: { md: 8, lg: 12, xl: 16 },
   spacing: { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 },
+  // The floating pill reads these.
+  typography: { caption: {}, labelS: {} },
+  shadows: { card: [] },
 }));
+
+jest.mock('../lib/useKeyboardVisible', () => ({ useKeyboardVisible: () => false }));
 
 // Every screen AppTabs mounts (directly or via MoreNavigator) is stubbed -- this test is about
 // the tab-icon ref registration AppTabs itself owns, not any individual screen's rendering.
@@ -148,17 +136,16 @@ describe('AppTabs tour target registration', () => {
   });
 });
 
-describe('AppTabs glass tab bar', () => {
-  it('tab bar is glass: transparent tabBarStyle with a GlassSurface background on every tab', () => {
+describe('AppTabs floating tab pill', () => {
+  it('draws the tabs in the floating glass pill, "+" in the middle', () => {
     render(
       <TourTargetProvider>
         <AppTabs />
       </TourTargetProvider>
     );
-    const opts = (globalThis as any).__lastTabScreenOptions;
-    expect(opts.tabBarStyle).toMatchObject({ backgroundColor: 'transparent' });
-    // One per Tab.Screen the mock navigator rendered (Home, Transactions, Import, Insights, More).
-    expect(screen.getAllByTestId('tab-bar-glass')).toHaveLength(5);
+    expect(screen.getByTestId('tab-pill-glass')).toBeTruthy();
+    const order = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
+    expect(order).toEqual(['Home', 'Transactions', 'Quick actions', 'Insights', 'More']);
   });
 });
 

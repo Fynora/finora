@@ -1,15 +1,17 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { AppModal } from './AppModal';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
 import { Button } from './Button';
 import { CountsAsSection } from './CountsAsSection';
-import { Card, EmptyState, SectionHeading } from './Card';
+import { Card, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure } from '../lib/monitoring';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { spacing, useTheme } from '../theme';
+import { LoadFailed } from './LoadFailed';
+import { SkeletonGroup, SkeletonLines } from './skeletons/Skeletons';
 
 /**
  * "Why this category?" (Phase 4/Medium-Tier Parity) -- ported from frontend/src/pages/Ledger.tsx's
@@ -36,7 +38,7 @@ export function TransactionExplanationModal({
   showCountsAs?: boolean;
 }) {
   const c = useTheme();
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['transaction-explanation', transactionId],
     queryFn: () => transactionsApi.explanation(transactionId as string),
     enabled: transactionId !== null,
@@ -67,9 +69,9 @@ export function TransactionExplanationModal({
             <Text style={[styles.categoryLabel, { color: c.muted }]}>{category}</Text>
           ) : null}
           {isLoading ? (
-            <ActivityIndicator color={c.primary} style={styles.loading} />
+            <SkeletonGroup style={styles.loading}><SkeletonLines count={3} size="body" /></SkeletonGroup>
           ) : isError ? (
-            <EmptyState message={toUserMessage(error, "Couldn't load this explanation.")} />
+            <LoadFailed message={toUserMessage(error, "Couldn't load this explanation.")} onRetry={() => void refetch()} />
           ) : !data ? null : (
             <View style={styles.body}>
               {/* This is what makes the Status column's badge (reconciliationBadge,

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { AppModal } from './AppModal';
 import { useQuery } from '@tanstack/react-query';
 import { transactionsApi } from '../api/endpoints';
@@ -8,7 +8,9 @@ import { Card, DetailField, EmptyState, SectionHeading } from './Card';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure } from '../lib/monitoring';
 import { fmtDate } from '../lib/format';
-import { spacing, useTheme } from '../theme';
+import { spacing } from '../theme';
+import { LoadFailed } from './LoadFailed';
+import { SkeletonGroup, SkeletonText } from './skeletons/Skeletons';
 
 const SOURCE_LABELS: Record<string, string> = {
   MANUAL: "You entered this transaction yourself.",
@@ -29,8 +31,7 @@ const STATEMENT_DELETED_MESSAGE = "The bank statement this was imported from is 
  * bottom-sheet primitive exists in this codebase to reuse instead.
  */
 export function TransactionSourceModal({ transactionId, onClose }: { transactionId: string | null; onClose: () => void }) {
-  const c = useTheme();
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['transaction-source', transactionId],
     queryFn: () => transactionsApi.source(transactionId as string),
     enabled: transactionId !== null,
@@ -51,9 +52,18 @@ export function TransactionSourceModal({ transactionId, onClose }: { transaction
         <Card style={styles.card}>
           <SectionHeading title="Where this came from" />
           {isLoading ? (
-            <ActivityIndicator color={c.primary} style={styles.loading} />
+            <SkeletonGroup style={styles.loading}>
+              <View style={styles.fieldGrid}>
+                {[0, 1, 2, 3].map((i) => (
+                  <View key={i} style={styles.skeletonField}>
+                    <SkeletonText size="meta" width="60%" />
+                    <SkeletonText size="label" width="85%" />
+                  </View>
+                ))}
+              </View>
+            </SkeletonGroup>
           ) : isError ? (
-            <EmptyState message={toUserMessage(error, "Couldn't load where this came from.")} />
+            <LoadFailed message={toUserMessage(error, "Couldn't load where this came from.")} onRetry={() => void refetch()} />
           ) : !data?.available ? (
             <EmptyState message={
               data?.statementDeleted
@@ -92,5 +102,7 @@ const styles = StyleSheet.create({
   },
   card: { width: '100%', maxWidth: 420, gap: spacing.sm },
   loading: { marginVertical: spacing.md },
+  // The DetailField box the four fields stand in for.
+  skeletonField: { width: '50%', paddingVertical: 6, paddingRight: spacing.sm, gap: 4 },
   fieldGrid: { flexDirection: 'row', flexWrap: 'wrap' },
 });

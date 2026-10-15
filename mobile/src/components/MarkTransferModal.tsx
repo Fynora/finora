@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
+  FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
 } from 'react-native';
 import { AppModal } from './AppModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +15,8 @@ import { hapticSelection } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
+import { LoadFailed } from './LoadFailed';
+import { SkeletonGroup, SkeletonListRow } from './skeletons/Skeletons';
 import { GlassSurface } from '../components/GlassSurface';
 
 /**
@@ -39,7 +41,7 @@ export function MarkTransferModal({
   const [marking, setMarking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['transfer-candidates', debouncedKeyword],
     queryFn: () => transactionsApi.search({ keyword: debouncedKeyword, size: 10, sortField: 'date', sortDir: 'desc' }),
     enabled: debouncedKeyword.length > 0,
@@ -117,7 +119,11 @@ export function MarkTransferModal({
           {debouncedKeyword.length === 0 ? (
             <Text style={[styles.hint, { color: c.muted }]}>Start typing to search your transactions.</Text>
           ) : isLoading ? (
-            <ActivityIndicator color={c.primary} style={styles.loading} />
+            <SkeletonGroup style={styles.loading}>
+              {[0, 1, 2].map((i) => <SkeletonListRow key={i} />)}
+            </SkeletonGroup>
+          ) : isError && data === undefined ? (
+            <LoadFailed message="Couldn't search your transactions." tone="danger" onRetry={() => void refetch()} />
           ) : candidates.length === 0 ? (
             <EmptyState message="No matching transactions found." />
           ) : (

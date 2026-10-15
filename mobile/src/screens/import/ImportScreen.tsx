@@ -1195,7 +1195,13 @@ export function ImportScreen() {
   if (step === 'summary' && summary) {
     return (
       <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
-        <View style={styles.padded}>
+        {/* Scrolls: the warnings list has no fixed length, and the screen runs under the floating
+            tab pill, so a long list (or large text) would otherwise leave the last buttons under it. */}
+        <ScrollView
+          testID="import-summary"
+          contentContainerStyle={padForTabBar(styles.padded, tabBar)}
+          scrollIndicatorInsets={{ bottom: tabBar }}
+        >
           {header}
           <Card>
             <SectionHeading title="Import complete" />
@@ -1253,7 +1259,7 @@ export function ImportScreen() {
               </View>
             </View>
           </Card>
-        </View>
+        </ScrollView>
       </GlassScreen>
     );
   }

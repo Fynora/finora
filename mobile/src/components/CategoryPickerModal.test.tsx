@@ -139,6 +139,16 @@ describe('CategoryPickerModal', () => {
     expect(screen.getByTestId('category-Travel')).toBeTruthy();
   });
 
+  // For a caller whose pick IS the save (Ledger, Category Review, Quick Sort, the recurring
+  // question): the save's success or error is the action's one haptic, so the pick gives none.
+  it('gives no tick when silent, and still selects', async () => {
+    renderPicker({ selectedName: 'Food', silent: true });
+    await settle();
+    fireEvent.press(await screen.findByTestId('category-Travel'));
+    expect(onSelect).toHaveBeenCalledWith(TRAVEL);
+    expectHaptics({});
+  });
+
   // A category created (or the selected one renamed) here is selected for the caller, but the
   // edit sheet's save already gave the one success haptic: one action, one haptic.
   it('selects a category saved from its edit sheet without a second, selection haptic', async () => {

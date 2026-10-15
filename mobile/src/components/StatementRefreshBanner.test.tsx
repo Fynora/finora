@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatementRefreshBanner } from './StatementRefreshBanner';
 import { statementRefreshApi, type RefreshPendingStatement, type RefreshRunDetail } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   statementRefreshApi: { overview: jest.fn(), applyAll: jest.fn(), run: jest.fn(), refreshOne: jest.fn() },
@@ -67,6 +68,20 @@ describe('StatementRefreshBanner (mobile)', () => {
     expect(within(summary).getByText('Amount: ₹45.00 → ₹450.00')).toBeOnTheScreen();
     expect(within(summary).getByText('Account balance changed by -₹405.00')).toBeOnTheScreen();
     expect(within(summary).getByText('Already up to date')).toBeOnTheScreen();
+    // The whole update, felt once when it finishes.
+    expectHaptics({ success: 1 });
+  });
+
+  it('an update that fails gives one error', async () => {
+    api.overview.mockResolvedValue({ enabled: true, savePasswordAvailable: false,
+      updatable: [pending('s1')], needsPassword: [] });
+    api.applyAll.mockRejectedValueOnce(new Error('down'));
+    renderBanner();
+
+    fireEvent.press(await screen.findByTestId('statement-refresh-update-all'));
+
+    expect(await screen.findByText(/Something went wrong while updating/)).toBeOnTheScreen();
+    expectHaptics({ error: 1 });
   });
 
   it('stops when a call makes no progress, so it can never loop', async () => {
@@ -82,6 +97,8 @@ describe('StatementRefreshBanner (mobile)', () => {
     await waitFor(() => expect(api.applyAll).toHaveBeenCalled());
     expect(await screen.findByText('Update 1 statement')).toBeOnTheScreen();
     expect(api.applyAll).toHaveBeenCalledTimes(1);
+    // Nothing was updated and nothing changes on screen, so nothing is felt as done.
+    expectHaptics({});
   });
 
   it("asks for a locked statement's password, keeps it only if switched on, and shows what changed", async () => {
@@ -99,6 +116,8 @@ describe('StatementRefreshBanner (mobile)', () => {
     fireEvent.press(screen.getByTestId('refresh-password-submit'));
     expect(await screen.findByText(/didn't open this statement/)).toBeOnTheScreen();
     expect(api.refreshOne).toHaveBeenLastCalledWith('locked', 'WRONG', false);
+    // The server refused the password: one error.
+    expectHaptics({ error: 1 });
 
     fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
     fireEvent(screen.getByTestId('refresh-keep-password'), 'valueChange', true);
@@ -107,6 +126,21 @@ describe('StatementRefreshBanner (mobile)', () => {
     expect(await screen.findByTestId('refresh-summary')).toBeOnTheScreen();
     expect(api.refreshOne).toHaveBeenLastCalledWith('locked', 'SYNTH1234', true);
     expect(api.run).toHaveBeenCalledWith('run-locked');
+    // Then the keep switch's tick, and the update's success.
+    expectHaptics({ error: 1, selection: 1, success: 1 });
+  });
+
+  it('a password update that fails on the network gives one error', async () => {
+    api.overview.mockResolvedValue({ enabled: true, savePasswordAvailable: false, updatable: [],
+      needsPassword: [pending('locked', { status: 'NEEDS_PASSWORD' })] });
+    api.refreshOne.mockRejectedValueOnce(new Error('down'));
+    renderBanner();
+
+    fireEvent.press(await screen.findByTestId('statement-refresh-password-locked'));
+    fireEvent.changeText(screen.getByLabelText('Statement password'), 'SYNTH1234');
+    fireEvent.press(screen.getByTestId('refresh-password-submit'));
+
+    await waitFor(() => expectHaptics({ error: 1 }));
   });
 
   it('does not offer to keep the password where the server cannot', async () => {

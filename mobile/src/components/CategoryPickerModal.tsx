@@ -44,6 +44,13 @@ interface Props {
    * is not just wrong, it would name a category that no longer exists at all.
    */
   onSelectedCategoryDeleted?: () => void;
+  /**
+   * For a caller whose pick is itself the save (the ledger's category correction, Category Review,
+   * Quick Sort, the recurring question): that save's success or error is the action's one haptic,
+   * so the pick gives none. Without it a pick there was felt twice, the tick and then the outcome.
+   * @default false
+   */
+  silent?: boolean;
 }
 
 /**
@@ -61,7 +68,7 @@ interface Props {
  */
 export function CategoryPickerModal({
   visible, selectedName, onSelect, onClose, title = 'Category', excludeCategoryId, allowManage = true,
-  onSelectedCategoryDeleted,
+  onSelectedCategoryDeleted, silent = false,
 }: Props) {
   const c = useTheme();
   const largeText = useLargeFontScale();
@@ -118,9 +125,9 @@ export function CategoryPickerModal({
     close();
   }
 
-  /** A row tapped: one tick when it changes the selection. */
+  /** A row tapped: one tick when it changes the selection, unless the caller's save owns it. */
   function handleSelect(category: CategoryOption) {
-    hapticSelectionIfChanged(selectedName, category.name);
+    if (!silent) hapticSelectionIfChanged(selectedName, category.name);
     choose(category);
   }
 

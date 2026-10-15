@@ -386,6 +386,7 @@ export function LedgerScreen() {
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.remove(t.id);
+      hapticSuccess();
       // Editing/deleting shifts category totals, the account balance, budget progress, goals, and
       // any insight built from spend patterns -- see invalidateFinancialData's own comment.
       invalidateFinancialData(queryClient);
@@ -433,6 +434,7 @@ export function LedgerScreen() {
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.unmarkTransfer(t.id);
+      hapticSuccess();
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'ledger:unmark-transfer', startedAt);
@@ -706,6 +708,8 @@ export function LedgerScreen() {
       <CategoryPickerModal
         visible={recategorizing !== null}
         title="Change category"
+        // The pick saves at once; applyCategory's success or error is its one haptic.
+        silent
         selectedName={recategorizing?.categoryName ?? null}
         onSelect={(category) => {
           const target = recategorizing;

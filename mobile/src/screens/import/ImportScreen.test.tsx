@@ -1694,6 +1694,27 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expect(screen.queryByText('Recent failed imports')).toBeNull();
     expect(screen.queryByText('Try again')).toBeNull();
   });
+
+  it('discarding an unfinished import gives one success once confirmed, and one error when refused', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-old', fileName: 'old.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByLabelText('Discard import of old.csv'));
+    expectHaptics({});
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old'));
+    await waitFor(() => expectHaptics({ success: 1 }));
+
+    api.import.discardSession.mockRejectedValueOnce(new Error('down'));
+    fireEvent.press(screen.getByLabelText('Discard import of old.csv'));
+    await act(async () => { alertSpy.mock.calls[1][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
+    expect(await screen.findByText('Could not discard that import.')).toBeTruthy();
+    expectHaptics({ success: 1, error: 1 });
+    alertSpy.mockRestore();
+  });
 });
 
 /**

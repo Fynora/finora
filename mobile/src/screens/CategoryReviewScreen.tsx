@@ -399,6 +399,8 @@ export function CategoryReviewScreen() {
       <CategoryPickerModal
         visible={target !== null}
         title={pickerTitle(target)}
+        // The pick saves at once; apply's success or error is its one haptic.
+        silent
         selectedName={null}
         onSelect={(category) => void apply(category.name)}
         onClose={() => setTarget(null)}

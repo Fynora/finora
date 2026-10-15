@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react-native';
-import { RefreshControl } from 'react-native';
+import { RefreshControl, Text } from 'react-native';
 import { AppRefreshControl } from './AppRefreshControl';
 import { expectHaptics } from '../test/haptics';
 import { __setHapticsStateForTests } from '../lib/haptics';
@@ -12,6 +12,22 @@ it('one impact when a pull is committed, then the refresh runs', () => {
   view.UNSAFE_getByType(RefreshControl).props.onRefresh();
   expect(onRefresh).toHaveBeenCalledTimes(1);
   expectHaptics({ impact: 1 });
+});
+
+// Android's ScrollView does not nest the control; it clones the refreshControl element with a style
+// and the scroll view itself as its child (ScrollView.js, Platform.OS === 'android'). The wrapper
+// must hand both straight to RefreshControl, or pull to refresh renders an empty Android screen.
+it('passes a style and a child through, as Android ScrollView supplies them', () => {
+  const view = render(
+    <AppRefreshControl refreshing={false} onRefresh={jest.fn()} style={{ flex: 1 }}>
+      <Text>the list</Text>
+    </AppRefreshControl>
+  );
+  const inner = view.UNSAFE_getByType(RefreshControl);
+  expect(inner.props.style).toEqual({ flex: 1 });
+  // React Native's jest stand-in for the native control does not draw children, so the hand-off
+  // is checked on the props the real control would render them from.
+  expect(inner.props.children.props.children).toBe('the list');
 });
 
 it('the refresh still runs, without a haptic, when haptics are off', () => {

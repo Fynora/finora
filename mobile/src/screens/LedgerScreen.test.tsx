@@ -760,6 +760,8 @@ describe('deleting a transaction from the detail sheet', () => {
     await waitFor(() => expect(transactions.remove).toHaveBeenCalledWith('t-1'));
     expect(invalidateFinancialData).toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByText('Transaction Details')).toBeNull());
+    // The press that opens the confirmation (Ledger's own impact), then the delete's success.
+    expectHaptics({ impact: 1, success: 1 });
     alertSpy.mockRestore();
   });
 
@@ -776,6 +778,7 @@ describe('deleting a transaction from the detail sheet', () => {
     expect(await screen.findByText(/Could not delete this transaction/i)).toBeTruthy();
     expect(screen.getByText('Grocery run')).toBeTruthy();
     expect(screen.queryByText('Transaction Details')).toBeNull();
+    expectHaptics({ impact: 1, error: 1 });
     alertSpy.mockRestore();
   });
 });
@@ -819,6 +822,8 @@ describe('correcting a category from the ledger', () => {
     // A category move changes spend-by-category, budget progress and insights -- none of which
     // this screen renders, and all of which would otherwise keep showing pre-edit figures.
     expect(invalidateFinancialData).toHaveBeenCalled();
+    // The pick is the save: one haptic, the success -- no tick from the picker as well.
+    await waitFor(() => expectHaptics({ success: 1 }));
   });
 
   it('asks whether to change the other transactions from the payee, and sends the answer', async () => {
@@ -1512,6 +1517,25 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
 
     await waitFor(() => expect(transactions.markTransfer).toHaveBeenCalledWith('t-1', 't-2'));
     expect(invalidateFinancialData).toHaveBeenCalled();
+    // The pick is the save: one success once the server pairs them, not a tick on the tap.
+    expectHaptics({ success: 1 });
+  });
+
+  it('gives one error, and no tick, when pairing a transfer fails', async () => {
+    transactions.search.mockReset().mockImplementation(async (filters: any) =>
+      filters?.keyword
+        ? (page([txn({ id: 't-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' })]) as never)
+        : (page([txn({ id: 't-1', reconciliationStatus: 'OK' })]) as never));
+    transactions.markTransfer.mockRejectedValueOnce(new Error('down'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('mark-transfer-button-t-1'));
+    fireEvent.changeText(await screen.findByLabelText('Search transactions to pair with'), 'Savings');
+    fireEvent.press(await screen.findByTestId('transfer-candidate-t-2'));
+
+    expect(await screen.findByText('Could not mark these as a transfer.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('excludes the transaction itself and any already-paired transfer from the picker results', async () => {
@@ -1554,6 +1578,7 @@ describe('Mark / Unmark as transfer (Phase 6)', () => {
 
     await waitFor(() => expect(transactions.unmarkTransfer).toHaveBeenCalledWith('t-1'));
     expect(invalidateFinancialData).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
   });
 
   // Same bug class as the delete flow's own timing test above: closing the sheet the instant

@@ -525,8 +525,10 @@ export function ImportScreen() {
     const startedAt = requestStartedAt();
     try {
       await importApi.discardSession(id);
+      hapticSuccess();
       await unfinishedQ.refetch();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'import:discard-unfinished', startedAt);
       setError(toUserMessage(e, 'Could not discard that import.'));
     } finally {

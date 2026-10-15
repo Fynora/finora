@@ -196,6 +196,8 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
       <CategoryPickerModal
         visible={pickerOpen}
         title="Choose a category"
+        // The pick is the answer; the answer's success or error is its one haptic.
+        silent
         selectedName={null}
         onSelect={(category) => {
           setPickerOpen(false);

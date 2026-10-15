@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SavedStatementPasswordsSection } from './SavedStatementPasswordsSection';
 import { statementPasswordsApi } from '../../api/endpoints';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   statementPasswordsApi: { list: jest.fn(), remove: jest.fn(), removeAll: jest.fn() },
@@ -43,8 +44,20 @@ describe('SavedStatementPasswordsSection', () => {
     fireEvent.press(screen.getByTestId('remove-saved-password-s1'));
 
     await waitFor(() => expect(api.remove).toHaveBeenCalledWith('s1'));
-    await waitFor(() => expect(screen.queryByText('july.pdf')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('july.pdf')).not.toBeOnTheScreen());
     expect(screen.getByText('june.pdf')).toBeTruthy();
+    expectHaptics({ success: 1 });
+  });
+
+  it('a removal that fails gives one error', async () => {
+    api.list.mockResolvedValue({ saveAvailable: true, items: [item('s1', 'july.pdf')] });
+    api.remove.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+
+    fireEvent.press(await screen.findByTestId('remove-saved-password-s1'));
+
+    expect(await screen.findByText(/Couldn't remove that just now/)).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('removes all only after the user confirms', async () => {
@@ -60,6 +73,7 @@ describe('SavedStatementPasswordsSection', () => {
 
     await waitFor(() => expect(api.removeAll).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/haven't saved any statement passwords/i)).toBeTruthy();
+    expectHaptics({ success: 1 });
     alert.mockRestore();
   });
 

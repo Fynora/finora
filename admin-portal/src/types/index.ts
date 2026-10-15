@@ -1303,6 +1303,17 @@ export interface BlankedCopyDifference {
   maskedTokens: string[];
 }
 
+/** A row of the real reading worth a look -- mirrors `BlankedCopyDto.UnusualRow`. Positions and
+ *  counts only. `section` and `row` count from 0, as a difference's do. */
+export interface BlankedCopyUnusualRow {
+  section: number;
+  row: number;
+  /** TWO_PAGES, MANY_LINES or FAR_LINE; a kind this portal does not know yet is shown by name. */
+  kind: string;
+  lines: number;
+  pages: number;
+}
+
 /** A held statement's blanked copy and the check's verdict -- mirrors `BlankedCopyDto.Response`. */
 export interface BlankedCopy {
   fileName: string;
@@ -1310,6 +1321,8 @@ export interface BlankedCopy {
   check: 'MATCHES' | 'DIFFERS' | 'NOT_CHECKED';
   notCheckedReason: string | null;
   differences: BlankedCopyDifference[];
+  /** Optional because an older backend does not send it. */
+  unusualRows?: BlankedCopyUnusualRow[];
 }
 
 /** An opened view of a held statement's real pages -- mirrors `OriginalViewDto.Opened`. `format` is

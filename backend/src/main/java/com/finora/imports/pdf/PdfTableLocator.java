@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1080,9 +1081,24 @@ public class PdfTableLocator {
      *  class's own header-diff/marker/footer logic already accepted, not speculative) plus the
      *  headerless-inference path's own adjacent-duplicate drop (see
      *  {@link #bucketHeaderlessRowsWithContinuation}); the rest of this class's many other drop
-     *  points are a documented, deliberate gap, not silently assumed complete. */
+     *  points are a documented, deliberate gap, not silently assumed complete.
+     *
+     *  <p>{@code rowLines} is the row map (docs/superpowers/specs/2026-10-15-row-map-design.md):
+     *  either empty, meaning unknown, or one entry per row, entry {@code i} naming the printed lines
+     *  row {@code i} was built from. It is held beside the rows, never inside them, so nothing that
+     *  reads a row's cells can see it. */
     public record LocatedSection(List<String> auxiliaryText, List<Map<String, String>> rows,
-                                  ExtractionEvidence evidence) {}
+                                  ExtractionEvidence evidence, List<RowLines> rowLines) {
+        public LocatedSection {
+            rowLines = rowLines == null ? List.of() : List.copyOf(rowLines);
+        }
+
+        /** A section whose row map is unknown. */
+        public LocatedSection(List<String> auxiliaryText, List<Map<String, String>> rows,
+                              ExtractionEvidence evidence) {
+            this(auxiliaryText, rows, evidence, List.of());
+        }
+    }
 
     /**
      * Structural facts about how {@link #groupIntoRows} turned this document's raw text runs into
@@ -1255,6 +1271,8 @@ public class PdfTableLocator {
         Set<String> repeatedFurniture = repeatedPageFurniture(rows);
         Set<String> repeatedPeriodBanners = repeatedPeriodBanners(rows);
         LineGeometry lineGeometry = LineGeometry.of(rows);
+        // The row map: which physical rows each row map was built from. See RowProvenance.
+        RowProvenance provenance = new RowProvenance();
 
         List<LocatedSection> sections = new ArrayList<>();
         // The row index of the header that opened the section currently accumulating into
@@ -2176,6 +2194,7 @@ public class PdfTableLocator {
                 Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames, headerAnchors,
                         headerEnds, ctx, rowCandidateYears, textColumnSpans, marginPanelBand), resolvedRow,
                         column -> !isAmountColumn(column));
+                provenance.record(bucketed, row);
                 if (bucketed.isEmpty()) {
                     // Row-accounting evidence: the row survived every structural gate up to
                     // bucketing and still produced literally nothing -- the strongest "we don't
@@ -2447,6 +2466,7 @@ public class PdfTableLocator {
                             .ifPresent(dateColumn -> sameDayRow.put(dateColumn, openAnchor.get(dateColumn)));
                     if (pendingLeading != null) {
                         mergeInto(sameDayRow, pendingLeading, headerNames);
+                        provenance.merge(sameDayRow, pendingLeading);
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
                         pendingLeadingAllBelongAbove = true;
@@ -2454,6 +2474,7 @@ public class PdfTableLocator {
                         pageRepeatSinceLastAnchor = false;
                     }
                     mergeInto(sameDayRow, bucketed, headerNames);
+                    provenance.merge(sameDayRow, bucketed);
                     currentRows.add(sameDayRow);
                     noteTextStarts(narrationStarts, resolvedRow);
                     if (ctx != null) ctx.record(closesOnBalance ? "SAME_DAY_CONTINUATION_TRANSACTION" : "DATELESS_AMOUNT_ROW_SPLIT");
@@ -2488,7 +2509,9 @@ public class PdfTableLocator {
                     // order it actually appeared), then this row becomes the new anchor, open to
                     // its own (capped) trailing continuations.
                     if (pendingLeading != null) {
-                        if (!mergeLeadingInto(bucketed, pendingLeading, headerNames, pendingLeadingFromProximity)) {
+                        if (mergeLeadingInto(bucketed, pendingLeading, headerNames, pendingLeadingFromProximity)) {
+                            provenance.merge(bucketed, pendingLeading);
+                        } else {
                             // Refused: this buffer is a standalone noise line, not this
                             // transaction's leading narration -- see mergeLeadingInto. Kept as its
                             // own row so it still surfaces as unparseable rather than vanishing.
@@ -2622,6 +2645,7 @@ public class PdfTableLocator {
                         blockNarrationLeftX = leftmostRunX(row);
                     }
                     mergeInto(currentRows.get(currentRows.size() - 1), bucketed, headerNames);
+                    provenance.merge(currentRows.get(currentRows.size() - 1), bucketed);
                     noteTextStarts(narrationStarts, resolvedRow);
                     if (ctx != null) {
                         ctx.record("WRAPPED_DESCRIPTION");
@@ -2746,8 +2770,10 @@ public class PdfTableLocator {
                     if (decisivelyBelongsBelow && pendingLeading != null
                             && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()
                             && lastAnchorPage != null && lastAnchorPage == rowPageIndex) {
-                        appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
-                                headerNames);
+                        if (appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
+                                headerNames)) {
+                            provenance.merge(currentRows.get(currentRows.size() - 1), pendingLeading);
+                        }
                         if (ctx != null) ctx.record("LEADING_BUFFER_SPLIT_AT_ITS_OWN_BOUNDARY");
                         pendingLeading = null;
                         pendingLeadingFromProximity = false;
@@ -2773,6 +2799,7 @@ public class PdfTableLocator {
                                 && belongsToTheRowAbove(gapFromPreviousRow, gapToNextRow);
                     }
                     mergeInto(pendingLeading, bucketed, headerNames);
+                    provenance.merge(pendingLeading, bucketed);
                     noteTextStarts(narrationStarts, resolvedRow);
                     leadingCount++;
                     if (ctx != null) ctx.record("LEADING_NARRATION_CONTINUATION");
@@ -2868,7 +2895,7 @@ public class PdfTableLocator {
         // suppressed-payment-summary-panel case that distinguishes them. On every document where
         // nothing is suppressed the two indices are identical, so this is a no-op there.
         if (firstStagedHeaderRowIndex > 0) {
-            LocatedSection preHeaderInferred = inferHeaderlessSection(rows.subList(0, firstStagedHeaderRowIndex), ctx);
+            LocatedSection preHeaderInferred = inferHeaderlessSection(rows.subList(0, firstStagedHeaderRowIndex), ctx, provenance);
             if (preHeaderInferred != null) {
                 if (ctx != null) ctx.record("HEADERLESS_LAYOUT_BEFORE_LATER_HEADER");
                 sections.add(0, preHeaderInferred);
@@ -2881,13 +2908,18 @@ public class PdfTableLocator {
         // around it. Gated on sections.isEmpty() specifically so this can only ever turn today's
         // failure into a result; it is unreachable on every document that already parses.
         if (sections.isEmpty()) {
-            LocatedSection inferred = inferHeaderlessSection(rows, ctx);
-            if (inferred == null) inferred = inferTwoLineDateBlockSection(rows, ctx);
+            LocatedSection inferred = inferHeaderlessSection(rows, ctx, provenance);
+            if (inferred == null) inferred = inferTwoLineDateBlockSection(rows, ctx, provenance);
             if (inferred != null) sections.add(inferred);
         }
         remergeSameTableSections(sections, ctx);
         dropCompletelyEmptySections(sections, ctx);
         if (ctx != null) ctx.recordTables(sections.size());
+        // Attached once, here, after every section has been built, merged and dropped: each row is
+        // still the same map object it was when its lines were recorded, so a section concatenated
+        // from two others cannot pick up the wrong lines.
+        sections.replaceAll(section -> new LocatedSection(section.auxiliaryText(), section.rows(),
+                section.evidence(), section.rows().stream().map(provenance::of).toList()));
         return NarrationLineBreaks.resolveAll(new LocatedDocument(sections, physicalRowFormationEvidence), ctx);
     }
 
@@ -3010,21 +3042,25 @@ public class PdfTableLocator {
      *
      * <p>The buffer is known narration-only at every call site, so joining its cells and appending
      * them as description loses nothing: there is no figure in it to misplace.
+     *
+     * <p>Returns whether any text was appended, so the caller knows whether the buffer's lines
+     * became part of {@code target}.
      */
-    private void appendNarrationTo(Map<String, String> target, Map<String, String> buffer,
-                                   List<String> headerNames) {
+    private boolean appendNarrationTo(Map<String, String> target, Map<String, String> buffer,
+                                      List<String> headerNames) {
         String descriptionColumn = descriptionColumnIn(target, headerNames);
-        if (descriptionColumn == null) return;
+        if (descriptionColumn == null) return false;
         StringBuilder text = new StringBuilder();
         for (String value : buffer.values()) {
             if (value == null || value.isBlank()) continue;
             if (text.length() > 0) text.append(' ');
             text.append(value.trim());
         }
-        if (text.length() == 0) return;
+        if (text.length() == 0) return false;
         String existing = target.get(descriptionColumn);
         target.put(descriptionColumn,
                 existing == null || existing.isBlank() ? text.toString() : NarrationLineBreaks.joinLines(existing, text.toString()));
+        return true;
     }
 
     /**
@@ -7862,7 +7898,7 @@ public class PdfTableLocator {
 
     private HeaderlessBucketResult bucketHeaderlessRowsWithContinuation(List<List<PositionedText>> allRows,
             List<String> headerNames, List<Float> headerAnchors, List<Float> headerEnds, DocumentContext ctx,
-            Map<Integer, PageDateEvidence> yearsByPage) {
+            Map<Integer, PageDateEvidence> yearsByPage, RowProvenance provenance) {
         List<Map<String, String>> result = new ArrayList<>();
         List<String> auxiliaryText = new ArrayList<>();
         List<DroppedCandidateRow> droppedTransactionCandidates = new ArrayList<>();
@@ -7912,6 +7948,7 @@ public class PdfTableLocator {
                 Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames,
                         headerAnchors, headerEnds, ctx, rowYears), resolvedRow,
                         column -> !isAmountColumn(column));
+                provenance.record(bucketed, row);
                 if (bucketed.isEmpty()) continue;
                 result.add(bucketed);
                 noteTextStarts(narrationStarts, resolvedRow);
@@ -7922,6 +7959,7 @@ public class PdfTableLocator {
                 Map<String, String> bucketed = lineGeometry.decorate(bucketRow(resolvedRow, headerNames,
                         headerAnchors, headerEnds, ctx, rowYears), resolvedRow,
                         column -> !isAmountColumn(column));
+                provenance.record(bucketed, row);
                 if (bucketed.isEmpty()) continue;
                 // TABLE_TOTALS_ROW_DIVERTED, same rule as the header-based path: a closing "Total"
                 // line -- whole, or split over two physical rows -- is not the last transaction's
@@ -7956,6 +7994,7 @@ public class PdfTableLocator {
                     continue;
                 }
                 mergeInto(currentAnchor, bucketed, headerNames);
+                provenance.merge(currentAnchor, bucketed);
                 noteTextStarts(narrationStarts, resolvedRow);
                 continuationCount++;
             } else if (!rowLine.isBlank()) {
@@ -8044,7 +8083,8 @@ public class PdfTableLocator {
      *  header-shaped -- so a misdetected payment-summary panel that {@link #closeCurrentSection}
      *  suppresses ({@link #looksLikePaymentSummaryPanel}) no longer truncates the region searched
      *  here. See that field's own doc comment. */
-    private LocatedSection tryCorroboratedFallback(List<List<PositionedText>> rows, DocumentContext ctx) {
+    private LocatedSection tryCorroboratedFallback(List<List<PositionedText>> rows, DocumentContext ctx,
+            RowProvenance provenance) {
         Map<Integer, PageDateEvidence> yearsByPage = yearsByPage(rows);
         LabeledRow opening = findLabeledRow(rows, "opening balance");
         LabeledRow closing = findLabeledRow(rows, "net outstanding balance");
@@ -8062,6 +8102,10 @@ public class PdfTableLocator {
         // its neighbours in the single in-order pass below (see isInstalmentContinuation), which
         // keeps auxiliaryText in document order.
         Map<Integer, List<PositionedText>> candidateAt = new HashMap<>();
+        // The row map for each candidate. A candidate is one physical row's runs plus the runs of
+        // any instalment line joined to it below, so its lines are kept per physical row here
+        // rather than read back from the joined run list.
+        Map<List<PositionedText>, RowLines> candidateLines = new IdentityHashMap<>();
         for (int i = 0; i < rows.size(); i++) {
             boolean withinLedger = bracketed && i > opening.index() && i < closing.index();
             if (!withinLedger) continue;
@@ -8072,6 +8116,7 @@ public class PdfTableLocator {
             if (isTransactionShapedRow(resolved, rowYears) && signedTransactionAmount(resolved) != null) {
                 // A fresh list, so appending a continuation below never writes into `rows`.
                 candidateAt.put(i, new ArrayList<>(resolved));
+                candidateLines.put(candidateAt.get(i), RowLines.of(row));
             }
         }
         for (int i = 0; i < rows.size(); i++) {
@@ -8090,6 +8135,7 @@ public class PdfTableLocator {
                 // buildSectionFromSignedCandidates joins it into the narration with a space, and the
                 // amount, sign and reconciliation arithmetic read exactly what they read before.
                 candidateAt.get(i - 1).addAll(row);
+                candidateLines.merge(candidateAt.get(i - 1), RowLines.of(row), RowLines::union);
             } else {
                 String line = lineOf(row);
                 if (!line.isBlank()) auxiliaryText.add(line);
@@ -8098,7 +8144,7 @@ public class PdfTableLocator {
         signedCandidates = dedupeAdjacentIdenticalRows(signedCandidates);
         if (signedCandidates.isEmpty()) return null;
         if (!corroboratedByPrintedBalanceReconciliation(signedCandidates, rows, ctx)) return null;
-        return buildSectionFromSignedCandidates(signedCandidates, auxiliaryText, ctx);
+        return buildSectionFromSignedCandidates(signedCandidates, auxiliaryText, ctx, provenance, candidateLines);
     }
 
     /** How far a continuation's left edge may sit from the description it continues, in points.
@@ -8188,7 +8234,8 @@ public class PdfTableLocator {
      *  {@link #tryCorroboratedFallback}'s own admission gate, but this method makes no assumption
      *  about how its candidates were selected. */
     private LocatedSection buildSectionFromSignedCandidates(
-            List<List<PositionedText>> signedCandidates, List<String> auxiliaryText, DocumentContext ctx) {
+            List<List<PositionedText>> signedCandidates, List<String> auxiliaryText, DocumentContext ctx,
+            RowProvenance provenance, Map<List<PositionedText>, RowLines> candidateLines) {
         List<Map<String, String>> staged = new ArrayList<>();
         for (List<PositionedText> candidate : signedCandidates) {
             PositionedText amountCell = soleAmountCell(candidate);
@@ -8254,6 +8301,7 @@ public class PdfTableLocator {
             // prints both columns on every row.
             bucketed.put("Debit", isCredit ? "" : value);
             bucketed.put("Credit", isCredit ? value : "");
+            provenance.record(bucketed, candidateLines.getOrDefault(candidate, RowLines.NONE));
             staged.add(bucketed);
         }
         if (staged.isEmpty()) return null;
@@ -8390,8 +8438,9 @@ public class PdfTableLocator {
      *  comment above {@link #HEADERLESS_COLUMN_CLUSTER_TOLERANCE}. Returns null, never partially,
      *  when the document doesn't fit this shape well enough to trust; the caller's contract on null
      *  is "leave sections exactly as they were" -- today's zero-section outcome. */
-    private LocatedSection inferHeaderlessSection(List<List<PositionedText>> rows, DocumentContext ctx) {
-        LocatedSection viaClustering = inferHeaderlessSectionViaClustering(rows, ctx);
+    private LocatedSection inferHeaderlessSection(List<List<PositionedText>> rows, DocumentContext ctx,
+                                                  RowProvenance provenance) {
+        LocatedSection viaClustering = inferHeaderlessSectionViaClustering(rows, ctx, provenance);
         if (viaClustering != null) return viaClustering;
         // Last resort, tried only once the normal statistical-clustering path above has already
         // failed for any reason -- see corroboratedByPrintedBalanceReconciliation's own doc
@@ -8404,10 +8453,11 @@ public class PdfTableLocator {
         // which floor gated it in. A candidate inside the OPENING BALANCE .. NET OUTSTANDING
         // BALANCE bracket (see tryCorroboratedFallback) needs no statistical inference to
         // identify its own Date/Amount/Description cells; its own shape states them directly.
-        return tryCorroboratedFallback(rows, ctx);
+        return tryCorroboratedFallback(rows, ctx, provenance);
     }
 
-    private LocatedSection inferHeaderlessSectionViaClustering(List<List<PositionedText>> rows, DocumentContext ctx) {
+    private LocatedSection inferHeaderlessSectionViaClustering(List<List<PositionedText>> rows, DocumentContext ctx,
+                                                              RowProvenance provenance) {
         // Computed once, from every physical row (not just the transaction-shaped candidates
         // below) -- see yearsByPage's own doc comment for why the full dates that supply year
         // context live in the surrounding account-summary rows this candidate filter excludes.
@@ -8531,7 +8581,7 @@ public class PdfTableLocator {
             headerEnds.add(columns.get(i).repRight());
         }
 
-        HeaderlessBucketResult bucketResult = bucketHeaderlessRowsWithContinuation(rows, headerNames, headerAnchors, headerEnds, ctx, yearsByPage);
+        HeaderlessBucketResult bucketResult = bucketHeaderlessRowsWithContinuation(rows, headerNames, headerAnchors, headerEnds, ctx, yearsByPage, provenance);
         if (bucketResult.rows().isEmpty()) {
             if (ctx != null) ctx.recordDiagnostic("HEADERLESS_FINAL_BUCKETING_EMPTY");
             return null;
@@ -8696,7 +8746,8 @@ public class PdfTableLocator {
      *  a different block). Returns null, the same "leave sections exactly as they were" contract
      *  {@link #inferHeaderlessSection} follows, when fewer than
      *  {@link #TWO_LINE_BLOCK_MIN_TRANSACTIONS} blocks are found. */
-    private LocatedSection inferTwoLineDateBlockSection(List<List<PositionedText>> rows, DocumentContext ctx) {
+    private LocatedSection inferTwoLineDateBlockSection(List<List<PositionedText>> rows, DocumentContext ctx,
+                                                        RowProvenance provenance) {
         List<Map<String, String>> resultRows = new ArrayList<>();
         // Every row a block match doesn't consume -- most importantly, the payment-summary /
         // account-identity block that precedes the ledger on a real credit-card statement -- is kept
@@ -8722,6 +8773,9 @@ public class PdfTableLocator {
                 staged.put("Description", block.description());
                 staged.put("Amount", block.amountRaw());
                 staged.put("Type", block.direction());
+                for (int consumed = 0; consumed < block.rowsConsumed(); consumed++) {
+                    provenance.record(staged, rows.get(rowIndex + consumed));
+                }
                 resultRows.add(staged);
                 rowIndex += block.rowsConsumed();
                 continue;

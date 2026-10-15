@@ -5,15 +5,20 @@ import com.finora.imports.blanked.BlankedCopy;
 import com.finora.imports.blanked.BlankedCopyComparison;
 import com.finora.imports.blanked.BlankedCopyRefusedException;
 import com.finora.imports.blanked.BlankedCopyService;
+import com.finora.imports.blanked.RowMapBlock;
+import com.finora.imports.blanked.UnusualRows;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.pdf.PdfPreviewGenerator;
 import com.finora.imports.pdf.PositionedText;
+import com.finora.imports.pdf.RowLines;
+import com.finora.imports.pdf.RowMapSink;
 import com.finora.imports.pdf.TextSource;
 import com.finora.imports.pdf.acquisition.AcquiredDocument;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
 import com.finora.imports.pdf.trace.PdfTraceRedactor;
 import com.finora.imports.pdf.trace.TraceFormat;
 import com.finora.imports.pdf.trace.TraceMetadata;
+import com.finora.imports.pdf.trace.TraceValidator;
 import com.finora.observability.BlankedCopyMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -23,13 +28,17 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -102,7 +111,13 @@ class BlankedCopyServiceTest {
         BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
                 .make(new StaffStatementContent("HLD-2026-000008", "PDF", pdf));
 
-        List<String> commentLines = copy.trace().lines().filter(l -> l.startsWith("#")).toList();
+        List<String> commentLines = copy.trace().lines()
+                .filter(l -> l.startsWith("#") && !l.startsWith("# rowmap")).toList();
+        // The row map block is server-built too: positions and row numbers only, pinned by shape.
+        List<String> rowMapLines = copy.trace().lines().filter(l -> l.startsWith("# rowmap")).toList();
+        assertThat(rowMapLines).isNotEmpty().first().isEqualTo("# rowmap v1");
+        assertThat(rowMapLines.subList(1, rowMapLines.size())).isNotEmpty()
+                .allMatch(l -> l.matches("# rowmap section \\d+ row \\d+:( p\\d+( \\d+\\.\\d{2})+)*"));
         assertThat(commentLines).containsExactly(
                 "# finora-pdf-trace v" + TraceMetadata.CURRENT_TRACE_VERSION,
                 "# traceVersion: " + TraceMetadata.CURRENT_TRACE_VERSION,
@@ -240,7 +255,7 @@ class BlankedCopyServiceTest {
         byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();
         service(spy).make(new StaffStatementContent("HLD-2026-000003", "PDF", pdf));
         ArgumentCaptor<UUID> ids = ArgumentCaptor.forClass(UUID.class);
-        verify(spy, times(2)).generateSectionsFromAcquired(ids.capture(), eq("statement.pdf"), any());
+        verify(spy, times(2)).generateSectionsFromAcquired(ids.capture(), eq("statement.pdf"), any(), any());
         assertThat(ids.getAllValues().get(0)).isEqualTo(ids.getAllValues().get(1));
     }
 
@@ -252,7 +267,7 @@ class BlankedCopyServiceTest {
         byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();
         BlankedCopy copy = service(spy).make(new StaffStatementContent("HLD-2026-000004", "PDF", pdf));
         ArgumentCaptor<AcquiredDocument> read = ArgumentCaptor.forClass(AcquiredDocument.class);
-        verify(spy, times(2)).generateSectionsFromAcquired(any(), any(), read.capture());
+        verify(spy, times(2)).generateSectionsFromAcquired(any(), any(), read.capture(), any());
         List<PositionedText> realRuns = PdfGeneratorTestSupport.generator().acquire(pdf, null).runs();
         assertThat(realRuns).isNotEmpty();
         assertThat(read.getAllValues().get(0).runs()).isEqualTo(realRuns);
@@ -353,7 +368,7 @@ class BlankedCopyServiceTest {
     void aFailedReplayIsNotChecked() throws Exception {
         PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
         doThrow(new IllegalStateException("boom: Asha")).when(generator)
-                .generateSectionsFromAcquired(any(), any(), any());
+                .generateSectionsFromAcquired(any(), any(), any(), any());
         BlankedCopy copy = service(generator).make(new StaffStatementContent("j-7", "PDF",
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
@@ -369,7 +384,7 @@ class BlankedCopyServiceTest {
         RuntimeException anonymous = new RuntimeException("boom: Asha") {};
         assertThat(anonymous.getClass().getSimpleName()).isEmpty();
         PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
-        doThrow(anonymous).when(generator).generateSectionsFromAcquired(any(), any(), any());
+        doThrow(anonymous).when(generator).generateSectionsFromAcquired(any(), any(), any(), any());
         BlankedCopy copy = service(generator).make(new StaffStatementContent("j-11", "PDF",
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
@@ -384,10 +399,10 @@ class BlankedCopyServiceTest {
     void readingsThatCannotBeComparedAreNotCheckedAndSaySo() throws Exception {
         PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
         doReturn(new PdfPreviewGenerator.PdfGenerationResult(null, null, null)).when(generator)
-                .generateSectionsFromAcquired(any(), any(), any());
+                .generateSectionsFromAcquired(any(), any(), any(), any());
         BlankedCopy copy = service(generator).make(new StaffStatementContent("j-10", "PDF",
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
-        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any());
+        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any(), any());
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
         assertThat(copy.notCheckedReason()).isEqualTo("The two readings could not be compared (NullPointerException).");
         assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
@@ -398,14 +413,140 @@ class BlankedCopyServiceTest {
     void aCopyThatCannotBeReadBackIsNotCheckedAndSaysSo() throws Exception {
         PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
         doCallRealMethod().doThrow(new IllegalArgumentException("boom: Asha")).when(generator)
-                .generateSectionsFromAcquired(any(), any(), any());
+                .generateSectionsFromAcquired(any(), any(), any(), any());
         BlankedCopy copy = service(generator).make(new StaffStatementContent("j-9", "PDF",
                 PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
-        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any());
+        verify(generator, times(2)).generateSectionsFromAcquired(any(), any(), any(), any());
         assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
         assertThat(copy.notCheckedReason()).isEqualTo("The copy could not be read back (IllegalArgumentException).");
         assertThat(copy.trace()).startsWith("# finora-pdf-trace");
         assertThat(copy.toString()).doesNotContain("Asha");
         assertThat(produced(BlankedCopy.Check.NOT_CHECKED)).isEqualTo(1);
+    }
+
+    // ---- the row map (docs/superpowers/specs/2026-10-15-row-map-design.md)
+
+    private static Map<Integer, Map<Integer, RowLines>> realRowMap(byte[] pdf) throws Exception {
+        PdfPreviewGenerator generator = PdfGeneratorTestSupport.generator();
+        Map<Integer, Map<Integer, RowLines>> map = new TreeMap<>();
+        generator.generateSectionsFromAcquired(UUID.randomUUID(), "statement.pdf", generator.acquire(pdf, null), map::put);
+        return map;
+    }
+
+    @Test
+    void theCopyEndsWithTheRealReadingsRowMap() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000020", "PDF", pdf));
+
+        Map<Integer, Map<Integer, RowLines>> expected = realRowMap(pdf);
+        assertThat(expected).containsOnlyKeys(0);
+        assertThat(expected.get(0)).hasSize(3);
+        assertThat(RowMapBlock.parse(copy.trace())).isEqualTo(expected);
+        assertThat(copy.trace()).endsWith(RowMapBlock.format(expected));
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+    }
+
+    @Test
+    void aRowThatUsesDifferentLinesInTheCopyIsAnotherDifference() throws Exception {
+        PdfPreviewGenerator real = PdfGeneratorTestSupport.generator();
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            RowMapSink sink = invocation.getArgument(3);
+            RowMapSink reported = calls.getAndIncrement() == 0 ? sink : (section, lines) -> {
+                // The copy's reading reports row 0 as built from no line at all.
+                Map<Integer, RowLines> altered = new TreeMap<>(lines);
+                altered.put(0, RowLines.NONE);
+                sink.section(section, altered);
+            };
+            return real.generateSectionsFromAcquired(invocation.getArgument(0), invocation.getArgument(1),
+                    invocation.getArgument(2), reported);
+        }).when(generator).generateSectionsFromAcquired(any(), any(), any(), any());
+
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("HLD-2026-000021", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(copy.differences()).containsExactly(
+                new BlankedCopyComparison.Difference(0, 0, BlankedCopyComparison.Field.ROW_LINES, List.of()));
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.DIFFERS);
+    }
+
+    @Test
+    void theRowMapBlockPassesThePrivacyChecks() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildSampleWithPlantedCustomerData();
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator())
+                .make(new StaffStatementContent("HLD-2026-000022", "PDF", pdf));
+        assertThat(copy.trace()).contains("# rowmap section 1 row 1:");
+
+        assertThat(TraceValidator.validate("copy", copy.trace()).findings())
+                .noneMatch(finding -> finding.check().equals("pii"));
+        List<PositionedText> copyRuns = TraceFormat.parse(copy.trace());
+        assertThat(TraceValidator.privacyKinds(copyRuns)).isEmpty();
+        assertThat(TraceValidator.copyLeaks(PdfGeneratorTestSupport.generator().acquire(pdf, null).runs(), copyRuns))
+                .isEmpty();
+    }
+
+    @Test
+    void aCopyThatCannotBeReadBackStillCarriesTheRealRowMap() throws Exception {
+        byte[] pdf = PdfFixtureBuilder.buildReferenceNumberAndBalanceSample();
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doCallRealMethod().doThrow(new IllegalArgumentException("boom")).when(generator)
+                .generateSectionsFromAcquired(any(), any(), any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("HLD-2026-000023", "PDF", pdf));
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
+        assertThat(RowMapBlock.parse(copy.trace())).isNotEmpty().isEqualTo(realRowMap(pdf));
+    }
+
+    @Test
+    void theUnusualRowsComeFromTheRealReadingsRowMap() throws Exception {
+        PdfPreviewGenerator real = PdfGeneratorTestSupport.generator();
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        AtomicInteger calls = new AtomicInteger();
+        RowLines fiveLines = new RowLines(List.of(new RowLines.Line(0, 10000), new RowLines.Line(0, 11400),
+                new RowLines.Line(0, 12800), new RowLines.Line(0, 14200), new RowLines.Line(0, 15600)));
+        doAnswer(invocation -> {
+            RowMapSink sink = invocation.getArgument(3);
+            // Both readings report row 1 as five lines, so the check still matches. Rows 3 and 4
+            // make the section large enough (five rows) to judge many lines at all.
+            RowMapSink reported = (section, lines) -> {
+                Map<Integer, RowLines> altered = new TreeMap<>(lines);
+                altered.put(1, fiveLines);
+                altered.put(3, new RowLines(List.of(new RowLines.Line(1, 10000))));
+                altered.put(4, new RowLines(List.of(new RowLines.Line(1, 11400))));
+                sink.section(section, altered);
+            };
+            calls.incrementAndGet();
+            return real.generateSectionsFromAcquired(invocation.getArgument(0), invocation.getArgument(1),
+                    invocation.getArgument(2), reported);
+        }).when(generator).generateSectionsFromAcquired(any(), any(), any(), any());
+
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("HLD-2026-000025", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.MATCHES);
+        assertThat(copy.unusualRows()).containsExactly(
+                new UnusualRows.Flag(0, 1, UnusualRows.Kind.MANY_LINES, 5, 1));
+    }
+
+    @Test
+    void anOrdinaryStatementHasNoUnusualRows() throws Exception {
+        BlankedCopy copy = service(PdfGeneratorTestSupport.generator()).make(new StaffStatementContent(
+                "HLD-2026-000026", "PDF", PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        assertThat(copy.unusualRows()).isEmpty();
+    }
+
+    @Test
+    void aStatementThatCannotBeReadCarriesNoRowMap() throws Exception {
+        PdfPreviewGenerator generator = spy(PdfGeneratorTestSupport.generator());
+        doThrow(new IllegalStateException("boom")).when(generator)
+                .generateSectionsFromAcquired(any(), any(), any(), any());
+        BlankedCopy copy = service(generator).make(new StaffStatementContent("HLD-2026-000024", "PDF",
+                PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()));
+        assertThat(copy.check()).isEqualTo(BlankedCopy.Check.NOT_CHECKED);
+        assertThat(copy.trace()).doesNotContain("# rowmap");
+        assertThat(copy.unusualRows()).isEmpty();
     }
 }

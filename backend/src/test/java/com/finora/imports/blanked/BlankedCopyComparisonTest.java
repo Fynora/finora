@@ -397,6 +397,93 @@ class BlankedCopyComparisonTest {
         assertThat(result.toString()).doesNotContain("9876543210", "CALL"); // synthetic-ok
     }
 
+    // ---- Bank sentences: rule (e). A footer swallowed into a description is kept verbatim in the
+    // copy when its printed line was wholly a listed sentence; the real description holds it in
+    // clear, and the joined line masks it. Every sentence and name here is synthetic.
+
+    private static final java.util.Set<String> SENTENCES =
+            java.util.Set.of(com.finora.imports.pdf.trace.BankSentences.normalise("This is a computer generated statement"));
+
+    @Test
+    void aSwallowedFooterKeptInTheCopyStillMatches() {
+        String real = "UPI PAYMENT ASHA This is a computer generated statement";
+        String copy = PdfTraceRedactor.redactLine("UPI PAYMENT ASHA") + " This is a computer generated statement";
+        // Guard: the joined line masks the sentence's own words, so without rule (e) this differs.
+        assertThat(PdfTraceRedactor.redactLine(real)).isNotEqualTo(copy);
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, java.util.Set.of())).isFalse();
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isTrue();
+    }
+
+    @Test
+    void aSwallowedFooterInAnotherCaseAndSpacingStillMatches() {
+        String real = "UPI ASHA THIS  IS A COMPUTER GENERATED\tSTATEMENT";
+        String copy = "UPI XXXX THIS  IS A COMPUTER GENERATED\tSTATEMENT";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isTrue();
+    }
+
+    @Test
+    void aSwallowedFooterAtTheStartStillMatches() {
+        String real = "This is a computer generated statement UPI ASHA";
+        String copy = "This is a computer generated statement UPI XXXX";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isTrue();
+    }
+
+    @Test
+    void aFooterTheCopyMaskedStillMatchesByTheOldRules() {
+        // The footer's printed line held something else as well, so the copy masked it.
+        String real = "UPI ASHA This is a computer generated statement";
+        assertThat(BlankedCopyComparison.sameDescription(real, PdfTraceRedactor.redactLine(real), SENTENCES)).isTrue();
+    }
+
+    @Test
+    void aSentenceWordOutsideTheSentenceSpanIsNotExcused() {
+        assertThat(PdfTraceRedactor.redactLine("computer ASHA")).isEqualTo("xxxxxxxx XXXX");
+        assertThat(BlankedCopyComparison.sameDescription("computer ASHA", "computer XXXX", SENTENCES)).isFalse();
+    }
+
+    @Test
+    void aPartOfTheSentenceIsNotExcused() {
+        String real = "UPI ASHA This is a computer generated";
+        String copy = "UPI XXXX This is a computer generated";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isFalse();
+    }
+
+    @Test
+    void aSentenceGluedToAWordIsNotExcused() {
+        // "ASHAThis" is one token; the sentence does not stand apart, so no word of it is covered.
+        String real = "UPI ASHAThis is a computer generated statement";
+        String copy = "UPI XXXXXxxx is a computer generated statement";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isFalse();
+    }
+
+    @Test
+    void aNameInClearBesideAKeptSentenceStillDiffers() {
+        String real = "UPI ASHA This is a computer generated statement";
+        String copy = "UPI ASHA This is a computer generated statement";
+        assertThat(BlankedCopyComparison.sameDescription(real, copy, SENTENCES)).isFalse();
+    }
+
+    @Test
+    void aSentenceWordInTheCopyMustBeTheRealWordExactly() {
+        String real = "UPI ASHA This is a computer generated statement";
+        // A different case, and a masked shape that is neither the real word nor its masking.
+        assertThat(BlankedCopyComparison.sameDescription(real, "UPI XXXX This is a COMPUTER generated statement", SENTENCES)).isFalse();
+        assertThat(BlankedCopyComparison.sameDescription(real, "UPI XXXX This is a XXXXXXXX generated statement", SENTENCES)).isFalse();
+    }
+
+    @Test
+    void theProductionListIsWhatCompareUses() {
+        // compare() reads the production list: a listed entry kept in the copy matches, and the
+        // synthetic sentence above, which is not listed, is a difference.
+        for (String entry : com.finora.imports.pdf.trace.BankSentences.entries()) {
+            assertThat(descriptionOutcome("UPI PAYMENT ASHA " + entry, "UPI PAYMENT XXXX " + entry)).isNull();
+        }
+        org.junit.jupiter.api.Assumptions.assumeFalse(com.finora.imports.pdf.trace.BankSentences.isListed(
+                "this is a computer generated statement"));
+        assertThat(descriptionOutcome("UPI PAYMENT ASHA This is a computer generated statement",
+                "UPI PAYMENT XXXX This is a computer generated statement")).isEqualTo(Field.DESCRIPTION);
+    }
+
     // ---- the row map: ROW_LINES
 
     private static Map<Integer, Map<Integer, com.finora.imports.pdf.RowLines>> rowMap(int section, int row, int... ys) {

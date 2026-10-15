@@ -105,6 +105,15 @@ describe('FloatingTabBar', () => {
     expect(label.props.maxFontSizeMultiplier).toBe(1.3);
   });
 
+  it('shrinks a label that does not fit its slot instead of cutting it off', () => {
+    // Seen on the simulator at the largest text size: "Transactions" at 1.3 times showed as
+    // "Transacti..."; a 320 pt phone gives each slot about 56 pt even at the default size.
+    setup();
+    const label = screen.getByText('Transactions');
+    expect(label.props.adjustsFontSizeToFit).toBe(true);
+    expect(label.props.minimumFontScale).toBe(0.7);
+  });
+
   it('reports the height it covers to the navigator', () => {
     const { onHeight } = setup({ bottom: 34 });
     expect(onHeight).toHaveBeenLastCalledWith(92);

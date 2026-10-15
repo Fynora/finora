@@ -101,9 +101,13 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
               accessibilityShowsLargeContentViewer
             >
               {options.tabBarIcon?.({ focused, color, size: 24 })}
+              {/* Shrinks rather than cuts off: at 1.3 times "Transactions" is wider than its slot,
+                  and a 320 pt phone gives each slot about 56 pt even at the default size. */}
               <Text
                 numberOfLines={1}
                 maxFontSizeMultiplier={TAB_LABEL_MAX_SCALE}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
                 style={[focused ? typography.labelS : typography.caption, styles.label, { color }]}
               >
                 {label}

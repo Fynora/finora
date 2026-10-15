@@ -4,6 +4,7 @@ import { BankCorrectionModal } from './BankCorrectionModal';
 import { transactionsApi } from '../api/endpoints';
 import type { BankCorrectionHistoryEntry, Transaction } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { correctionHistory: jest.fn(), acknowledgeBankCorrection: jest.fn() },
@@ -119,6 +120,7 @@ describe('BankCorrectionModal (Plan 6, Track B mobile parity)', () => {
 
     await waitFor(() => expect(transactions.acknowledgeBankCorrection).toHaveBeenCalledWith('t-1'));
     await waitFor(() => expect(onAcknowledged).toHaveBeenCalled());
+    expectHaptics({ success: 1 });
   });
 
   it('shows an error and does not call onAcknowledged when acknowledging fails', async () => {
@@ -130,6 +132,7 @@ describe('BankCorrectionModal (Plan 6, Track B mobile parity)', () => {
 
     expect(await screen.findByText('Could not acknowledge this correction.')).toBeTruthy();
     expect(onAcknowledged).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('calls onClose when Close is pressed', async () => {
@@ -139,6 +142,7 @@ describe('BankCorrectionModal (Plan 6, Track B mobile parity)', () => {
     fireEvent.press(await screen.findByText('Close'));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expectHaptics({});
   });
 
   // Bug found in review: this component (like MarkTransferModal, the closest existing precedent)

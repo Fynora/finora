@@ -5,6 +5,7 @@ import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { AppAlert } from '../lib/appAlert';
 import type { Transaction } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   transactionsApi: { update: jest.fn(), similar: jest.fn() },
@@ -72,6 +73,15 @@ beforeEach(() => {
 });
 
 describe('EditTransactionSheet', () => {
+  it('ticks only when the type changes', async () => {
+    renderSheet();
+    await settle();
+    fireEvent.press(screen.getByRole('button', { name: /^Expense$/ }));
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: /^Income$/ }));
+    expectHaptics({ selection: 1 });
+  });
+
   it('seeds every field from the transaction', () => {
     renderSheet();
 
@@ -111,6 +121,7 @@ describe('EditTransactionSheet', () => {
     }));
     expect(invalidateFinancialData).toHaveBeenCalled();
     expect(onSaved).toHaveBeenCalled();
+    expectHaptics({ success: 1 });
   });
 
   it('sends an explicit empty string for notes, not omitting the field, when cleared', async () => {
@@ -163,6 +174,7 @@ describe('EditTransactionSheet', () => {
 
     expect(await screen.findByText('Amount must be a valid money value.')).toBeTruthy();
     expect(onSaved).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   async function pickTravel() {
@@ -203,6 +215,8 @@ describe('EditTransactionSheet', () => {
     expect(transactions.update).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /^Save Changes$/ })).toBeEnabled();
+    // The category pick ticked; cancelling the question adds nothing.
+    expectHaptics({ selection: 1 });
     alertSpy.mockRestore();
   });
 

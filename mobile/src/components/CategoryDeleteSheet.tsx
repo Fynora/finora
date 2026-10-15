@@ -8,6 +8,7 @@ import { Button } from './Button';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { categoriesApi, type CategoryOption, type CategoryUsage } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
@@ -63,8 +64,10 @@ export function CategoryDeleteSheet({ category, onClose, onDeleted }: Props) {
       const startedAt = requestStartedAt();
       try {
         await categoriesApi.delete(category.id, target?.id);
+        hapticSuccess();
         onDeleted();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'category-delete:confirm', startedAt);
         setError(toUserMessage(e, 'Could not delete this category.'));
       } finally {

@@ -5,6 +5,8 @@ import { GoalsScreen } from './GoalsScreen';
 import { goalsApi } from '../api/endpoints';
 import type { Goal } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
+import { AppAlert } from '../lib/appAlert';
 
 jest.mock('../api/endpoints', () => ({
   goalsApi: {
@@ -77,6 +79,7 @@ describe('GoalsScreen — contributing to a goal', () => {
     await settle();
 
     await waitFor(() => expect(api.addContribution).toHaveBeenCalledWith('goal-1', 2500));
+    expectHaptics({ success: 1 });
   });
 
   it('refreshes the Journey card and year in review after a contribution', async () => {
@@ -124,6 +127,7 @@ describe('GoalsScreen — contributing to a goal', () => {
     expect(await screen.findByText('Contribution exceeds the target.')).toBeTruthy();
     // Still open -- closing it would lose the amount and hide why it failed.
     expect(screen.getByLabelText('Amount in rupees')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   /**
@@ -180,6 +184,85 @@ describe('GoalsScreen — contributing to a goal', () => {
     await openContributionSheet();
 
     expect(screen.getByLabelText('Amount in rupees').props.value).toBe('');
+  });
+});
+
+describe('GoalsScreen — creating and deleting goals', () => {
+  beforeEach(() => {
+    api.list.mockReset().mockResolvedValue([goal]);
+    api.create.mockReset().mockResolvedValue(goal);
+    api.remove.mockReset().mockResolvedValue(undefined as never);
+  });
+
+  async function openForm(fields: { name?: string; target?: string; starting?: string }) {
+    renderScreen();
+    fireEvent.press(await screen.findByText('+ New goal'));
+    if (fields.name !== undefined) fireEvent.changeText(screen.getByLabelText('Name'), fields.name);
+    if (fields.target !== undefined) fireEvent.changeText(screen.getByLabelText('Target amount'), fields.target);
+    if (fields.starting !== undefined) fireEvent.changeText(screen.getByLabelText('Starting amount (optional)'), fields.starting);
+  }
+
+  it('creates a goal with one success', async () => {
+    await openForm({ name: 'Holiday', target: '50000' });
+    fireEvent.press(screen.getByText('Add Goal'));
+    await settle();
+    await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
+    expectHaptics({ success: 1 });
+  });
+
+  it('a double press on Add Goal creates once and gives one success', async () => {
+    await openForm({ name: 'Holiday', target: '50000' });
+    const add = screen.getByText('Add Goal');
+    fireEvent.press(add);
+    fireEvent.press(add);
+    await settle();
+    expect(api.create).toHaveBeenCalledTimes(1);
+    expectHaptics({ success: 1 });
+  });
+
+  it('a create the server refuses gives one error', async () => {
+    api.create.mockRejectedValueOnce(new Error('down'));
+    await openForm({ name: 'Holiday', target: '50000' });
+    fireEvent.press(screen.getByText('Add Goal'));
+    expect(await screen.findByText('Could not create this goal. Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
+  });
+
+  it.each([
+    ['no name', { name: '', target: '50000' }, 'Give this goal a name.'],
+    ['no target', { name: 'Holiday', target: '' }, 'Target amount must be a number greater than zero.'],
+    ['a starting amount that is not a number', { name: 'Holiday', target: '50000', starting: 'abc' },
+      'Starting amount must be a number greater than zero, or left blank.'],
+  ])('a blocked send (%s) gives one warning and sends nothing', async (_case, fields, message) => {
+    await openForm(fields);
+    fireEvent.press(screen.getByText('Add Goal'));
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(api.create).not.toHaveBeenCalled();
+    expectHaptics({ warning: 1 });
+  });
+
+  it('deletes a goal with one success once confirmed, and nothing on the tap that asks', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Delete Emergency fund'));
+    expectHaptics({});
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Delete')!.onPress!(); });
+    await waitFor(() => expect(api.remove).toHaveBeenCalledWith('goal-1'));
+    expectHaptics({ success: 1 });
+    alertSpy.mockRestore();
+  });
+
+  it('a delete the server refuses gives one error', async () => {
+    api.remove.mockRejectedValueOnce(new Error('down'));
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Delete Emergency fund'));
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Delete')!.onPress!(); });
+    expect(await screen.findByText('Could not delete this goal. Try again.')).toBeTruthy();
+    expectHaptics({ error: 1 });
+    alertSpy.mockRestore();
   });
 });
 

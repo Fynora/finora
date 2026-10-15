@@ -5,6 +5,7 @@ import { Button } from '../../components/Button';
 import { statementPasswordsApi, type SavedStatementPassword } from '../../api/endpoints';
 import { AppAlert } from '../../lib/appAlert';
 import { fmtDate } from '../../lib/format';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { spacing, useTheme } from '../../theme';
 
 const QUERY_KEY = ['saved-statement-passwords'];
@@ -30,8 +31,10 @@ export function SavedStatementPasswordsSection() {
     setActionFailed(false);
     try {
       await action();
+      hapticSuccess();
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     } catch {
+      hapticError();
       setActionFailed(true);
     } finally {
       setBusy(false);

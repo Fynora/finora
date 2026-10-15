@@ -7,6 +7,7 @@ import { OptionPickerModal } from '../components/OptionPickerModal';
 import { accountsApi, accountAggregatorApi } from '../api/endpoints';
 import type { Account } from '../types';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
@@ -69,6 +70,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
     const startedAt = requestStartedAt();
     try {
       await accountAggregatorApi.confirmExistingAccount(linkId, selectedAccountId);
+      hapticSuccess();
       // Bug found in a fresh review pass: native-stack keeps SettingsBankSyncScreen's instance
       // (and its React Query cache) mounted underneath this pushed screen -- goBack() alone left
       // it showing the pre-confirmation "PENDING_ACCOUNT_CONFIRMATION" status and a still-live
@@ -80,6 +82,7 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
       invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'bank-sync-confirm:existing', startedAt);
       setActionError(toUserMessage(e, "Couldn't confirm this account."));
       setBusy(false);
@@ -92,12 +95,14 @@ export function SettingsBankSyncConfirmScreen({ route, navigation }: Props) {
     const startedAt = requestStartedAt();
     try {
       await accountAggregatorApi.confirmNewAccount(linkId);
+      hapticSuccess();
       // Creates a brand-new Account the app-wide caches don't know about yet -- same reasoning
       // as confirmExisting above.
       void queryClient.invalidateQueries({ queryKey: ['aa-links'] });
       invalidateFinancialData(queryClient);
       navigation.goBack();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'bank-sync-confirm:new', startedAt);
       setActionError(toUserMessage(e, "Couldn't set this up as a new account."));
       setBusy(false);

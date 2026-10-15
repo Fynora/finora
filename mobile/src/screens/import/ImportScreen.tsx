@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
+import { AppSwitch } from '../../components/AppSwitch';
 import { AppAlert } from '../../lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -32,7 +33,7 @@ import {
 import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
-import { hapticError, hapticSuccess } from '../../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
@@ -524,8 +525,10 @@ export function ImportScreen() {
     const startedAt = requestStartedAt();
     try {
       await importApi.discardSession(id);
+      hapticSuccess();
       await unfinishedQ.refetch();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'import:discard-unfinished', startedAt);
       setError(toUserMessage(e, 'Could not discard that import.'));
     } finally {
@@ -1042,7 +1045,7 @@ export function ImportScreen() {
                         on our side. Remove it any time in Settings → Data.
                       </Text>
                     </View>
-                    <Switch
+                    <AppSwitch
                       value={savePassword}
                       onValueChange={setSavePassword}
                       trackColor={{ true: c.primary, false: c.border }}
@@ -1364,7 +1367,7 @@ export function ImportScreen() {
                     <Pressable
                       key={choice}
                       disabled={disabled}
-                      onPress={() => setAccountChoice(choice)}
+                      onPress={() => { hapticSelectionIfChanged(accountChoice, choice); setAccountChoice(choice); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active, disabled }}
                       style={[
@@ -1401,7 +1404,7 @@ export function ImportScreen() {
                     <Pressable
                       key={a.id}
                       disabled={aaLinked}
-                      onPress={() => setSelectedAccountId(a.id)}
+                      onPress={() => { hapticSelectionIfChanged(selectedAccountId, a.id); setSelectedAccountId(a.id); }}
                       accessibilityRole="button"
                       accessibilityState={{ selected: active, disabled: aaLinked }}
                       style={[
@@ -1434,7 +1437,7 @@ export function ImportScreen() {
                       return (
                         <Pressable
                           key={t}
-                          onPress={() => setAccountForm((f) => ({ ...f, accountType: t }))}
+                          onPress={() => { hapticSelectionIfChanged(accountForm.accountType, t); setAccountForm((f) => ({ ...f, accountType: t })); }}
                           accessibilityRole="button"
                           accessibilityState={{ selected: active }}
                           style={[
@@ -1511,7 +1514,7 @@ export function ImportScreen() {
                       Fynora could not read a holder name from this statement.
                     </Text>
                   </View>
-                  <Switch
+                  <AppSwitch
                     value={claimHolder}
                     onValueChange={setClaimHolder}
                     trackColor={{ true: c.primary, false: c.border }}

@@ -4,6 +4,7 @@ import { CountsAsSection } from './CountsAsSection';
 import { inflowApi } from '../api/endpoints';
 import type { CountsAs, InflowKind } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   inflowApi: { countsAs: jest.fn(), kinds: jest.fn(), setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn() },
@@ -49,6 +50,19 @@ describe('CountsAsSection', () => {
     fireEvent.press(screen.getByText('Every payment from ASHA VERMA (3)'));
     await waitFor(() => expect(inflow.setChoice).toHaveBeenCalledWith('t1', 'k2', 'SENDER'));
     expect(await screen.findByText('You marked payments from this sender as Family support')).toBeOnTheScreen();
+    // The kind pick ticked; the save gives one success once the server confirms.
+    expectHaptics({ selection: 1, success: 1 });
+  });
+
+  it('gives one error when the choice cannot be saved', async () => {
+    inflow.setChoice.mockRejectedValueOnce(new Error('down'));
+    renderSection();
+    expect(await screen.findByText('Not counted yet · from a person')).toBeOnTheScreen();
+    fireEvent.press(screen.getByText('Change'));
+    fireEvent.press(await screen.findByText('Family support'));
+    fireEvent.press(screen.getByText('Every payment from ASHA VERMA (3)'));
+    expect(await screen.findByText('Could not save this choice.')).toBeOnTheScreen();
+    expectHaptics({ selection: 1, error: 1 });
   });
 
   it('offers only this payment when the sender is unknown', async () => {
@@ -90,6 +104,7 @@ describe('CountsAsSection', () => {
     renderSection();
     fireEvent.press(await screen.findByText('Clear my choice'));
     await waitFor(() => expect(inflow.clearChoice).toHaveBeenCalledWith('t1', 'ROW'));
+    await waitFor(() => expectHaptics({ success: 1 }));
   });
 });
 

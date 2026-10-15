@@ -5,6 +5,7 @@ import { AdvancedReportsScreen } from './AdvancedReportsScreen';
 import { analyticsApi, entitlementsApi, reportsApi, type EntitlementsDto } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 import { never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
 // Premium paths that still exist stay tested; individual tests turn it off.
@@ -431,5 +432,17 @@ describe('AdvancedReportsScreen sections', () => {
     analytics.topMerchants.mockResolvedValueOnce([]);
     fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('Import a statement or add transactions to see your top merchants.')).toBeTruthy();
+  });
+});
+
+describe('the Multi-Year Comparison mode', () => {
+  it('ticks only when the mode changes', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    renderScreen();
+    await screen.findByText('Multi-Year Comparison');
+    fireEvent.press(screen.getByText('Full Years'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('This Year So Far'));
+    expectHaptics({ selection: 1 });
   });
 });

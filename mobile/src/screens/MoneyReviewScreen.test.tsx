@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MoneyReviewScreen } from './MoneyReviewScreen';
 import { inflowApi } from '../api/endpoints';
 import type { InflowKind, UnresolvedSender } from '../types';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   inflowApi: { unresolved: jest.fn(), kinds: jest.fn(), setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn() },
@@ -61,8 +62,22 @@ describe('MoneyReviewScreen', () => {
     fireEvent.press(screen.getByText('Every payment from ASHA VERMA (5)'));
     await waitFor(() => expect(inflow.setChoice).toHaveBeenCalledWith('t1', 'k2', 'SENDER'));
     expect(await screen.findByText("Everything's sorted")).toBeOnTheScreen();
+    // The kind pick ticked; the save gives one success.
+    expectHaptics({ selection: 1, success: 1 });
     fireEvent.press(screen.getByText('Undo'));
     await waitFor(() => expect(inflow.clearChoice).toHaveBeenCalledWith('t1', 'SENDER'));
+    await waitFor(() => expectHaptics({ selection: 1, success: 2 }));
+  });
+
+  it('gives one error when the choice cannot be saved', async () => {
+    inflow.unresolved.mockResolvedValue([asha]);
+    inflow.setChoice.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    fireEvent.press(await screen.findByText('ASHA VERMA'));
+    fireEvent.press(await screen.findByText('Family support'));
+    fireEvent.press(screen.getByText('Every payment from ASHA VERMA (5)'));
+    expect(await screen.findByText('Could not save this choice.')).toBeOnTheScreen();
+    expectHaptics({ selection: 1, error: 1 });
   });
 
   it('sets one payment on its own', async () => {

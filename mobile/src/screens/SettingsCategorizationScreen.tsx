@@ -9,6 +9,7 @@ import { Button } from '../components/Button';
 import { InflowKindsSettings } from '../components/InflowKindsSettings';
 import { workspaceApi } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { useTransientFlag } from '../lib/useTransientFlag';
@@ -48,10 +49,12 @@ export function SettingsCategorizationScreen() {
       const startedAt = requestStartedAt();
       try {
         const saved = await workspaceApi.updateSettings({ autoApplyConfidenceThreshold: threshold });
+        hapticSuccess();
         queryClient.setQueryData(['workspace-settings'], saved);
         setThresholdDraft(null);
         confirmIntelSaved();
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'settings-categorization:save-threshold', startedAt);
         setIntelError(toUserMessage(e, 'Could not save this setting.'));
       } finally {

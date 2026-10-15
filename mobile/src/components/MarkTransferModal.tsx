@@ -11,7 +11,7 @@ import { EmptyState } from './Card';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { fmtCurrency } from '../lib/format';
-import { hapticSelection } from '../lib/haptics';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { radius, spacing, useTheme } from '../theme';
@@ -55,14 +55,16 @@ export function MarkTransferModal({
 
   async function pick(candidate: Transaction) {
     if (transaction === null) return;
-    hapticSelection();
+    // The pick is the save, so its one haptic is the outcome -- not a tick on the tap as well.
     setMarking(true);
     setError(null);
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.markTransfer(transaction.id, candidate.id);
+      hapticSuccess();
       onMarked();
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'mark-transfer:pick', startedAt);
       setError(toUserMessage(e, 'Could not mark these as a transfer.'));
     } finally {

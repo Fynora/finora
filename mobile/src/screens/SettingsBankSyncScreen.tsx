@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/Button';
 import { accountAggregatorApi, type AccountAggregatorLinkDto } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { isSafeExternalUrl } from '../lib/safeUrl';
 import { useSingleFlight } from '../lib/useSingleFlight';
@@ -83,9 +84,11 @@ export function SettingsBankSyncScreen() {
     const startedAt = requestStartedAt();
     try {
       await accountAggregatorApi.disconnect(linkId);
+      hapticSuccess();
       setConfirmingDisconnectId(null);
       void queryClient.invalidateQueries({ queryKey: ['aa-links'] });
     } catch (e) {
+      hapticError();
       reportTransportFailure(e, 'bank-sync:disconnect', startedAt);
       setActionError(toUserMessage(e, "Couldn't disconnect."));
     } finally {

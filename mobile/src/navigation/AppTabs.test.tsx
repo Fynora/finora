@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { AppTabs } from './AppTabs';
 import { TourTargetProvider, useTourTarget } from '../onboarding/TourTargetRegistry';
+import { expectHaptics } from '../test/haptics';
 
 // AppTabs calls useNavigation() directly (for the floating "+" button's QuickActionSheet) -- in
 // the real app that resolves against RootNavigator.tsx's one NavigationContainer, but this file
@@ -174,5 +175,17 @@ describe('AppTabs floating + button', () => {
     fireEvent.press(screen.getByLabelText('Quick actions'));
     fireEvent.press(screen.getByText('Add Goal'));
     expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Goals' });
+  });
+
+  it('ticks once on "+", and not again for the row that opens a screen', () => {
+    render(
+      <TourTargetProvider>
+        <AppTabs />
+      </TourTargetProvider>
+    );
+    fireEvent.press(screen.getByLabelText('Quick actions'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText('Import Statement'));
+    expectHaptics({ selection: 1 });
   });
 });

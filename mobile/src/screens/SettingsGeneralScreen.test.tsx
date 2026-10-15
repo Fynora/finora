@@ -4,6 +4,9 @@ import { SettingsGeneralScreen } from './SettingsGeneralScreen';
 import { userApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
+import { __setHapticsStateForTests } from '../lib/haptics';
+import * as SecureStore from 'expo-secure-store';
 
 jest.mock('../api/endpoints', () => ({
   userApi: { get: jest.fn(), update: jest.fn() },
@@ -42,6 +45,34 @@ test('saves the low balance threshold', async () => {
   fireEvent.changeText(input, '5000');
   fireEvent.press(screen.getByText('Save preferences'));
   await waitFor(() => expect(user.update).toHaveBeenCalledWith({ lowBalanceThreshold: 5000, timezone: 'Asia/Kolkata' }));
+  await waitFor(() => expectHaptics({ success: 1 }));
+});
+
+test('a save the server refuses gives one error', async () => {
+  user.get.mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+  user.update.mockRejectedValueOnce(new Error('down'));
+  renderScreen();
+  fireEvent.changeText(await screen.findByLabelText('Low balance alert'), '5000');
+  fireEvent.press(screen.getByText('Save preferences'));
+  expect(await screen.findByText('Could not save your preferences.')).toBeTruthy();
+  expectHaptics({ error: 1 });
+});
+
+test('an alert amount that is not a number gives one warning and saves nothing', async () => {
+  user.get.mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+  user.update.mockClear();
+  renderScreen();
+  fireEvent.changeText(await screen.findByLabelText('Low balance alert'), 'abc');
+  fireEvent.press(screen.getByText('Save preferences'));
+  expect(await screen.findByText('Low balance alert must be a number greater than zero.')).toBeTruthy();
+  expect(user.update).not.toHaveBeenCalled();
+  expectHaptics({ warning: 1 });
 });
 
 test('re-reads the profile after saving, which is how the change watch learns the edit was our own', async () => {
@@ -94,4 +125,44 @@ test('a failed refetch keeps showing the preferences already loaded', async () =
   expect(queryClient.getQueryState(['user-settings'])?.status).toBe('error');
   expect(screen.getByText('Low balance alert')).toBeTruthy();
   expect(screen.queryByText(/Couldn.t load your settings/)).toBeNull();
+});
+
+function loaded() {
+  user.get.mockReset().mockResolvedValue({
+    email: 'a@example.com', fullName: 'Amy', lowBalanceThreshold: 2000, theme: 'system', timezone: 'Asia/Kolkata',
+    phoneNumber: '', phoneVerified: false, createdAt: '2026-01-01T00:00:00Z', passwordChangedAt: null, signInMethod: 'PASSWORD',
+  } as never);
+}
+
+describe('Haptics switch', () => {
+  beforeEach(loaded);
+
+  it('is on by default and turning it off fires nothing and saves "off"', async () => {
+    renderScreen();
+    const sw = await screen.findByLabelText('Haptics');
+    expect(sw.props.value).toBe(true);
+    fireEvent(sw, 'valueChange', false);
+    expectHaptics({});
+    await act(async () => {});
+    expect((SecureStore as unknown as { __store: Map<string, string> }).__store.get('finora_haptics')).toBe('off');
+  });
+
+  it('turning it on fires exactly one selection', async () => {
+    __setHapticsStateForTests('off');
+    renderScreen();
+    fireEvent(await screen.findByLabelText('Haptics'), 'valueChange', true);
+    expectHaptics({ selection: 1 });
+  });
+});
+
+describe('Theme segment', () => {
+  beforeEach(loaded);
+
+  it('fires one selection when the theme changes, none when the chosen one is tapped', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('System theme'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Dark theme'));
+    expectHaptics({ selection: 1 });
+  });
 });

@@ -2,7 +2,9 @@ import { Dimensions } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CategoryPickerModal } from './CategoryPickerModal';
+import { CategoryEditSheet } from './CategoryEditSheet';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
+import { expectHaptics } from '../test/haptics';
 
 // Same trick DashboardScreen.test.tsx uses: useWindowDimensions reads Dimensions.get('window')
 // under the hood, so spying there is enough to simulate a scaled-up Dynamic Type setting.
@@ -83,6 +85,16 @@ describe('CategoryPickerModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('ticks only when the pick differs from the category already selected', async () => {
+    renderPicker({ selectedName: 'Food' });
+    await settle();
+    fireEvent.press(await screen.findByTestId('category-Food'));
+    expect(onSelect).toHaveBeenCalledWith(FOOD);
+    expectHaptics({});
+    fireEvent.press(screen.getByTestId('category-Travel'));
+    expectHaptics({ selection: 1 });
+  });
+
   // Regression for FYNORA-MOBILE-5 (Sentry): this component is always mounted inside LedgerScreen
   // (RN Modal renders its children even while `visible` is false), so its two useMemo hooks run
   // against whatever's already in the ['categories'] query cache on every cold start -- including
@@ -125,6 +137,34 @@ describe('CategoryPickerModal', () => {
 
     expect(screen.queryByTestId('category-Food')).toBeNull();
     expect(screen.getByTestId('category-Travel')).toBeTruthy();
+  });
+
+  // For a caller whose pick IS the save (Ledger, Category Review, Quick Sort, the recurring
+  // question): the save's success or error is the action's one haptic, so the pick gives none.
+  it('gives no tick when silent, and still selects', async () => {
+    renderPicker({ selectedName: 'Food', silent: true });
+    await settle();
+    fireEvent.press(await screen.findByTestId('category-Travel'));
+    expect(onSelect).toHaveBeenCalledWith(TRAVEL);
+    expectHaptics({});
+  });
+
+  // A category created (or the selected one renamed) here is selected for the caller, but the
+  // edit sheet's save already gave the one success haptic: one action, one haptic.
+  it('selects a category saved from its edit sheet without a second, selection haptic', async () => {
+    renderPicker({ selectedName: 'Food' });
+    await settle();
+    await screen.findByTestId('category-Food');
+    fireEvent.changeText(screen.getByLabelText('Search categories'), 'Subscriptions');
+    await settle();
+    fireEvent.press(screen.getByText('Create "Subscriptions"'));
+    await settle();
+
+    const saved: CategoryOption = { id: 'c-9', name: 'Subscriptions', isSystem: false, icon: 'tag', color: 'gray' };
+    await act(async () => { screen.UNSAFE_getByType(CategoryEditSheet).props.onSaved(saved); });
+
+    expect(onSelect).toHaveBeenCalledWith(saved);
+    expectHaptics({});
   });
 
   it('offers to create a new category only when the typed name has no exact match', async () => {

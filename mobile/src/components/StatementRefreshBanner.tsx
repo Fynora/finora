@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import {
-  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { AppSwitch } from './AppSwitch';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -13,6 +14,7 @@ import { Card } from './Card';
 import { invalidateFinancialQueries } from '../lib/invalidateFinancialData';
 import { counts, describeChange, fieldValue, inr, outcomeLabel, period } from '../lib/refreshFormat';
 import { fmtDate } from '../lib/format';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from './GlassSurface';
 
@@ -56,7 +58,11 @@ export function StatementRefreshBanner() {
         all.push(...res.results);
         if (res.remaining === 0 || res.results.length === 0) break;
       }
+      // The whole update, felt once when it finishes -- not once per round of ten -- and only when
+      // something was updated: a run that changed nothing shows nothing new either.
+      if (all.length > 0) hapticSuccess();
     } catch {
+      hapticError();
       setFailed(true);
     } finally {
       setBusy(false);
@@ -161,13 +167,18 @@ function RefreshPasswordSheet({
       const outcome = await statementRefreshApi.refreshOne(statement.statementImportId, password,
         savePasswordAvailable && keep);
       if (outcome.status === 'NEEDS_PASSWORD') {
+        // The server refused the password.
+        hapticError();
         setWrong(true);
         return;
       }
-      onDone(outcome.runId
+      const result = outcome.runId
         ? await statementRefreshApi.run(outcome.runId)
-        : { ...emptyDetail(statement), status: outcome.status, reason: outcome.reason });
+        : { ...emptyDetail(statement), status: outcome.status, reason: outcome.reason };
+      hapticSuccess();
+      onDone(result);
     } catch {
+      hapticError();
       setFailed(true);
     } finally {
       setBusy(false);
@@ -218,7 +229,7 @@ function RefreshPasswordSheet({
                   Stored encrypted, only for this statement. Remove it any time in Settings → Data.
                 </Text>
               </View>
-              <Switch
+              <AppSwitch
                 value={keep}
                 onValueChange={setKeep}
                 disabled={busy}

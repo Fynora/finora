@@ -3,6 +3,7 @@ import { StyleSheet, type TextInput } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerControls, type ActiveFilterChip } from './LedgerControls';
 import { ThemeProvider } from '../../theme';
+import { expectHaptics } from '../../test/haptics';
 
 const handlers = { onKeywordChange: jest.fn(), onTypeFilter: jest.fn(), onOpenFilters: jest.fn() };
 function show(over: Partial<Parameters<typeof LedgerControls>[0]> = {}) {
@@ -39,6 +40,14 @@ describe('LedgerControls', () => {
     expect(screen.getByLabelText('Filter: all')).not.toBeSelected();
     fireEvent.press(screen.getByLabelText('Filter: expense'));
     expect(handlers.onTypeFilter).toHaveBeenCalledWith('EXPENSE');
+  });
+
+  it('ticks only when the type filter changes', () => {
+    show({ typeFilter: 'ALL' });
+    fireEvent.press(screen.getByLabelText('Filter: all'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Filter: income'));
+    expectHaptics({ selection: 1 });
   });
 
   it('keeps each segment label on one line and stops it growing past what a third of the row holds', () => {

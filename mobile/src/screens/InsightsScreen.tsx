@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
 } from 'react-native';
+import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
@@ -289,7 +291,10 @@ export function InsightsScreen() {
         (items ?? []).filter((item) => item.merchant !== merchant));
       return { previous };
     },
+    // The row leaving the screen (onMutate) is not the outcome; the server's answer is.
+    onSuccess: () => hapticSuccess(),
     onError: (_err, _merchant, context) => {
+      hapticError();
       if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
     },
   });
@@ -310,7 +315,7 @@ export function InsightsScreen() {
     <ScrollView
       ref={scrollRef}
       contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
+      refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} />}
     >
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.headerText}>
@@ -338,7 +343,7 @@ export function InsightsScreen() {
         {TABS.map((t) => (
           <Pressable
             key={t.key}
-            onPress={() => switchTab(t.key)}
+            onPress={() => { hapticSelectionIfChanged(activeTab, t.key); switchTab(t.key); }}
             style={[styles.tabPill, activeTab === t.key ? { backgroundColor: c.primaryLight } : null]}
             accessibilityRole="button"
             accessibilityState={{ selected: activeTab === t.key }}

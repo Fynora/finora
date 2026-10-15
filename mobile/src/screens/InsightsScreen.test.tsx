@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InsightsScreen } from './InsightsScreen';
+import { expectHaptics, resetHapticCalls } from '../test/haptics';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
 } from '../api/endpoints';
@@ -93,6 +94,37 @@ describe('InsightsScreen', () => {
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
   });
 
+  it('dismissing: nothing as the row leaves, one success when the server confirms', async () => {
+    let resolve!: () => void;
+    recurring.dismiss.mockReset().mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('netflix');
+    resetHapticCalls();
+
+    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull poll pretty-prints the whole fiber and
+    // starves the very timer that removes the row (failed this way on a loaded CI runner).
+    await waitFor(() => expect(screen.queryByText('netflix')).not.toBeOnTheScreen());
+    expectHaptics({});
+
+    await act(async () => resolve());
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a dismiss the server refuses: one error, and the row comes back', async () => {
+    recurring.dismiss.mockReset().mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('netflix');
+    resetHapticCalls();
+
+    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+
+    await waitFor(() => expectHaptics({ error: 1 }));
+    expect(await screen.findByText('netflix')).toBeTruthy();
+  });
+
   it('a "still Rent?" row replaces the nothing-detected message when no group is detected', async () => {
     recurring.list.mockReset().mockResolvedValue([]);
     jest.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
@@ -162,6 +194,15 @@ describe('InsightsScreen', () => {
 
     expect(await screen.findByText('netflix')).toBeTruthy();
     expect(screen.getByText(/Couldn't load your insights/)).toBeTruthy();
+  });
+
+  it('ticks only when the tab changes', async () => {
+    renderScreen();
+    expect(await screen.findByText('Dining')).toBeTruthy();
+    fireEvent.press(screen.getByLabelText('Overview'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Spending'));
+    expectHaptics({ selection: 1 });
   });
 
   it('keeps insights when the recurring endpoint fails', async () => {

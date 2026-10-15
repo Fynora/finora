@@ -7,6 +7,7 @@ import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
+import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
@@ -466,6 +467,15 @@ describe('ImportScreen — new-account credit limit and due date fields', () => 
 
     expect(screen.queryByLabelText('Credit limit')).toBeNull();
     expect(screen.queryByLabelText('Payment due date')).toBeNull();
+  });
+
+  it('ticks only when the new account type changes', async () => {
+    await reachReview();
+    resetHapticCalls();
+    fireEvent.press(screen.getByText('Savings'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('Credit Card'));
+    expectHaptics({ selection: 1 });
   });
 
   it('shows credit limit and due date fields once the new account is switched to Credit Card', async () => {
@@ -1684,6 +1694,27 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     expect(screen.queryByText('Recent failed imports')).toBeNull();
     expect(screen.queryByText('Try again')).toBeNull();
   });
+
+  it('discarding an unfinished import gives one success once confirmed, and one error when refused', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-old', fileName: 'old.csv', rowCount: 3, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByLabelText('Discard import of old.csv'));
+    expectHaptics({});
+    await act(async () => { alertSpy.mock.calls[0][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
+    await waitFor(() => expect(api.import.discardSession).toHaveBeenCalledWith('sess-old'));
+    await waitFor(() => expectHaptics({ success: 1 }));
+
+    api.import.discardSession.mockRejectedValueOnce(new Error('down'));
+    fireEvent.press(screen.getByLabelText('Discard import of old.csv'));
+    await act(async () => { alertSpy.mock.calls[1][2]!.find((b) => b.text === 'Discard')!.onPress!(); });
+    expect(await screen.findByText('Could not discard that import.')).toBeTruthy();
+    expectHaptics({ success: 1, error: 1 });
+    alertSpy.mockRestore();
+  });
 });
 
 /**
@@ -1972,6 +2003,24 @@ describe('ImportScreen — AA-linked account in the existing-account picker', ()
 
     const manualRowText = screen.getByText('HDFC Savings');
     expect(manualRowText.parent?.parent?.props.accessibilityState.disabled).toBeFalsy();
+  });
+
+  it('ticks only when the account choice or the picked account changes', async () => {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+    resetHapticCalls();
+
+    fireEvent.press(screen.getByText('A new account'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('An existing account'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByText('HDFC Savings'));
+    expectHaptics({ selection: 2 });
+    fireEvent.press(screen.getByText('HDFC Savings'));
+    expectHaptics({ selection: 2 });
   });
 });
 

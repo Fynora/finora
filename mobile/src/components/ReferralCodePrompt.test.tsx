@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralCodePrompt } from './ReferralCodePrompt';
 import { referralsApi } from '../api/endpoints';
+import { expectHaptics } from '../test/haptics';
 
 const mockAuth = { referralPromptPending: true, dismissReferralPrompt: jest.fn() };
 jest.mock('../context/AuthContext', () => ({
@@ -83,6 +84,7 @@ describe('ReferralCodePrompt', () => {
 
     await waitFor(() => expect(api.applyCode).toHaveBeenCalledWith('ABCD1234'));
     await waitFor(() => expect(mockAuth.dismissReferralPrompt).toHaveBeenCalled());
+    expectHaptics({ success: 1 });
   });
 
   it('keeps the prompt open and shows the reason when the server refuses the code', async () => {
@@ -95,6 +97,7 @@ describe('ReferralCodePrompt', () => {
 
     expect(await screen.findByText("You've already used a referral code.")).toBeTruthy();
     expect(mockAuth.dismissReferralPrompt).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('Skip clears the prompt without sending anything', async () => {
@@ -105,6 +108,7 @@ describe('ReferralCodePrompt', () => {
 
     expect(mockAuth.dismissReferralPrompt).toHaveBeenCalled();
     expect(api.applyCode).not.toHaveBeenCalled();
+    expectHaptics({});
   });
 
   it('does not submit an empty code', async () => {

@@ -14,6 +14,7 @@ import {
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 // useWindowDimensions (used for chart width and, per the "large Dynamic Type" describe block
 // below, font scale) reads its value from Dimensions.get('window') on mount -- spying there,
@@ -534,6 +535,16 @@ describe('pull-to-refresh indicator', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] });
   });
 
+  it('a pull to refresh gives one impact', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary());
+    renderScreen();
+    await screen.findByText('Total Balance');
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+    expectHaptics({ impact: 1 });
+  });
+
   it('stays visible until Goals, Insights, and the Cash Flow report queries have finished too', async () => {
     dashboard.summary.mockResolvedValue(emptySummary());
     const { queryClient } = renderScreen();
@@ -558,6 +569,8 @@ describe('pull-to-refresh indicator', () => {
     await waitFor(() => {
       expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
     });
+    // Nothing the person did: a refresh finishing in the background gives no haptic.
+    expectHaptics({});
   });
 });
 
@@ -1488,6 +1501,14 @@ describe('operational layer (card redesign)', () => {
     expect(screen.getByLabelText('Show 6 months').props.accessibilityState).toEqual({ selected: false });
   });
 
+  it('ticks only when the cash flow range changes', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Show 6 months'));
+    expectHaptics({});
+    fireEvent.press(screen.getByLabelText('Show 3 months'));
+    expectHaptics({ selection: 1 });
+  });
+
   it('shows the month tiles as a skeleton grid while the summary is loading, not a single card', async () => {
     dashboard.summary.mockReturnValue(new Promise(() => {}) as never);
     renderScreen();
@@ -1640,6 +1661,35 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
 
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('Netflix'));
     await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
+  });
+
+  it('dismissing: nothing as the row leaves, one success when the server confirms', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    let resolve!: () => void;
+    recurring.dismiss.mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+
+    renderScreen();
+    await screen.findByText('Netflix');
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull poll pretty-prints the whole fiber and
+    // starves the very timer that removes the row (the Insights twin failed this way on CI).
+    await waitFor(() => expect(screen.queryByText('Netflix')).not.toBeOnTheScreen());
+    expectHaptics({});
+
+    await act(async () => resolve());
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a dismiss the server refuses: one error, and the row comes back', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    recurring.dismiss.mockRejectedValueOnce(new Error('down'));
+
+    renderScreen();
+    await screen.findByText('Netflix');
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+
+    await waitFor(() => expectHaptics({ error: 1 }));
+    expect(await screen.findByText('Netflix')).toBeTruthy();
   });
 });
 

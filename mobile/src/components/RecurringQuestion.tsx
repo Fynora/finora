@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { categoriesApi, recurringApi, type RecurringQuestionState } from '../api/endpoints';
 import { fmtCurrency } from '../lib/format';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { radius, spacing, useTheme } from '../theme';
 import { CategoryPickerModal } from './CategoryPickerModal';
@@ -37,10 +38,12 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
   const save = useMutation({
     mutationFn: (category: string) => recurringApi.categorize(merchant, category),
     onSuccess: () => {
+      hapticSuccess();
       setChanging(false);
       setPicking(false);
       invalidateFinancialData(queryClient);
     },
+    onError: () => hapticError(),
   });
 
   if (state === 'NONE') return null;
@@ -121,6 +124,8 @@ export function RecurringQuestion({ merchant, state, answer, amount, label = 'Mo
       {save.isError ? <Text style={[styles.text, { color: c.dangerInk }]}>Couldn't save — try again.</Text> : null}
       <CategoryPickerModal
         visible={picking}
+        // The pick saves at once; the save's success or error is its one haptic.
+        silent
         selectedName={null}
         allowManage={false}
         title="What is this payment?"

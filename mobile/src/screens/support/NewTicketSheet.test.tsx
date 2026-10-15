@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { NewTicketSheet } from './NewTicketSheet';
 import { supportApi, type SupportTicketDetail } from '../../api/endpoints';
 import { AttachmentTooLargeError, pickTicketAttachment } from '../../lib/ticketAttachment';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   supportApi: { create: jest.fn() },
@@ -70,6 +71,7 @@ describe('NewTicketSheet', () => {
       category: 'STATEMENT_IMPORT', subject: 'Import stuck', description: 'Progress bar froze at 60%.', file: null,
     });
     expect(onCreated).toHaveBeenCalledWith(created);
+    expectHaptics({ success: 1 });
   });
 
   it('lets the user change the category via the picker', async () => {
@@ -127,6 +129,7 @@ describe('NewTicketSheet', () => {
 
     expect(screen.getByText('Something is broken')).toBeTruthy();
     expect(onCreated).not.toHaveBeenCalled();
+    expectHaptics({ error: 1 });
   });
 
   it('calls onClose when Cancel is pressed', () => {
@@ -134,5 +137,6 @@ describe('NewTicketSheet', () => {
 
     fireEvent.press(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalled();
+    expectHaptics({});
   });
 });

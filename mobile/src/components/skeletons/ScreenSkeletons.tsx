@@ -332,6 +332,16 @@ export function SettingsGeneralSkeleton() {
         </View>
         <SkeletonText size="label" width="25%" />
       </View>
+      {/* Haptics: the same row shape, its hint on two lines, a switch at its end. */}
+      <View style={[styles.retakeTourRow, { borderTopColor: c.border }]}>
+        <View style={styles.flexFill}>
+          <SkeletonText size="meta" width="25%" style={styles.fieldLabel} />
+          <View style={styles.gapSm}>
+            <SkeletonLines count={2} size="caption" lastWidth="45%" line={skeletonTokens.textLine.hint} />
+          </View>
+        </View>
+        <SkeletonBox size="switchHeight" width={skeletonTokens.fixedWidth.switch} round />
+      </View>
     </SkeletonGroup>
   );
 }

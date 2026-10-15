@@ -5,6 +5,7 @@ import { InvestmentActivityCard } from './InvestmentActivityCard';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   categoriesApi: { list: jest.fn() },
@@ -154,6 +155,16 @@ describe('InvestmentActivityCard', () => {
     await waitFor(() => expect(transactions.search).toHaveBeenCalledTimes(2));
     expect(transactions.search.mock.calls[1][0].dateFrom! > twelveMonthStart).toBe(true);
     expect(await screen.findByText('Invested in the last 3 months')).toBeTruthy();
+  });
+
+  it('ticks only when the period changes', async () => {
+    transactions.search.mockResolvedValue(page([txn('a', 100)]));
+    renderCard();
+    await screen.findByText('SIP a');
+    await act(async () => { fireEvent.press(screen.getByLabelText('Show the last 12 months')); });
+    expectHaptics({});
+    await act(async () => { fireEvent.press(screen.getByLabelText('Show the last 3 months')); });
+    expectHaptics({ selection: 1 });
   });
 
   // Found on an iPhone simulator at accessibility-extra-large text: with the period chips in the

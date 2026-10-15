@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { FeedbackSheet } from './FeedbackSheet';
 import { feedbackApi } from '../../api/endpoints';
+import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
   feedbackApi: { submit: jest.fn() },
@@ -23,6 +24,14 @@ describe('FeedbackSheet', () => {
     api.submit.mockReset();
   });
 
+  it('ticks only when the feedback type changes', () => {
+    renderSheet();
+    fireEvent.press(screen.getByText('General feedback'));
+    expectHaptics({});
+    fireEvent.press(screen.getByText('Something’s broken'));
+    expectHaptics({ selection: 1 });
+  });
+
   it('keeps Send disabled until a message is entered', () => {
     renderSheet();
     expect(screen.getByRole('button', { name: /send feedback/i })).toBeDisabled();
@@ -41,6 +50,19 @@ describe('FeedbackSheet', () => {
 
     expect(api.submit).toHaveBeenCalledWith({ type: 'GENERAL', context: 'OTHER', message: 'Great app' });
     expect(screen.getByText('Thanks for the feedback')).toBeTruthy();
+    expectHaptics({ success: 1 });
+  });
+
+  it('gives one error when the feedback cannot be sent', async () => {
+    api.submit.mockRejectedValueOnce(new Error('down'));
+    renderSheet();
+
+    fireEvent.changeText(screen.getByLabelText('Your feedback'), 'Great app');
+    fireEvent.press(screen.getByRole('button', { name: /send feedback/i }));
+    await settle();
+
+    expect(screen.getByText('Could not send this feedback.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('sends the selected type and context', async () => {

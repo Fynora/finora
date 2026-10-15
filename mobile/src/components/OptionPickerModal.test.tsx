@@ -1,8 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { OptionPickerModal } from './OptionPickerModal';
-import { hapticSelection } from '../lib/haptics';
-
-jest.mock('../lib/haptics');
+import { expectHaptics } from '../test/haptics';
 
 describe('OptionPickerModal', () => {
   it('fires a selection haptic when an option is tapped', () => {
@@ -20,8 +18,28 @@ describe('OptionPickerModal', () => {
 
     fireEvent.press(screen.getByRole('button', { name: 'Groceries' }));
 
-    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expectHaptics({ selection: 1 });
     expect(onSelect).toHaveBeenCalledWith('Groceries');
+  });
+
+  it('gives nothing for a tap on the option already selected, which still selects it', () => {
+    const onSelect = jest.fn();
+    render(
+      <OptionPickerModal
+        visible
+        title="Category"
+        options={['Groceries', 'Dining']}
+        selected="Groceries"
+        onSelect={onSelect}
+        onClose={jest.fn()}
+      />
+    );
+
+    fireEvent.press(screen.getByRole('button', { name: 'Groceries' }));
+    expect(onSelect).toHaveBeenCalledWith('Groceries');
+    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: 'Dining' }));
+    expectHaptics({ selection: 1 });
   });
 
   /**

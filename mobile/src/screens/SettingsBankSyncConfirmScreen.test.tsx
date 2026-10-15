@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SettingsBankSyncConfirmScreen } from './SettingsBankSyncConfirmScreen';
 import { accountsApi, accountAggregatorApi } from '../api/endpoints';
 import { ThemeProvider } from '../theme';
+import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn() },
@@ -41,6 +42,35 @@ test('confirming an existing account calls confirmExistingAccount with the selec
   // underneath, per native-stack) kept showing the pre-confirmation status after goBack().
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['aa-links'] });
   expect(mockGoBack).toHaveBeenCalled();
+  expectHaptics({ success: 1 });
+});
+
+test('a confirmation the server refuses gives one error, for either choice', async () => {
+  (accountsApi.list as jest.Mock).mockResolvedValue([
+    { id: 'acc1', name: 'HDFC Savings', bank: { shortName: 'HDFC' }, accountNumberMasked: '••1234' },
+  ]);
+  (accountAggregatorApi.confirmExistingAccount as jest.Mock).mockRejectedValueOnce(new Error('down'));
+  (accountAggregatorApi.confirmNewAccount as jest.Mock).mockRejectedValueOnce(new Error('down'));
+  renderScreen();
+  await screen.findByText('HDFC Savings · HDFC ••1234');
+
+  fireEvent.press(screen.getByText('Yes, this is my account'));
+  expect(await screen.findByText("Couldn't confirm this account.")).toBeTruthy();
+  expectHaptics({ error: 1 });
+
+  fireEvent.press(screen.getByText('This is a different/new account'));
+  expect(await screen.findByText("Couldn't set this up as a new account.")).toBeTruthy();
+  expectHaptics({ error: 2 });
+});
+
+test('setting it up as a new account gives one success', async () => {
+  (accountsApi.list as jest.Mock).mockResolvedValue([]);
+  (accountAggregatorApi.confirmNewAccount as jest.Mock).mockResolvedValue(undefined);
+  renderScreen();
+
+  fireEvent.press(await screen.findByText('This is a different/new account'));
+  await waitFor(() => expect(mockGoBack).toHaveBeenCalled());
+  expectHaptics({ success: 1 });
 });
 
 test('shows a recoverable message instead of crashing when linkId is missing from route.params', () => {

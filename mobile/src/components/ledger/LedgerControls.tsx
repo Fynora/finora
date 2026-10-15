@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassSurface, useGlassSurfaceStyle } from '../GlassSurface';
+import { hapticSelectionIfChanged } from '../../lib/haptics';
 import { spacing, typography, useTheme } from '../../theme';
 
 export type TypeFilter = 'ALL' | 'INCOME' | 'EXPENSE';
@@ -65,7 +66,7 @@ export function LedgerControls({
             return (
               <Pressable
                 key={t.value}
-                onPress={() => onTypeFilter(t.value)}
+                onPress={() => { hapticSelectionIfChanged(typeFilter, t.value); onTypeFilter(t.value); }}
                 // The track is 44 high with 4 of padding, so a segment is 36; this makes it 44.
                 hitSlop={{ top: 4, bottom: 4 }}
                 accessibilityRole="button"

@@ -8,6 +8,7 @@ import { Button } from '../components/Button';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { InflowKindPicker } from '../components/InflowKindPicker';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { fmtCurrency } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { MoreStackParamList } from '../navigation/types';
@@ -57,12 +58,14 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
     setError(null);
     try {
       await inflowApi.setChoice(transactionId, picked.id, scope);
+      hapticSuccess();
       setUndo({ transactionId, scope, label });
       setOpenId(null);
       setPicked(null);
       setOneRow(false);
       refresh();
     } catch (e) {
+      hapticError();
       setError(toUserMessage(e, 'Could not save this choice.'));
     } finally {
       setBusy(false);
@@ -73,9 +76,11 @@ export function MoneyReviewScreen({ route }: { route: RouteProp<MoreStackParamLi
     if (!undo) return;
     try {
       await inflowApi.clearChoice(undo.transactionId, undo.scope);
+      hapticSuccess();
       setUndo(null);
       refresh();
     } catch (e) {
+      hapticError();
       setError(toUserMessage(e, 'Could not undo that choice.'));
     }
   }

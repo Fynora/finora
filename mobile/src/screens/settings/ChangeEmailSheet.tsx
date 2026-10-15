@@ -10,6 +10,7 @@ import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { emailChangeApi } from '../../api/endpoints';
 import { apiErrorCode, toUserMessage } from '../../lib/apiError';
+import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { AUTH_EMAIL_ALREADY_REGISTERED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from '../../lib/validation';
@@ -79,10 +80,12 @@ export function ChangeEmailSheet({ onClose, signInMethod }: {
       const startedAt = requestStartedAt();
       try {
         const res = await emailChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken, newEmail.trim());
+        hapticSuccess();
         setSentToEmail(newEmail.trim());
         setDevVerifyLink(res.devVerifyLink);
         setStep('sent');
       } catch (e) {
+        hapticError();
         reportTransportFailure(e, 'change-email:start', startedAt);
         setErrorCode(apiErrorCode(e));
         setError(toUserMessage(e, signInMethod === 'PASSWORD'

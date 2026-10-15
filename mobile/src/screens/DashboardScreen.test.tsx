@@ -569,6 +569,8 @@ describe('pull-to-refresh indicator', () => {
     await waitFor(() => {
       expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
     });
+    // Nothing the person did: a refresh finishing in the background gives no haptic.
+    expectHaptics({});
   });
 });
 

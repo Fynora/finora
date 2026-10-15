@@ -2009,6 +2009,20 @@ describe('the redesigned list', () => {
     expect(screen.getAllByLabelText('Add transaction')).toHaveLength(1);
   });
 
+  // "Never while scrolling" (haptics table): scrolling, even past the pull-to-refresh point,
+  // gives nothing. The impact belongs to the committed pull (RefreshControl's onRefresh).
+  it('gives nothing while scrolling', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+
+    scrollListTo(300);
+    scrollListTo(0);
+    scrollListTo(-80);
+
+    expectHaptics({});
+  });
+
   it('scrolls to the top from the pinned search button', async () => {
     const scrollToOffset = jest.spyOn(FlatList.prototype, 'scrollToOffset').mockImplementation(() => {});
     transactions.search.mockResolvedValue(page([txn()]) as never);

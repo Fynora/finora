@@ -88,6 +88,20 @@ describe('AccountsScreen', () => {
     expect(screen.getByLabelText('Account name').props.value).toBe('HDFC Savings');
   });
 
+  // Two "none" rows of the haptics table: opening something from a row, and cancelling a sheet.
+  it('gives nothing for opening the edit sheet from a row, or for cancelling it', async () => {
+    renderScreen();
+    await screen.findByText('HDFC Savings');
+
+    fireEvent.press(screen.getByLabelText('Edit HDFC Savings'));
+    expect(await screen.findByLabelText('Account name')).toBeTruthy();
+    expectHaptics({});
+
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('Account name')).not.toBeOnTheScreen();
+    expectHaptics({});
+  });
+
   it('refetches the account list once the form sheet reports a save', async () => {
     renderScreen();
     await screen.findByText('HDFC Savings');

@@ -35,8 +35,10 @@ missing is the whole notice and footer lines, and that's what this design adds.
    notice lines that identify nobody. Each entry is stored normalised: lower case, inner
    whitespace collapsed to one space, outer whitespace trimmed.
 2. **Kept only as a whole printed line.** When a blanked copy is made:
-   - the runs are grouped into printed lines (same page, y within the locator's
-     `ROW_Y_TOLERANCE`), in x order;
+   - the runs are grouped into printed lines the way the redactor already groups them for digits
+     (`NumberGroups.lines`: same page, y within `LINE_Y_TOLERANCE`, joined with the redactor's
+     margin), so both rules see the same lines. This replaces the first draft's mention of the
+     locator's tolerance, corrected while planning;
    - if a line's joined text, normalised, equals a listed sentence, every run of that line is kept
      as printed;
    - if it doesn't, nothing changes: each run is masked as today.

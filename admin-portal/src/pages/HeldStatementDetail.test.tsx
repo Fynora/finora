@@ -154,6 +154,29 @@ describe('HeldStatementDetail', () => {
     expect(adminHeldStatementApi.get).not.toHaveBeenCalled();
   });
 
+  it('shows what the Claude fix did', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      claudeFix: { state: 'GAVE_UP', reason: 'STILL_HELD', publicPr: 41, privatePr: 7, attempt: 1, monthlyCap: 50 },
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+
+    expect(await screen.findByTestId('claude-fix-line'))
+      .toHaveTextContent("Needs a person: Claude's fix was deployed but the statement is still held");
+  });
+
+  it('says the Claude fix is off when the switch is off', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      claudeFix: { state: 'OFF', reason: null, publicPr: null, privatePr: null, attempt: 0, monthlyCap: 50 },
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+
+    expect(await screen.findByTestId('claude-fix-line')).toHaveTextContent('Claude fix off');
+  });
+
   /** The operator has to see the numbers, not our sentence about them. */
   it('shows the printed and parsed numbers, not just the summary sentence', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);

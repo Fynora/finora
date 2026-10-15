@@ -27,7 +27,10 @@ its name here, and the trace half is `<Name>TracesTest` in the private repositor
 
 Only the owner has access. No key to the private repository exists anywhere in this repository's
 code, workflows or secrets, and none may be added: the private repository's own workflows check
-this public one out anonymously and run the tests there.
+this public one out and run the tests there, with the "Fynora Fix Bot" App's read-only token once
+the owner has made the App (anonymously until then), so they work whether this repository is
+public or private. The automatic Claude fix job's token for the private repository lives in
+Railway only ([`claude-fix-job.md`](claude-fix-job.md)).
 
 This repository refuses traces:
 - the pre-commit hook (`scripts/check-fixture-hygiene.sh`) blocks a staged `.trace` or
@@ -91,8 +94,9 @@ ones are free. The private workflows are kept small:
 | Workflow | When | Measured on 2026-10-15 |
 |---|---|---|
 | `traces.yml` | push to the private `main`, pull requests there, once a day at 04:30 UTC, on demand | 5 min 19 s (26 classes, 86 tests), billed as 6 minutes |
-| `privacy-scan.yml` | every push and pull request in the private repository, on demand | 2 min 48 s, billed as 3 minutes |
+| `privacy-scan.yml` | every push (except to `incoming`) and pull request in the private repository, on demand | 2 min 48 s, billed as 3 minutes |
 | `retention.yml` | once a day at 05:00 UTC, on demand | not yet measured; with no trace to delete it makes one HTTP call |
+| `fix.yml` | each Claude fix attempt production sends to `incoming` (at most 50 jobs a month, 2 attempts each) | not yet measured; at most 90 minutes (see the cost warning in `claude-fix-job.md`) |
 
 So a quiet month costs about 180 minutes for the nightly `traces.yml` runs plus the daily
 retention runs, and each push to the private `main` adds about 9 (both push workflows). No private

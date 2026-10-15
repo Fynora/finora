@@ -192,6 +192,29 @@ public class BackgroundWorkConfig {
         return executor;
     }
 
+    /**
+     * The automatic Claude fix job's own thread ({@code FixJobStarter} and {@code FixJobFollowUp}).
+     * Making a blanked copy reads the statement twice and each GitHub call may take its full
+     * timeout; neither may hold up the import worker, which hands the hold here after it commits.
+     * One thread, so two holds never race for the monthly cap. A queue of 200 holds a burst of
+     * holds; a full queue drops the start (logged) rather than running it on the worker -- the hold
+     * itself is untouched, and the follow-up's catch-up starts it later.
+     */
+    @Bean("claudeFixExecutor")
+    public Executor claudeFixExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("claude-fix-");
+        // Dropped, and said so: FixJobFollowUp's catch-up starts a dropped hold on its next run.
+        executor.setRejectedExecutionHandler((task, pool) -> org.slf4j.LoggerFactory.getLogger("claudeFixExecutor")
+                .warn("Claude fix queue full: a start or follow-up was dropped; the follow-up's catch-up retries holds"));
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("importQueueExecutor")
     public Executor importQueueExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

@@ -56,6 +56,7 @@ class ImportJobWorkerTest {
     private ImportVerificationRecorder verificationRecorder;
     private com.finora.service.HeldStatementService heldStatementService;
     private HeldItemAdminAlertService heldItemAdminAlertService;
+    private com.finora.imports.fix.FixJobStarter fixJobStarter;
     private ImportJobWorker worker;
 
     private ImportJob job;
@@ -78,10 +79,12 @@ class ImportJobWorkerTest {
 
         heldStatementService = mock(com.finora.service.HeldStatementService.class);
         heldItemAdminAlertService = mock(HeldItemAdminAlertService.class);
+        fixJobStarter = mock(com.finora.imports.fix.FixJobStarter.class);
 
         worker = new ImportJobWorker(jobStore, importService, statementContentService, observability,
                 stageRecorder, new ExceptionClassifier(), statementStatusNotifier, verificationRecorder,
-                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
+                heldStatementService, new ParserVersionProvider(), heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
+                fixJobStarter);
 
         job = new ImportJob(UUID.randomUUID(), "statement.csv", "hash", "objects/key", "CSV");
         job.markClaimed("worker", Instant.now());
@@ -496,6 +499,7 @@ class ImportJobWorkerTest {
         runAnotherPass();
 
         verify(heldItemAdminAlertService).alertImportHeld(job.getId());
+        verify(fixJobStarter).onHeld(job.getId());
     }
 
     /** The negative case {@code aStatementThatShowsNoActivityIsNotHeld} already proves the job stays
@@ -508,6 +512,7 @@ class ImportJobWorkerTest {
         worker.drainOnce();
 
         verify(heldItemAdminAlertService, never()).alertImportHeld(any());
+        verify(fixJobStarter, never()).onHeld(any());
     }
 
     /** A curated failure carrying recovered-lines evidence still enters HELD_FOR_REVIEW (see
@@ -856,6 +861,53 @@ class ImportJobWorkerTest {
         assertThat(job.getHeldStatementId())
                 .as("the job must point at the review that was opened for it")
                 .isEqualTo(hold.getId());
+    }
+
+    /**
+     * The automatic Claude fix starts only once the job is held under its own review AND its
+     * findings are recorded. HeldStatementService.openHold commits before either, so a start from
+     * there could read the job not yet held (and record nothing) or send no finding kinds.
+     */
+    @Test
+    void aTrustHoldStartsTheClaudeFixAfterTheHoldAndItsFindingsAreWritten() throws IOException {
+        stubHold();
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenReturn(stagedWithCountMismatch());
+        ImportJob.Status[] statusAtStart = {null};
+        org.mockito.Mockito.doAnswer(inv -> {
+            statusAtStart[0] = job.getStatus();
+            return null;
+        }).when(fixJobStarter).onHeld(job.getId());
+
+        worker.drainOnce();
+
+        verify(fixJobStarter).onHeld(job.getId());
+        assertThat(statusAtStart[0]).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(verificationRecorder, fixJobStarter);
+        order.verify(verificationRecorder).recordForJob(org.mockito.ArgumentMatchers.eq(job.getId()), any());
+        order.verify(fixJobStarter).onHeld(job.getId());
+    }
+
+    @Test
+    void aTrustHoldWithNoReviewRecordStartsNoClaudeFix() throws IOException {
+        org.mockito.Mockito.doThrow(new IllegalStateException("database down"))
+                .when(heldStatementService).createHold(any(), any(), any(), any());
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenReturn(stagedWithCountMismatch());
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_TRUST_REVIEW);
+        verify(fixJobStarter, never()).onHeld(any());
+    }
+
+    @Test
+    void aTrustworthyExtractionStartsNoClaudeFix() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any())).thenReturn(staged());
+
+        worker.drainOnce();
+
+        verify(fixJobStarter, never()).onHeld(any());
     }
 
     /**

@@ -46,4 +46,12 @@ public class BuildVersionResolver {
                 ? configuredCommit.substring(0, SHORT_COMMIT_LENGTH)
                 : configuredCommit;
     }
+
+    /** The running build's full commit id, from the same sources in the same order, or null. The
+     *  Claude fix follow-up compares it with a fix's merge commit on GitHub. */
+    public String currentFullCommit() {
+        GitProperties git = gitProperties.getIfAvailable();
+        if (git != null && git.getCommitId() != null) return git.getCommitId();
+        return configuredCommit == null || configuredCommit.isBlank() ? null : configuredCommit;
+    }
 }

@@ -57,7 +57,7 @@ class FynImportDiagnosisServiceTest {
                 "UNRELIABLE", "OCR", true, "parser-v42",
                 List.of("COUNT_MISMATCH"), null, null, null, null, null,
                 Instant.now(), null, null, null, null, null, false);
-        return new HeldStatementDetailDto(summary, "statement.pdf", List.of(), List.of());
+        return new HeldStatementDetailDto(summary, "statement.pdf", List.of(), List.of(), null);
     }
 
     @Test

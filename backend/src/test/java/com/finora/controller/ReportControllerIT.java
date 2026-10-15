@@ -226,6 +226,83 @@ class ReportControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMonthReport_carriesTheSavingsRate_andWhyItIsWithheldWhenThereIsNoIncome() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+
+        JsonNode august = data(get("/api/v1/reports?month=2026-08", user));
+        // 1500 earned, 500 spent: 1000 kept of 1500 = 66.67%.
+        assertThat(august.get("savingsRatePct").decimalValue()).isEqualByComparingTo("66.67");
+        assertThat(august.get("savingsRateGateReason").isNull()).isTrue();
+
+        // June holds only a purchase: no income was counted, so there is no rate to show.
+        JsonNode june = data(get("/api/v1/reports?month=2026-06", user));
+        assertThat(june.get("savingsRatePct").isNull()).isTrue();
+        assertThat(june.get("savingsRateGateReason").asText()).isEqualTo("NO_INCOME");
+    }
+
+    /** The report and the Dashboard build income and expense through separate code, so "same rule"
+     *  is not "same number": this asks both endpoints about the same user and month. */
+    private void assertReportAndDashboardAgreeOnTheSavingsRate(User user) throws Exception {
+        JsonNode dashboard = data(get("/api/v1/dashboard/summary", user));
+        String month = dashboard.get("reportingMonth").asText();
+        JsonNode report = data(get("/api/v1/reports?month=" + month, user));
+
+        assertThat(report.get("income").decimalValue()).isEqualByComparingTo(dashboard.get("monthlyIncome").decimalValue());
+        assertThat(report.get("expense").decimalValue()).isEqualByComparingTo(dashboard.get("monthlyExpense").decimalValue());
+        assertThat(report.get("savingsRateGateReason")).isEqualTo(dashboard.get("savingsRateGateReason"));
+        if (dashboard.get("savingsRatePct").isNull()) {
+            assertThat(report.get("savingsRatePct").isNull()).isTrue();
+        } else {
+            assertThat(report.get("savingsRatePct").decimalValue())
+                    .isEqualByComparingTo(dashboard.get("savingsRatePct").decimalValue());
+        }
+    }
+
+    @Test
+    void theReportAndTheDashboard_showTheSameSavingsRate_forTheSameMonth() throws Exception {
+        User user = createUser();
+        UUID account = createAccount(user);
+        income(user, account, "1500.00", LocalDate.of(2026, 8, 2));
+        expense(user, account, "500.00", LocalDate.of(2026, 8, 12));
+        income(user, account, "2000.00", LocalDate.of(2026, 9, 2));
+        expense(user, account, "500.00", LocalDate.of(2026, 9, 12));
+        expense(user, account, "250.00", LocalDate.of(2026, 9, 20));
+
+        assertReportAndDashboardAgreeOnTheSavingsRate(user);
+        // And it is a real figure, so the test above cannot pass by both sides being withheld.
+        JsonNode report = data(get("/api/v1/reports?month=2026-09", user));
+        assertThat(report.get("savingsRatePct").decimalValue()).isEqualByComparingTo("62.50");
+    }
+
+    @Test
+    void theReportAndTheDashboard_withholdTheSavingsRateForTheSameReason() throws Exception {
+        User user = createUser();
+        UUID account = createAccount(user);
+        income(user, account, "1500.00", LocalDate.of(2026, 8, 2));
+        expense(user, account, "500.00", LocalDate.of(2026, 8, 12));
+        income(user, account, "2000.00", LocalDate.of(2026, 9, 2));
+        expense(user, account, "500.00", LocalDate.of(2026, 9, 12));
+        // A credit from a person is "money to review", not income -- and here it is larger than the
+        // income that was counted, so the rate is withheld rather than shown.
+        Transaction fromPerson = new Transaction();
+        fromPerson.setUserId(user.getId());
+        fromPerson.setAccountId(account);
+        fromPerson.setAmount(new BigDecimal("3000.00"));
+        fromPerson.setTxnType(Transaction.Type.INCOME);
+        fromPerson.setTxnDate(LocalDate.of(2026, 9, 15));
+        fromPerson.setDescription("UPI-SAMPLE PERSON-sampleuser@ybl-REF1");
+        fromPerson.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        fromPerson.setSource(Transaction.Source.CSV_IMPORT);
+        fromPerson.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        transactionRepository.save(fromPerson);
+
+        assertReportAndDashboardAgreeOnTheSavingsRate(user);
+        JsonNode report = data(get("/api/v1/reports?month=2026-09", user));
+        assertThat(report.get("savingsRateGateReason").asText()).isEqualTo("UNRESOLVED_EXCEEDS_INCOME");
+        assertThat(report.get("savingsRatePct").isNull()).isTrue();
+    }
+
+    @Test
     void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
         User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
 

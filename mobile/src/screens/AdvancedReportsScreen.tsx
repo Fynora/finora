@@ -10,7 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
-import { SkeletonChart } from '../components/skeletons/Skeletons';
+import { SkeletonChart, SkeletonGroup } from '../components/skeletons/Skeletons';
 import { HorizontalBarList } from '../components/charts/HorizontalBarList';
 import { LearningGrowthChart } from '../components/charts/LearningGrowthChart';
 import { SpendTrendChart } from '../components/charts/SpendTrendChart';
@@ -253,7 +253,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
         <SectionHeading title="Spend Trend" />
         <Text style={[styles.panelHint, { color: c.muted }]}>Merchant-attributed spend over your trailing 6 months.</Text>
         {trendQ.isLoading ? (
-          <SkeletonChart width={chartWidth} />
+          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
         ) : (
           <SpendTrendChart
             points={(trendQ.data ?? []).map((p) => ({ label: monthLabel(p.month), value: p.totalSpend }))}
@@ -395,7 +395,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
           Categorizations the engine learned on its own vs. ones you corrected, per month.
         </Text>
         {learningQ.isLoading ? (
-          <SkeletonChart width={chartWidth} />
+          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
         ) : (
           <LearningGrowthChart
             points={(learningQ.data ?? []).map((p) => ({

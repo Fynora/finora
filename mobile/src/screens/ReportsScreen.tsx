@@ -8,7 +8,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
-import { SkeletonCard } from '../components/skeletons/Skeletons';
+import { SkeletonCard, SkeletonGroup } from '../components/skeletons/Skeletons';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { ProgressBar } from '../components/ProgressBar';
 import { reportsApi } from '../api/endpoints';
@@ -32,14 +32,14 @@ type Exporting = 'csv' | 'pdf' | null;
  *  loading states can't silently drift apart from each other. */
 function ReportBodySkeleton() {
   return (
-    <>
+    <SkeletonGroup>
       <View style={styles.totals}>
         <SkeletonCard style={styles.totalCard} lines={1} />
         <SkeletonCard style={styles.totalCard} lines={1} />
         <SkeletonCard style={styles.totalCard} lines={1} />
       </View>
       <SkeletonCard style={styles.section} lines={4} />
-    </>
+    </SkeletonGroup>
   );
 }
 
@@ -149,7 +149,7 @@ export function ReportsScreen() {
     return (
       <GlassScreen style={styles.glassRoot}>
       <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
-        <SkeletonCard lines={2} />
+        <SkeletonGroup><SkeletonCard lines={2} /></SkeletonGroup>
         <ReportBodySkeleton />
       </ScrollView>
       </GlassScreen>

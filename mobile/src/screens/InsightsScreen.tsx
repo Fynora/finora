@@ -12,7 +12,7 @@ import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { VerticalBarChart } from '../components/charts/VerticalBarChart';
 import { OnTrackIllustration } from '../components/insights/OnTrackIllustration';
-import { SkeletonCard, SkeletonChart } from '../components/skeletons/Skeletons';
+import { SkeletonCard, SkeletonChart, SkeletonGroup } from '../components/skeletons/Skeletons';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type InsightsData,
   type RecurringItem,
@@ -405,7 +405,7 @@ export function InsightsScreen() {
           insightsQ, Recurring Payments reads recurringQ -- so a slow one doesn't hold the other
           on its skeleton after its own data has already arrived. */}
       {insightsQ.isLoading ? (
-        <SkeletonCard style={styles.section} lines={5} />
+        <SkeletonGroup style={styles.section}><SkeletonCard lines={5} /></SkeletonGroup>
       ) : (
         <Card style={styles.section}>
           <SectionHeading
@@ -599,7 +599,7 @@ export function InsightsScreen() {
           </View>
 
           {spendingInsightsQ.isLoading ? (
-            <SkeletonCard style={styles.section} lines={5} />
+            <SkeletonGroup style={styles.section}><SkeletonCard lines={5} /></SkeletonGroup>
           ) : (
             <Card style={styles.section}>
               <SectionHeading
@@ -635,7 +635,7 @@ export function InsightsScreen() {
           )}
 
           {recurringQ.isLoading ? (
-            <SkeletonCard style={styles.section} lines={4} />
+            <SkeletonGroup style={styles.section}><SkeletonCard lines={4} /></SkeletonGroup>
           ) : (
             <View
               onLayout={(e) => {
@@ -713,7 +713,7 @@ export function InsightsScreen() {
           )}
 
           {spendingInsightsQ.isLoading ? (
-            <SkeletonCard style={styles.section} lines={4} />
+            <SkeletonGroup style={styles.section}><SkeletonCard lines={4} /></SkeletonGroup>
           ) : (
             <Card style={styles.section}>
               <SectionHeading
@@ -795,11 +795,11 @@ export function InsightsScreen() {
               ) : null}
             </Card>
           ) : (
-            <SkeletonCard style={styles.section} lines={3} />
+            <SkeletonGroup style={styles.section}><SkeletonCard lines={3} /></SkeletonGroup>
           )}
 
           {incomeTrendQ.isLoading ? (
-            <SkeletonChart variant="bar" width={chartWidth} />
+            <SkeletonGroup><SkeletonChart variant="bar" width={chartWidth} /></SkeletonGroup>
           ) : incomeTrendQ.isError ? (
             <Text style={[styles.error, { color: c.dangerInk }]}>
               Couldn&apos;t load your income trend — pull down to try again.

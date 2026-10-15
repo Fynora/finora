@@ -13,6 +13,7 @@ import {
 } from '../api/endpoints';
 import { light } from '../theme/palette';
 import type { DashboardSummary } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 // useWindowDimensions (used for chart width and, per the "large Dynamic Type" describe block
 // below, font scale) reads its value from Dimensions.get('window') on mount -- spying there,
@@ -1975,5 +1976,13 @@ describe('a second tap on this screen\'s tab', () => {
       expect(calls.length).toBeGreaterThan(0);
       expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
     });
+  });
+});
+
+describe('DashboardScreen first load', () => {
+  it('reads as "Loading" regions to a screen reader during the first load', () => {
+    dashboard.summary.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
   });
 });

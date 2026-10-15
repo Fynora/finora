@@ -10,7 +10,7 @@ import { AnimatedNumber } from '../components/AnimatedNumber';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
-import { SkeletonBudgetCard } from '../components/skeletons/Skeletons';
+import { SkeletonBudgetCard, SkeletonGroup } from '../components/skeletons/Skeletons';
 import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
 import { budgetsApi } from '../api/endpoints';
@@ -146,11 +146,11 @@ export function BudgetsScreen() {
 
       <View style={styles.list}>
         {isLoading ? (
-          <>
+          <SkeletonGroup style={styles.skeletonList}>
             <SkeletonBudgetCard />
             <SkeletonBudgetCard />
             <SkeletonBudgetCard />
-          </>
+          </SkeletonGroup>
         ) : isError ? (
           <Card>
             <Text style={[styles.error, { color: c.dangerInk }]}>Could not load budgets.</Text>
@@ -262,6 +262,8 @@ const styles = StyleSheet.create({
   error: { fontSize: 13, marginTop: spacing.sm },
   saved: { fontSize: 13, marginTop: spacing.sm },
   list: { marginTop: spacing.md, gap: spacing.sm },
+  // The cards' spacing inside `list`, kept when they are wrapped in one placeholder group.
+  skeletonList: { gap: spacing.sm },
   budgetCard: {},
   budgetHeader: {
     flexDirection: 'row',

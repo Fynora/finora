@@ -7,6 +7,7 @@ import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { currentYearMonth, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import type { Budget } from '../types';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   budgetsApi: { list: jest.fn(), upsert: jest.fn() },
@@ -244,5 +245,13 @@ describe('screen capture protection (Track D/D3)', () => {
     renderScreen();
 
     expect(usePreventScreenCapture).toHaveBeenCalled();
+  });
+});
+
+describe('BudgetsScreen first load', () => {
+  it('reads as one "Loading" region to a screen reader during the first load', () => {
+    api.list.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
   });
 });

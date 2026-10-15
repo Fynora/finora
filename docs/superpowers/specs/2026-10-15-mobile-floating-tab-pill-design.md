@@ -1,7 +1,8 @@
 # Mobile floating tab pill: design
 
-**Status:** design approved by the owner on 2026-10-15, section by section in conversation. This
-document is the written form, for review before the build plan.
+**Status:** design approved by the owner on 2026-10-15, section by section in conversation, and
+built the same day. The build plan is `docs/superpowers/plans/2026-10-15-mobile-floating-tab-pill.md`;
+what the build changed against this design is under "Build record" at the end.
 
 ## Why
 
@@ -39,7 +40,8 @@ Nothing the tabs lead to changes.
   older iOS, a see-through tinted fill on Android (no blur), and the solid card colour when Reduce
   Transparency is on or not yet known. A soft shadow lifts it off the list.
 - **Items.** Equal widths. Icon 24 pt; label 10 pt, one line, growing with the system text size up
-  to 1.3 times and no further. The pill keeps its height at every text size.
+  to 1.3 times and no further, and shrinking to fit its slot rather than being cut off. The pill
+  keeps its height at every text size.
 - **Built as our own component**, passed to the navigator as `tabBar`. Restyling the library's own
   bar was considered and rejected: it pads itself for the home indicator, is laid out for full
   width, and the "+" and the rounded shape would fight it on every detail.
@@ -76,10 +78,13 @@ Today no screen leaves room at the bottom, because the bar sits below the screen
 floating over them, every one has to.
 
 - **`useTabBarSpace()`**, one shared helper. It returns the height the pill covers (pill height plus
-  its bottom gap) plus 12 pt so the last row does not touch the pill. It reads
-  `BottomTabBarHeightContext` directly rather than `useBottomTabBarHeight()`, which throws outside a
-  tab navigator, and returns 0 there. Layout pieces used both inside and outside the tabs (the
-  sign-in card layout `AuthScreenLayout`) therefore get space only inside the tabs.
+  its bottom gap) plus 12 pt so the last row does not touch the pill. It reads our own
+  `TabBarSpaceContext`, which `AppTabs` provides around its navigator, and is 0 outside it. (As
+  first written it read the library's `BottomTabBarHeightContext`; every screen test runs under a
+  stand-in for `@react-navigation/native` that the library cannot load under, so the build uses our
+  own context with the same number. The pill still reports its height to the library.) Layout
+  pieces used both inside and outside the tabs (the sign-in card layout `AuthScreenLayout`)
+  therefore get space only inside the tabs.
 - **The space does not change while the pill hides for the keyboard**, so lists do not jump when
   typing starts.
 - **Scrolling screens.** The bottom padding of each screen's main vertical scrolling list grows by
@@ -102,7 +107,8 @@ floating over them, every one has to.
 
 ### Guard
 
-A repository guard, like the existing reporting-period label guard, reads the navigation files to
+A source-scanning test in the mobile suite (`mobile/src/navigation/tabBarSpace.guard.test.ts`, the
+same pattern as `glassMigration.test.ts`; first written here as a script in `scripts/`) reads the navigation files to
 find every screen reachable from the tabs and fails if a screen file (or the shared layout it
 renders through) holds a vertical scrolling list but does not call `useTabBarSpace()`. It is a text
 check: it proves each screen asks for the space, not that the space works. That is what the
@@ -153,3 +159,75 @@ work stops and the numbers go to the owner before anything else.
 
 One pull request. It ships in the next store build (1.1.0) and must not be sent over the air to the
 1.0.0 runtime.
+
+## Build record (2026-10-15)
+
+Built on `feature/mobile-floating-tab-pill` from main at `2f25e0248`. Checked on an iPhone 17 Pro
+simulator (iOS 26.5) signed in to the owner's account against production, read only. Nothing was
+deleted, edited, added, sent or answered there.
+
+### What the build changed against this design, and why
+
+- **The bottom-space helper reads our own context.** See "Space at the bottom of every screen".
+  Found by a probe before the plan was written: importing `@react-navigation/bottom-tabs` under the
+  test setup's stand-in for `@react-navigation/native` fails (`createScreenFactory is not a
+  function`), which would have meant a new mock in 35 screen test files.
+- **The guard is a test in the mobile suite**, not a script in `scripts/`.
+- **Labels shrink to fit their slot.** Seen on the simulator at `accessibility-large`: the
+  "Transactions" label at 1.3 times showed as "Transacti…". A 320 pt wide phone gives each slot
+  about 56 pt even at the default size. Fixed test-first (`adjustsFontSizeToFit`,
+  `minimumFontScale` 0.7) and seen fixed on the simulator.
+- **Two Settings screens had no theme hook** to place the new hook after; it went after their first
+  hook (`SettingsScreen`) or first in the component (`SettingsConnectedAppsScreen`, which has none).
+
+### Speed
+
+Time Profiler, sample counts on the app's own threads in the busiest 11 seconds of a 26 second
+recording, ten swipes down the Transactions list, a fresh app load before each run. Before is the
+base commit served from a separate checkout, after is this branch, same session.
+
+| | JavaScript thread | Main thread |
+|---|---|---|
+| Before (three runs) | 1259 / 1294 / 988 | 985 / 1009 / 666 |
+| After (three runs) | 1143 / 1214 / 1193 | 789 / 916 / 868 |
+
+The after runs sit inside the before range on both threads. Not measured: the system's render
+process, where the glass is composited.
+
+### Bottom of every screen
+
+Each screen was scrolled to its end and its last row checked against the pill: 29 of the 35 screens
+were checked and every one cleared the pill. Six could not be opened on this account:
+
+| Screen | Why not checked |
+|---|---|
+| My Subscription | shown only to a paying account (Subscription showed Paywall, which passed) |
+| Bank Sync Confirm | opens only from a bank link |
+| Connected Apps | not listed in Settings on this account |
+| Gmail Review | opens only from Connected Apps |
+| Support Ticket Detail | no tickets on this account |
+| Verify Email Change | opens only from an email-change link; its layout is covered by `AuthScreenLayout.tabBar.test.tsx` |
+
+Also seen: the keyboard on Transactions search and on Fyn hides the pill and brings it back when it
+closes; Fyn's message box sits above the pill with the keyboard down; "+" opens its menu above the
+pill; a second press on More after opening a screen under it returns to the More menu; the iOS
+scroll indicator stops above the pill; the dark theme; the largest ordinary text size (after the
+label fix above).
+
+### Not verified
+
+- **Android.** Not looked at on a device or emulator. Open: Android reports the keyboard only once it is up, so the pill may ride up with the keyboard for a moment before sliding away; and the shadow (elevation) under the see-through pill.
+- **iOS below 26**, a **physical phone**, and **Reduce Transparency** on a device (unit tests only).
+- **iPad.** An iPad simulator exists, but the app there needs its own sign-in; the 480 pt cap is
+  covered by unit tests only.
+- **The tour**, which would mean resetting onboarding on the owner's production account. Its target
+  registration is covered by `AppTabs.test.tsx`.
+
+### Found in passing, not changed
+
+- `AppTabs.test.tsx` prints "You are trying to `require` a file after the Jest environment has been
+  torn down": its existing "+" menu test fires a real tracking call. Same on the base commit.
+- With the keyboard up, Fyn's message box keeps its own bottom padding (safe-area inset plus 8 pt),
+  about 42 pt above the keyboard, as before this change.
+- `npm ci` warns that the `expo-screen-capture` patch was made for 57.0.2 and applied to 57.0.4. The
+  patch applied.

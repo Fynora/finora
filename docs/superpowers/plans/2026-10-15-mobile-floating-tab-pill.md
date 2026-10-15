@@ -1227,3 +1227,27 @@ git -C /Users/sid/Downloads/finora/.claude/worktrees/mobile-floating-tab-pill co
 
 - [ ] **Step 3: Check against main, push, open the PR.** `git fetch origin`; `git log --oneline origin/main..HEAD`; `gh repo view --json visibility` (public: open the PR without asking; private: label `full-ci` and push once more only when ready); `git push -u origin feature/mobile-floating-tab-pill`; `gh pr create` with a body in plain prose ending with the Claude Code line, no screenshots of real data, the not-verified list, and "ships in the next store build; must not be sent over the air to the 1.0.0 runtime".
 - [ ] **Step 4: Send the spec and plan to the owner as files.**
+
+## Execution record (2026-10-15)
+
+Executed inline in one session, with no sub-agents. Measured results and what the build changed
+against the design are in the design document's "Build record". This section records how the plan
+itself went.
+
+| Task | Result |
+|---|---|
+| 0 Baseline | Done after Task 10: the simulator app was signed out until the owner signed in. Taken from a separate checkout of the base commit, so it measures unchanged code. `prof_start.sh` needed one retry (xctrace "Cannot find process for provided pid" with the process running). |
+| 1 Geometry | Done as written. |
+| 2 Space helper | Done as written; the test helper was later typed for `tsc`. |
+| 3 Keyboard hook | Done as written. |
+| 4 Pill | Done as written, 13 tests; one more added in Task 11. |
+| 5 AppTabs | Done. Its "+" menu test prints a jest teardown warning, the same on the base commit. |
+| 6 Guard | Done; started red with the expected 34 screens. |
+| 7 Tab and More screens | Done with a scratch script that asserted each edit; 20 scroll roots in 18 files. |
+| 8 Other screens and the sign-in layout | Done; two Settings screens needed the hook placed differently (ruling in the design's build record). |
+| 9 Fyn and Toast | Done. The Fyn tests wait for the chat with `findByTestId`; the red was then proven by restoring the old padding. The commit-message check rejected a subject starting with "Fyn's" (sentence case); reworded. The guard was shown to catch a screen with the hook removed. |
+| 10 Whole check | `tsc` failed once on the space-helper test's typing; fixed. Jest 253 suites / 3,132 tests, lint, Android export and the four repository guards passed. |
+| 11 Simulator | 29 of 35 screens checked, all clear; 6 not reachable on this account. One fault found and fixed test-first (labels cut off at the largest text size). iPad and the tour not run. |
+| 12 Records | This record and the design's build record. |
+
+The final review was a self-review by the author. No second reviewer looked at this change.

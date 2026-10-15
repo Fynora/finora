@@ -6,6 +6,8 @@ import { pillFrame } from './tabBarLayout';
 import { light } from '../theme/palette';
 import { useKeyboardVisible } from '../lib/useKeyboardVisible';
 import { useReduceTransparency } from '../lib/useReduceTransparency';
+import { __setHapticsStateForTests } from '../lib/haptics';
+import { expectHaptics } from '../test/haptics';
 
 // The global stand-in for @react-navigation/native (src/test/setup.ts) has no CommonActions.
 jest.mock('@react-navigation/native', () => ({
@@ -91,6 +93,27 @@ describe('FloatingTabBar', () => {
       target: 'More-k', data: { behavior: { scrollToTop: true, popToTop: true } },
     }));
     expect(navigation.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('one selection per tab press, also on the tab already open', () => {
+    setup({ index: 0 });
+    fireEvent.press(screen.getByTestId('tab-Transactions'));
+    expectHaptics({ selection: 1 });
+    fireEvent.press(screen.getByTestId('tab-Home'));
+    expectHaptics({ selection: 2 });
+  });
+
+  it('no selection when haptics are off', () => {
+    __setHapticsStateForTests('off');
+    setup({ index: 0 });
+    fireEvent.press(screen.getByTestId('tab-Transactions'));
+    expectHaptics({});
+  });
+
+  it('no selection on a long press, which only sends tabLongPress', () => {
+    setup({ index: 0 });
+    fireEvent(screen.getByTestId('tab-Insights'), 'longPress');
+    expectHaptics({});
   });
 
   it('does not navigate when a listener prevents the press', () => {

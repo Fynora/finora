@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react
 import { JourneyScreen } from './JourneyScreen';
 import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
   dashboardApi: { timeline: jest.fn() },
@@ -118,5 +119,14 @@ describe('JourneyScreen', () => {
     fireEvent.press(await screen.findByText('See your year in review'));
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('Wrapped'));
+  });
+});
+
+describe('JourneyScreen first load', () => {
+  it('shows the journey skeleton, not a spinner, on first load', () => {
+    api.timeline.mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('journey-skeleton')).toBeTruthy();
   });
 });

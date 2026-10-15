@@ -1,9 +1,11 @@
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { LoadFailed } from '../components/LoadFailed';
+import { WrappedSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Port of frontend/src/pages/Wrapped.tsx, which renders a blank page (`return null`) until its
@@ -15,14 +17,16 @@ export function WrappedScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const year = new Date().getFullYear();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['wrapped', year], queryFn: () => dashboardApi.wrapped(year),
   });
 
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
+          <WrappedSkeleton />
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -33,9 +37,7 @@ export function WrappedScreen() {
       {/* No data is the only failure worth reporting: React Query keeps the previous data when a
           refetch fails, and a failed refetch must not replace a year in review that is already here. */}
       {!data ? (
-        <Text style={[styles.note, { color: c.muted }]}>
-          Couldn't load your year in review. Try again later.
-        </Text>
+        <LoadFailed message="Couldn't load your year in review. Try again later." onRetry={() => void refetch()} />
       ) : (
         <View style={[styles.card, { backgroundColor: c.ink }]}>
           <Text style={[styles.eyebrow, { color: c.onPrimary }]}>Your Financial Journey</Text>
@@ -60,9 +62,7 @@ export function WrappedScreen() {
 
 const styles = StyleSheet.create({
   glassRoot: { flex: 1 },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { padding: spacing.md },
-  note: { fontSize: 13 },
   card: { borderRadius: radius.xl, padding: spacing.lg },
   // 0.7 opacity on the caption lines matches the web card's opacity-70.
   eyebrow: { fontSize: 13, opacity: 0.7 },

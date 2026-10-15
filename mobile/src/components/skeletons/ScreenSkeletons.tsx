@@ -1,8 +1,8 @@
 import { StyleSheet, View } from 'react-native';
-import { spacing, useTheme } from '../../theme';
+import { radius, spacing, useTheme } from '../../theme';
 import { Card } from '../Card';
 import {
-  SkeletonChart, SkeletonGroup, SkeletonIcon, SkeletonLines, SkeletonListRow, SkeletonText,
+  SkeletonBox, SkeletonChart, SkeletonGroup, SkeletonIcon, SkeletonLines, SkeletonListRow, SkeletonText,
 } from './Skeletons';
 
 /**
@@ -96,6 +96,68 @@ export function InvestmentsSkeleton() {
   );
 }
 
+export function GoalsSkeleton() {
+  const c = useTheme();
+  return (
+    <SkeletonGroup testID="goals-skeleton">
+      <View style={styles.headerRow}>
+        <SkeletonText size="title" width="25%" />
+        <SkeletonText size="body" width="25%" />
+      </View>
+      <View style={styles.columnSm}>
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <View style={[styles.headerRow, styles.stackSm]}>
+              <SkeletonText size="heading" width="45%" />
+              <SkeletonText size="meta" width="30%" />
+            </View>
+            <SkeletonBox size="bar" round />
+            <SkeletonText size="caption" width="35%" style={styles.gapSm} />
+            <View style={[styles.dividedRow, { borderTopColor: c.border }, styles.columnSmRow]}>
+              <SkeletonBox size="touch" width="48%" />
+              <SkeletonBox size="touch" width="48%" />
+            </View>
+          </Card>
+        ))}
+      </View>
+    </SkeletonGroup>
+  );
+}
+
+export function JourneySkeleton() {
+  return (
+    <SkeletonGroup testID="journey-skeleton" style={styles.columnMd}>
+      {[0, 1].map((i) => (
+        <Card key={i}>
+          <SkeletonText size="subheading" width="20%" style={styles.stackSm} />
+          {[0, 1, 2].map((j) => (
+            <View key={j} style={styles.stackSm}>
+              <SkeletonText size="body" width="70%" />
+              <SkeletonText size="meta" width="45%" style={styles.tight} />
+            </View>
+          ))}
+        </Card>
+      ))}
+      <SkeletonText size="label" width="45%" />
+    </SkeletonGroup>
+  );
+}
+
+export function WrappedSkeleton() {
+  return (
+    <SkeletonGroup testID="wrapped-skeleton">
+      <Card style={styles.wrappedCard}>
+        <SkeletonText size="label" width="45%" />
+        <SkeletonText size="display" width="30%" style={styles.gapSm} />
+        <SkeletonText size="amount" width="12%" style={styles.gapMd} />
+        <SkeletonText size="label" width="50%" style={styles.tight} />
+        <SkeletonText size="body" width="70%" style={styles.gapMd} />
+        <SkeletonText size="body" width="55%" style={styles.gapSm} />
+      </Card>
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },
@@ -117,4 +179,6 @@ const styles = StyleSheet.create({
   twoUpTile: { flexBasis: '47%', flexGrow: 1, padding: spacing.sm, gap: spacing.xs },
   threeUp: { flexDirection: 'row', gap: spacing.sm },
   threeUpTile: { flex: 1, paddingHorizontal: spacing.sm, gap: spacing.xs },
+  columnSmRow: { gap: spacing.sm },
+  wrappedCard: { borderRadius: radius.xl, padding: spacing.lg },
 });

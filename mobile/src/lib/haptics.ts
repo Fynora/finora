@@ -38,6 +38,9 @@ let chosen = false;
 let writes: Promise<void> = Promise.resolve();
 const listeners = new Set<() => void>();
 const setState = (next: HapticsState) => { state = next; listeners.forEach((l) => l()); };
+/** One console line per haptic that fires, in development builds: the simulator cannot vibrate, so
+ *  this is where a haptic shows up there. Tests turn it off (they count the calls instead). */
+let devLog = __DEV__;
 
 export function primeHapticsSetting(): void {
   if (primed) return;
@@ -67,15 +70,16 @@ export function useHapticsEnabled(): boolean {
 
 export function __resetHapticsForTests(): void {
   state = 'unread'; primed = false; chosen = false; writes = Promise.resolve(); listeners.clear();
+  devLog = false;
 }
 
 export function __setHapticsStateForTests(next: HapticsState): void {
-  state = next; primed = true; chosen = false;
+  state = next; primed = true; chosen = false; devLog = false;
 }
 
 function fire(kind: string, call: () => Promise<unknown>): void {
   if (state !== 'on') return;
-  if (__DEV__) console.info(`[haptics] ${kind}`);
+  if (devLog) console.info(`[haptics] ${kind}`);
   call().catch(() => {});
 }
 

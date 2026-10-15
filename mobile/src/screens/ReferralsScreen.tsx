@@ -14,6 +14,7 @@ import { useTransientFlag } from '../lib/useTransientFlag';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { safeStorage } from '../lib/safeStorage';
 import { toUserMessage } from '../lib/apiError';
+import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure } from '../lib/monitoring';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { visiblePlanCode } from '../lib/planDisplay';
@@ -262,8 +263,12 @@ function FriendCodeCard({ c }: { c: ReturnType<typeof useTheme> }) {
   const apply = useMutation({
     mutationFn: (value: string) => referralsApi.applyCode(value),
     onMutate: () => setError(null),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onSuccess: () => {
+      hapticSuccess();
+      return queryClient.invalidateQueries({ queryKey: ['referrals-mine'] });
+    },
     onError: (err) => {
+      hapticError();
       reportTransportFailure(err, 'referrals:apply-code');
       setError(toUserMessage(err, 'Could not add this code. Try again.'));
     },
@@ -324,8 +329,12 @@ export function ReferralsScreen() {
   const redeemMutation = useMutation({
     mutationFn: (tier: 'PLUS' | 'PREMIUM') => referralsApi.redeem(tier),
     onMutate: () => setRedeemError(null),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['referrals-mine'] }),
+    onSuccess: () => {
+      hapticSuccess();
+      return queryClient.invalidateQueries({ queryKey: ['referrals-mine'] });
+    },
     onError: (err, tier) => {
+      hapticError();
       // No startedAt -- react-query owns this mutation's lifecycle, same reasoning as
       // TransactionSourceModal/TransactionExplanationModal's identical query-error reporting.
       reportTransportFailure(err, 'referrals:redeem');
@@ -359,7 +368,14 @@ export function ReferralsScreen() {
 
   async function handleCopy() {
     if (!data?.code) return;
-    await Clipboard.setStringAsync(data.code);
+    try {
+      await Clipboard.setStringAsync(data.code);
+    } catch {
+      // Nothing was copied, so nothing says it was -- no "Copied", no haptic -- and the rejection
+      // is not left unhandled (this runs as `void handleCopy()`).
+      return;
+    }
+    hapticSuccess();
     triggerCopied();
   }
 

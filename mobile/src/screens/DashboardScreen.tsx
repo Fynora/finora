@@ -7,7 +7,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { hapticSelectionIfChanged } from '../lib/haptics';
+import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/haptics';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
@@ -201,7 +201,10 @@ export function DashboardScreen() {
         (items ?? []).filter((item) => item.merchant !== merchant));
       return { previous };
     },
+    // The row leaving the screen (onMutate) is not the outcome; the server's answer is.
+    onSuccess: () => hapticSuccess(),
     onError: (_err, _merchant, context) => {
+      hapticError();
       if (context?.previous) queryClient.setQueryData(['recurring'], context.previous);
     },
   });

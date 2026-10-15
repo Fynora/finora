@@ -50,6 +50,19 @@ describe('FeedbackSheet', () => {
 
     expect(api.submit).toHaveBeenCalledWith({ type: 'GENERAL', context: 'OTHER', message: 'Great app' });
     expect(screen.getByText('Thanks for the feedback')).toBeTruthy();
+    expectHaptics({ success: 1 });
+  });
+
+  it('gives one error when the feedback cannot be sent', async () => {
+    api.submit.mockRejectedValueOnce(new Error('down'));
+    renderSheet();
+
+    fireEvent.changeText(screen.getByLabelText('Your feedback'), 'Great app');
+    fireEvent.press(screen.getByRole('button', { name: /send feedback/i }));
+    await settle();
+
+    expect(screen.getByText('Could not send this feedback.')).toBeTruthy();
+    expectHaptics({ error: 1 });
   });
 
   it('sends the selected type and context', async () => {

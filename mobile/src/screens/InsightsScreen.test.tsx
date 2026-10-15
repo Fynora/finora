@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InsightsScreen } from './InsightsScreen';
-import { expectHaptics } from '../test/haptics';
+import { expectHaptics, resetHapticCalls } from '../test/haptics';
 import {
   categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
 } from '../api/endpoints';
@@ -92,6 +92,35 @@ describe('InsightsScreen', () => {
 
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
     await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+  });
+
+  it('dismissing: nothing as the row leaves, one success when the server confirms', async () => {
+    let resolve!: () => void;
+    recurring.dismiss.mockReset().mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('netflix');
+    resetHapticCalls();
+
+    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+    await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+    expectHaptics({});
+
+    await act(async () => resolve());
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a dismiss the server refuses: one error, and the row comes back', async () => {
+    recurring.dismiss.mockReset().mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    fireEvent.press(await screen.findByText('Spending'));
+    await screen.findByText('netflix');
+    resetHapticCalls();
+
+    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+
+    await waitFor(() => expectHaptics({ error: 1 }));
+    expect(await screen.findByText('netflix')).toBeTruthy();
   });
 
   it('a "still Rent?" row replaces the nothing-detected message when no group is detected', async () => {

@@ -1660,6 +1660,33 @@ describe('Subscriptions & Recurring Payments widget (Phase 4)', () => {
     await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('Netflix'));
     await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
   });
+
+  it('dismissing: nothing as the row leaves, one success when the server confirms', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    let resolve!: () => void;
+    recurring.dismiss.mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+
+    renderScreen();
+    await screen.findByText('Netflix');
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+    await waitFor(() => expect(screen.queryByText('Netflix')).toBeNull());
+    expectHaptics({});
+
+    await act(async () => resolve());
+    await waitFor(() => expectHaptics({ success: 1 }));
+  });
+
+  it('a dismiss the server refuses: one error, and the row comes back', async () => {
+    recurring.list.mockResolvedValue([recurringItem({ merchant: 'Netflix' })]);
+    recurring.dismiss.mockRejectedValueOnce(new Error('down'));
+
+    renderScreen();
+    await screen.findByText('Netflix');
+    fireEvent.press(screen.getByLabelText('Not recurring: dismiss Netflix'));
+
+    await waitFor(() => expectHaptics({ error: 1 }));
+    expect(await screen.findByText('Netflix')).toBeTruthy();
+  });
 });
 
 /**

@@ -8,6 +8,7 @@ import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
 import { spacing } from '../theme';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
+import { expectHaptics } from '../test/haptics';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed');
@@ -209,6 +210,23 @@ describe('ReferralsScreen', () => {
 
     expect(clipboard.setStringAsync).toHaveBeenCalledWith('ABCD1234');
     expect(await screen.findByLabelText('Copied')).toBeTruthy();
+    expectHaptics({ success: 1 });
+  });
+
+  it('gives nothing when the copy fails, as nothing is shown', async () => {
+    api.mine.mockResolvedValue({
+      code: 'ABCD1234', referrals: [], walletBalance: 0, referralCount: 0,
+      plusMilestoneCounter: 0, premiumMilestoneCounter: 0, canApplyCode: false, grants: [],
+    });
+    clipboard.setStringAsync.mockRejectedValueOnce(new Error('no clipboard'));
+    renderScreen();
+    await screen.findByText('ABCD1234');
+
+    await act(async () => { fireEvent.press(screen.getByLabelText('Copy referral code')); });
+    await settle();
+
+    expect(screen.queryByLabelText('Copied')).toBeNull();
+    expectHaptics({});
   });
 
   it('shows an error state with a retry action when the code fails to load', async () => {
@@ -344,6 +362,7 @@ describe('ReferralsScreen', () => {
       await settle();
 
       expect(api.applyCode).toHaveBeenCalledWith('WXYZ9876');
+      expectHaptics({ success: 1 });
     });
 
     // Once a code is used (or the user subscribed) the server says canApplyCode false: no box.
@@ -370,6 +389,7 @@ describe('ReferralsScreen', () => {
       fireEvent.press(screen.getByText('Add code'));
 
       expect(await screen.findByText("You can't use your own referral code.")).toBeTruthy();
+      expectHaptics({ error: 1 });
     });
   });
 
@@ -445,6 +465,7 @@ describe('ReferralsScreen', () => {
       await settle();
 
       expect(api.redeem).toHaveBeenCalledWith('PLUS');
+      expectHaptics({ success: 1 });
     });
 
     it('shows the server error message under the reward row when redemption fails', async () => {
@@ -462,6 +483,7 @@ describe('ReferralsScreen', () => {
       await settle();
 
       expect(await screen.findByText('This reward was just redeemed by another request.')).toBeTruthy();
+      expectHaptics({ error: 1 });
     });
   });
 

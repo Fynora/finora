@@ -17,6 +17,7 @@ import { useKeyedSingleFlight } from '../lib/useSingleFlight';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 function confidenceLabel(confidence: number | null): string | null {
   if (confidence === null) return null;
@@ -41,6 +42,7 @@ function confidenceLabel(confidence: number | null): string | null {
  */
 export function GmailReviewScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const insets = useSafeAreaInsets();
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
@@ -134,7 +136,7 @@ export function GmailReviewScreen() {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
+      contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
     >
       <Text style={[styles.title, { color: c.ink }]}>Gmail Transactions</Text>

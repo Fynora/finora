@@ -6,7 +6,7 @@ import {
 import { AppAlert } from '../lib/appAlert';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, type RouteProp } from '@react-navigation/native';
+import { useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { GlassScreen } from '../components/GlassScreen';
@@ -40,6 +40,7 @@ import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export const LEDGER_PAGE_SIZE = 20;
 /**
@@ -129,6 +130,7 @@ export function LedgerScreen() {
   // already guard against, just not yet extended to the Ledger itself.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   // The card the loading, failed and empty states sit in: the same fill and edge as a day's card,
   // solid fallback included.
   const glassRow = useGlassSurfaceStyle();
@@ -185,6 +187,8 @@ export function LedgerScreen() {
   // The pinned bar is shown once the list has moved far enough for the large title to reach it.
   const [barShown, setBarShown] = useState(false);
   const listRef = useRef<FlatList<DayPiece>>(null);
+  // A second tap on the Transactions tab scrolls the list back to the top.
+  useScrollToTop(listRef);
   const searchRef = useRef<TextInput>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
@@ -521,7 +525,7 @@ export function LedgerScreen() {
         onEndReachedThreshold={0.4}
         refreshing={isFetching && !isFetchingNextPage}
         onRefresh={() => void refetch()}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         ListHeaderComponent={
           <View style={styles.header}>
             <LedgerTitleBlock countLabel={countLabel} onAdd={() => setAddingTransaction(true)} />

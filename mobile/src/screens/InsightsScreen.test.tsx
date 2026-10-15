@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { InsightsScreen } from './InsightsScreen';
 import {
@@ -780,5 +780,19 @@ describe('usage view recording', () => {
 
     expect(usageApi.recordView).not.toHaveBeenCalled();
     jest.useRealTimers();
+  });
+});
+
+describe('a second tap on this screen\'s tab', () => {
+  // The library's useScrollToTop scrolls the list it is given back to the top when the tab that is
+  // already open is pressed again (and only then). This checks the screen hands it its list.
+  it('scrolls the screen back to the top: the list is handed to useScrollToTop', async () => {
+    (useScrollToTop as jest.Mock).mockClear();
+    renderScreen();
+    await waitFor(() => {
+      const calls = (useScrollToTop as jest.Mock).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
+    });
   });
 });

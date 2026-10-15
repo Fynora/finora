@@ -2,7 +2,9 @@ import { AppAlert } from '../../lib/appAlert';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
+import { StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
+import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 
@@ -1970,5 +1972,45 @@ describe('ImportScreen — AA-linked account in the existing-account picker', ()
 
     const manualRowText = screen.getByText('HDFC Savings');
     expect(manualRowText.parent?.parent?.props.accessibilityState.disabled).toBeFalsy();
+  });
+});
+
+describe('ImportScreen — the summary under the floating tab pill', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.statements.confirmReimport.mockReset();
+  });
+
+  /**
+   * The summary was a plain View: stats, a warnings list of any length, then three buttons. The
+   * screen now runs under the floating tab pill, so a long warnings list (or large text) put
+   * "View in Ledger" under the pill with no way to scroll to it. It scrolls now, and leaves the
+   * pill's room at the bottom like every other screen in the tabs.
+   */
+  it('scrolls and leaves room for the pill, so the last button can always be reached', async () => {
+    api.statements.confirmReimport.mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {},
+      warnings: Array.from({ length: 12 }, (_, i) => `Warning number ${i + 1}`),
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'reimport',
+    });
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(
+      <TabBarSpaceContext.Provider value={92}>
+        {tree()}
+      </TabBarSpaceContext.Provider>
+    );
+    await pressImport();
+    expect(await screen.findByText('Import complete')).toBeTruthy();
+
+    const scroll = screen.getByTestId('import-summary');
+    // 92 cover + 12 clearance; styles.padded has no bottom padding of its own.
+    expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom).toBe(104);
+    expect(within(scroll).getByText('View in Ledger')).toBeTruthy();
   });
 });

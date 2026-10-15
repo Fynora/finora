@@ -11,6 +11,7 @@ import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   STATEMENT_IMPORT: 'Statement import',
@@ -41,6 +42,7 @@ type Props = NativeStackScreenProps<MoreStackParamList, 'SupportTicketDetail'>;
  *  claim/status-change controls, no internal-notes panel. Same shape, mobile idioms. */
 export function SupportTicketDetailScreen({ route }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const ticketId = route.params?.ticketId;
 
   const ticketQuery = useQuery({
@@ -87,7 +89,7 @@ export function SupportTicketDetailScreen({ route }: Props) {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <GlassSurface style={styles.card}>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>

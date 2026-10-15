@@ -4,6 +4,7 @@ import { dashboardApi } from '../api/endpoints';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /** Port of frontend/src/pages/Wrapped.tsx, which renders a blank page (`return null`) until its
  *  query resolves and on a failure alike -- a phone user needs the loading and failure states to
@@ -12,6 +13,7 @@ export function WrappedScreen() {
   // Milestone titles name real goals and net-worth thresholds.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const year = new Date().getFullYear();
   const { data, isLoading } = useQuery({
     queryKey: ['wrapped', year], queryFn: () => dashboardApi.wrapped(year),
@@ -27,7 +29,7 @@ export function WrappedScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       {/* No data is the only failure worth reporting: React Query keeps the previous data when a
           refetch fails, and a failed refetch must not replace a year in review that is already here. */}
       {!data ? (

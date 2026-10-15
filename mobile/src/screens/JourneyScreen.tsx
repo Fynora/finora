@@ -9,6 +9,7 @@ import { badgeForEvent, groupByYear } from '../lib/timeline';
 import { radius, spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'Journey'>;
 
@@ -18,6 +19,7 @@ export function JourneyScreen({ navigation }: Props) {
   // Milestone titles name real goals and net-worth thresholds.
   usePreventScreenCapture();
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const timelineQ = useQuery({ queryKey: ['timeline'], queryFn: () => dashboardApi.timeline() });
   const { data, isLoading, isFetching, refetch } = timelineQ;
   // A cold query paused for lack of connectivity is neither an error nor "no milestones" -- see
@@ -45,7 +47,7 @@ export function JourneyScreen({ navigation }: Props) {
   return (
     <GlassScreen style={styles.glassRoot}>
     <ScrollView
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={
         <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => void refetch()} tintColor={c.primary} />
       }

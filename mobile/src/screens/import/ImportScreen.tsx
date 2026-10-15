@@ -60,6 +60,7 @@ import { VerificationPanel } from '../../components/VerificationPanel';
 import { flaggedRows } from '../../components/verificationFlags';
 import { trackNavigation } from '../../lib/trackNavigation';
 import { GlassScreen } from '../../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../../navigation/useTabBarSpace';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
@@ -71,6 +72,7 @@ export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
 export function ImportScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
@@ -932,7 +934,7 @@ export function ImportScreen() {
         {/* ScrollView, not the plain View this used to be: the unfinished-import list below is
             variable-length, and on a small screen a couple of entries pushed "Choose a file" off
             the bottom with no way to reach it. */}
-        <ScrollView contentContainerStyle={styles.padded} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={padForTabBar(styles.padded, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }} keyboardShouldPersistTaps="handled">
           {header}
 
           {/* A queued import replaces the dropzone while it runs -- there is nothing useful to do
@@ -1193,7 +1195,13 @@ export function ImportScreen() {
   if (step === 'summary' && summary) {
     return (
       <GlassScreen style={[styles.flex, {paddingTop: insets.top + spacing.md }]}>
-        <View style={styles.padded}>
+        {/* Scrolls: the warnings list has no fixed length, and the screen runs under the floating
+            tab pill, so a long list (or large text) would otherwise leave the last buttons under it. */}
+        <ScrollView
+          testID="import-summary"
+          contentContainerStyle={padForTabBar(styles.padded, tabBar)}
+          scrollIndicatorInsets={{ bottom: tabBar }}
+        >
           {header}
           <Card>
             <SectionHeading title="Import complete" />
@@ -1251,7 +1259,7 @@ export function ImportScreen() {
               </View>
             </View>
           </Card>
-        </View>
+        </ScrollView>
       </GlassScreen>
     );
   }
@@ -1262,7 +1270,7 @@ export function ImportScreen() {
       <FlatList
         data={rows}
         keyExtractor={(_, i) => String(i)}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
         // Rendering every row of a long statement up front is the difference between a list that
         // opens instantly and one that stalls; a card is a fixed shape, so windowing is safe here.
         initialNumToRender={12}

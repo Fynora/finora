@@ -14,12 +14,14 @@ import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
+import { useScrollToTop } from '@react-navigation/native';
 
 // Controllable stand-in for useRoute, same pattern ImportScreen.test.tsx uses for its own
 // reimport-arrival params (Track C/C4).
 let mockRouteParams: { filters?: LedgerDrillThroughFilters } | undefined;
 jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: mockRouteParams }),
+  useScrollToTop: jest.fn(),
 }));
 
 /**
@@ -2042,5 +2044,19 @@ describe('the redesigned list', () => {
     renderScreen();
     await screen.findByText(/No transactions yet/i);
     expect(screen.getByTestId('ledger-state-card')).toBeTruthy();
+  });
+});
+
+describe('a second tap on this screen\'s tab', () => {
+  // The library's useScrollToTop scrolls the list it is given back to the top when the tab that is
+  // already open is pressed again (and only then). This checks the screen hands it its list.
+  it('scrolls the screen back to the top: the list is handed to useScrollToTop', async () => {
+    (useScrollToTop as jest.Mock).mockClear();
+    renderScreen();
+    await waitFor(() => {
+      const calls = (useScrollToTop as jest.Mock).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      expect(typeof calls[calls.length - 1][0].current?.scrollToOffset).toBe('function');
+    });
   });
 });

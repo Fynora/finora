@@ -1,9 +1,10 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { MoreScreen } from './MoreScreen';
 import { trackNavigation } from '../lib/trackNavigation';
 import { NAV_TAXONOMY } from '../navigation/taxonomy';
+import { useScrollToTop } from '@react-navigation/native';
 
 jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
 // A mutable holder read through useAuth(), so one file covers a named account and a bare one. The
@@ -198,4 +199,18 @@ test('the tour still finds the Accounts, Budgets and Goals rows', () => {
 test('Sign out is still offered, outside the groups', () => {
   renderScreen();
   expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+});
+
+describe('a second tap on this screen\'s tab', () => {
+  // The library's useScrollToTop scrolls the list it is given back to the top when the tab that is
+  // already open is pressed again (and only then). This checks the screen hands it its list.
+  it('scrolls the screen back to the top: the list is handed to useScrollToTop', async () => {
+    (useScrollToTop as jest.Mock).mockClear();
+    renderScreen();
+    await waitFor(() => {
+      const calls = (useScrollToTop as jest.Mock).mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
+    });
+  });
 });

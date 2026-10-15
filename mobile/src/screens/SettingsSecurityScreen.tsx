@@ -12,9 +12,11 @@ import { fmtRelativeTime } from '../lib/format';
 import { maskPhone } from '../lib/maskPhone';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export function SettingsSecurityScreen() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const queryClient = useQueryClient();
   const userQ = useQuery({ queryKey: ['user-settings'], queryFn: () => userApi.get() });
   const user = userQ.data;
@@ -48,7 +50,7 @@ export function SettingsSecurityScreen() {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <View style={[styles.row, { borderBottomColor: c.border }]}>
         <View style={styles.rowMain}>
           <Text style={[styles.rowTitle, { color: c.ink }]}>Email</Text>

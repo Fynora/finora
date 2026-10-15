@@ -11,11 +11,13 @@ import { useAuth } from '../context/AuthContext';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsAccount'>;
 
 export function SettingsAccountScreen({ navigation }: Props) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const { logout } = useAuth();
   const userQ = useQuery({ queryKey: ['user-settings'], queryFn: () => userApi.get() });
 
@@ -67,7 +69,7 @@ export function SettingsAccountScreen({ navigation }: Props) {
 
   return (
     <GlassScreen style={styles.glassRoot}>
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}>
       <View style={[styles.dangerRow, { borderBottomColor: c.border }]}>
         <Text style={[styles.fieldLabel, { color: c.ink, marginTop: 0 }]}>Deactivate Account</Text>
         <Text style={[styles.hint, { color: c.mutedInk }]}>

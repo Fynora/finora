@@ -15,6 +15,8 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { spacing, radius, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { useTabBarSpace } from '../navigation/useTabBarSpace';
+import { useKeyboardVisible } from '../lib/useKeyboardVisible';
 
 interface ChatTurn {
   // '' for a just-sent user bubble that hasn't round-tripped yet -- the backend never hands the
@@ -125,6 +127,8 @@ function UpgradePrompt() {
 
 function FynChat() {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
+  const keyboardUp = useKeyboardVisible();
   const insets = useSafeAreaInsets();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState('');
@@ -352,7 +356,12 @@ function FynChat() {
         </View>
       ) : null}
 
-      <View style={[styles.inputRow, { borderTopColor: c.border, paddingBottom: insets.bottom + spacing.sm }]}>
+      {/* With the keyboard down the floating tab pill covers the bottom, so the box sits above it;
+          with the keyboard up the pill has slid away and the box sits right above the keyboard. */}
+      <View
+        testID="fyn-composer"
+        style={[styles.inputRow, { borderTopColor: c.border, paddingBottom: keyboardUp ? insets.bottom + spacing.sm : Math.max(tabBar, insets.bottom + spacing.sm) }]}
+      >
         <Pressable
           onPress={() => void onAttachPress()}
           disabled={sending || loadingHistory}

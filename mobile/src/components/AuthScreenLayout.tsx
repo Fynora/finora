@@ -12,6 +12,7 @@ import { BrandMark } from './BrandMark';
 import { GlassScreen } from './GlassScreen';
 import { fonts, radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
+import { useTabBarSpace } from '../navigation/useTabBarSpace';
 
 /**
  * Shared chrome for the four auth screens: brand mark, title/subtitle, an inline error banner,
@@ -34,6 +35,7 @@ interface Props {
 export function AuthScreenLayout({ title, subtitle, error, banner, children, footer }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
+  const tabBar = useTabBarSpace();
 
   return (
     // GlassScreen outside the KeyboardAvoidingView: the mesh backdrop stays put while the view
@@ -48,8 +50,11 @@ export function AuthScreenLayout({ title, subtitle, error, banner, children, foo
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg },
+          // Inside the tabs (Verify Email Change) the pill covers the home indicator, so its room
+          // replaces the inset; outside them (the sign-in screens) nothing changes.
+          { paddingTop: insets.top + spacing.lg, paddingBottom: (tabBar > 0 ? tabBar : insets.bottom) + spacing.lg },
         ]}
+        scrollIndicatorInsets={{ bottom: tabBar }}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.brandRow}>

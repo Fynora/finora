@@ -19,6 +19,7 @@ import { fmtCurrency, fmtForeignAmount, monthLabel, monthLabelLong } from '../li
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { spacing, useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
+import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const ALL_TIME_LABEL = 'All time';
 // Sentinel for a Lifestyle Inflation row with no defined ratio (zero income that year) -- a
@@ -81,6 +82,7 @@ function UpgradePrompt() {
 
 function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   const c = useTheme();
+  const tabBar = useTabBarSpace();
   const [month, setMonth] = useState(''); // '' = all-time, matching web
   const [pickerOpen, setPickerOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -152,7 +154,7 @@ function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
   return (
     <ScrollView
       style={styles.flex}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
     >
       <Card style={styles.section}>

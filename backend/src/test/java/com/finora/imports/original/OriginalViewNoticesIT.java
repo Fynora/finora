@@ -181,6 +181,22 @@ class OriginalViewNoticesIT extends AbstractIntegrationTest {
         assertThat(sentTo()).doesNotContain(suspended.getEmail());
     }
 
+    /** An opening of the staged rows says so, rather than talking about pages. */
+    @Test
+    void aStagedRowsOpeningIsNamedAsSuch() {
+        User superAdmin = createUser("SUPER_ADMIN");
+        User admin = createUser("ADMIN");
+        ImportJob job = heldJob();
+        StatementOriginalView view = views.save(StatementOriginalView.open(job.getId(), job.getUserId(), admin.getId(),
+                "TRUST", "HLD-2026-930001", "ROWS", 42, Instant.now()));
+
+        alerts.alertOriginalOpened(view.getId(), "Rows on page 2 are missing from the preview");
+
+        EmailMessage email = sent().stream().filter(m -> m.to().equals(superAdmin.getEmail())).findFirst().orElseThrow();
+        assertThat(email.subject()).isEqualTo("A held statement's rows were opened — HLD-2026-930001");
+        assertThat(email.html()).contains("the staged rows").contains("42 rows").doesNotContain("Pages:");
+    }
+
     @Test
     void theReasonIsEscapedInTheEmail() {
         User superAdmin = createUser("SUPER_ADMIN");

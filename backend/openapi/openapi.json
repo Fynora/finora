@@ -6915,6 +6915,45 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/{heldId}/staged-rows": {
+            "post": {
+                "tags": [
+                    "admin-held-statement-controller"
+                ],
+                "operationId": "stagedRows",
+                "parameters": [
+                    {
+                        "name": "heldId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OriginalViewOpenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseHeldStatementStagedRowsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-statements/{heldId}/rerun-parser": {
             "post": {
                 "tags": [
@@ -12000,36 +12039,6 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseHeldStatementDetailDto"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/held-statements/{heldId}/staged-rows": {
-            "get": {
-                "tags": [
-                    "admin-held-statement-controller"
-                ],
-                "operationId": "stagedRows",
-                "parameters": [
-                    {
-                        "name": "heldId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseHeldStatementStagedRowsDto"
                                 }
                             }
                         }
@@ -20348,6 +20357,118 @@
                     }
                 }
             },
+            "OriginalViewOpenRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseHeldStatementStagedRowsDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/HeldStatementStagedRowsDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "HeldRow": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "balanceAfter": {
+                        "type": "number"
+                    },
+                    "referenceNumber": {
+                        "type": "string"
+                    }
+                }
+            },
+            "HeldSection": {
+                "type": "object",
+                "properties": {
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "accountNumberMasked": {
+                        "type": "string"
+                    },
+                    "accountType": {
+                        "type": "string"
+                    },
+                    "statementPeriodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "statementPeriodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "openingBalance": {
+                        "type": "number"
+                    },
+                    "closingBalance": {
+                        "type": "number"
+                    },
+                    "totalParsed": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/HeldRow"
+                        }
+                    }
+                }
+            },
+            "HeldStatementStagedRowsDto": {
+                "type": "object",
+                "properties": {
+                    "heldId": {
+                        "type": "string"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/HeldSection"
+                        }
+                    }
+                }
+            },
             "ApiResponseHeldStatementRerunResultDto": {
                 "type": "object",
                 "properties": {
@@ -20427,14 +20548,6 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
-                    }
-                }
-            },
-            "OriginalViewOpenRequest": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string"
                     }
                 }
             },
@@ -28776,110 +28889,6 @@
                     "totalPages": {
                         "type": "integer",
                         "format": "int32"
-                    }
-                }
-            },
-            "ApiResponseHeldStatementStagedRowsDto": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/HeldStatementStagedRowsDto"
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "HeldRow": {
-                "type": "object",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "description": {
-                        "type": "string"
-                    },
-                    "amount": {
-                        "type": "number"
-                    },
-                    "type": {
-                        "type": "string"
-                    },
-                    "balanceAfter": {
-                        "type": "number"
-                    },
-                    "referenceNumber": {
-                        "type": "string"
-                    }
-                }
-            },
-            "HeldSection": {
-                "type": "object",
-                "properties": {
-                    "accountName": {
-                        "type": "string"
-                    },
-                    "accountNumberMasked": {
-                        "type": "string"
-                    },
-                    "accountType": {
-                        "type": "string"
-                    },
-                    "statementPeriodStart": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "statementPeriodEnd": {
-                        "type": "string",
-                        "format": "date"
-                    },
-                    "openingBalance": {
-                        "type": "number"
-                    },
-                    "closingBalance": {
-                        "type": "number"
-                    },
-                    "totalParsed": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "rows": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/HeldRow"
-                        }
-                    }
-                }
-            },
-            "HeldStatementStagedRowsDto": {
-                "type": "object",
-                "properties": {
-                    "heldId": {
-                        "type": "string"
-                    },
-                    "sections": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/HeldSection"
-                        }
                     }
                 }
             },

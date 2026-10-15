@@ -64,7 +64,9 @@ class HeldStatementServiceTest {
                 findingRepository, auditService, statementStatusNotifier, importSessionService,
                 new ObjectMapper(), statementContentService, importService, parserVersionProvider,
                 heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
-                org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class));
+                org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class),
+                org.mockito.Mockito.mock(com.finora.imports.original.StatementOriginalViewRepository.class),
+                org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class));
     }
 
     private ImportJob job() {

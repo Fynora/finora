@@ -35,8 +35,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@code GET /{heldId}/staged-rows} -- the rows a hold staged, which are the statement's content as
- * much as the file is, so they carry the same role pin as the original view. Split out of the
+ * {@code POST /{heldId}/staged-rows} -- the rows a hold staged, which are the statement's content as
+ * much as the file is, so they carry the same rules as the original view: the role pin, a typed
+ * reason, an audit entry with it, the Super Admin email and the customer notice. Split out of the
  * removed document-download IT, whose download cases now live in {@code AdminOriginalViewIT} and
  * {@code OriginalContentAccessIT}.
  *
@@ -56,6 +57,8 @@ class AdminHeldStatementStagedRowsIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private RoleRepository roleRepository;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private com.finora.imports.original.StatementOriginalViewRepository originalViews;
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private EntityManager entityManager;
@@ -126,9 +129,18 @@ class AdminHeldStatementStagedRowsIT extends AbstractIntegrationTest {
 
     // ---------------------------------------------------------------- the staged rows, same gate
 
+    private static final String REASON = "Rows on page 2 are missing from the preview";
+
     private ResponseEntity<String> stagedRows(String heldId, User caller) {
+        return stagedRows(heldId, caller, REASON);
+    }
+
+    /** POST with the reason in the body -- never a query string, which lands in access logs. */
+    private ResponseEntity<String> stagedRows(String heldId, User caller, String reason) {
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("reason", reason);
         return restTemplate.exchange("/api/v1/admin/held-statements/" + heldId + "/staged-rows",
-                HttpMethod.GET, new HttpEntity<>(bearerFor(caller)), String.class);
+                HttpMethod.POST, new HttpEntity<>(body, bearerFor(caller)), String.class);
     }
 
     /** The rows are the statement's content as much as the file is, so the queue permission alone
@@ -173,6 +185,40 @@ class AdminHeldStatementStagedRowsIT extends AbstractIntegrationTest {
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId())).anySatisfy(entry -> {
             assertThat(entry.getAction()).isEqualTo("TRUST_REVIEW_STAGED_ROWS_VIEWED");
             assertThat(entry.getUserId()).isEqualTo(admin.getId());
+            assertThat(entry.getMetadata()).containsEntry("reason", REASON);
         });
+        // Nothing was shown, so it is not an opening: no view row, and the customer is not told.
+        assertThat(originalViews.findByJobIdOrderByOpenedAtAsc(held.getImportJobId())).isEmpty();
+        assertThat(notificationRepository.findByUserIdOrderByCreatedAtDesc(held.getUserId()))
+                .noneMatch(n -> n.getType() == com.finora.notification.domain.NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX);
+    }
+
+    /** The reason comes first: blank, short or missing is a 400 with no audit entry and no read. */
+    @Test
+    void aBlankReasonIsRefusedBeforeAnything() {
+        HeldStatement held = seedHold("HLD-2026-200104");
+        User admin = createUser("ADMIN");
+
+        for (String reason : new String[] {"     ", null, "too short"}) {
+            ResponseEntity<String> response = stagedRows("HLD-2026-200104", admin, reason);
+            assertThat(response.getStatusCode()).as(String.valueOf(reason)).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).contains("Type a reason of 15 to 500 characters.");
+        }
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .noneMatch(e -> e.getAction().equals("TRUST_REVIEW_STAGED_ROWS_VIEWED"));
+    }
+
+    /** The old unreasoned GET is gone. */
+    @Test
+    void theUnreasonedGetIsGone() {
+        HeldStatement held = seedHold("HLD-2026-200105");
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/admin/held-statements/HLD-2026-200105/staged-rows",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isIn(HttpStatus.METHOD_NOT_ALLOWED, HttpStatus.NOT_FOUND);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .noneMatch(e -> e.getAction().equals("TRUST_REVIEW_STAGED_ROWS_VIEWED"));
     }
 }

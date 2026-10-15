@@ -2676,6 +2676,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/staged-rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stagedRows"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/{heldId}/rerun-parser": {
         parameters: {
             query?: never;
@@ -5260,22 +5276,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["detail_2"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/held-statements/{heldId}/staged-rows": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["stagedRows"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8471,6 +8471,48 @@ export interface components {
             aiSuggestedDiagnosisAt?: string;
             lockedWithoutPassword?: boolean;
         };
+        OriginalViewOpenRequest: {
+            reason?: string;
+        };
+        ApiResponseHeldStatementStagedRowsDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["HeldStatementStagedRowsDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        HeldRow: {
+            /** Format: date */
+            date?: string;
+            description?: string;
+            amount?: number;
+            type?: string;
+            balanceAfter?: number;
+            referenceNumber?: string;
+        };
+        HeldSection: {
+            accountName?: string;
+            accountNumberMasked?: string;
+            accountType?: string;
+            /** Format: date */
+            statementPeriodStart?: string;
+            /** Format: date */
+            statementPeriodEnd?: string;
+            openingBalance?: number;
+            closingBalance?: number;
+            /** Format: int32 */
+            totalParsed?: number;
+            rows?: components["schemas"]["HeldRow"][];
+        };
+        HeldStatementStagedRowsDto: {
+            heldId?: string;
+            sections?: components["schemas"]["HeldSection"][];
+        };
         ApiResponseHeldStatementRerunResultDto: {
             success?: boolean;
             message?: string;
@@ -8502,9 +8544,6 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
-        };
-        OriginalViewOpenRequest: {
-            reason?: string;
         };
         ApiResponseOriginalViewOpened: {
             success?: boolean;
@@ -11829,45 +11868,6 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-        };
-        ApiResponseHeldStatementStagedRowsDto: {
-            success?: boolean;
-            message?: string;
-            data?: components["schemas"]["HeldStatementStagedRowsDto"];
-            /** Format: date-time */
-            timestamp?: string;
-            errorCode?: string;
-            requestId?: string;
-            details?: {
-                [key: string]: unknown;
-            };
-        };
-        HeldRow: {
-            /** Format: date */
-            date?: string;
-            description?: string;
-            amount?: number;
-            type?: string;
-            balanceAfter?: number;
-            referenceNumber?: string;
-        };
-        HeldSection: {
-            accountName?: string;
-            accountNumberMasked?: string;
-            accountType?: string;
-            /** Format: date */
-            statementPeriodStart?: string;
-            /** Format: date */
-            statementPeriodEnd?: string;
-            openingBalance?: number;
-            closingBalance?: number;
-            /** Format: int32 */
-            totalParsed?: number;
-            rows?: components["schemas"]["HeldRow"][];
-        };
-        HeldStatementStagedRowsDto: {
-            heldId?: string;
-            sections?: components["schemas"]["HeldSection"][];
         };
         ApiResponseBlankedCopyResponse: {
             success?: boolean;
@@ -17404,6 +17404,32 @@ export interface operations {
             };
         };
     };
+    stagedRows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OriginalViewOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseHeldStatementStagedRowsDto"];
+                };
+            };
+        };
+    };
     rerunParser: {
         parameters: {
             query?: never;
@@ -21149,28 +21175,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseHeldStatementDetailDto"];
-                };
-            };
-        };
-    };
-    stagedRows: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                heldId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ApiResponseHeldStatementStagedRowsDto"];
                 };
             };
         };

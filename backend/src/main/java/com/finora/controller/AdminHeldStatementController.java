@@ -1,6 +1,7 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
+import com.finora.dto.OriginalViewDto;
 import com.finora.dto.HeldStatementDetailDto;
 import com.finora.dto.HeldStatementDto;
 import com.finora.dto.HeldStatementRerunResultDto;
@@ -13,6 +14,8 @@ import com.finora.security.CurrentUser;
 import com.finora.service.FynImportDiagnosisService;
 import com.finora.service.HeldStatementFilter;
 import com.finora.service.HeldStatementService;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -100,14 +103,19 @@ public class AdminHeldStatementController {
     /**
      * The rows this hold staged, the ones approving releases. Statement content, so pinned to the
      * same roles as the original view, in one expression -- a method-level {@code @PreAuthorize}
-     * replaces the class-level rule, it does not add to it -- and audited by the service.
-     * For a password-protected statement whose password was not kept, these and the findings are
-     * the whole review: the file cannot be opened.
+     * replaces the class-level rule, it does not add to it. The same rules as the original view
+     * otherwise: a typed reason, sent in the body (a query string would put it in access logs),
+     * audited with the reason, the Super Admins emailed and the customer told -- all by the service.
+     * POST, not GET, because it writes all of that. For a password-protected statement whose
+     * password was not kept, these and the findings are the whole review: the file cannot be opened.
      */
     @PreAuthorize("hasAuthority('TRUST_REVIEW_MANAGE') and hasAnyRole('ADMIN', 'SUPER_ADMIN')")
-    @GetMapping("/{heldId}/staged-rows")
-    public ApiResponse<HeldStatementStagedRowsDto> stagedRows(@PathVariable String heldId) {
-        return ApiResponse.ok(heldStatementService.stagedRows(currentUser.id(), heldId));
+    @PostMapping("/{heldId}/staged-rows")
+    public ResponseEntity<ApiResponse<HeldStatementStagedRowsDto>> stagedRows(
+            @PathVariable String heldId, @RequestBody(required = false) OriginalViewDto.OpenRequest body) {
+        String reason = body == null ? null : body.reason();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ApiResponse.ok(heldStatementService.stagedRows(currentUser.id(), heldId, reason)));
     }
 
     /** "Assign to Me" is the common case and must not require typing an id: an absent or blank

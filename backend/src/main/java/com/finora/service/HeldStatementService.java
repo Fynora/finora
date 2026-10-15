@@ -23,7 +23,11 @@ import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
 import com.finora.imports.original.OriginalContent;
+import com.finora.imports.original.OriginalStatementViewService;
 import com.finora.imports.original.OriginalViewHistory;
+import com.finora.imports.original.OriginalViewOpened;
+import com.finora.imports.original.StatementOriginalView;
+import com.finora.imports.original.StatementOriginalViewRepository;
 import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.trust.HeldStatementIdGenerator;
@@ -42,6 +46,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -89,6 +94,8 @@ public class HeldStatementService {
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
     private final OriginalViewHistory originalViewHistory;
+    private final StatementOriginalViewRepository originalViews;
+    private final ApplicationEventPublisher events;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public HeldStatementService(HeldStatementRepository repository,
@@ -105,8 +112,12 @@ public class HeldStatementService {
                                 ParserVersionProvider parserVersionProvider,
                                 HeldItemAdminAlertService heldItemAdminAlertService,
                                 com.finora.imports.passwords.StatementPasswordService statementPasswordService,
-                                OriginalViewHistory originalViewHistory) {
+                                OriginalViewHistory originalViewHistory,
+                                StatementOriginalViewRepository originalViews,
+                                ApplicationEventPublisher events) {
         this.originalViewHistory = originalViewHistory;
+        this.originalViews = originalViews;
+        this.events = events;
         this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.eventRepository = eventRepository;
@@ -585,7 +596,8 @@ public class HeldStatementService {
         return java.util.stream.Stream.concat(
                         events.stream().map(e -> new EventView(e.getEventType(), e.getFromStatus(), e.getToStatus(),
                                 e.getNotes(), e.getActorId(), e.getCreatedAt())),
-                        openings.stream().map(o -> new EventView("ORIGINAL_VIEWED", null, null,
+                        openings.stream().map(o -> new EventView(
+                                "ROWS".equals(o.format()) ? "STAGED_ROWS_VIEWED" : "ORIGINAL_VIEWED", null, null,
                                 "Opened by " + o.openedBy(), o.viewerId(), o.openedAt())))
                 .sorted(java.util.Comparator.comparing(EventView::createdAt))
                 .toList();
@@ -1022,21 +1034,28 @@ public class HeldStatementService {
      * The rows this hold staged -- what approving releases, and the whole review when the file
      * itself cannot be opened ({@link HeldStatement#isLockedWithoutPassword()}).
      *
-     * <p>Statement content, so it is audited like {@link #contentForOriginalView}: before the rows
-     * are read, in a transaction of its own so the refusal below does not roll the record back. The
-     * controller pins it to the same roles as the original view.
+     * <p>Statement content, so it takes the same rules as the original view (owner's decision,
+     * 2026-10-15): a typed reason, checked before anything else; an audit entry carrying it, written
+     * before the rows are read, in a transaction of its own so the refusal below does not roll the
+     * record back; and, once the rows are actually returned, an opening recorded as a
+     * {@code ROWS} view row (V273) -- which the customer's import page and this hold's History
+     * read -- the customer told in this transaction, once that India day, and the Super Admins
+     * emailed after commit. The controller pins it to the same roles as the original view.
      *
      * <p>409 when the rows are gone -- a rejected-then-reopened hold whose session was swept -- with
      * the way back that applies: a re-run for a file the parser can read, a new upload otherwise.
+     * Nothing was shown then, so nobody is told.
      */
     @Transactional
-    public HeldStatementStagedRowsDto stagedRows(UUID actingAdminId, String heldId) {
+    public HeldStatementStagedRowsDto stagedRows(UUID actingAdminId, String heldId, String rawReason) {
+        String reason = OriginalStatementViewService.validReason(rawReason);
         HeldStatement held = require(heldId);
         ImportJob job = requireJob(held);
         auditService.recordEvenOnRollback(actingAdminId, "TRUST_REVIEW_STAGED_ROWS_VIEWED", "HeldStatement", held.getId(),
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId()));
+                        "heldId", held.getHeldId(),
+                        "reason", reason));
         com.finora.entity.ImportSession session = importSessionService.findHeldSession(job.getImportSessionId())
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "The staged rows behind "
                         + held.getHeldId() + " are gone. " + (held.isLockedWithoutPassword()
@@ -1052,6 +1071,12 @@ public class HeldStatementService {
                 : staged.staging() == null ? List.of()
                         : List.of(sectionOf(staged.staging().detectedAccount(), staged.staging().totalParsed(),
                                 staged.staging().rows()));
+        int rowCount = sections.stream().mapToInt(section -> section.rows().size()).sum();
+        StatementOriginalView opening = originalViews.save(StatementOriginalView.open(job.getId(), held.getUserId(),
+                actingAdminId, "TRUST", held.getHeldId(), "ROWS", rowCount, Instant.now()));
+        statementStatusNotifier.notifyOpenedForFix(held.getUserId(), job.getId(),
+                OriginalStatementViewService.noticeDay(opening.getOpenedAt()));
+        events.publishEvent(new OriginalViewOpened(opening, reason));
         return new HeldStatementStagedRowsDto(held.getHeldId(), sections);
     }
 

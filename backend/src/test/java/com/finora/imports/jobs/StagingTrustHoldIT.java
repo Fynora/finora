@@ -68,6 +68,10 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
     @Autowired private HeldStatementRepository heldStatementRepository;
     @Autowired private HeldStatementService heldStatementService;
     @Autowired private ImportSessionService importSessionService;
+    @Autowired private com.finora.imports.original.StatementOriginalViewRepository originalViews;
+    @Autowired private ImportJobService importJobService;
+    @Autowired private com.finora.repository.AuditLogRepository auditLogRepository;
+    @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private JwtService jwtService;
     @Autowired private com.finora.repository.RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -320,11 +324,56 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
         assertThatThrownBy(() -> heldStatementService.contentForOriginalView(admin, held.getHeldId(),
                 "Rows on page 2 are missing from the preview"))
                 .isInstanceOf(ApiException.class).hasMessageContaining("password was not kept");
-        // ... and the rows are there to review instead.
-        var rows = heldStatementService.stagedRows(admin, held.getHeldId());
+        // ... and the rows are there to review instead -- after a typed reason, with the same
+        // rules as the original view: audited with the reason, recorded as an opening of the
+        // statement (a ROWS view row, which feeds the customer's import page and the hold's
+        // History), and the customer told, once that day.
+        var rows = heldStatementService.stagedRows(admin, held.getHeldId(), "Rows on page 2 are missing from the preview");
         assertThat(rows.sections()).hasSize(1);
         assertThat(rows.sections().get(0).rows()).extracting(row -> row.description())
                 .contains("SAMPLE GROCERY", "SAMPLE SALARY");
+        int rowCount = rows.sections().get(0).rows().size();
+        assertThat(originalViews.findByJobIdOrderByOpenedAtAsc(job.getId())).singleElement().satisfies(v -> {
+            assertThat(v.getFormat()).isEqualTo("ROWS");
+            assertThat(v.getQueue()).isEqualTo("TRUST");
+            assertThat(v.getItemRef()).isEqualTo(held.getHeldId());
+            assertThat(v.getViewerId()).isEqualTo(admin);
+            assertThat(v.getPageCount()).isEqualTo(rowCount);
+        });
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
+                .filteredOn(e -> e.getAction().equals("TRUST_REVIEW_STAGED_ROWS_VIEWED"))
+                .singleElement()
+                .satisfies(e -> assertThat(e.getMetadata()).containsEntry("reason", "Rows on page 2 are missing from the preview"));
+        assertThat(notificationRepository.findByUserIdOrderByCreatedAtDesc(owner.getId()))
+                .filteredOn(n -> n.getType() == com.finora.notification.domain.NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX)
+                .hasSize(2);
+        // A second look the same day is recorded and audited, but tells the customer nothing new.
+        heldStatementService.stagedRows(admin, held.getHeldId(), "Second look at the rows on page 2");
+        assertThat(originalViews.findByJobIdOrderByOpenedAtAsc(job.getId())).hasSize(2);
+        assertThat(notificationRepository.findByUserIdOrderByCreatedAtDesc(owner.getId()))
+                .filteredOn(n -> n.getType() == com.finora.notification.domain.NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX)
+                .hasSize(2);
+        // The hold's History names the opening, and the customer's import page lists the day.
+        assertThat(heldStatementService.detail(held.getHeldId()).timeline())
+                .extracting(e -> e.eventType()).contains("STAGED_ROWS_VIEWED");
+        assertThat(importJobService.timeline(owner.getId(), job.getId()).openedForFixOn()).hasSize(1);
+        // Through HTTP: a POST with the reason in the body, answered with no-store.
+        User adminAccount = user();
+        adminAccount.setRole("ADMIN");
+        adminAccount.setAccountScope(User.SCOPE_ADMIN);
+        userRepository.save(adminAccount);
+        HttpHeaders headers = bearer(adminAccount);
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<String> overHttp = restTemplate.exchange(
+                "/api/v1/admin/held-statements/" + held.getHeldId() + "/staged-rows", HttpMethod.POST,
+                new HttpEntity<>(java.util.Map.of("reason", "Third look at the rows on page 2"), headers), String.class);
+        assertThat(overHttp.getStatusCode()).as(overHttp.getBody()).isEqualTo(HttpStatus.OK);
+        assertThat(overHttp.getHeaders().getCacheControl()).contains("no-store");
+        assertThat(overHttp.getBody()).contains("SAMPLE GROCERY");
+        // And a blank reason reads nothing.
+        assertThatThrownBy(() -> heldStatementService.stagedRows(admin, held.getHeldId(), "    "))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST));
 
         heldStatementService.approve(admin, held.getHeldId(), null, null);
         assertConfirmable(owner, sessionId);

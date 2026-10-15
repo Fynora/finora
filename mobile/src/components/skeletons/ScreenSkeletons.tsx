@@ -2,7 +2,8 @@ import { StyleSheet, View } from 'react-native';
 import { radius, spacing, useTheme } from '../../theme';
 import { Card } from '../Card';
 import {
-  SkeletonBox, SkeletonChart, SkeletonGroup, SkeletonIcon, SkeletonLines, SkeletonListRow, SkeletonText,
+  SkeletonBox, SkeletonChart, SkeletonFormField, SkeletonGroup, SkeletonHero, SkeletonIcon, SkeletonLines,
+  SkeletonListRow, SkeletonProfileHeader, SkeletonSettingsRow, SkeletonText,
 } from './Skeletons';
 
 /**
@@ -158,6 +159,75 @@ export function WrappedSkeleton() {
   );
 }
 
+export function ProfileSkeleton() {
+  return (
+    <SkeletonGroup testID="profile-skeleton">
+      <SkeletonProfileHeader />
+      <Card style={styles.stackMd}>
+        <SkeletonText size="subheading" width="50%" />
+        <SkeletonText size="meta" width="65%" style={styles.tight} />
+        <View style={styles.gapMd}>
+          <SkeletonFormField />
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={styles.stackSm}>
+              <SkeletonText size="meta" width="25%" />
+              <SkeletonText size="body" width="55%" style={styles.tight} />
+            </View>
+          ))}
+          <SkeletonBox size="button" style={styles.gapSm} />
+        </View>
+      </Card>
+      <Card style={styles.stackMd}>
+        <SkeletonText size="subheading" width="45%" />
+        <SkeletonText size="meta" width="70%" style={styles.tight} />
+        <View style={styles.gapMd}>
+          <SkeletonSettingsRow />
+          <SkeletonSettingsRow divider={false} trailing="badge" />
+          <SkeletonBox size="touch" width="40%" style={styles.gapSm} />
+        </View>
+      </Card>
+    </SkeletonGroup>
+  );
+}
+
+export function ReferralsSkeleton({ heroAspectRatio }: { heroAspectRatio: number }) {
+  return (
+    <SkeletonGroup testID="referrals-skeleton" style={styles.columnMd}>
+      <View>
+        <SkeletonText size="hero" width="50%" />
+        <SkeletonLines count={2} size="body" lastWidth="75%" />
+      </View>
+      <SkeletonHero aspectRatio={heroAspectRatio} />
+      <Card>
+        <View style={styles.threeUp}>
+          {[0, 1, 2].map((i) => (
+            <View key={i} style={styles.centredColumn}>
+              <SkeletonIcon size="sm" round />
+              <SkeletonText size="caption" width="70%" />
+            </View>
+          ))}
+        </View>
+      </Card>
+      <Card style={styles.columnSm}>
+        <SkeletonText size="label" width="40%" />
+        <SkeletonBox size="codeRow" />
+        <SkeletonBox size="button" />
+        <View style={styles.spacedRow}>
+          {[0, 1, 2, 3, 4].map((i) => <SkeletonIcon key={i} size="lg" round />)}
+        </View>
+      </Card>
+      <View style={styles.threeUp}>
+        {[0, 1, 2].map((i) => (
+          <Card key={i} style={styles.threeUpTile}>
+            <SkeletonText size="caption" width="70%" />
+            <SkeletonText size="value" width="50%" />
+          </Card>
+        ))}
+      </View>
+    </SkeletonGroup>
+  );
+}
+
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   headerEnd: { alignItems: 'flex-end', marginBottom: spacing.sm },
@@ -180,5 +250,7 @@ const styles = StyleSheet.create({
   threeUp: { flexDirection: 'row', gap: spacing.sm },
   threeUpTile: { flex: 1, paddingHorizontal: spacing.sm, gap: spacing.xs },
   columnSmRow: { gap: spacing.sm },
+  centredColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
+  spacedRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs },
   wrappedCard: { borderRadius: radius.xl, padding: spacing.lg },
 });

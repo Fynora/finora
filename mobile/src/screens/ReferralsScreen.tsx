@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  AccessibilityInfo, ActivityIndicator, Animated, Image, Linking, Platform, Pressable, ScrollView,
+  AccessibilityInfo, Animated, Image, Linking, Platform, Pressable, ScrollView,
   Share, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,7 @@ import { visiblePlanCode } from '../lib/planDisplay';
 import { radius, spacing, useTheme } from '../theme';
 import { useGlassSurfaceStyle } from '../components/GlassSurface';
 import { GlassScreen } from '../components/GlassScreen';
+import { ReferralsSkeleton } from '../components/skeletons/ScreenSkeletons';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 const STEPS: { icon: keyof typeof Ionicons.glyphMap; label: string; caption: string }[] = [
@@ -41,7 +42,7 @@ function shareMessage(code: string) {
 const REFERRAL_MILESTONE = 7;
 
 const HERO_ILLUSTRATION = require('../../assets/illustrations/refer-earn-hero.png');
-const HERO_ASPECT_RATIO = 1300 / 620;
+export const HERO_ASPECT_RATIO = 1300 / 620;
 
 /**
  * Deep-links straight into WhatsApp/SMS/Mail rather than the generic OS share sheet -- these are
@@ -386,8 +387,13 @@ export function ReferralsScreen() {
 
   if (isLoading) {
     return (
-      <GlassScreen style={styles.centered}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <GlassScreen style={styles.glassRoot}>
+        <ScrollView
+          contentContainerStyle={padForTabBar([styles.content, { paddingTop: insets.top + spacing.md }], tabBar)}
+          scrollIndicatorInsets={{ bottom: tabBar }}
+        >
+          <ReferralsSkeleton heroAspectRatio={HERO_ASPECT_RATIO} />
+        </ScrollView>
       </GlassScreen>
     );
   }

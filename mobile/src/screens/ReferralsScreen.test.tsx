@@ -7,6 +7,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import { ReferralsScreen } from './ReferralsScreen';
 import { referralsApi } from '../api/endpoints';
 import { spacing } from '../theme';
+import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 function axiosErrorWithResponse(status: number, data: unknown): AxiosError {
   const err = new AxiosError('Request failed');
@@ -590,5 +591,14 @@ describe('ReferralsScreen', () => {
       springSpy.mockRestore();
       parallelSpy.mockRestore();
     });
+  });
+});
+
+describe('ReferralsScreen first load', () => {
+  it('shows the referral skeleton, not a spinner, on first load', () => {
+    api.mine.mockReset().mockReturnValue(never());
+    renderScreen();
+    expectSkeletonNotSpinner();
+    expect(screen.getByTestId('referrals-skeleton')).toBeTruthy();
   });
 });

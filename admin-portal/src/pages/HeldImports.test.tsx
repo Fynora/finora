@@ -307,6 +307,32 @@ describe('HeldImports', () => {
 
   /** Mirrors HeldStatementDetail's identical rule and identical reasoning: a role that can work
    *  the queue must not see a control for an action the backend would refuse anyway. */
+  /** Who opened the real statement, and when, is on the panel -- never the reason. */
+  it('lists who opened the real statement and when', async () => {
+    vi.mocked(adminHeldImportApi.get).mockResolvedValue({
+      ...heldDetail,
+      originalOpenings: [{ openedAt: '2026-10-15T05:00:00Z', openedBy: 'ops-admin@example.com' }],
+    });
+    mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText('hdfc-june.pdf');
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+    await screen.findByText(/no header row found/);
+
+    const list = screen.getByTestId('held-import-original-openings');
+    expect(list).toHaveTextContent('ops-admin@example.com');
+  });
+
+  it('says nothing about openings when there were none', async () => {
+    mockAuth(['IMPORT_TRIAGE_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText('hdfc-june.pdf');
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+    await screen.findByText(/no header row found/);
+
+    expect(screen.queryByTestId('held-import-original-openings')).toBeNull();
+  });
+
   it('hides the view control from a non-admin role', async () => {
     mockAuth(['IMPORT_TRIAGE_MANAGE'], ['SUPPORT']);
     renderPage();

@@ -530,6 +530,35 @@ class AdminOriginalViewIT extends AbstractIntegrationTest {
                         com.finora.notification.domain.NotificationChannel.EMAIL);
     }
 
+    /** Admins see who opened a held statement, and when, on the hold itself: the trust page's
+     *  History and the held-import panel. Never the reason, which stays on the audit entry. */
+    @Test
+    void openingsShowOnTheHoldForAdmins() throws Exception {
+        HeldStatement held = seedHold("HLD-2026-910005");
+        ImportJob job = heldJobWithPdf(pdfWithPages(1));
+        User admin = createUser("ADMIN");
+        assertThat(open("/api/v1/admin/held-statements/HLD-2026-910005/original-view", REASON, admin)
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(openImport(job, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> trust = restTemplate.exchange("/api/v1/admin/held-statements/HLD-2026-910005",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        com.fasterxml.jackson.databind.JsonNode timeline = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(trust.getBody()).get("data").get("timeline");
+        assertThat(timeline.findValuesAsText("eventType")).contains("ORIGINAL_VIEWED");
+        assertThat(timeline.toString()).contains("Opened by " + admin.getEmail()).doesNotContain(REASON);
+
+        ResponseEntity<String> imported = restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId(),
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        com.fasterxml.jackson.databind.JsonNode openings = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(imported.getBody()).get("data").get("originalOpenings");
+        assertThat(openings).isNotNull();
+        assertThat(openings.size()).isEqualTo(1);
+        assertThat(openings.get(0).get("openedBy").asText()).isEqualTo(admin.getEmail());
+        assertThat(openings.get(0).get("openedAt").asText()).isNotBlank();
+        assertThat(imported.getBody()).doesNotContain(REASON);
+    }
+
     @Test
     void aFailedOpeningTellsNoOne() {
         User superAdmin = createUser("SUPER_ADMIN");

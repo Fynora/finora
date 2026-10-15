@@ -54,7 +54,8 @@ class AdminHeldImportServiceTest {
         auditService = mock(AuditService.class);
         statementContentService = mock(com.finora.imports.storage.StatementContentService.class);
         statusNotifier = mock(StatementStatusNotifier.class);
-        service = new AdminHeldImportService(repository, worker, auditService, statementContentService, statusNotifier, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
+        service = new AdminHeldImportService(repository, worker, auditService, statementContentService, statusNotifier, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
+                org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class));
         when(repository.save(any(ImportJob.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 

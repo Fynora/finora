@@ -23,6 +23,7 @@ import com.finora.imports.jobs.ParserVersionProvider;
 import com.finora.imports.jobs.StagedForJob;
 import com.finora.imports.jobs.VerificationTelemetry;
 import com.finora.imports.original.OriginalContent;
+import com.finora.imports.original.OriginalViewHistory;
 import com.finora.imports.pdf.PdfTextExtractor;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.trust.HeldStatementIdGenerator;
@@ -87,6 +88,7 @@ public class HeldStatementService {
     private final ImportService importService;
     private final ParserVersionProvider parserVersionProvider;
     private final HeldItemAdminAlertService heldItemAdminAlertService;
+    private final OriginalViewHistory originalViewHistory;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
     public HeldStatementService(HeldStatementRepository repository,
@@ -102,7 +104,9 @@ public class HeldStatementService {
                                 ImportService importService,
                                 ParserVersionProvider parserVersionProvider,
                                 HeldItemAdminAlertService heldItemAdminAlertService,
-                                com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                                com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                                OriginalViewHistory originalViewHistory) {
+        this.originalViewHistory = originalViewHistory;
         this.statementPasswordService = statementPasswordService;
         this.repository = repository;
         this.eventRepository = eventRepository;
@@ -544,7 +548,8 @@ public class HeldStatementService {
         // than turning an otherwise-fine detail page into a 409 over a field the page barely uses.
         String fileName = importJobRepository.findById(held.getImportJobId())
                 .map(ImportJob::getFileName).orElse(null);
-        return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows), timeline(events));
+        return new HeldStatementDetailDto(HeldStatementDto.from(held), fileName, findings(rows),
+                timeline(events, originalViewHistory.forJob(held.getImportJobId())));
     }
 
     private List<FindingView> findings(List<ImportVerificationFinding> rows) {
@@ -570,10 +575,19 @@ public class HeldStatementService {
         }
     }
 
-    private List<EventView> timeline(List<HeldStatementEvent> events) {
-        return events.stream()
-                .map(e -> new EventView(e.getEventType(), e.getFromStatus(), e.getToStatus(),
-                        e.getNotes(), e.getActorId(), e.getCreatedAt()))
+    /**
+     * The hold's own events, with each opening of the real statement merged in by time, so the
+     * History says who looked at the customer's statement and when. Openings are read from the view
+     * rows rather than written as events too: one record, and never the reason, which is on the
+     * audit entry only.
+     */
+    private List<EventView> timeline(List<HeldStatementEvent> events, List<OriginalViewHistory.Opening> openings) {
+        return java.util.stream.Stream.concat(
+                        events.stream().map(e -> new EventView(e.getEventType(), e.getFromStatus(), e.getToStatus(),
+                                e.getNotes(), e.getActorId(), e.getCreatedAt())),
+                        openings.stream().map(o -> new EventView("ORIGINAL_VIEWED", null, null,
+                                "Opened by " + o.openedBy(), o.viewerId(), o.openedAt())))
+                .sorted(java.util.Comparator.comparing(EventView::createdAt))
                 .toList();
     }
 

@@ -63,7 +63,8 @@ class HeldStatementServiceTest {
         service = new HeldStatementService(repository, eventRepository, idGenerator, importJobRepository,
                 findingRepository, auditService, statementStatusNotifier, importSessionService,
                 new ObjectMapper(), statementContentService, importService, parserVersionProvider,
-                heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class));
+                heldItemAdminAlertService, org.mockito.Mockito.mock(com.finora.imports.passwords.StatementPasswordService.class),
+                org.mockito.Mockito.mock(com.finora.imports.original.OriginalViewHistory.class));
     }
 
     private ImportJob job() {

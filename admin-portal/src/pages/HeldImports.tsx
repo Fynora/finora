@@ -305,6 +305,19 @@ function HeldImportDetailPanel({
             <p className="text-muted text-xs mt-1 font-mono">{detail.job.failureCode ?? '—'}</p>
           </div>
 
+          {(detail.originalOpenings?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-border p-3" data-testid="held-import-original-openings">
+              <p className="text-xs text-muted font-medium">Real statement opened</p>
+              <ul className="mt-1 space-y-0.5">
+                {detail.originalOpenings!.map((o, i) => (
+                  <li key={`${o.openedAt}-${i}`} className="text-xs text-ink break-words">
+                    {formatWhen(o.openedAt)} by {o.openedBy}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {detail.lastError && (
             <div className="rounded-lg bg-warning-bg p-3">
               <p className="text-xs text-warning font-medium">Error</p>

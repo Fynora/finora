@@ -8,6 +8,7 @@ import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.imports.jobs.ImportJobWorker;
 import com.finora.imports.original.OriginalContent;
+import com.finora.imports.original.OriginalViewHistory;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.storage.StatementStorageException;
 import com.finora.repository.ImportJobRepository;
@@ -68,6 +69,7 @@ public class AdminHeldImportService {
     private final StatementContentService statementContentService;
     private final StatementStatusNotifier statusNotifier;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
+    private final OriginalViewHistory originalViewHistory;
 
     /**
      * The longest message an admin may send a user. Bounded well inside the notification columns
@@ -81,7 +83,9 @@ public class AdminHeldImportService {
                                   AuditService auditService,
                                   StatementContentService statementContentService,
                                   StatementStatusNotifier statusNotifier,
-                                  com.finora.imports.passwords.StatementPasswordService statementPasswordService) {
+                                  com.finora.imports.passwords.StatementPasswordService statementPasswordService,
+                                  OriginalViewHistory originalViewHistory) {
+        this.originalViewHistory = originalViewHistory;
         this.statusNotifier = statusNotifier;
         this.statementPasswordService = statementPasswordService;
         this.repository = repository;
@@ -125,7 +129,9 @@ public class AdminHeldImportService {
                 Map.of("actorId", actingAdminId.toString(),
                         "subjectUserId", job.getUserId().toString(),
                         "failureCode", String.valueOf(job.getFailureCode())));
-        return HeldImportDto.Detail.from(job);
+        return HeldImportDto.Detail.from(job, originalViewHistory.forJob(jobId).stream()
+                .map(o -> new HeldImportDto.Opening(o.openedAt(), o.openedBy()))
+                .toList());
     }
 
     /**

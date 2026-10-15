@@ -390,6 +390,21 @@ describe('HeldStatementDetail', () => {
    * page and work the queue) must not see a control for an action the backend would refuse anyway
    * -- rendering a button that always 403s is worse than not rendering one.
    */
+  /** An opening of the real statement is merged into the History by the server. */
+  it('shows an opening of the real statement in the History', async () => {
+    vi.mocked(adminHeldStatementApi.get).mockResolvedValue({
+      ...detail,
+      timeline: [...detail.timeline, { eventType: 'ORIGINAL_VIEWED', fromStatus: null, toStatus: null,
+        notes: 'Opened by ops-admin@example.com', actorId: 'a1', createdAt: '2026-10-15T05:00:00Z' }],
+    });
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    expect(screen.getByText('Original statement opened')).toBeInTheDocument();
+    expect(screen.getByText('Opened by ops-admin@example.com')).toBeInTheDocument();
+  });
+
   it('hides the view control from a non-admin role', async () => {
     mockAuth(['TRUST_REVIEW_MANAGE'], ['SUPPORT']);
     renderPage();

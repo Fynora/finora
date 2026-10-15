@@ -200,13 +200,13 @@ This table is the one contract; every call in the code traces to a row.
 | Tapping a tab in the floating pill, or "+" | selection | always (the tab bar is the one navigation control that gets a haptic) |
 | Tapping the tab that is already open | selection | it is the same tap as above, so one haptic, whether or not the screen was scrolled |
 | Opening a screen from a row, card or link | none | |
-| Choosing a segment (All / Income / Expense, the Insights tabs, the Theme setting, the Spending Tracking question), a filter chip or a picker option | selection | the selected value changes; tapping the one already selected gives nothing |
-| Turning a switch on or off | selection | the value changes |
+| Choosing a segment (All / Income / Expense, the Insights tabs, the Theme setting, the Spending Tracking question), a filter chip or a picker option | selection | the selected value changes; tapping the one already selected gives nothing (the two picker pop-ups, which fire on every tap today, change to match) |
+| Turning a switch on or off | selection | the value changes; a switch that saves at once gets this one haptic and no outcome haptic (one action, one haptic) |
 | Pull to refresh | impact | once, when the refresh is committed (React Native's `onRefresh` call; there is no earlier "threshold reached" event to hook) |
 | A long press that opens a menu or a delete confirmation | impact | the person pressed (Transactions already does) |
 | A save, add, import or delete | success | once, after the server confirmed it; never on the tap or when the request starts |
 | The same, refused by the server or failed on the network | error | once, for an action the person started; not for a failed background refresh or for browsing offline |
-| A form that cannot be sent yet (a missing amount, a required field) | warning | the person tried to send it |
+| A form that cannot be sent yet (a missing amount, a required field) | warning | the person tried to send it; only where the form checks on press -- a Save that is disabled until the form is valid cannot be pressed, so nothing fires |
 | Copying the referral code | success | the copy worked |
 | Cancelling a sheet or a confirmation | none | |
 
@@ -232,12 +232,17 @@ Into shared pieces first, so new screens inherit them:
 - Every `Switch` in the app (Ledger filters, app lock, notification preferences, inflow kinds,
   statement refresh, Import, the new Haptics switch): selection on change. The switch for haptics
   itself fires after it is turned on, not after it is turned off.
-- Pull to refresh: one impact from the `onRefresh` handlers of the 13 screens that have it.
+- Pull to refresh: one impact on every pull to refresh, through a shared `AppRefreshControl` (14
+  screens have one today).
 
 Then the save, delete and failure outcomes in each sheet and screen that does not already fire one:
 Add Transaction, Edit Transaction, Account form, Category edit and delete, Change Email, Change
 Password, Feedback, New Ticket, Amount prompt, Referral code prompt, account delete, goal create,
 referral code copy. The nine places that already fire keep what they do.
+
+The rule in the table applies to every action a person starts that saves, adds or deletes their data
+or settings; the build plan lists which actions that covers and which are left out, with the reason
+(sign-in and verification steps, chat, sharing, outside flows, actions that already fire).
 
 ### Guard
 
@@ -291,6 +296,27 @@ a simulator; their calls are checked through the tests and a debug log.
 `expo-haptics` 57 maps each of the five kinds onto Android vibration is read from its source during
 the plan and recorded, not assumed. Android is tested by the owner on a build after both pull
 requests merge (owner's decision, 2026-10-15), using an Android section of the same checklist.
+
+Read from source (expo-haptics 57.0.3, 2026-10-16): in `HapticsModule.kt` the three functions the
+app calls (`notificationAsync`, `selectionAsync`, `impactAsync`) drive the vibrator directly,
+`Vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))` on API 26 and up and a
+plain pattern below. Only the library's separate Android-only `performHapticsAsync` goes through
+`View.performHapticFeedback`, the path Android's touch-feedback setting governs, and the app does not
+call it. The library declares `android.permission.VIBRATE` in its own manifest. The waveforms the app
+gets (milliseconds, amplitude 0–255; impact is the medium style `lib/haptics.ts` asks for):
+
+| Kind | Timings | Amplitudes |
+|---|---|---|
+| selection | 0, 50 | 0, 30 |
+| impact (medium) | 0, 43 | 0, 50 |
+| success | 0, 40, 100, 40 | 0, 50, 0, 60 |
+| warning | 0, 40, 120, 60 | 0, 40, 0, 60 |
+| error | 0, 60, 100, 40, 80, 50 | 0, 50, 0, 40, 0, 50 |
+
+So on Android every kind is a short buzz; success, warning and error differ by rhythm, not by
+texture. Whether the phone's touch-feedback setting silences them is **not established**: the code
+path suggests it does not, and the owner's Android checklist answers it on a real phone. If it does
+not silence them, that is reported, not worked around.
 
 ## Not covered by me
 

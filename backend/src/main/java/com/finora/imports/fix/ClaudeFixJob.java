@@ -30,8 +30,9 @@ public class ClaudeFixJob implements Persistable<UUID> {
 
     public enum State { NOT_STARTED, SENT, PR_OPEN, REREADING, FIXED, GAVE_UP }
 
-    /** Why no job started ({@code OFF} to {@code ERROR}), or why one gave up (the last three). */
-    public enum Reason { OFF, CSV, DIFFERS, NOT_CHECKED, REFUSED, CAP_REACHED, ERROR, RUN_FAILED, NO_PR, STILL_HELD }
+    /** Why no job started ({@code OFF} to {@code ERROR}), or why one gave up (the last four).
+     *  {@code DECIDED}: a person decided the hold while the job was open, so it stopped. */
+    public enum Reason { OFF, CSV, DIFFERS, NOT_CHECKED, REFUSED, CAP_REACHED, ERROR, RUN_FAILED, NO_PR, STILL_HELD, DECIDED }
 
     /** The states the follow-up still looks at. */
     public static final Set<State> OPEN = Set.of(State.SENT, State.PR_OPEN, State.REREADING);

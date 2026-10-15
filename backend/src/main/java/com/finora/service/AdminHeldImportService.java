@@ -267,7 +267,8 @@ public class AdminHeldImportService {
      * Sends one held job back to the queue with a fresh attempt budget.
      *
      * <p>Safe to use speculatively: if the parser bug is not actually fixed, the job fails the same
-     * way and lands back in this queue. Nothing is lost by trying.
+     * way and lands back in this queue. Nothing is lost by trying. A {@code null} actor is the
+     * Claude fix job re-reading the statement once its fix is deployed.
      */
     @Transactional
     public HeldImportDto reprocess(UUID actingAdminId, UUID jobId) {
@@ -283,10 +284,10 @@ public class AdminHeldImportService {
         // the wrong attempt on the customer's timeline), so the audit entry is the only place the
         // original reason survives. Recording it here is what makes "did fixing X actually clear
         // these?" answerable later.
-        auditService.record(actingAdminId, "HELD_IMPORT_REPROCESSED", "ImportJob", jobId,
-                Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", job.getUserId().toString(),
-                        "originalFailureCode", String.valueOf(originalFailureCode)));
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", job.getUserId().toString());
+        details.put("originalFailureCode", String.valueOf(originalFailureCode));
+        auditService.record(actingAdminId, "HELD_IMPORT_REPROCESSED", "ImportJob", jobId, details);
 
         nudgeAfterCommit();
         return HeldImportDto.from(job);

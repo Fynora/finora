@@ -17,7 +17,7 @@ CREATE TABLE claude_fix_jobs (
     updated_at      TIMESTAMPTZ NOT NULL,
     CONSTRAINT claude_fix_jobs_state_valid CHECK (state IN ('NOT_STARTED','SENT','PR_OPEN','REREADING','FIXED','GAVE_UP')),
     CONSTRAINT claude_fix_jobs_reason_valid CHECK (reason IS NULL OR reason IN ('OFF','CSV','DIFFERS','NOT_CHECKED',
-        'REFUSED','CAP_REACHED','ERROR','RUN_FAILED','NO_PR','STILL_HELD')),
+        'REFUSED','CAP_REACHED','ERROR','RUN_FAILED','NO_PR','STILL_HELD','DECIDED')),
     CONSTRAINT claude_fix_jobs_attempt_valid CHECK (attempt BETWEEN 0 AND 2)
 );
 CREATE INDEX idx_claude_fix_jobs_open ON claude_fix_jobs (state) WHERE state IN ('SENT','PR_OPEN','REREADING');

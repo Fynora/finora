@@ -112,19 +112,37 @@ public class GitHubFixChannel implements FixChannel {
         return "ahead".equals(status) || "identical".equals(status);
     }
 
+    /**
+     * Creates the file on the incoming branch. A file already there (a resend after a send that
+     * failed half way) answers 422; it is then replaced, which GitHub allows only with its current
+     * blob sha.
+     */
     private JsonNode put(String what, String path, String message, String content) {
+        try {
+            return call(what, putRequest(path, message, content, null));
+        } catch (FixChannelException e) {
+            if (e.status() != 422) throw e;
+        }
+        String existing = get(what + " (existing file)", privateRepo() + "/contents/" + path + "?ref="
+                + encode(properties.getIncomingBranch()), false).path("sha").asText("");
+        if (existing.isEmpty()) throw new FixChannelException(what, 422);
+        return call(what, putRequest(path, message, content, existing));
+    }
+
+    private HttpRequest putRequest(String path, String message, String content, String existingSha) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("message", message);
         body.put("content", Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8)));
         body.put("branch", properties.getIncomingBranch());
+        if (existingSha != null) body.put("sha", existingSha);
         String json;
         try {
             json = objectMapper.writeValueAsString(body);
         } catch (IOException e) {
-            throw new FixChannelException(what + " (request not written)", 0);
+            throw new FixChannelException("put (request not written)", 0);
         }
-        return call(what, request(privateRepo() + "/contents/" + path, false)
-                .PUT(HttpRequest.BodyPublishers.ofString(json)).header("Content-Type", "application/json").build());
+        return request(privateRepo() + "/contents/" + path, false)
+                .PUT(HttpRequest.BodyPublishers.ofString(json)).header("Content-Type", "application/json").build();
     }
 
     private JsonNode get(String what, String path, boolean publicRepository) {

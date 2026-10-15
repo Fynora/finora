@@ -779,6 +779,7 @@ public class HeldStatementService {
      * {@code EntityManager.lock(..., LockModeType.OPTIMISTIC_FORCE_INCREMENT)} for a race this
      * narrow.
      */
+    /** A {@code null} actor is the Claude fix job re-reading the statement once its fix is deployed. */
     @Transactional
     public HeldStatementRerunResultDto rerunParser(UUID actingAdminId, String heldId) {
         HeldStatement held = require(heldId);
@@ -845,14 +846,14 @@ public class HeldStatementService {
                 + " (" + (versionChanged ? "changed" : "unchanged") + ").";
         eventRepository.save(new HeldStatementEvent(held.getId(), actingAdminId, PARSER_RERUN_EVENT,
                 from.name(), held.getStatus().name(), summaryNote));
-        auditService.record(actingAdminId, "TRUST_REVIEW_PARSER_RERUN", "HeldStatement", held.getId(),
-                Map.of("actorId", actingAdminId.toString(),
-                        "subjectUserId", held.getUserId().toString(),
-                        "heldId", held.getHeldId(),
-                        "stillHeld", decision.hold(),
-                        "previousParserVersion", String.valueOf(previousVersion),
-                        "currentParserVersion", String.valueOf(currentVersion),
-                        "parserVersionChanged", versionChanged));
+        Map<String, Object> details = actorDetails(actingAdminId);
+        details.put("subjectUserId", held.getUserId().toString());
+        details.put("heldId", held.getHeldId());
+        details.put("stillHeld", decision.hold());
+        details.put("previousParserVersion", String.valueOf(previousVersion));
+        details.put("currentParserVersion", String.valueOf(currentVersion));
+        details.put("parserVersionChanged", versionChanged);
+        auditService.record(actingAdminId, "TRUST_REVIEW_PARSER_RERUN", "HeldStatement", held.getId(), details);
 
         return new HeldStatementRerunResultDto(previousVersion, currentVersion, versionChanged,
                 decision.hold(), decision.reasons(), HeldStatementDto.from(held));

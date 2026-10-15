@@ -135,6 +135,30 @@ class GitHubFixChannelTest {
     }
 
     @Test
+    void aFileAlreadyOnTheBranchIsReplacedWithItsSha() throws Exception {
+        String trace = PRIVATE + "/contents/incoming/" + JOB + "-a2.trace";
+        answer(trace, 422, "{\"message\":\"sha wasn't supplied\"}");
+        answer(trace + "?ref=incoming", 200, "{\"sha\":\"blob-1\"}");
+        answer(PRIVATE + "/contents/incoming/" + JOB + "-a2.json", 201, "{\"commit\":{\"sha\":\"second\"}}");
+        // The stand-in answers the trace path with 422 every time, so the replacing PUT is
+        // answered by a later, more specific rule set once the first PUT is seen.
+        server.removeContext("/");
+        server.createContext("/", exchange -> {
+            if (exchange.getRequestMethod().equals("PUT") && exchange.getRequestURI().getPath().endsWith(".trace")
+                    && seen.stream().anyMatch(x -> x.method().equals("GET"))) {
+                answer(trace, 201, "{\"commit\":{\"sha\":\"replaced\"}}");
+            }
+            handle(exchange);
+        });
+
+        assertThat(channel.send(JOB, 2, "trace text", "{}")).isEqualTo("second");
+
+        assertThat(seen).extracting(Seen::method).containsExactly("PUT", "GET", "PUT", "PUT");
+        assertThat(JSON.readTree(seen.get(2).body()).get("sha").asText()).isEqualTo("blob-1");
+        assertThat(JSON.readTree(seen.get(0).body()).has("sha")).isFalse();
+    }
+
+    @Test
     void runForReadsTheRunByHeadSha() {
         answer(PRIVATE + "/actions/runs?head_sha=abc", 200, "{\"workflow_runs\":["
                 + "{\"path\":\".github/workflows/traces.yml\",\"status\":\"completed\",\"conclusion\":\"failure\"},"

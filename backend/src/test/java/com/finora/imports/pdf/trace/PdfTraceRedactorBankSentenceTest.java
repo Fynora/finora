@@ -2,6 +2,8 @@ package com.finora.imports.pdf.trace;
 
 import com.finora.imports.pdf.PositionedText;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -274,6 +276,78 @@ class PdfTraceRedactorBankSentenceTest {
         // Order of declaration does not matter, only content.
         assertThat(PdfTraceRedactor.allowlistFingerprint(BankSentences.forTesting("please examine this statement upon receipt", SENTENCE)))
                 .isEqualTo(PdfTraceRedactor.allowlistFingerprint(BankSentences.forTesting(SENTENCE, "please examine this statement upon receipt")));
+    }
+
+    // ---- Every production entry: a synthetic name in four positions. The name is masked every
+    // time, and the sentence is kept only when the name is on another printed line.
+
+    static List<String> productionEntries() {
+        return BankSentences.entries();
+    }
+
+    private static final String NAME = "Jane Example";
+
+    @ParameterizedTest
+    @MethodSource("productionEntries")
+    void aNameBeforeTheEntryInTheSameRunMasksTheName(String entry) {
+        assertNameMaskedAsWithoutAList(NAME + " " + entry);
+    }
+
+    @ParameterizedTest
+    @MethodSource("productionEntries")
+    void aNameAfterTheEntryInTheSameRunMasksTheName(String entry) {
+        assertNameMaskedAsWithoutAList(entry + " " + NAME);
+    }
+
+    @ParameterizedTest
+    @MethodSource("productionEntries")
+    void aNameAsAnotherRunOnTheSameLineMasksTheNameAndTheEntry(String entry) {
+        List<PositionedText> in = List.of(
+                new PositionedText(entry, 50.2f, 700f, 0, 250.4f),
+                new PositionedText(NAME, 320.1f, 700f, 0, 70.6f));
+        List<PositionedText> out = PdfTraceRedactor.redact(in);
+
+        assertThat(out.get(1).text()).isEqualTo("Xxxx Xxxxxxx");
+        // The entry's run is masked exactly as without any list.
+        assertThat(out.get(0)).isEqualTo(PdfTraceRedactor.redact(in, Set.of()).get(0));
+    }
+
+    @ParameterizedTest
+    @MethodSource("productionEntries")
+    void aNameOnTheNextLineLeavesTheEntryKept(String entry) {
+        List<PositionedText> out = PdfTraceRedactor.redact(List.of(
+                new PositionedText(entry, 50.2f, 700f, 0, 250.4f),
+                new PositionedText(NAME, 50.2f, 714f, 0, 70.6f)));
+
+        assertRun(out.get(0), entry, 50.2f, 250.4f);
+        assertThat(out.get(1).text()).isEqualTo("Xxxx Xxxxxxx");
+    }
+
+    @Test
+    void copiesCarryingEveryProductionEntryPassThePrivacyChecks() {
+        List<PositionedText> in = new ArrayList<>(statement());
+        float y = 600f;
+        for (String entry : BankSentences.entries()) {
+            in.add(new PositionedText(entry, 50.2f, y, 1, 300.4f));
+            in.add(new PositionedText(NAME, 50.2f, y - 14f, 1, 70.6f));
+            y -= 28f;
+        }
+        List<PositionedText> copy = PdfTraceRedactor.redact(in);
+
+        assertThat(copy.stream().filter(r -> BankSentences.isListed(BankSentences.normalise(r.text()))).count())
+                .isEqualTo(BankSentences.entries().size());
+        assertThat(copy).noneMatch(r -> r.text().contains("Jane") || r.text().contains("Example"));
+        List<PositionedText> readBack = TraceFormat.parse(TraceFormat.format(copy));
+        assertThat(TraceValidator.privacyKinds(readBack)).isEmpty();
+        assertThat(TraceValidator.copyLeaks(in, copy)).isEmpty();
+    }
+
+    /** The name is masked, and the run is masked exactly as it is with no list at all. */
+    private static void assertNameMaskedAsWithoutAList(String printed) {
+        List<PositionedText> in = List.of(new PositionedText(printed, 50.2f, 700f, 0, 300.4f));
+        String redacted = PdfTraceRedactor.redact(in).get(0).text();
+        assertThat(redacted).contains("Xxxx Xxxxxxx").doesNotContain("Jane").doesNotContain("Example");
+        assertThat(redacted).isEqualTo(PdfTraceRedactor.redact(in, Set.of()).get(0).text());
     }
 
     private static void assertRun(PositionedText run, String text, float x, float width) {

@@ -272,6 +272,28 @@ describe('Reports — the hero', () => {
     expect(screen.queryByTestId('hero-bar')).not.toBeInTheDocument();
   });
 
+  it('keeps a thousands-of-percent rate inside the ring by drawing its figure smaller', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 500, expense: 6000, categories: [], savingsRatePct: -1100 }));
+    renderPage();
+
+    const ring = await screen.findByTestId('hero-ring');
+    expect(ring).toHaveAttribute('aria-label', 'Savings rate -1100%');
+    expect(ring.querySelector('text')).toHaveAttribute('font-size', '12');
+    expect(ring.querySelector('text')).toHaveTextContent('-1100%');
+  });
+
+  it('draws an ordinary rate at full size', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ savingsRatePct: 60 }));
+    renderPage();
+    expect((await screen.findByTestId('hero-ring')).querySelector('text')).toHaveAttribute('font-size', '20');
+  });
+
+  it('never shows a signed zero for a net under half a rupee', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 1000, expense: 1000.4, categories: [], savingsRatePct: -0.04 }));
+    renderPage();
+    expect(await screen.findByTestId('hero-net')).toHaveTextContent(/^₹0$/);
+  });
+
   it('says it broke even rather than "kept 0%" or "spent 0% more"', async () => {
     vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ income: 1000, expense: 998, savingsRatePct: 0.2 }));
     renderPage();
@@ -441,6 +463,22 @@ describe('Reports — where your money went', () => {
     expect(within(rows).getAllByText('50%')).toHaveLength(2);
     expect(within(rows).queryByText(/1\d\d%/)).not.toBeInTheDocument();
     expect(screen.getByTestId('category-donut')).toHaveAttribute('aria-label', expect.stringContaining('₹1,000 in total'));
+  });
+
+  it('closes the ring without a notch when there is one category, and keeps a hairline between several', async () => {
+    const circumference = 2 * Math.PI * 38;
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ categories: [{ category: 'Rent', amount: 500 }] }));
+    const { unmount } = renderPage();
+    const single = (await screen.findByTestId('category-donut')).querySelector('circle')!;
+    expect(parseFloat(single.getAttribute('stroke-dasharray')!.split(' ')[0])).toBeCloseTo(circumference, 2);
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      categories: [{ category: 'Rent', amount: 500 }, { category: 'Food', amount: 500 }],
+    }));
+    renderPage();
+    const first = (await screen.findByTestId('category-donut')).querySelector('circle')!;
+    expect(parseFloat(first.getAttribute('stroke-dasharray')!.split(' ')[0])).toBeCloseTo(circumference / 2 - 1.5, 2);
   });
 
   it('opens the ledger for a real category and month, and is not a link for one the ledger cannot filter to', async () => {
@@ -712,6 +750,16 @@ describe('Reports — biggest spends', () => {
     expect(params.get('q')).toBe('Big Mart');
     expect(params.get('from')).toBe('2026-08-14');
     expect(params.get('to')).toBe('2026-08-14');
+  });
+
+  it('opens a purchase the server could not name on its day alone, with no search term', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ biggestSpends: [spend('a', 'Transaction', 900, '2026-08-09', 'Uncategorized')] }));
+    renderPage();
+    const href = (await screen.findByRole('link', { name: /Transaction, ₹900 on Aug 9/ })).getAttribute('href')!;
+    const params = new URLSearchParams(href.split('?')[1]);
+    expect(params.has('q')).toBe(false);
+    expect(params.get('from')).toBe('2026-08-09');
+    expect(params.get('to')).toBe('2026-08-09');
   });
 
   it('keeps a name with special characters intact in the link', async () => {

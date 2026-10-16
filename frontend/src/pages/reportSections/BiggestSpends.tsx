@@ -3,9 +3,16 @@ import type { BiggestSpend } from '../../api/endpoints';
 import { FinoraCard, SectionHeader } from '../../design-system';
 import { fmt, shortDate } from './reportFormat';
 
-/** The Ledger narrowed to one purchase: its name on its day. The Ledger reads `q`, `from` and `to`. */
+/** What the server calls a purchase that has neither a merchant nor a description (ReportService.spendLabel). */
+const NO_LABEL = 'Transaction';
+
+/** The Ledger narrowed to one purchase: its name on its day. The Ledger reads `q`, `from` and `to`.
+ *  A purchase the server could not name gets its day alone: no row contains the word "Transaction",
+ *  so searching for it would open an empty list. */
 const ledgerLinkFor = (s: BiggestSpend) =>
-  `/app/transactions?${new URLSearchParams({ q: s.label, from: s.date, to: s.date }).toString()}`;
+  `/app/transactions?${new URLSearchParams(
+    s.label === NO_LABEL ? { from: s.date, to: s.date } : { q: s.label, from: s.date, to: s.date },
+  ).toString()}`;
 
 /**
  * The month's largest purchases, from the server: the same rows and refund netting as the category

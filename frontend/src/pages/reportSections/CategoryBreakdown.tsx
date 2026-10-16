@@ -39,7 +39,8 @@ function DonutChart({ rows, total, categories }: { rows: CategoryRow[]; total: n
       <g transform="rotate(-90 52 52)" fill="none" strokeWidth="14">
         {slices.map((s) => {
           const length = (s.share / 100) * RING_CIRCUMFERENCE;
-          const drawn = Math.max(length - SLICE_GAP, 0.01);
+          // A ring of one slice has no neighbour to keep apart from, so it closes without a notch.
+          const drawn = Math.max(length - (slices.length > 1 ? SLICE_GAP : 0), 0.01);
           const circle = (
             <circle
               key={s.category ?? '__other'} cx="52" cy="52" r={RING_RADIUS} stroke={colorOf(s.category)}

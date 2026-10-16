@@ -31,7 +31,15 @@ export function savingsHeadline(report: ReportData): string | null {
   }
 }
 
+/** Font size for the ring's figure: the ring's inside is about 62 wide, and "-1100%" at 20 is not. */
+export function ringFontSize(label: string): number {
+  if (label.length <= 4) return 20;
+  if (label.length === 5) return 16;
+  return 12;
+}
+
 function SavingsRing({ pct }: { pct: number }) {
+  const label = `${Math.round(pct)}%`;
   // A negative rate fills nothing (the figure inside says -N%); only a positive one draws an arc.
   const filled = Math.min(Math.max(pct, 0), 100) / 100;
   return (
@@ -46,8 +54,10 @@ function SavingsRing({ pct }: { pct: number }) {
           className="stroke-success"
         />
       )}
-      <text x="48" y="54" textAnchor="middle" className="fill-ink font-display" fontSize="20" fontWeight="700">
-        {Math.round(pct)}%
+      {/* The rate is not capped (a month of little income and a lot of spend reads in the thousands of
+          percent), so the figure steps down in size to stay inside the ring. */}
+      <text x="48" y="54" textAnchor="middle" className="fill-ink font-display" fontSize={ringFontSize(label)} fontWeight="700">
+        {label}
       </text>
     </svg>
   );
@@ -77,7 +87,8 @@ function KeptSpentBar({ income, expense }: { income: number; expense: number }) 
 }
 
 export function ReportHero({ report }: { report: ReportData }) {
-  const net = report.income - report.expense;
+  // Rounded first, because it is shown to the rupee: a net of -0.40 would otherwise read "-₹0" in red.
+  const net = Math.round(report.income - report.expense);
   const cmp = report.comparison;
   const priorName = cmp ? comparisonMonthName(cmp.previousMonth, report.month) : null;
   const compare = priorName ? netChangePhrase(cmp, priorName, fmt) : null;

@@ -180,7 +180,10 @@ export default function Reports() {
   }
 
   return (
-    <div className="space-y-6">
+    // Print / PDF: browsers drop background colours when printing unless asked not to. The calendar's
+    // shaded days carry white text on a dark fill and the kept/spent bar is only fills, so without
+    // this they print as blanks. The calendar and bars are the point of this page.
+    <div className="space-y-6 [-webkit-print-color-adjust:exact] [print-color-adjust:exact]">
       {/* `relative` is new, and required: the Refreshing indicator below positions against it.
           Ledger's equivalent indicator works the same way (its container already carried it). */}
       <FinoraCard padding="sm" className="relative flex flex-wrap items-end gap-3 justify-between">

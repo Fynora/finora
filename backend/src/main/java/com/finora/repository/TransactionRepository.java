@@ -188,6 +188,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     int stampQuickSorted(@Param("userId") UUID userId, @Param("ids") java.util.Collection<UUID> ids,
                          @Param("at") java.time.Instant at);
 
+    /**
+     * The money Quick sort has filed for the user: rows it stamped that are no longer waiting, on
+     * {@code accountIds}, duplicates left out -- counted as QuickSortService counts the waiting
+     * money, so the two add up to everything that was ever waiting and is still on the books.
+     */
+    @Query("""
+            SELECT COALESCE(SUM(ABS(t.amount)), 0) FROM Transaction t
+            WHERE t.userId = :userId AND t.accountId IN :accountIds
+              AND t.quickSortedAt IS NOT NULL AND t.needsCategoryReview = false
+              AND (t.reconciliationStatus IS NULL
+                   OR t.reconciliationStatus <> com.finora.entity.Transaction.ReconciliationStatus.DUPLICATE)
+            """)
+    java.math.BigDecimal sumQuickSortedAmount(@Param("userId") UUID userId,
+                                              @Param("accountIds") java.util.Collection<UUID> accountIds);
+
     /** How often a user chose each category -- see {@link #countManualChoicesByCategory}. */
     interface CategoryCount {
         UUID getCategoryId();

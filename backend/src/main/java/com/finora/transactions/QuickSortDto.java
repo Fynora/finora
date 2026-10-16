@@ -25,11 +25,13 @@ public final class QuickSortDto {
     /**
      * One batch of questions.
      *
-     * @param waitingTotal all money still waiting for review, including this batch -- the client
-     *                     measures progress against the first batch's figure
+     * @param waitingTotal all money still waiting for review, including this batch
+     * @param sortedTotal  the money Quick sort already filed, on the same accounts: the client shows
+     *                     progress as sortedTotal / (sortedTotal + waitingTotal), so a visit picks up
+     *                     where the last one ended rather than starting again at 0%
      * @param rest         what is left after this batch, for "Stop asking about these"
      */
-    public record Batch(List<Question> questions, BigDecimal waitingTotal, Rest rest) {}
+    public record Batch(List<Question> questions, BigDecimal waitingTotal, BigDecimal sortedTotal, Rest rest) {}
 
     /**
      * One payee (or one row, when its key names no single payee).

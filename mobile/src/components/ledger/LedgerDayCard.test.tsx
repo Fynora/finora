@@ -1,7 +1,7 @@
 import { Platform, StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerDayCard } from './LedgerDayCard';
-import { ThemeProvider } from '../../theme';
+import { shadows, ThemeProvider } from '../../theme';
 import { light } from '../../theme/palette';
 import type { DayPiece } from '../../lib/ledgerRows';
 import type { Transaction } from '../../types';
@@ -134,14 +134,16 @@ describe('LedgerDayCard', () => {
     expect(end.boxShadow).toBeDefined();
   });
 
-  it('uses elevation instead of a box shadow on Android', () => {
+  // Android's elevation shadow shows through a see-through card: it drew a grey rim round a white
+  // box inside every day card (Pixel 10 emulator, 2026-10-16). The box shadow does not.
+  it('casts the same box shadow on Android, with no elevation', () => {
     const original = Platform.OS;
     (Platform as { OS: string }).OS = 'android';
     try {
       show(piece());
       const card = StyleSheet.flatten(screen.getByTestId('day-card-2026-07-14#0').props.style);
-      expect(card.elevation).toBe(2);
-      expect(card.boxShadow).toBeUndefined();
+      expect(card.elevation).toBeUndefined();
+      expect(card.boxShadow).toEqual(shadows.card);
     } finally {
       (Platform as { OS: string }).OS = original;
     }

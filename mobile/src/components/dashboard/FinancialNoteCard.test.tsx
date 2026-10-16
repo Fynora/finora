@@ -64,12 +64,13 @@ describe('FinancialNoteCard', () => {
     expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: withAlpha(light.brassBg, light.glassAlpha) });
   });
 
-  it('declares no box shadow on Android', () => {
+  // Every card lifts off the page on Android too, now that its shadow no longer shows through.
+  it('casts the card shadow on Android too', () => {
     const originalOS = Platform.OS;
     (Platform as { OS: string }).OS = 'android';
     try {
       renderNote();
-      expect(StyleSheet.flatten(screen.getByTestId('financial-note').props.style).boxShadow).toBeUndefined();
+      expect(StyleSheet.flatten(screen.getByTestId('financial-note').props.style).boxShadow).toEqual(shadows.card);
     } finally {
       (Platform as { OS: string }).OS = originalOS;
     }

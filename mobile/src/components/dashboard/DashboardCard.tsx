@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Platform, StyleSheet, type ViewStyle } from 'react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 import { radius, shadows, spacing } from '../../theme';
 import { GlassSurface, type GlassVariant } from '../GlassSurface';
 
@@ -33,8 +33,7 @@ export function DashboardCard({
       variant={variant}
       style={[
         styles.card,
-        // Read at render like GlassSurface's own platform check, so a test can drive both.
-        Platform.OS === 'ios' ? styles.shadowIos : styles.shadowAndroid,
+        styles.shadow,
         padding === 'compact' ? styles.compact : styles.regular,
         style,
       ]}
@@ -50,9 +49,9 @@ const styles = StyleSheet.create({
   // surface that carries one as an unclipped view with the glass behind it. Until 2026-10-10 the
   // card set shadowColor/Opacity/Radius on the glass view itself, which clips to its radius and
   // so clipped the shadow away: measured on an iOS 26 screenshot, the page right under a card
-  // was the bare page colour. Android keeps the elevation it has always had.
-  shadowIos: { boxShadow: shadows.card },
-  shadowAndroid: { elevation: 2 },
+  // was the bare page colour. Android casts the same box shadow: its elevation shadow showed
+  // through the see-through fill as a grey rim round a white box (Pixel 10 emulator, 2026-10-16).
+  shadow: { boxShadow: shadows.card },
   regular: { padding: spacing.ml },
   compact: { padding: spacing.md },
 });

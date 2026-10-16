@@ -152,12 +152,14 @@ describe('DashboardCard', () => {
     expect(screen.getByTestId('glass-layer', { includeHiddenElements: true })).toHaveStyle({ borderRadius: 20 });
   });
 
-  it('Android: keeps its elevation and declares no box shadow', () => {
+  // Android's elevation shadow shows through the see-through fill as a grey rim round a white box
+  // (Pixel 10 emulator, 2026-10-16); the box shadow is cut from the card's own rounded box.
+  it('Android: casts the box shadow, with no elevation', () => {
     on('android');
     render(<ThemeProvider><DashboardCard testID="d">{null}</DashboardCard></ThemeProvider>);
     const style = StyleSheet.flatten(screen.getByTestId('d').props.style);
-    expect(style.elevation).toBe(2);
-    expect(style.boxShadow).toBeUndefined();
+    expect(style.elevation).toBeUndefined();
+    expect(style.boxShadow).toEqual(shadows.card);
   });
 });
 

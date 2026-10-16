@@ -17,8 +17,14 @@ public record InsightsDto(
         // this field, never from the summary's. Null when there is no spending to report on.
         // Same pair, same semantics as DashboardSummaryDto's -- see ReportingPeriod.
         String reportingMonth,
-        boolean reportingMonthIsCurrent
+        boolean reportingMonthIsCurrent,
+        // Card bills paid in reportingMonth that no card statement links to (CardBills), so the
+        // app can ask for that statement. Null when there are none.
+        UnlinkedCardBills unlinkedCardBills
 ) {
+    /** {@code month} is "yyyy-MM"; {@code total} is what those bills took out of spending. */
+    public record UnlinkedCardBills(String month, BigDecimal total, int count) {}
+
     @Schema(name = "InsightsCategoryMover")
     public record CategoryMover(String category, BigDecimal current, BigDecimal priorAverage, Double pctChange) {}
 

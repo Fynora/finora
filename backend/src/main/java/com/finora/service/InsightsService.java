@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import com.finora.repository.UserRepository;
 import com.finora.util.UserZone;
+import com.finora.util.CardBills;
 import java.util.Locale;
 
 /**
@@ -118,7 +119,7 @@ public class InsightsService {
             boolean requestedIsCurrent = month == null
                     || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
             return new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent);
+                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null);
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -136,13 +137,20 @@ public class InsightsService {
                 .toList();
 
         Map<String, BigDecimal> currentByCat = groupByCategory(txns, currentMonth, categoriesById, refunds);
+        // A card bill is a whole month of card purchases paid at once (CardBills): it stays in the
+        // total and the biggest category above, but is never compared month to month -- its size
+        // follows the card's statement, not a change in habits, so as a mover it read as a spike.
+        List<Transaction> cardBills = txns.stream().filter(t -> CardBills.isCardBill(t, categoriesById)).toList();
+        List<Transaction> moverTxns = cardBills.isEmpty() ? txns
+                : txns.stream().filter(t -> !CardBills.isCardBill(t, categoriesById)).toList();
+        Map<String, BigDecimal> moverCurrentByCat = groupByCategory(moverTxns, currentMonth, categoriesById, refunds);
         Map<String, BigDecimal> priorByCat = new HashMap<>();
         for (String m : priorMonths) {
-            groupByCategory(txns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
+            groupByCategory(moverTxns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
         }
         int priorCount = Math.max(priorMonths.size(), 1);
 
-        List<InsightsDto.CategoryMover> movers = currentByCat.entrySet().stream().map(e -> {
+        List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
             BigDecimal priorTotal = priorByCat.getOrDefault(e.getKey(), BigDecimal.ZERO);
             BigDecimal priorAvg = priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
@@ -259,7 +267,22 @@ public class InsightsService {
         }
 
         return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
-                currentMonth, pipeline.reportingMonthIsCurrent());
+                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(cardBills, currentMonth, refunds));
+    }
+
+    /**
+     * This month's card bills that reached the spend set: a bill reconciliation linked to a card
+     * statement never does (RefundNetting.reportable drops it), so every one here has no statement
+     * behind it. Null when there are none.
+     */
+    private static InsightsDto.UnlinkedCardBills unlinkedCardBills(List<Transaction> cardBills, String month,
+                                                                   RefundNetting refunds) {
+        List<Transaction> inMonth = cardBills.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
+                .toList();
+        if (inMonth.isEmpty()) return null;
+        BigDecimal total = inMonth.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new InsightsDto.UnlinkedCardBills(month, total, inMonth.size());
     }
 
     /** BH-005: the netting is a parameter rather than a field because it is derived per request

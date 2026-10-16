@@ -49,6 +49,21 @@ describe('ActivationQuestionCard', () => {
     expect(await screen.findByText('Last time you looked at adding a statement. What stopped you?')).toBeInTheDocument();
   });
 
+  // After a first import, NO_FILE no longer applies; coming back to the dashboard must not flash the
+  // old question from the cache while the new answer loads.
+  it('never shows a question cached from an earlier visit', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    api.question.mockResolvedValue('NO_FILE');
+    const first = render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+    expect(await screen.findByText('Last time you looked at adding a statement. What stopped you?')).toBeInTheDocument();
+    first.unmount();
+
+    api.question.mockReturnValue(new Promise(() => {}));
+    render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+
+    expect(screen.queryByText('Last time you looked at adding a statement. What stopped you?')).toBeNull();
+  });
+
   it('closeButtonPostsSkipped', async () => {
     api.question.mockResolvedValue('NOT_CONFIRMED');
     const { container } = renderCard();

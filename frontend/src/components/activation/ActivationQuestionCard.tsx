@@ -14,10 +14,15 @@ import { WhatStoppedYou } from './WhatStoppedYou';
 export function ActivationQuestionCard() {
   // Read inside the query function, not at render: if the call cannot even be made, that is a failed
   // query (no card), never a broken dashboard.
-  const { data: moment } = useQuery({ queryKey: ['activation', 'question'], queryFn: () => activationApi.question() });
+  const { data: moment, isFetchedAfterMount } = useQuery({
+    queryKey: ['activation', 'question'], queryFn: () => activationApi.question(),
+  });
   const [closed, setClosed] = useState(false);
 
-  if (!moment || closed) return null;
+  // Only an answer fetched for this visit: one cached from an earlier visit may no longer apply (a
+  // first import since then ends NO_FILE), and flashing it while the new answer loads would ask
+  // someone why they never added a statement right after they added one.
+  if (!isFetchedAfterMount || !moment || closed) return null;
 
   function close() {
     setClosed(true);

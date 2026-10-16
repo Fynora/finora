@@ -274,6 +274,42 @@ class BankActivityCategoryTest {
         }
     }
 
+    // --- paysCardBill: the card-bill test on its own, shared with Insights ---
+
+    @Test
+    void paysCardBill_trueForCardBillAppAndSelfTransferWording() {
+        assertThat(BankActivityCategory.paysCardBill("UPI-CREDCLUB-CREDCLUB@ICICI-XXXX0000114-")).isTrue(); // synthetic-ok
+        assertThat(BankActivityCategory.paysCardBill("Self BIL/INFT/AB00000001/CC BillPay-0001/Self")).isTrue();
+    }
+
+    @Test
+    void paysCardBill_netBankingNeedsAMaskedCard() {
+        assertThat(BankActivityCategory.paysCardBill("IB BILLPAY DR-SAMP92-400000XXXXXX0001")).isTrue(); // synthetic-ok
+        assertThat(BankActivityCategory.paysCardBill("IB BILLPAY DR-SAMPLEPOWER-000000000001")).isFalse();
+    }
+
+    @Test
+    void paysCardBill_falseForNullBlankAndOrdinarySpend() {
+        assertThat(BankActivityCategory.paysCardBill(null)).isFalse();
+        assertThat(BankActivityCategory.paysCardBill("   ")).isFalse();
+        assertThat(BankActivityCategory.paysCardBill("SAMPLE STORE PURCHASE")).isFalse();
+    }
+
+    @Test
+    void paysCardBill_agreesWithOfOnEveryCardBillNarration() {
+        for (String narration : new String[] {
+                "Self BIL/INFT/AB00000001/CC BillPay-0001/Self",
+                "UPI-CREDCLUB-CREDCLUB@ICICI-XXXX0000114-", // synthetic-ok
+                "IB BILLPAY DR-SAMP92-400000XXXXXX0001", // synthetic-ok
+                "IB BILLPAY DR-SAMPLEPOWER-000000000001",
+                "POS 400000XXXXXX0001 SAMPLE BILLPAY ELECTRICITY", // synthetic-ok
+                "SAMPLE STORE PURCHASE" }) {
+            assertThat(BankActivityCategory.paysCardBill(narration))
+                    .as(narration)
+                    .isEqualTo("Transfer".equals(of(narration, EXPENSE)));
+        }
+    }
+
     @Test
     void aForeignCurrencyMarkupFee_isFeesInterest() {
         assertThat(of("CONSOLIDATED FCY MARKUP FEE (Ref# VT000000000000000000001)", EXPENSE)).isEqualTo("Fees/Interest");

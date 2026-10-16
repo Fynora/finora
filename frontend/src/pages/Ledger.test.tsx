@@ -100,11 +100,11 @@ function txn(overrides: Partial<Transaction> = {}): Transaction {
   };
 }
 
-function renderLedger() {
+function renderLedger(entry = '/') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <Ledger />
       </MemoryRouter>
     </QueryClientProvider>
@@ -1414,5 +1414,99 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     await screen.findByText('Amazon');
     expect(screen.queryByTitle('Mark as transfer')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Unmark as transfer')).not.toBeInTheDocument();
+  });
+});
+
+describe('Ledger — a link from Reports (category and date range)', () => {
+  const food = { id: 'cat-food', name: 'Food & Dining' } as never;
+  const searched = () => vi.mocked(transactionsApi.search).mock.calls.map((c) => c[0]);
+
+  beforeEach(() => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [txn()], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([food]);
+  });
+
+  it('filters the list to that category and month', async () => {
+    renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
+
+    await waitFor(() => expect(searched()).toContainEqual(
+      expect.objectContaining({ categoryId: 'cat-food', dateFrom: '2026-09-01', dateTo: '2026-09-30' })));
+  });
+
+  it('asks for the date range on the very first request, not after an unfiltered one', async () => {
+    renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
+
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    expect(searched()[0]).toMatchObject({ dateFrom: '2026-09-01', dateTo: '2026-09-30' });
+  });
+
+  // The list is the 10-row page; the KPI row's own request is the big unfiltered-by-category one.
+  const listRequests = () => searched().filter((r) => r.size === 10);
+
+  it('never asks for the month without its category, so the wrong list does not flash first', async () => {
+    renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
+
+    await waitFor(() => expect(listRequests().length).toBeGreaterThan(0));
+    expect(listRequests().every((r) => r.categoryId === 'cat-food')).toBe(true);
+  });
+
+  it('holds the table in its loading state, with no rows, until the categories arrive', async () => {
+    let resolveCategories!: (v: never[]) => void;
+    vi.mocked(categoriesApi.list).mockReset().mockReturnValue(new Promise((res) => { resolveCategories = res as never; }));
+    const { container } = renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
+
+    await waitFor(() => expect(categoriesApi.list).toHaveBeenCalled());
+    expect(listRequests()).toHaveLength(0);
+    expect(container.querySelector('tbody')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('Amazon')).not.toBeInTheDocument();
+
+    resolveCategories([food] as never);
+    await waitFor(() => expect(listRequests()).toContainEqual(expect.objectContaining({ categoryId: 'cat-food' })));
+    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+  });
+
+  it('still loads the list, for the month, when the categories cannot be had', async () => {
+    vi.mocked(categoriesApi.list).mockReset().mockRejectedValue(new Error('down'));
+    renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
+
+    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(listRequests().length).toBeGreaterThan(0);
+    expect(listRequests().every((r) => r.categoryId === undefined && r.dateFrom === '2026-09-01')).toBe(true);
+  });
+
+  it('does not hold a link that carries only dates', async () => {
+    let resolveCategories!: (v: never[]) => void;
+    vi.mocked(categoriesApi.list).mockReset().mockReturnValue(new Promise((res) => { resolveCategories = res as never; }));
+    renderLedger('/app/transactions?from=2026-09-14&to=2026-09-14');
+
+    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(listRequests()[0]).toMatchObject({ dateFrom: '2026-09-14', dateTo: '2026-09-14' });
+    resolveCategories([] as never);
+  });
+
+  it('keeps the dates but applies no category filter for a name with no category (Uncategorized)', async () => {
+    renderLedger('/app/transactions?category=Uncategorized&from=2026-09-01&to=2026-09-30');
+
+    await waitFor(() => expect(categoriesApi.list).toHaveBeenCalled());
+    await waitFor(() => expect(searched().length).toBeGreaterThan(0));
+    expect(searched().every((r) => r.categoryId === undefined)).toBe(true);
+    expect(searched()).toContainEqual(expect.objectContaining({ dateFrom: '2026-09-01', dateTo: '2026-09-30' }));
+  });
+
+  it('ignores a malformed date instead of sending it to the server', async () => {
+    renderLedger('/app/transactions?from=2026-02-31&to=nonsense');
+
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalled());
+    expect(searched().every((r) => r.dateFrom === undefined && r.dateTo === undefined)).toBe(true);
+  });
+
+  it('leaves the plain search link alone: only the keyword, no category or dates', async () => {
+    renderLedger('/app/transactions?q=swiggy');
+
+    await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ keyword: 'swiggy' })));
+    expect(searched().every((r) => r.categoryId === undefined && r.dateFrom === undefined)).toBe(true);
   });
 });

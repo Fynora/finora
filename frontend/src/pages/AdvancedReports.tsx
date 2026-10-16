@@ -57,7 +57,7 @@ function UpgradePrompt() {
 }
 
 /** A "top N" bar list -- label, a bar sized relative to the largest value in THIS list (not a
- *  running total), and the amount. Same visual language as Reports.tsx's Category Breakdown
+ *  running total), and the amount. Same visual language as Reports.tsx's "Where your money went"
  *  rows, adapted for a ranked list rather than a share-of-total. */
 function RankedBarList({
   rows, empty,

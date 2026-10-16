@@ -3,8 +3,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, SectionHeading } from './Card';
 import { CategoryPickerModal } from './CategoryPickerModal';
+import { ProgressBar } from './dashboard/ProgressBar';
 import { transactionsApi } from '../api/endpoints';
-import { fmtCurrency } from '../lib/format';
+import { fmtCurrency, fmtDate } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { spacing, useTheme } from '../theme';
@@ -19,8 +20,10 @@ const PROMPT: Record<QuickSortKind, string> = {
 
 /**
  * Quick sort on mobile: a few payee questions, biggest money first, one at a time -- the same
- * behaviour and copy as the web's QuickSortCard. The server (QuickSortService) decides the batch
- * and the answers offered. {@code onLoaded} tells the screen how many questions the first batch
+ * questions, answers and wording as the web's QuickSortCard. The server (QuickSortService) decides
+ * the batch and the answers offered. Laid out for a phone: the count sits beside the title over a
+ * progress bar, the saved answer is named above the next question, and "Skip for now" sits apart
+ * from the answer chips. {@code onLoaded} tells the screen how many questions the first batch
  * has, so it can keep its full review lists one tap away while there are questions to answer.
  */
 export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) => void }) {
@@ -35,6 +38,9 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [allSorted, setAllSorted] = useState(false);
+  // The answer just saved, named above the next question: without it the question swaps with
+  // nothing on screen saying the last one landed. Cleared by anything that is not a saved answer.
+  const [lastSaved, setLastSaved] = useState<{ category: string; payee: string } | null>(null);
 
   function load(skip: number, first: boolean) {
     transactionsApi.quickSort(skip)
@@ -71,11 +77,13 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   async function answer(q: QuickSortQuestion, category: string) {
     setSaving(true);
     setError(null);
+    setLastSaved(null);
     try {
       await transactionsApi.quickSortAnswer(q.anchorTransactionId, category, q.kind);
       hapticSuccess();
       setAnsweredInBatch((n) => n + q.total);
       setIndex((i) => i + 1);
+      setLastSaved({ category, payee: q.payee });
       invalidateFinancialData(queryClient);
     } catch {
       hapticError();
@@ -89,9 +97,11 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
     setSkipped((n) => n + 1);
     setIndex((i) => i + 1);
     setError(null);
+    setLastSaved(null);
   }
 
   async function sortMore() {
+    setLastSaved(null);
     try {
       await transactionsApi.quickSortMore();
     } catch {
@@ -103,6 +113,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   function askSkippedAgain() {
     setSkipped(0);
     setError(null);
+    setLastSaved(null);
     load(0, false);
   }
 
@@ -110,6 +121,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
     if (!batch) return;
     setSaving(true);
     setError(null);
+    setLastSaved(null);
     try {
       await transactionsApi.quickSortKeepRest(batch.rest.transactionIds);
       hapticSuccess();
@@ -131,27 +143,41 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
       accessibilityRole="button"
       style={[styles.chip, primary
         ? { backgroundColor: c.primary, borderColor: c.primary }
-        : { borderColor: c.border }]}
+        : { borderColor: c.border }, saving && styles.dimmed]}
     >
-      <Text style={[styles.chipText, { color: primary ? '#fff' : c.ink }]}>{label}</Text>
+      {/* onPrimary, not white: dark mode's primary is near-white, and white on it was unreadable. */}
+      <Text style={[styles.chipText, { color: primary ? c.onPrimary : c.ink }]}>{label}</Text>
     </Pressable>
   );
 
+  const pct = allSorted ? 100 : sortedPct;
+
   return (
     <Card style={styles.card}>
-      <SectionHeading title="Quick sort" />
+      <SectionHeading
+        title="Quick sort"
+        action={current && !allSorted ? (
+          <Text style={[styles.counter, { color: c.mutedInk }]}>{index + 1} of {batch.questions.length}</Text>
+        ) : undefined}
+      />
+      <ProgressBar percent={pct} color={c.primary} testID="quick-sort-progress" />
       <Text style={[styles.progress, { color: c.mutedInk }]}>
-        You've sorted {allSorted ? 100 : sortedPct}% of your waiting money
+        You've sorted {pct}% of your waiting money
       </Text>
+
+      {lastSaved && !allSorted ? (
+        <Text style={[styles.saved, { color: c.successInk }]} accessibilityLiveRegion="polite">
+          Saved {lastSaved.category} for {lastSaved.payee}
+        </Text>
+      ) : null}
 
       {allSorted ? (
         <Text style={[styles.body, { color: c.ink }]}>All sorted. You can change any category later from the Ledger.</Text>
       ) : current ? (
         <View>
-          <Text style={[styles.counter, { color: c.mutedInk }]}>Question {index + 1} of {batch.questions.length}</Text>
           <Text style={[styles.payee, { color: c.ink }]}>{current.payee}</Text>
           <Text style={[styles.meta, { color: c.mutedInk }]}>
-            {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)} · latest {current.latestDate}
+            {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmtCurrency(current.total)} · latest {fmtDate(current.latestDate) ?? current.latestDate}
           </Text>
           {current.largeOneOff ? (
             <Text style={[styles.badge, { color: c.ink, backgroundColor: c.border }]}>Large one-off payment</Text>
@@ -159,7 +185,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
           <Text style={[styles.body, { color: c.ink }]}>
             {current.kind === 'GUESS' ? `Fynora thinks: ${current.currentCategory}` : PROMPT[current.kind]}
           </Text>
-          <View style={styles.chips}>
+          <View style={styles.chips} testID="quick-sort-answers">
             {current.kind === 'GUESS' && current.currentCategory
               ? chip('Correct', () => void answer(current, current.currentCategory!), true)
               : null}
@@ -167,8 +193,11 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
               .filter((a) => !(current.kind === 'GUESS' && a === current.currentCategory))
               .map((a) => chip(a, () => void answer(current, a)))}
             {chip(current.kind === 'GUESS' ? 'Change' : 'More…', () => setPickerOpen(true))}
-            {chip('Skip', skip)}
           </View>
+          {/* Apart from the answers: Skip saves nothing, and as a chip among them it read as one. */}
+          <Pressable onPress={skip} disabled={saving} accessibilityRole="button" style={[styles.skip, saving && styles.dimmed]}>
+            <Text style={[styles.skipText, { color: c.mutedInk }]}>Skip for now</Text>
+          </Pressable>
         </View>
       ) : batch.rest.questions > 0 ? (
         <View>
@@ -211,8 +240,9 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
 
 const styles = StyleSheet.create({
   card: { marginBottom: spacing.md },
-  progress: { fontSize: 12, marginBottom: spacing.sm },
-  counter: { fontSize: 11, marginBottom: 2 },
+  progress: { fontSize: 12, marginTop: 6, marginBottom: spacing.sm },
+  counter: { fontSize: 12, fontWeight: '600' },
+  saved: { fontSize: 12, fontWeight: '600', marginBottom: spacing.sm },
   payee: { fontSize: 16, fontWeight: '700' },
   meta: { fontSize: 12, marginTop: 2 },
   badge: {
@@ -221,6 +251,13 @@ const styles = StyleSheet.create({
   },
   body: { fontSize: 14, marginTop: spacing.sm },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm },
-  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+  // At least 44pt tall, the smallest comfortable touch target; 8pt of padding alone left them
+  // shorter. The padding stays so large text still clears the chip's edge.
+  chip: {
+    borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, minHeight: 44, justifyContent: 'center',
+  },
   chipText: { fontSize: 14, fontWeight: '600' },
+  dimmed: { opacity: 0.5 },
+  skip: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center', marginTop: spacing.xs },
+  skipText: { fontSize: 13, fontWeight: '600' },
 });

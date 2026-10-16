@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { activationApi } from '../../api/endpoints';
 import { ActivationQuestionCard } from './ActivationQuestionCard';
+import { markActivationAnsweredToday, resetActivationAnsweredForTests } from '../../lib/activationQuestions';
 
 // Hoisted above the imports by babel-jest.
 jest.mock('../../api/endpoints', () => ({
@@ -23,6 +24,7 @@ describe('ActivationQuestionCard', () => {
   beforeEach(() => {
     question.mockReset();
     answer.mockReset().mockResolvedValue(undefined);
+    resetActivationAnsweredForTests();
   });
 
   it('rendersNothingWhenNoQuestion', async () => {
@@ -60,6 +62,35 @@ describe('ActivationQuestionCard', () => {
     render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
 
     expect(screen.queryByText('Last time you looked at adding a statement. What stopped you?')).not.toBeOnTheScreen();
+  });
+
+  it('renders nothing once today is answered, whatever the server says', async () => {
+    markActivationAnsweredToday();
+    question.mockResolvedValue('NO_FILE');
+    renderCard();
+
+    await waitFor(() => expect(question).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.queryByTestId('activation-question-card')).not.toBeOnTheScreen();
+  });
+
+  it('closes itself when the server refuses the answer, leaving no empty card', async () => {
+    question.mockResolvedValue('NO_FILE');
+    answer.mockRejectedValue({ response: { status: 409 } });
+    renderCard();
+
+    fireEvent.press(await screen.findByText('Not now'));
+
+    await waitFor(() => expect(screen.queryByTestId('activation-question-card')).not.toBeOnTheScreen());
+  });
+
+  it('keeps its Thanks after an accepted answer', async () => {
+    question.mockResolvedValue('NO_FILE');
+    renderCard();
+
+    fireEvent.press(await screen.findByText('Not now'));
+
+    expect(await screen.findByText('Thanks.')).toBeOnTheScreen();
   });
 
   it('closeButtonPostsSkipped', async () => {

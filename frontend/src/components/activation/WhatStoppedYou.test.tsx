@@ -8,12 +8,14 @@ vi.mock('../../api/endpoints', () => ({
 
 import { activationApi } from '../../api/endpoints';
 import { WhatStoppedYou } from './WhatStoppedYou';
+import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
 
 const answer = vi.mocked(activationApi.answer);
 
 describe('WhatStoppedYou', () => {
   beforeEach(() => {
     answer.mockReset().mockResolvedValue(undefined);
+    resetActivationAnsweredForTests();
   });
 
   it('rendersEachMomentsExactCopy', () => {
@@ -80,6 +82,36 @@ describe('WhatStoppedYou', () => {
     resolve();
 
     expect(answer).toHaveBeenCalledTimes(1);
+  });
+
+  // The server takes one answer a day; a question it would refuse is not worth showing.
+  it('shows no further question today once one was answered', async () => {
+    const first = render(<WhatStoppedYou moment="REFUSED" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Try another file' }));
+    expect(await screen.findByText('Thanks.')).toBeInTheDocument();
+    first.unmount();
+
+    const { container } = render(<WhatStoppedYou moment="NOT_CONFIRMED" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('a 409 also means today is answered, but a network failure does not', async () => {
+    answer.mockRejectedValueOnce({ response: { status: 409 } });
+    const first = render(<WhatStoppedYou moment="REFUSED" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(first.container).toBeEmptyDOMElement());
+    first.unmount();
+    expect(render(<WhatStoppedYou moment="REFUSED" />).container).toBeEmptyDOMElement();
+
+    resetActivationAnsweredForTests();
+    answer.mockRejectedValueOnce(new Error('Network Error'));
+    const third = render(<WhatStoppedYou moment="NO_FILE" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+    await waitFor(() => expect(third.container).toBeEmptyDOMElement());
+    third.unmount();
+
+    render(<WhatStoppedYou moment="NO_FILE" />);
+    expect(screen.getByText('Last time you looked at adding a statement. What stopped you?')).toBeInTheDocument();
   });
 
   it('noTextInput', () => {

@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { activationApi } from '../../api/endpoints';
 import { FinoraCard } from '../../design-system';
 import { WhatStoppedYou } from './WhatStoppedYou';
+import { activationAnsweredToday } from '../../lib/activationQuestions';
 
 /**
  * The dashboard's "What stopped you?" card (Gate 2a spec §4.1-4.2). The server decides whether
@@ -22,7 +23,8 @@ export function ActivationQuestionCard() {
   // Only an answer fetched for this visit: one cached from an earlier visit may no longer apply (a
   // first import since then ends NO_FILE), and flashing it while the new answer loads would ask
   // someone why they never added a statement right after they added one.
-  if (!isFetchedAfterMount || !moment || closed) return null;
+  // Nor once today is answered: the question inside would not show, leaving an empty card.
+  if (!isFetchedAfterMount || !moment || closed || activationAnsweredToday()) return null;
 
   function close() {
     setClosed(true);
@@ -41,7 +43,8 @@ export function ActivationQuestionCard() {
         <X size={16} aria-hidden="true" />
       </button>
       <div className="pr-8">
-        <WhatStoppedYou moment={moment} />
+        {/* A refused answer hides the question; close the card with it rather than leave it empty. */}
+        <WhatStoppedYou moment={moment} onDone={(outcome) => { if (outcome === 'refused') setClosed(true); }} />
       </div>
     </FinoraCard>
   );

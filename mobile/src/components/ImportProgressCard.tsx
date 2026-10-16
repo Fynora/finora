@@ -180,9 +180,8 @@ export function ImportProgressCard({
           ) : null}
           {/* Gate 2a spec §4.1: asked below the reason. This card lives only on the Import screen. */}
           {failed && failureReason ? (
-            <View style={styles.whatNext}>
-              <WhatStoppedYou moment="REFUSED" />
-            </View>
+            // Keyed by job: the card is reused when another upload fails.
+            <WhatStoppedYou key={jobId} moment="REFUSED" style={styles.whatNext} />
           ) : null}
         </View>
 

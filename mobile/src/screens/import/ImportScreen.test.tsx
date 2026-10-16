@@ -8,6 +8,10 @@ import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 import { expectHaptics, resetHapticCalls } from '../../test/haptics';
+import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
+
+// "What stopped you?" remembers a same-day answer in module state; every test starts without one.
+beforeEach(() => resetActivationAnsweredForTests());
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
@@ -2313,6 +2317,7 @@ describe('ImportScreen — what stopped you', () => {
 
     expect(await screen.findByText(/too many pages/i)).toBeTruthy();
     expect(screen.getByText('What will you do now?')).toBeOnTheScreen();
+    expect(screen.getByTestId('what-stopped-you-frame')).toBeOnTheScreen();
   });
 
   it('networkErrorDoesNotAsk', async () => {
@@ -2371,6 +2376,23 @@ describe('ImportScreen — what stopped you', () => {
     expect(await screen.findByText('What made you stop?')).toBeOnTheScreen();
     fireEvent.press(screen.getByText('The rows looked wrong'));
     expect(answer).toHaveBeenCalledWith('NOT_CONFIRMED', 'ROWS_LOOKED_WRONG');
+  });
+
+  it('does not ask again today after an answer', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode('IMPORT_013', 'Too many pages.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    fireEvent.press(await screen.findByText('Try another file'));
+    expect(await screen.findByText('Thanks.')).toBeOnTheScreen();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(await screen.findByText(/too many pages/i)).toBeTruthy();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    // Nor an empty frame where the question would have been.
+    expect(screen.queryByTestId('what-stopped-you-frame')).not.toBeOnTheScreen();
   });
 
   it('questionHiddenWhileUploading', async () => {

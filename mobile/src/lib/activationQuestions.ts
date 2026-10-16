@@ -37,3 +37,30 @@ export const ACTIVATION_QUESTIONS: Record<ActivationMoment, { question: string; 
 };
 
 export const SKIP_LABEL = 'Skip';
+
+/**
+ * The server takes one answer or skip a day (spec §4.3) and refuses the rest with 409. Once today is
+ * answered -- by a tap here, or by a 409 saying it already was -- no further question is shown today,
+ * so nobody taps an answer that silently goes nowhere. Kept for this app session only; the local day
+ * can differ from the server's reporting-zone day around midnight, which only errs towards asking
+ * less.
+ */
+let answeredOn: string | null = null;
+
+function localDay(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+export function markActivationAnsweredToday(): void {
+  answeredOn = localDay();
+}
+
+export function activationAnsweredToday(): boolean {
+  return answeredOn === localDay();
+}
+
+/** Test seam: the memory is module state, which persists across the tests in one file. */
+export function resetActivationAnsweredForTests(): void {
+  answeredOn = null;
+}

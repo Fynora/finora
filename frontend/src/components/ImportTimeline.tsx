@@ -208,7 +208,8 @@ export function ImportTimeline({
               </p>
               {askWhatNext && (
                 <div className="mt-3">
-                  <WhatStoppedYou moment="REFUSED" />
+                  {/* Keyed by job: the panel is reused when another upload fails. */}
+                  <WhatStoppedYou key={jobId} moment="REFUSED" />
                 </div>
               )}
             </>

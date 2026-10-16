@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { ImportTimeline } from './ImportTimeline';
 import { POLL_SCHEDULE_MS } from './ImportProgress';
-import { importJobsApi, type ImportJobTimeline as Timeline } from '../api/endpoints';
+import { activationApi, importJobsApi, type ImportJobTimeline as Timeline } from '../api/endpoints';
+import { resetActivationAnsweredForTests } from '../lib/activationQuestions';
 
 vi.mock('../api/endpoints', () => ({
   importJobsApi: { timeline: vi.fn() },
@@ -10,6 +11,7 @@ vi.mock('../api/endpoints', () => ({
 }));
 
 const api = vi.mocked(importJobsApi);
+const activation = vi.mocked(activationApi);
 
 const timeline = (over: Partial<Timeline> = {}): Timeline => ({
   jobId: 'job-1',
@@ -26,6 +28,8 @@ const timeline = (over: Partial<Timeline> = {}): Timeline => ({
 beforeEach(() => {
   vi.useFakeTimers();
   api.timeline.mockReset();
+  activation.answer.mockReset().mockResolvedValue(undefined);
+  resetActivationAnsweredForTests();
 });
 
 afterEach(() => {
@@ -76,6 +80,23 @@ describe('ImportTimeline', () => {
     const reason = screen.getByTestId('import-timeline-failure-reason');
     const question = screen.getByText('What will you do now?');
     expect(reason.compareDocumentPosition(question) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // The panel is reused when a second upload fails: the question must not carry the first one's
+  // "Thanks." (or its hidden state) over to a different job.
+  it('asks afresh for a different failed job', async () => {
+    api.timeline.mockResolvedValue(timeline({ status: 'FAILED', userStatus: 'FAILED', failureCode: null }));
+    const { rerender } = render(<ImportTimeline jobId="job-1" askWhatNext />);
+    await advance(100);
+    activation.answer.mockRejectedValueOnce(new Error('Network Error'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try another file' })); });
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+
+    api.timeline.mockResolvedValue(timeline({ jobId: 'job-2', status: 'FAILED', userStatus: 'FAILED', failureCode: null }));
+    rerender(<ImportTimeline jobId="job-2" askWhatNext />);
+    await advance(100);
+
+    expect(screen.getByText('What will you do now?')).toBeInTheDocument();
   });
 
   it('does not ask on a page that did not opt in (the import detail page)', async () => {

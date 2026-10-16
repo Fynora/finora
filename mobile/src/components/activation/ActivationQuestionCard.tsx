@@ -6,6 +6,7 @@ import { activationApi } from '../../api/endpoints';
 import { Card } from '../Card';
 import { spacing, useTheme } from '../../theme';
 import { WhatStoppedYou } from './WhatStoppedYou';
+import { activationAnsweredToday } from '../../lib/activationQuestions';
 
 /**
  * The dashboard's "What stopped you?" card (Gate 2a spec §4.1-4.2). Port of
@@ -24,7 +25,8 @@ export function ActivationQuestionCard() {
 
   // Only an answer fetched since this mount: one cached from earlier may no longer apply (a first
   // import since then ends NO_FILE). The tab staying mounted is covered by invalidateFinancialData.
-  if (!isFetchedAfterMount || !moment || closed) return null;
+  // Nor once today is answered: the question inside would not show, leaving an empty card.
+  if (!isFetchedAfterMount || !moment || closed || activationAnsweredToday()) return null;
 
   function close() {
     setClosed(true);
@@ -36,7 +38,8 @@ export function ActivationQuestionCard() {
     <Card testID="activation-question-card">
       <View style={styles.row}>
         <View style={styles.body}>
-          <WhatStoppedYou moment={moment} />
+          {/* A refused answer hides the question; close the card with it rather than leave it empty. */}
+          <WhatStoppedYou moment={moment} onDone={(outcome) => { if (outcome === 'refused') setClosed(true); }} />
         </View>
         <Pressable
           accessibilityRole="button"

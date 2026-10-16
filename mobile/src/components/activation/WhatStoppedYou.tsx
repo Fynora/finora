@@ -1,7 +1,10 @@
-import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState, type ReactNode } from 'react';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Card } from '../Card';
 import { activationApi, type ActivationAnswer, type ActivationMoment } from '../../api/endpoints';
-import { ACTIVATION_QUESTIONS, SKIP_LABEL } from '../../lib/activationQuestions';
+import {
+  ACTIVATION_QUESTIONS, SKIP_LABEL, activationAnsweredToday, markActivationAnsweredToday,
+} from '../../lib/activationQuestions';
 import { radius, spacing, useTheme } from '../../theme';
 
 /**
@@ -12,9 +15,19 @@ import { radius, spacing, useTheme } from '../../theme';
  * After a tap it says "Thanks." and calls `onDone`. If the answer is refused (409: the question is
  * not being asked now) or fails at all, it disappears without an error and still calls `onDone`.
  */
-export function WhatStoppedYou({ moment, onDone }: { moment: ActivationMoment; onDone?: () => void }) {
+export function WhatStoppedYou({ moment, onDone, framed = false, style }: {
+  moment: ActivationMoment;
+  /** 'answered': it now says "Thanks.". 'refused': it hid itself (409 or any failure). */
+  onDone?: (outcome: 'answered' | 'refused') => void;
+  /** Draw its own card around the question. Drawn here rather than by the caller so that when the
+   *  question hides itself (answered today, or refused) no empty card is left behind. */
+  framed?: boolean;
+  /** Spacing for the question's own outer element, for the same reason: no gap left behind. */
+  style?: StyleProp<ViewStyle>;
+}) {
   const c = useTheme();
-  const [state, setState] = useState<'asking' | 'thanks' | 'gone'>('asking');
+  // Not shown at all once today is answered: the server would refuse this one (spec §4.3).
+  const [state, setState] = useState<'asking' | 'thanks' | 'gone'>(() => (activationAnsweredToday() ? 'gone' : 'asking'));
   const sent = useRef(false);
   const { question, answers } = ACTIVATION_QUESTIONS[moment];
 
@@ -23,17 +36,27 @@ export function WhatStoppedYou({ moment, onDone }: { moment: ActivationMoment; o
     if (sent.current) return;
     sent.current = true;
     activationApi.answer(moment, answer).then(
-      () => setState('thanks'),
-      () => setState('gone'),
-    ).finally(() => onDone?.());
+      () => {
+        markActivationAnsweredToday();
+        setState('thanks');
+        onDone?.('answered');
+      },
+      (e: { response?: { status?: number } }) => {
+        // 409: today (or this moment) is already answered. Any other failure says nothing about it.
+        if (e?.response?.status === 409) markActivationAnsweredToday();
+        setState('gone');
+        onDone?.('refused');
+      },
+    );
   }
 
   if (state === 'gone') return null;
+  const frame = (content: ReactNode) => (framed ? <Card testID="what-stopped-you-frame">{content}</Card> : content);
   if (state === 'thanks') {
-    return <Text style={[styles.thanks, { color: c.muted }]} accessibilityLiveRegion="polite">Thanks.</Text>;
+    return frame(<Text style={[styles.thanks, { color: c.muted }, style]} accessibilityLiveRegion="polite">Thanks.</Text>);
   }
-  return (
-    <View accessibilityLabel={question} testID={`what-stopped-you-${moment}`}>
+  return frame(
+    <View accessibilityLabel={question} testID={`what-stopped-you-${moment}`} style={style}>
       <Text style={[styles.question, { color: c.ink }]}>{question}</Text>
       <View style={styles.answers}>
         {answers.map((a) => (
@@ -56,7 +79,7 @@ export function WhatStoppedYou({ moment, onDone }: { moment: ActivationMoment; o
           <Text style={[styles.chipText, { color: c.muted }]}>{SKIP_LABEL}</Text>
         </Pressable>
       </View>
-    </View>
+    </View>,
   );
 }
 

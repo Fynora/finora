@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { TextInput } from 'react-native';
 import { activationApi } from '../../api/endpoints';
 import { WhatStoppedYou } from './WhatStoppedYou';
+import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
 
 // Hoisted above the imports by babel-jest.
 jest.mock('../../api/endpoints', () => ({
@@ -20,6 +21,7 @@ function buttonLabels(): string[] {
 describe('WhatStoppedYou', () => {
   beforeEach(() => {
     answer.mockReset().mockResolvedValue(undefined);
+    resetActivationAnsweredForTests();
   });
 
   it('rendersEachMomentsExactCopy', () => {
@@ -85,6 +87,37 @@ describe('WhatStoppedYou', () => {
     fireEvent.press(screen.getByText("I didn't know how"));
 
     expect(answer).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no further question today once one was answered', async () => {
+    const first = render(<WhatStoppedYou moment="REFUSED" />);
+    fireEvent.press(screen.getByText('Try another file'));
+    expect(await screen.findByText('Thanks.')).toBeOnTheScreen();
+    first.unmount();
+
+    render(<WhatStoppedYou moment="NOT_CONFIRMED" />);
+    expect(screen.queryByText('What made you stop?')).not.toBeOnTheScreen();
+  });
+
+  it('a 409 also means today is answered, but a network failure does not', async () => {
+    answer.mockRejectedValueOnce({ response: { status: 409 } });
+    const first = render(<WhatStoppedYou moment="REFUSED" />);
+    fireEvent.press(screen.getByText('Skip'));
+    await waitFor(() => expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen());
+    first.unmount();
+    const second = render(<WhatStoppedYou moment="REFUSED" />);
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    second.unmount();
+
+    resetActivationAnsweredForTests();
+    answer.mockRejectedValueOnce(new Error('Network Error'));
+    const third = render(<WhatStoppedYou moment="NO_FILE" />);
+    fireEvent.press(screen.getByText('Not now'));
+    await waitFor(() => expect(screen.queryByText('Not now')).not.toBeOnTheScreen());
+    third.unmount();
+
+    render(<WhatStoppedYou moment="NO_FILE" />);
+    expect(screen.getByText('Last time you looked at adding a statement. What stopped you?')).toBeOnTheScreen();
   });
 
   it('noTextInput', () => {

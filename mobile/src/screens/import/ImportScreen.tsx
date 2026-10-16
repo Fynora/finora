@@ -983,9 +983,7 @@ export function ImportScreen() {
       ) : null}
       {/* Never during an action: only on the upload step with nothing uploading (spec §4.3). */}
       {askMoment && step === 'upload' && uploadProgress === null && !uploadCompleted ? (
-        <Card>
-          <WhatStoppedYou key={askMoment} moment={askMoment} />
-        </Card>
+        <WhatStoppedYou key={askMoment} moment={askMoment} framed />
       ) : null}
     </View>
   );

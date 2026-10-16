@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ImportProgressCard } from './ImportProgressCard';
-import { importJobsApi, type ImportJobProgress } from '../api/endpoints';
+import { activationApi, importJobsApi, type ImportJobProgress } from '../api/endpoints';
+import { markActivationAnsweredToday, resetActivationAnsweredForTests } from '../lib/activationQuestions';
 import { ThemeProvider } from '../theme';
 
 jest.mock('../api/endpoints', () => ({
@@ -114,7 +115,28 @@ describe('ImportProgressCard', () => {
     expect(screen.queryByText('raw internal text')).toBeNull();
   });
 
+  it('asks afresh for a different failed job', async () => {
+    (activationApi.answer as jest.Mock).mockReset().mockRejectedValueOnce(new Error('Network Error'));
+    resetActivationAnsweredForTests();
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({ jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [] });
+    const view = renderCard();
+    fireEvent.press(await screen.findByText('Try another file'));
+    await waitFor(() => expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen());
+
+    api.progress.mockResolvedValue(jobProgress({ jobId: 'job-2', status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({ jobId: 'job-2', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [] });
+    view.rerender(
+      <ThemeProvider>
+        <ImportProgressCard jobId="job-2" onReady={onReady} onGaveUp={onGaveUp} onDismiss={onDismiss} />
+      </ThemeProvider>
+    );
+
+    expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
+  });
+
   it('failedCardAsksWhatNow below the reason', async () => {
+    resetActivationAnsweredForTests();
     api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
     api.timeline.mockResolvedValue({
       jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [],
@@ -123,6 +145,28 @@ describe('ImportProgressCard', () => {
 
     expect(await screen.findByText(/couldn't find a transaction table/i)).toBeTruthy();
     expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
+  });
+
+  it('leaves no gap where the question was once today is answered', async () => {
+    resetActivationAnsweredForTests();
+    markActivationAnsweredToday();
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({ jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [] });
+    renderCard();
+
+    expect(await screen.findByText(/couldn't find a transaction table/i)).toBeTruthy();
+    expect(screen.queryByTestId('what-stopped-you-REFUSED')).not.toBeOnTheScreen();
+  });
+
+  // The question carries its own top margin, so when it hides itself nothing is left taking space.
+  it('the question carries its own spacing', async () => {
+    resetActivationAnsweredForTests();
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({ jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [] });
+    renderCard();
+
+    const question = await screen.findByTestId('what-stopped-you-REFUSED');
+    expect(question).toHaveStyle({ marginTop: 16 });
   });
 
   it('does not ask while the job is still running', async () => {

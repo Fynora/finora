@@ -48,6 +48,7 @@ import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsA
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
+import { resetActivationAnsweredForTests } from '../lib/activationQuestions';
 import type { DetectedAccountInfo } from '../types';
 
 // Only the upload step's file-routing logic is under test here (stagePdf vs stageCsv, and the
@@ -200,6 +201,7 @@ beforeEach(() => {
   vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(activationApi.funnelEvent).mockReset().mockResolvedValue(undefined);
+  resetActivationAnsweredForTests();
 });
 
 function renderImport() {
@@ -609,6 +611,21 @@ describe('Import — what stopped you', () => {
 
     expect(await screen.findByText('Could not discard this staged import.')).toBeInTheDocument();
     expect(screen.queryByText('What made you stop?')).toBeNull();
+  });
+
+  it('does not ask again today after an answer', async () => {
+    vi.mocked(importApi.stageCsv).mockReset()
+      .mockRejectedValue({ response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND } } });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await user.click(await screen.findByRole('button', { name: 'Try another file' }));
+    expect(await screen.findByText('Thanks.')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[NO_TRANSACTIONS_FOUND])).toBeInTheDocument();
+    expect(screen.queryByText('What will you do now?')).toBeNull();
   });
 
   it('questionHiddenWhileUploading', async () => {

@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { activationApi, type ActivationAnswer, type ActivationMoment } from '../../api/endpoints';
-import { ACTIVATION_QUESTIONS, SKIP_LABEL } from '../../lib/activationQuestions';
+import {
+  ACTIVATION_QUESTIONS, SKIP_LABEL, activationAnsweredToday, markActivationAnsweredToday,
+} from '../../lib/activationQuestions';
 
 /**
  * One "What stopped you?" question (Gate 2a spec §4): one tap on a fixed answer, or Skip. No free
@@ -10,8 +12,13 @@ import { ACTIVATION_QUESTIONS, SKIP_LABEL } from '../../lib/activationQuestions'
  * not being asked now) or fails at all, it disappears without an error and still calls `onDone` --
  * a question about why someone stopped must never become one more thing in their way.
  */
-export function WhatStoppedYou({ moment, onDone }: { moment: ActivationMoment; onDone?: () => void }) {
-  const [state, setState] = useState<'asking' | 'thanks' | 'gone'>('asking');
+export function WhatStoppedYou({ moment, onDone }: {
+  moment: ActivationMoment;
+  /** 'answered': it now says "Thanks.". 'refused': it hid itself (409 or any failure). */
+  onDone?: (outcome: 'answered' | 'refused') => void;
+}) {
+  // Not shown at all once today is answered: the server would refuse this one (spec §4.3).
+  const [state, setState] = useState<'asking' | 'thanks' | 'gone'>(() => (activationAnsweredToday() ? 'gone' : 'asking'));
   const sent = useRef(false);
   const { question, answers } = ACTIVATION_QUESTIONS[moment];
 
@@ -20,9 +27,18 @@ export function WhatStoppedYou({ moment, onDone }: { moment: ActivationMoment; o
     if (sent.current) return;
     sent.current = true;
     activationApi.answer(moment, answer).then(
-      () => setState('thanks'),
-      () => setState('gone'),
-    ).finally(() => onDone?.());
+      () => {
+        markActivationAnsweredToday();
+        setState('thanks');
+        onDone?.('answered');
+      },
+      (e: { response?: { status?: number } }) => {
+        // 409: today (or this moment) is already answered. Any other failure says nothing about it.
+        if (e?.response?.status === 409) markActivationAnsweredToday();
+        setState('gone');
+        onDone?.('refused');
+      },
+    );
   }
 
   if (state === 'gone') return null;

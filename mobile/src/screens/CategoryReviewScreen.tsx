@@ -4,15 +4,19 @@ import {
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, EmptyState, SectionHeading } from '../components/Card';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
+import { MerchantLogo } from '../components/MerchantLogo';
 import { QuickSortPanel } from '../components/QuickSortPanel';
 import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/Skeletons';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
+import { useToast } from '../context/ToastContext';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
-import { fmtCurrency } from '../lib/format';
+import { fmtCurrency, fmtDate } from '../lib/format';
+import { rowTitle } from '../lib/ledgerRows';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -45,10 +49,12 @@ export function CategoryReviewScreen() {
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const [target, setTarget] = useState<PickerTarget | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Person groups whose payments are shown in the row.
+  const [openCounterparties, setOpenCounterparties] = useState(() => new Set<string>());
   // Rows the user has already resolved this visit, HIDDEN rather than removed from the query
   // cache -- see apply() for why that distinction is the whole fix.
   const [resolvedTxnIds, setResolvedTxnIds] = useState(() => new Set());
@@ -128,7 +134,6 @@ export function CategoryReviewScreen() {
     if (!target) return;
     const chosen = target;
     setTarget(null);
-    setError(null);
 
     // Resolved rows are hidden via `resolved*Ids`, NOT removed with queryClient.setQueryData.
     //
@@ -159,6 +164,7 @@ export function CategoryReviewScreen() {
       try {
         await transactionsApi.updateCategory(id, categoryName, scope);
         hapticSuccess();
+        showToast(`Saved ${categoryName} for ${rowTitle(chosen.txn)}`);
         invalidateFinancialData(queryClient);
       } catch (e) {
         reportTransportFailure(e, 'category-review:single', startedAt);
@@ -167,7 +173,7 @@ export function CategoryReviewScreen() {
           next.delete(id);
           return next;
         });
-        setError(toUserMessage(e, 'Could not save that category.'));
+        showToast(toUserMessage(e, 'Could not save that category.'), undefined, 'error');
         hapticError();
       }
       return;
@@ -180,6 +186,7 @@ export function CategoryReviewScreen() {
       try {
         await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
         hapticSuccess();
+        showToast(`Saved ${categoryName} for ${chosen.group.merchantName}`, transactionCount(chosen.group.transactionIds.length));
         invalidateFinancialData(queryClient);
       } catch (e) {
         reportTransportFailure(e, 'category-review:merchant-group', startedAt);
@@ -188,7 +195,7 @@ export function CategoryReviewScreen() {
           next.delete(merchantId);
           return next;
         });
-        setError(toUserMessage(e, 'Could not apply that category.'));
+        showToast(toUserMessage(e, 'Could not apply that category.'), undefined, 'error');
         hapticError();
       }
       return;
@@ -202,6 +209,7 @@ export function CategoryReviewScreen() {
     try {
       await transactionsApi.bulkRecategorize(chosen.group.transactionIds, categoryName);
       hapticSuccess();
+      showToast(`Saved ${categoryName} for ${chosen.group.label}`, transactionCount(chosen.group.transactionIds.length));
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'category-review:counterparty-group', startedAt);
@@ -210,7 +218,7 @@ export function CategoryReviewScreen() {
         next.delete(counterpartyKey);
         return next;
       });
-      setError(toUserMessage(e, 'Could not apply that category.'));
+      showToast(toUserMessage(e, 'Could not apply that category.'), undefined, 'error');
       hapticError();
     }
   }
@@ -223,6 +231,27 @@ export function CategoryReviewScreen() {
   // different direction.
   const empty = singlesQ.isSuccess && groupsQ.isSuccess && counterpartyQ.isSuccess
     && singles.length === 0 && groups.length === 0 && counterpartyGroups.length === 0;
+
+  // Payments still waiting across the three lists, for the link that opens them.
+  const waitingPayments = singles.length
+    + groups.reduce((n, g) => n + g.transactionIds.length, 0)
+    + counterpartyGroups.reduce((n, g) => n + g.transactionIds.length, 0);
+
+  function toggleCounterparty(key: string) {
+    setOpenCounterparties((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // A logo, as the Ledger's rows have. Left out at large text sizes, as there, to give the words
+  // the width.
+  const logo = (name: string, person: boolean) => (largeText ? null : (
+    <MerchantLogo merchant={name || '?'} size={LOGO_SIZE} person={person} style={styles.logo} />
+  ));
+  const chevron = <Ionicons name="chevron-forward" size={16} color={c.mutedInk} />;
 
   return (
     <GlassScreen style={styles.glassRoot}>
@@ -238,10 +267,9 @@ export function CategoryReviewScreen() {
 
       <QuickSortPanel onLoaded={setQuickSortQuestions} />
 
-      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       {listsBehindQuickSort ? (
         <Pressable onPress={() => setShowAllWaiting(true)} hitSlop={12} accessibilityRole="button">
-          <Text style={[styles.retry, { color: c.primary }]}>See all waiting payments</Text>
+          <Text style={[styles.retry, { color: c.primary }]}>{seeAllLabel(waitingPayments)}</Text>
         </Pressable>
       ) : null}
       {!listsBehindQuickSort && partiallyFailed ? (
@@ -273,7 +301,7 @@ export function CategoryReviewScreen() {
         <>
           {groups.length > 0 ? (
             <Card style={styles.section}>
-              <SectionHeading title="Categorize a whole merchant" />
+              <SectionHeading title={`Categorize a whole merchant · ${groups.length}`} />
               <Text style={[styles.sectionHint, { color: c.muted }]}>
                 One choice covers every transaction from that merchant.
               </Text>
@@ -287,6 +315,7 @@ export function CategoryReviewScreen() {
                   accessibilityLabel={`${g.merchantName}, ${g.transactionIds.length} transactions`}
                   accessibilityHint="Opens the category picker for every transaction from this merchant"
                 >
+                  {logo(g.merchantName, false)}
                   <View style={styles.rowMain}>
                     <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {g.merchantName}
@@ -295,7 +324,7 @@ export function CategoryReviewScreen() {
                       {g.transactionIds.length} transactions
                     </Text>
                   </View>
-                  <Text style={[styles.choose, { color: c.primary }]}>Choose</Text>
+                  {chevron}
                 </Pressable>
               ))}
             </Card>
@@ -309,56 +338,96 @@ export function CategoryReviewScreen() {
               groups being ordered by row count. */}
           {counterpartyGroups.length > 0 ? (
             <Card style={styles.section}>
-              <SectionHeading title="Categorize by who you paid" />
+              <SectionHeading title={`Categorize by who you paid · ${counterpartyGroups.length}`} />
               <Text style={[styles.sectionHint, { color: c.muted }]}>
                 One choice covers every transaction with that person or business.
               </Text>
               {counterpartyGroups.map((g) => (
-                <Pressable
-                  key={g.counterpartyKey}
-                  onPress={() => setTarget({ kind: 'counterparty', group: g })}
-                  style={[styles.row, { borderBottomColor: c.border }]}
-                  android_ripple={{ color: c.border }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${g.label}, ${g.counterpartyType === 'PERSON' ? 'person' : 'business'}${
-                    g.identityIsStrong ? '' : ', probable match'
-                  }, ${fmtCurrency(g.totalValue)} across ${g.transactionIds.length} transactions`}
-                  accessibilityHint="Opens the category picker for every transaction with this counterparty"
-                >
-                  <View style={styles.rowMain}>
-                    <View style={styles.counterpartyTitleRow}>
-                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                        {g.label}
-                      </Text>
-                      {/* Context, not a resolved identity -- same reasoning as the row-level
-                          counterparty label elsewhere in this app. No direction composed in (a
-                          group can carry both sent and received rows), so this shows only the
-                          noun, never "sent to"/"paid". */}
-                      <Text style={[styles.counterpartyTypeBadge, { color: c.ink, backgroundColor: c.border }]}>
-                        {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
-                      </Text>
-                      {/* A name: key is a guess -- must never be presented as a resolved identity.
-                          This group still gets the bulk-apply action (grouping survives a guessed
-                          key), but is visibly marked probable rather than confirmed. */}
-                      {!g.identityIsStrong ? (
-                        <Text style={[styles.counterpartyTypeBadge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
-                          Probable
+                // The row's button and "Show payments" are siblings, not nested: an accessible
+                // element is read as one, so inside the row's button "Show payments" and the list
+                // it opens were out of a screen reader's reach.
+                <View key={g.counterpartyKey} style={[styles.rowGroup, { borderBottomColor: c.border }]}>
+                  <Pressable
+                    onPress={() => setTarget({ kind: 'counterparty', group: g })}
+                    style={styles.rowInGroup}
+                    android_ripple={{ color: c.border }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${g.label}, ${g.counterpartyType === 'PERSON' ? 'person' : 'business'}${
+                      g.identityIsStrong ? '' : ', probable match'
+                    }, ${fmtCurrency(g.totalValue)} across ${g.transactionIds.length} transactions`}
+                    accessibilityHint="Opens the category picker for every transaction with this counterparty"
+                  >
+                    {logo(g.label, g.counterpartyType === 'PERSON')}
+                    <View style={styles.rowMain}>
+                      <View style={styles.counterpartyTitleRow}>
+                        <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                          {g.label}
                         </Text>
-                      ) : null}
+                        {/* Context, not a resolved identity -- same reasoning as the row-level
+                            counterparty label elsewhere in this app. No direction composed in (a
+                            group can carry both sent and received rows), so this shows only the
+                            noun, never "sent to"/"paid". */}
+                        <Text style={[styles.counterpartyTypeBadge, { color: c.ink, backgroundColor: c.border }]}>
+                          {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
+                        </Text>
+                        {/* A name: key is a guess -- must never be presented as a resolved identity.
+                            This group still gets the bulk-apply action (grouping survives a guessed
+                            key), but is visibly marked probable rather than confirmed. */}
+                        {!g.identityIsStrong ? (
+                          <Text style={[styles.counterpartyTypeBadge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
+                            Probable
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                        {fmtCurrency(g.totalValue)} · {g.transactionIds.length} transactions
+                      </Text>
                     </View>
-                    <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                      {fmtCurrency(g.totalValue)} · {g.transactionIds.length} transactions
-                    </Text>
+                    {chevron}
+                  </Pressable>
+                  {/* Lined up under the title, past the logo when there is one. */}
+                  <View style={{ marginLeft: largeText ? 0 : LOGO_SIZE + spacing.sm }}>
+                    {/* The payments themselves, which the group already carries, so they can be
+                        seen before one category is chosen for all of them. Its own button: a tap
+                        here opens the list, not the picker. */}
+                    {g.transactions.length > 0 ? (
+                      <Pressable
+                        onPress={() => toggleCounterparty(g.counterpartyKey)}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded: openCounterparties.has(g.counterpartyKey) }}
+                        style={styles.showPayments}
+                      >
+                        <Text style={[styles.showPaymentsText, { color: c.primary }]}>
+                          {openCounterparties.has(g.counterpartyKey)
+                            ? 'Hide payments'
+                            : `Show ${g.transactions.length} ${g.transactions.length === 1 ? 'payment' : 'payments'}`}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {openCounterparties.has(g.counterpartyKey) ? (
+                      <View style={styles.payments}>
+                        {g.transactions.map((p) => (
+                          <Text key={p.id} style={[styles.rowMeta, { color: c.mutedInk }]}>
+                            {fmtDate(p.date) ?? p.date} · {signedAmount(p)}
+                          </Text>
+                        ))}
+                        {g.transactionIds.length > g.transactions.length ? (
+                          <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                            and {g.transactionIds.length - g.transactions.length} more
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={[styles.choose, { color: c.primary }]}>Choose</Text>
-                </Pressable>
+                </View>
               ))}
             </Card>
           ) : null}
 
           {singles.length > 0 ? (
             <Card style={styles.section}>
-              <SectionHeading title="One-off transactions" />
+              <SectionHeading title={`One-off transactions · ${singles.length}`} />
               <Text style={[styles.sectionHint, { color: c.muted }]}>
                 These don’t share a merchant with anything else waiting.
               </Text>
@@ -369,20 +438,38 @@ export function CategoryReviewScreen() {
                   style={[styles.row, { borderBottomColor: c.border }]}
                   android_ripple={{ color: c.border }}
                   accessibilityRole="button"
-                  accessibilityLabel={`${t.description || t.merchant || 'Transaction'}, ${fmtCurrency(
+                  accessibilityLabel={`${rowTitle(t)}, ${t.type === 'INCOME' ? 'received' : 'spent'} ${fmtCurrency(
                     Math.abs(t.amount)
-                  )}, ${t.date}`}
+                  )}, ${fmtDate(t.date) ?? t.date}${t.categoryName ? `, now ${t.categoryName}` : ''}`}
                   accessibilityHint="Opens the category picker for this transaction"
                 >
+                  {logo(t.merchant || t.description, t.counterpartyType === 'PERSON')}
+                  {/* Titled, dated and signed as the Ledger's rows are (rowTitle, LedgerDayCard):
+                      the bank's raw narration and an ISO date read as noise, and without a sign a
+                      salary credit looked exactly like a purchase. */}
                   <View style={styles.rowMain}>
                     <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                      {t.description || t.merchant || 'Transaction'}
+                      {rowTitle(t)}
                     </Text>
-                    <Text style={[styles.rowMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                      {t.date} · {fmtCurrency(Math.abs(t.amount))}
+                    <Text style={[styles.rowMeta, { color: c.mutedInk }]} numberOfLines={largeText ? 2 : 1}>
+                      {fmtDate(t.date) ?? t.date}{t.categoryName ? ` · Now: ${t.categoryName}` : ''}
                     </Text>
+                    {/* Under the title at large text, as the Ledger puts it, so the title keeps
+                        the width. */}
+                    {largeText ? (
+                      <View testID={`review-amount-below-${t.id}`} style={styles.amountBelow}>
+                        <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
+                          {signedAmount(t)}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={[styles.choose, { color: c.primary }]}>Choose</Text>
+                  {largeText ? null : (
+                    <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
+                      {signedAmount(t)}
+                    </Text>
+                  )}
+                  {chevron}
                 </Pressable>
               ))}
             </Card>
@@ -401,7 +488,9 @@ export function CategoryReviewScreen() {
         title={pickerTitle(target)}
         // The pick saves at once; apply's success or error is its one haptic.
         silent
-        selectedName={null}
+        // A one-off opens on the category it is filed as now, so confirming a right guess is one
+        // tap. A group's rows may sit under different categories, so it opens on none.
+        selectedName={target?.kind === 'single' ? target.txn.categoryName || null : null}
         onSelect={(category) => void apply(category.name)}
         onClose={() => setTarget(null)}
       />
@@ -428,10 +517,26 @@ type PickerTarget =
  */
 function pickerTitle(target: PickerTarget | null): string {
   if (target?.kind === 'group' || target?.kind === 'counterparty') {
-    const n = target.group.transactionIds.length;
-    return `Apply to ${n} ${n === 1 ? 'transaction' : 'transactions'}`;
+    return `Apply to ${transactionCount(target.group.transactionIds.length)}`;
   }
   return 'Choose a category';
+}
+
+const LOGO_SIZE = 32;
+
+function transactionCount(n: number): string {
+  return `${n} ${n === 1 ? 'transaction' : 'transactions'}`;
+}
+
+/** Money out with a minus and money in with a plus, as the Ledger writes an amount. */
+function signedAmount(t: { amount: number; type: 'INCOME' | 'EXPENSE' }): string {
+  return `${t.type === 'INCOME' ? '+' : '-'}${fmtCurrency(Math.abs(t.amount))}`;
+}
+
+/** The link that opens the lists, with how many payments wait in them once that is known. */
+function seeAllLabel(waiting: number): string {
+  if (waiting === 0) return 'See all waiting payments';
+  return waiting === 1 ? 'See the 1 waiting payment' : `See all ${waiting} waiting payments`;
 }
 
 const styles = StyleSheet.create({
@@ -446,17 +551,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
+    // The smallest comfortable touch target.
+    minHeight: 44,
+    gap: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowMain: { flex: 1, marginRight: spacing.sm },
+  // A person row: its button, then "Show payments" under it, with one rule below both.
+  rowGroup: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
+  rowInGroup: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 12, minHeight: 44, gap: spacing.sm,
+  },
+  logo: { alignSelf: 'flex-start' },
+  rowMain: { flex: 1 },
   rowTitle: { fontSize: 14, fontWeight: '600' },
   rowMeta: { fontSize: 12, marginTop: 2 },
+  amount: { fontSize: 14, fontWeight: '600' },
+  amountBelow: { marginTop: 4 },
   counterpartyTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  // 11pt: 9 was below the smallest size the app uses for anything a person has to read.
   counterpartyTypeBadge: {
-    fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3,
+    fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden',
   },
-  choose: { fontSize: 13, fontWeight: '600' },
+  showPayments: { alignSelf: 'flex-start', marginTop: 6 },
+  showPaymentsText: { fontSize: 12, fontWeight: '600' },
+  payments: { marginTop: 4 },
   error: { fontSize: 13, marginBottom: spacing.sm },
   warning: { fontSize: 12, marginBottom: spacing.sm },
   retry: { fontSize: 13, fontWeight: '600' },

@@ -8767,6 +8767,12 @@ export interface components {
             /** @enum {string} */
             event: "IMPORT_SCREEN_OPENED" | "FILE_CHOSEN" | "REVIEW_OPENED";
         };
+        ActivationAnswerRequest: {
+            /** @enum {string} */
+            moment: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
+            /** @enum {string} */
+            answer: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
+        };
         UpdateKindRequest: {
             name?: string;
             countsAsIncome?: boolean;
@@ -18156,7 +18162,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AnswerRequest"];
+                "application/json": components["schemas"]["ActivationAnswerRequest"];
             };
         };
         responses: {

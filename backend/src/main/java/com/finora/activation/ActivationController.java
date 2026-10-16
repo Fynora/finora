@@ -43,7 +43,7 @@ public class ActivationController {
 
     /** One tap: an answer from the moment's fixed list, or SKIPPED. */
     @PostMapping("/answers")
-    public ApiResponse<Void> answer(@Valid @RequestBody ActivationDto.AnswerRequest request) {
+    public ApiResponse<Void> answer(@Valid @RequestBody ActivationDto.ActivationAnswerRequest request) {
         questionService.answer(currentUser.id(), request.moment(), request.answer());
         return ApiResponse.ok(null);
     }

@@ -76,7 +76,7 @@ shows, from the same queries (shared React Query keys, so no extra requests when
 A new table and two endpoints:
 
 - `insight_acknowledgements (id, user_id, kind, item_key, created_at)`, unique on
-  `(user_id, kind, item_key)`. `kind` is `CATEGORY_HIGH` or `AMOUNT_CHANGED`.
+  `(user_id, kind, item_key)`. `kind` is `CATEGORY_HIGH`, `AMOUNT_CHANGED` or `CARD_STATEMENT_MISSING`.
   - `CATEGORY_HIGH` key: `<category name>|<yyyy-MM>`. A new month that runs high again shows again.
   - `AMOUNT_CHANGED` key: `<merchant, trimmed and lower-cased>|<latestDate>`. A later payment that
     moves again shows again.
@@ -91,8 +91,9 @@ A new table and two endpoints:
 
 ## Non-goals
 
-- No change to Reports, the Dashboard, or the website in this work. The Dashboard keeps its own
-  upcoming-payments section.
+- No change to Reports, the Dashboard, or the website screens in this work, apart from the server
+  no longer calling a card bill a mover (their insight sentences come from the same server). The
+  Dashboard keeps its own upcoming-payments section.
 - No AI wording. The existing note "rule-based statistical observations ... not an AI-generated
   assistant" stays, once, small, at the bottom.
 - No "usual vs now" range chart (idea 3) and no "money with people" (idea 6): both need new server
@@ -110,14 +111,27 @@ A new table and two endpoints:
 ## Constraints
 
 - **Card bills.** A card bill payment is moving money to the card, and its size is a whole month of
-  card purchases paid at once, so it must not appear as "running high". The marker is the server's
-  existing card-payment link (`ReconciliationService`'s `CC_PAYMENT` pass, which matches a bank
-  payment to an imported card statement's total amount due and payment due date). A linked payment
-  is already left out of the insights pipeline, so it can never be a mover. No matching on category
-  names. In the observed account the Axis card's statements are imported (38 transactions, last
-  import 30 Sep 2026), yet September's card bill payments were not linked; why is not established
-  and is investigated separately (Sid suggested using the statement generation date). That fix
-  corrects Dashboard, Reports and Budgets too, so it does not belong in this screen's work.
+  card purchases paid at once, so it must not appear as "running high". A payment is a card bill
+  when any one of these holds (Sid, 2026-10-16: "either one"):
+  - it is linked to a card statement (`ReconciliationService`'s `CC_PAYMENT` link; already left out
+    of the insights pipeline, so it can never be a mover);
+  - its category is named "Credit Card bill" (case-insensitive; a user-made category, not seeded);
+  - its description matches the server's existing card-bill patterns in `BankActivityCategory`
+    (`CARD_BILL_PAID`: "cc billpay", "credclub", "cred club"; or net banking's "ib billpay" with a
+    masked card number). Reuse those patterns through one shared predicate; never copy them.
+
+  Card bills stay in spending totals (Sid chose to keep them as spending), but are never a mover:
+  the server leaves them out of `movers` and the mover sentences, which also corrects the
+  Dashboard's preview of those sentences and the web page. This is a deliberate server change.
+- **Card statement missing.** Why the observed account's September card bills never linked was
+  established in #2256's session: the Axis statements for those months were never uploaded (only
+  Feb–Mar and Mar–Apr 2026 exist). #2256 widens the match window to start at the statement date. For
+  card bills that still have no linked statement, `InsightsData` gains one field for the reporting
+  month: `unlinkedCardBills: { month, total, count } | null` (card bills by the rule above that have
+  no `CC_PAYMENT` link). "To look at" shows it as one row: "You paid ₹X in card bills in September
+  with no card statement uploaded for it. Upload it to see what you bought." Tapping opens Import.
+  It names the month, not the card: a payment through a card-bill app does not say which card.
+  "Got it" kind `CARD_STATEMENT_MISSING`, key `<yyyy-MM>`.
 - Amounts in Indian grouping via the app's own formatter; months as "September 2026" / "Sep 2026",
   through `withSep` (#2251) wherever a short month is written.
 - Every figure on screen comes from one source per concept: spending totals from `InsightsData`

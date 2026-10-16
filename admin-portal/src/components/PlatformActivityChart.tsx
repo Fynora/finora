@@ -1,8 +1,9 @@
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ActivityTrendPointDto } from '../types';
+import { withSep } from '../lib/withSep';
 
 function formatDay(date: string) {
-  return new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return withSep(new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
 }
 
 /**

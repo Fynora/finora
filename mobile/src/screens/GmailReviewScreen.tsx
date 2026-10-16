@@ -11,7 +11,7 @@ import { SkeletonGroup, SkeletonTransactionRow } from '../components/skeletons/S
 import { gmailApi, type GmailReviewItem } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
-import { fmtCurrency, fromLocalDateString } from '../lib/format';
+import { fmtCurrency, fromLocalDateString, withSep } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useKeyedSingleFlight } from '../lib/useSingleFlight';
@@ -173,7 +173,7 @@ export function GmailReviewScreen() {
                 <View style={styles.rowMain}>
                   <Text style={[styles.merchant, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>{item.merchant}</Text>
                   <Text style={[styles.meta, { color: c.mutedInk }]}>
-                    {fromLocalDateString(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {withSep(fromLocalDateString(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}
                   </Text>
                 </View>
                 <View style={styles.amountCol}>

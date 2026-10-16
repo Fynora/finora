@@ -1,5 +1,5 @@
 import { counterpartyLabel } from './counterpartyLabel';
-import { fmtCurrency, fmtDate, fromLocalDateString, toLocalDateString } from './format';
+import { fmtCurrency, fmtDate, fromLocalDateString, toLocalDateString, withSep } from './format';
 import { reconciliationBadge } from './reconciliationBadge';
 import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from './cardInstalment';
 import type { ReconciliationStatus, Transaction } from '../types';
@@ -66,7 +66,7 @@ export function groupTransactionsByDay(txns: Transaction[], today: Date = new Da
     if (dateStr === todayKey) return 'Today';
     if (dateStr === yesterdayKey) return 'Yesterday';
     const d = fromLocalDateString(dateStr);
-    return d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+    return withSep(d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }));
   }
 
   const order: string[] = [];

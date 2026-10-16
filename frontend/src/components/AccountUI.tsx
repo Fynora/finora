@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import { withSep } from '../utils/date';
 
 // Shared between Profile.tsx and Settings.tsx -- the two pages are explicitly two halves of what
 // used to be one Settings page (see docs/team-message... the Profile/Settings split), and need to
@@ -23,7 +24,7 @@ export function formatMonthYear(iso: string | null | undefined): string {
 export function formatDayMonthYear(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    return withSep(new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
   } catch {
     return '—';
   }

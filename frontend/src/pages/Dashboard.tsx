@@ -34,6 +34,7 @@ import {
 import type { DashboardRangeType, DashboardSummary, SavingsRateGateReason } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
+import { withSep } from '../utils/date';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -252,7 +253,7 @@ function dayLabel(dateStr: string) {
 // than a nonsensical negative day count.
 function expectedLabel(dateStr: string): string {
   const days = Math.round((new Date(dateStr + 'T00:00:00').getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
-  const date = new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  const date = withSep(new Date(dateStr + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
   if (days < 0) return `expected around ${date}`;
   if (days === 0) return 'expected today';
   if (days === 1) return 'expected tomorrow';
@@ -1065,7 +1066,7 @@ export default function Dashboard() {
               <div className="min-w-0">
                 <p className="text-sm text-ink truncate">{d.merchant}</p>
                 <p className="text-xs text-muted">
-                  {new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · {fmt(d.amount)}
+                  {withSep(new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))} · {fmt(d.amount)}
                 </p>
               </div>
               <button

@@ -121,6 +121,17 @@ describe('Ledger — Why this category?', () => {
     vi.mocked(transactionsApi.explanation).mockReset();
   });
 
+  // en-IN writes September as "Sept"; the row's month under its day reads "Sep 2026".
+  it('writes a September row\'s month as Sep', async () => {
+    vi.mocked(transactionsApi.search).mockResolvedValue({
+      content: [txn({ date: '2026-09-30' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderLedger();
+
+    expect(await screen.findByText('Sep 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/Sept/)).not.toBeInTheDocument();
+  });
+
   it('opens the explanation panel and shows the summary and evidence', async () => {
     const user = userEvent.setup();
     vi.mocked(transactionsApi.explanation).mockResolvedValue({

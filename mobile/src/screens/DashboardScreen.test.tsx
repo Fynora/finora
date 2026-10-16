@@ -443,6 +443,23 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     });
   }
 
+  // en-IN writes September as "Sept" (Hermes on Android, and Node); the app writes three letters.
+  it('writes a September date as Sep on a duplicate and on a recurring payment', async () => {
+    recurring.list.mockResolvedValue([{
+      merchant: LONG_RECURRING_MERCHANT, label: 'Subscription', averageAmount: 499, occurrences: 6,
+      lastDate: '2026-08-01', nextEstimate: '2026-09-01',
+    }] as never);
+    dashboard.summary.mockResolvedValue(emptySummary({
+      duplicateTransactionCount: 1,
+      detectedDuplicates: [{ transactionId: 'dup-1', date: '2026-09-02', merchant: LONG_DUPLICATE_MERCHANT, amount: 899 }],
+    }));
+    renderScreen();
+
+    expect(await screen.findByText(/2 Sep\b/)).toBeTruthy();
+    expect(await screen.findByText(/expected around 1 Sep\b/)).toBeTruthy();
+    expect(screen.queryByText(/Sept/)).toBeNull();
+  });
+
   it('truncates the transaction description, goal name, and merchant names to one line at the default text size', async () => {
     dashboard.summary.mockResolvedValue(summaryWithDuplicate());
     renderScreen();

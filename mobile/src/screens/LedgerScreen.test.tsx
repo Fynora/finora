@@ -1813,7 +1813,7 @@ describe('groupTransactionsByDay', () => {
     // en-IN's short-month form for September is "Sept", not "Sep" -- matches the same
     // toLocaleDateString('en-IN', { month: 'short' }) convention already used elsewhere in this
     // app (DashboardScreen.tsx, GmailReviewScreen.tsx).
-    expect(headers.map((h) => h.label)).toEqual(['Today', 'Yesterday', 'Tuesday, 1 Sept 2026']);
+    expect(headers.map((h) => h.label)).toEqual(['Today', 'Yesterday', 'Tuesday, 1 Sep 2026']);
   });
 
   it("relabels the same rows correctly once the caller's clock advances a day", () => {

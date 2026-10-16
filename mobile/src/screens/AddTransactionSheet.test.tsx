@@ -99,7 +99,7 @@ describe('AddTransactionSheet', () => {
       await settle();
       await screen.findByText('HDFC Savings');
 
-      expect(screen.getByLabelText('Date: 12 Sept 2026. Change')).toBeTruthy();
+      expect(screen.getByLabelText('Date: 12 Sep 2026. Change')).toBeTruthy();
     } finally {
       jest.useRealTimers();
       process.env.TZ = originalTz;

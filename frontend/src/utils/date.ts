@@ -18,6 +18,15 @@
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * "Sep", never "Sept". Intl's en-IN and en-GB write September as "Sept" (browsers and Node alike),
+ * where the server's emails and every other month in the app use three letters. Every en-IN or
+ * en-GB date that names its month goes through this.
+ */
+export function withSep(text: string): string {
+  return text.replace(/\bSept\b/g, 'Sep');
+}
+
 const DEFAULT_OPTIONS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
   month: 'short',
@@ -39,12 +48,12 @@ export function formatDate(value: string | null | undefined,
   if (match) {
     // Explicit y/m/d construction is local-time by definition -- no UTC round trip to shift it.
     const [year, month, day] = value.split('-').map(Number);
-    return new Date(year, month - 1, day).toLocaleDateString('en-IN', options);
+    return withSep(new Date(year, month - 1, day).toLocaleDateString('en-IN', options));
   }
 
   const parsed = new Date(value);
   // An unparseable string would otherwise render as the literal "Invalid Date".
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleDateString('en-IN', options);
+  return Number.isNaN(parsed.getTime()) ? '' : withSep(parsed.toLocaleDateString('en-IN', options));
 }
 
 const MONTH_ABBREVIATIONS = [

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { formatDate, formatTime } from './date';
+import { formatDate, formatTime, withSep } from './date';
+import { formatDayMonthYear } from '../components/AccountUI';
 
 describe('formatDate', () => {
   afterEach(() => {
@@ -65,5 +66,28 @@ describe('formatTime', () => {
     expect(formatTime(undefined)).toBe('');
     expect(formatTime('')).toBe('');
     expect(formatTime('not a date')).toBe('');
+  });
+});
+
+// Intl's en-IN and en-GB write September as "Sept" (browsers and Node alike), where the server's
+// emails and every other month in the app use three letters.
+describe('September as Sep', () => {
+  it.each([
+    ['30 Sept 2026', '30 Sep 2026'],
+    ['Sept 2026', 'Sep 2026'],
+    ['30 Sep 2026', '30 Sep 2026'],
+    ['30 September 2026', '30 September 2026'],
+  ])('withSep(%j) is %j', (input, expected) => {
+    expect(withSep(input)).toBe(expected);
+  });
+
+  it('formatDate writes Sep, for a date and for a timestamp', () => {
+    expect(formatDate('2026-09-30')).toBe('30 Sep 2026');
+    expect(formatDate(new Date(2026, 8, 30, 12).toISOString())).toBe('30 Sep 2026');
+    expect(formatDate('2026-09-30', { year: 'numeric', month: 'short' })).toBe('Sep 2026');
+  });
+
+  it('the accounts list writes Sep', () => {
+    expect(formatDayMonthYear(new Date(2026, 8, 30, 12).toISOString())).toBe('30 Sep 2026');
   });
 });

@@ -42,7 +42,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { CHART_PALETTE, bucketTopSlices } from '../lib/chartGeometry';
 import {
-  fmtCurrency, fromLocalDateString, greeting, monthDateRange, monthLabel, monthLabelLong,
+  fmtCurrency, fromLocalDateString, greeting, monthDateRange, monthLabel, monthLabelLong, withSep,
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
@@ -81,7 +81,7 @@ const OTHER_LABEL = 'Other';
 function recurringExpectedLabel(nextEstimate: string): string {
   const target = fromLocalDateString(nextEstimate);
   const days = Math.round((target.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
-  const date = target.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  const date = withSep(target.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
   if (days < 0) return `expected around ${date}`;
   if (days === 0) return 'expected today';
   if (days === 1) return 'expected tomorrow';
@@ -968,7 +968,7 @@ export function DashboardScreen() {
                     {d.merchant}
                   </Text>
                   <Text style={[typography.bodyS, { color: c.mutedInk }]}>
-                    {fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {withSep(fromLocalDateString(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }))}
                     {' · '}
                     {fmtCurrency(d.amount)}
                   </Text>

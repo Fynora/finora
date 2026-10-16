@@ -3291,23 +3291,105 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void reconcileForUser_linksABillPaidTheDayAfterTheStatementDate_eighteenDaysBeforeItIsDue() {
-        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 24)))
+    void reconcileForUser_linksABillPaidTheDayAfterTheStatementDate_nineteenDaysBeforeItIsDue() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 23)))
                 .hasSize(1);
     }
 
     @Test
-    void reconcileForUser_linksABillPaidOnTheStatementDateItself() {
+    void reconcileForUser_doesNotLinkAPaymentMadeOnTheStatementDate() {
+        // The statement's period includes its own last day, and a bill payment reaches the card the
+        // same day it leaves the savings account, so it is printed on this statement as a payment of
+        // the bill before it.
         assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 22)))
-                .hasSize(1);
+                .isEmpty();
     }
 
     @Test
     void reconcileForUser_doesNotLinkAPaymentMadeBeforeTheStatementDate() {
-        // Made inside the statement's own period, so it is printed on this statement as a payment
-        // of the bill before it, not a payment of this one.
         assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 21)))
                 .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withAStatementDateMoreThanACycleBeforeTheDueDate_keepsTheTenDaysBeforeTheDueDate() {
+        // A statement date 60 days before the due date cannot be this statement's own: it is a misread
+        // date, and trusting it would open the window over the whole cycle before.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 6, 12), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 27)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withAStatementDateMoreThanACycleBeforeTheDueDate_stillLinksWithinTenDaysOfTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 6, 12), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 5)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_linksABillPaidThroughABillPaymentAppSevenDaysAfterTheStatementDate() {
+        // The shape seen in production: the exact amount due, paid through a bill-payment app 7 days
+        // after the statement date and 13 days before the due date. Outside the old due date +/- 10.
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 29), new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/",
+                Instant.parse("2026-09-29T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).singleElement()
+                .satisfies(e -> assertThat(e.fromTransactionId()).isEqualTo(payment.getId()));
+    }
+
+    /**
+     * Two consecutive statements of one card on a short cycle: the earlier one generated 22 Jul and
+     * due 11 Aug, the next generated 19 Aug and due 8 Sep. Returns the charges the payment was
+     * linked to, by which statement they belong to: "earlier", "next".
+     */
+    private List<String> statementsPaidByPaymentOn(LocalDate paidOn) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport earlier =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 8, 11));
+        earlier.setStatementPeriodEnd(LocalDate.of(2026, 7, 22));
+        com.finora.entity.StatementImport next =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("3000.00"), LocalDate.of(2026, 9, 8));
+        next.setStatementPeriodEnd(LocalDate.of(2026, 8, 19));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), paidOn, new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-08-01T10:00:00Z"));
+        Transaction earlierCharge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-07-10T10:00:00Z"));
+        Transaction nextCharge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 8, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-08-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(payment, earlierCharge, nextCharge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(earlier, next));
+        when(transactionRepository.findByStatementImportId(earlier.getId())).thenReturn(List.of(earlierCharge));
+        when(transactionRepository.findByStatementImportId(next.getId())).thenReturn(List.of(nextCharge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream()
+                .map(e -> e.toTransactionId().equals(earlierCharge.getId()) ? "earlier" : "next").toList();
+    }
+
+    @Test
+    void reconcileForUser_aPaymentOnTheNextStatementsDate_stillPaysTheEarlierBill() {
+        // Inside the next statement's own period, so printed there as a payment of the earlier bill.
+        assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 19))).containsExactly("earlier");
+    }
+
+    @Test
+    void reconcileForUser_aPaymentAfterTheNextStatementIsGenerated_paysTheNextBill_evenWithinTenDaysOfTheEarlierDueDate() {
+        // 9 days after the earlier due date, but the next statement already carries the unpaid
+        // earlier balance, so this payment is settling the next bill.
+        assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 20))).containsExactly("next");
     }
 
     @Test

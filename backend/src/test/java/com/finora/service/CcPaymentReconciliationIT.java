@@ -141,6 +141,41 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aBillPaidAWeekAfterTheStatementDate_isExcludedFromSpending() {
+        // 13 days before the due date: outside the old due date +/- 10, inside the window that opens
+        // the day after the statement date. The statement date is read back from the database.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction payment = save(txn(f.userId(), f.savings(), DUE.minusDays(13), "2500.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+
+        reconciliationService.reconcileForUser(f.userId());
+
+        assertThat(transactionGraphService.ccPaymentFromTransactionIds(List.of(payment))).containsExactly(payment.getId());
+    }
+
+    @Test
+    void aLinkAnEarlierRuleWrote_isRejected_onceThePaymentFallsOutsideTheWindow() {
+        // A payment made on the statement date pays the bill before it. A link to it, written as an
+        // earlier version of this pass wrote it, must be released back into spending on the next run.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction payment = save(txn(f.userId(), f.savings(), DUE.minusDays(20), "2500.00", "NEFT CC PAYMENT"));
+        transactionGraphService.linkAll(List.of(new TransactionGraphService.PendingEdge(f.userId(), payment.getId(),
+                f.charge().getId(), TransactionRelationship.RelationshipType.CC_PAYMENT, payment.getAmount(), 70,
+                SourceTrust.of(payment.getSource()), TransactionRelationship.Status.CANDIDATE,
+                TransactionRelationship.DetectionMethod.RULE_ENGINE,
+                java.util.Map.<String, Object>of("type", "CC_PAYMENT_MATCH", "statementImportId", f.statement().getId().toString()))));
+        assertThat(transactionGraphService.ccPaymentFromTransactionIds(List.of(payment))).containsExactly(payment.getId());
+
+        reconciliationService.reconcileForUser(f.userId());
+
+        assertThat(transactionGraphService.ccPaymentFromTransactionIds(List.of(payment))).isEmpty();
+    }
+
+    @Test
     void deletingTheOnlyCardStatement_releasesItsPayment_fromBeingExcludedFromSpending() {
         Fixture f = fixture("2500.00");
         Transaction payment = save(txn(f.userId(), f.savings(), DUE, "2500.00", "NEFT CC PAYMENT"));

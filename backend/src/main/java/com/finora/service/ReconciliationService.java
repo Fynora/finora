@@ -1419,12 +1419,15 @@ public class ReconciliationService {
             // linked again from a different payment. linkAll never retracts an edge, so they piled
             // up: one card statement in the real corpus ended with four live payments, each dropped
             // from spending. Edges that no longer qualify are rejected here, not kept as seeds.
+            // From every live statement, not only the ones with something owed: a paid-off statement
+            // still closes the window of the bill before it.
+            Map<UUID, CcWindow> ccWindows = ccPaymentWindows(ccStatements);
             ccEdgesRejected = seedCcClaims(userId, all, validStatements, paymentAccountIds,
-                    cardLast4ByAccountId, order, claimedPaymentIds, settledStatementIds, rejectedPairs);
+                    cardLast4ByAccountId, ccWindows, order, claimedPaymentIds, settledStatementIds, rejectedPairs);
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
                 if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
-                        cardLast4ByAccountId, true, order, pendingEdges)) {
+                        cardLast4ByAccountId, ccWindows, true, order, pendingEdges)) {
                     settledStatementIds.add(statement.getId());
                     ccMatchesThisRun[0]++;
                 }
@@ -1432,7 +1435,7 @@ public class ReconciliationService {
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
                 if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
-                        cardLast4ByAccountId, false, order, pendingEdges)) {
+                        cardLast4ByAccountId, ccWindows, false, order, pendingEdges)) {
                     ccMatchesThisRun[0]++;
                 }
             }
@@ -1718,7 +1721,8 @@ public class ReconciliationService {
     private boolean matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
                                       Set<UUID> paymentAccountIds, Set<UUID> claimedPaymentIds,
                                       Set<String> rejectedPairs,
-                                      Map<UUID, String> cardLast4ByAccountId, boolean requireExactAmount, Comparator<Transaction> order,
+                                      Map<UUID, String> cardLast4ByAccountId, Map<UUID, CcWindow> ccWindows,
+                                      boolean requireExactAmount, Comparator<Transaction> order,
                                       List<TransactionGraphService.PendingEdge> pendingEdges) {
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
         List<Transaction> paymentCandidates = all.stream()
@@ -1728,7 +1732,8 @@ public class ReconciliationService {
                 // settle the statement in this run without writing anything, every run, and the
                 // statement would never reach its next-best payment.
                 .filter(t -> !rejectedPairs.contains(ccPairKey(t.getId(), statement.getId())))
-                .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId))
+                .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId,
+                        ccWindows))
                 .toList();
         if (paymentCandidates.isEmpty()) return false;
 
@@ -1807,7 +1812,8 @@ public class ReconciliationService {
      * while it would still be written today.
      */
     private static boolean isCcPaymentCandidate(Transaction t, StatementImport statement, boolean requireExactAmount,
-                                                Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId) {
+                                                Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId,
+                                                Map<UUID, CcWindow> ccWindows) {
         if (t.getTxnType() != Transaction.Type.EXPENSE || t.isTransfer()) return false;
         if (!paymentAccountIds.contains(t.getAccountId()) || t.getAccountId().equals(statement.getAccountId())) return false;
         boolean exactAmount = t.getAmount().compareTo(statement.getTotalAmountDue()) == 0;
@@ -1820,7 +1826,8 @@ public class ReconciliationService {
         // proof -- a purchase can equal a round total due -- so it too needs a narration that
         // could be a card payment, but a weaker one: see hasCardPaymentEvidence.
         if (!hasCardPaymentEvidence(t, thisCardLast4, exactAmount)) return false;
-        if (!inCcPaymentWindow(t.getTxnDate(), statement)) return false;
+        CcWindow window = ccWindows.get(statement.getId());
+        if (window == null || !window.contains(t.getTxnDate())) return false;
         // A candidate whose OWN description names a DIFFERENT known card is excluded outright --
         // real evidence it belongs elsewhere, not just a weaker candidate. A candidate with no
         // identifiable fragment at all, or one that matches THIS card, is unaffected here; see
@@ -1832,24 +1839,66 @@ public class ReconciliationService {
                         && descriptionLast4s.contains(e.getValue()));
     }
 
+    /** The days, both ends included, on which a savings debit could be the payment of one card statement. */
+    private record CcWindow(LocalDate opens, LocalDate closes) {
+        boolean contains(LocalDate paidOn) {
+            return !paidOn.isBefore(opens) && !paidOn.isAfter(closes);
+        }
+    }
+
     /**
-     * Whether a payment made on {@code paidOn} could be paying {@code statement}: from the statement
-     * date to {@link ReconciliationPolicy#CC_PAYMENT_DUE_DATE_WINDOW_DAYS} past the due date.
+     * Each statement's payment window, by statement id: from the day after its statement date to
+     * {@link ReconciliationPolicy#CC_PAYMENT_DUE_DATE_WINDOW_DAYS} past its due date, or to the date of
+     * the same card's next statement if that comes first.
      *
-     * <p>The window opens on the statement date (the last day of its period, which is the date the
-     * statement is generated), not a fixed number of days before the due date. Every card statement
-     * in the real corpus falls due 18 to 20 days after that date, so a bill paid in the first week
-     * after it arrived used to sit outside "due date +/- 10" and stayed counted as spending. A payment
-     * made before the statement date falls inside the statement's own period and pays the bill before
-     * it, so it is never a candidate for this one, even when that is within 10 days of the due date.
-     * A statement whose date was not read keeps the old opening, 10 days before the due date.
+     * <p><b>Opening.</b> Every card statement in the real corpus falls due 18 to 20 days after its
+     * statement date (the last day of its period, the day it is generated), so a bill paid in the first
+     * week after it arrived sat outside the old "due date +/- 10" and stayed counted as spending. The
+     * period includes its own last day, and a bill payment reaches the card the same day it leaves the
+     * savings account (both real card payments checked land on the card dated the day they were paid),
+     * so a payment made on or before the statement date is printed on this statement as a payment of
+     * the bill before it, and is never a candidate for this one. A statement with no usable date (none
+     * read, or one that cannot be its own; see {@link #ccStatementDate}) keeps the old opening, 10 days
+     * before the due date.
+     *
+     * <p><b>Closing.</b> Once the same card's next statement is generated, it carries whatever was left
+     * unpaid on this one, so a payment after that date is paying the next bill. On a cycle shorter than
+     * 30 days the next statement date comes before this one's due date + 10; without this the two
+     * windows overlapped and the earlier bill could take the next bill's payment. A payment on the next
+     * statement date itself is inside that statement's period, so it still pays this one.
      */
-    private static boolean inCcPaymentWindow(LocalDate paidOn, StatementImport statement) {
+    private static Map<UUID, CcWindow> ccPaymentWindows(List<StatementImport> statements) {
+        Map<UUID, CcWindow> windows = new java.util.HashMap<>();
+        for (StatementImport statement : statements) {
+            LocalDate due = statement.getPaymentDueDate();
+            if (due == null) continue;
+            LocalDate statementDate = ccStatementDate(statement);
+            LocalDate opens = statementDate != null
+                    ? statementDate.plusDays(1) : due.minusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
+            LocalDate closes = due.plusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
+            for (StatementImport other : statements) {
+                if (other == statement || !other.getAccountId().equals(statement.getAccountId())) continue;
+                LocalDate otherDate = ccStatementDate(other);
+                if (otherDate != null && !otherDate.isBefore(opens) && otherDate.isBefore(closes)) closes = otherDate;
+            }
+            windows.put(statement.getId(), new CcWindow(opens, closes));
+        }
+        return windows;
+    }
+
+    /**
+     * The statement's own date (the last day of its period), or null when none was read or the one read
+     * cannot be this statement's: on or after its due date, or more than
+     * {@link ReconciliationPolicy#CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE} days before it.
+     */
+    private static LocalDate ccStatementDate(StatementImport statement) {
+        LocalDate date = statement.getStatementPeriodEnd();
         LocalDate due = statement.getPaymentDueDate();
-        LocalDate opens = statement.getStatementPeriodEnd() != null && statement.getStatementPeriodEnd().isBefore(due)
-                ? statement.getStatementPeriodEnd()
-                : due.minusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
-        return !paidOn.isBefore(opens) && !paidOn.isAfter(due.plusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS));
+        if (date == null || due == null) return null;
+        if (!date.isBefore(due) || date.isBefore(due.minusDays(ReconciliationPolicy.CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE))) {
+            return null;
+        }
+        return date;
     }
 
     /**
@@ -1950,7 +1999,7 @@ public class ReconciliationService {
      */
     private int seedCcClaims(UUID userId, List<Transaction> all, List<StatementImport> validStatements,
                              Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId,
-                             Comparator<Transaction> order,
+                             Map<UUID, CcWindow> ccWindows, Comparator<Transaction> order,
                              Set<UUID> claimedPaymentIds, Set<UUID> settledStatementIds, Set<String> rejectedPairs) {
         List<TransactionRelationship> edges =
                 transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT);
@@ -2002,8 +2051,8 @@ public class ReconciliationService {
             StatementImport statement = statementsById.get(link.statementId());
             Transaction payment = paymentsById.get(link.paymentId());
             boolean stillQualifies = statement != null && payment != null
-                    && (isCcPaymentCandidate(payment, statement, true, paymentAccountIds, cardLast4ByAccountId)
-                        || isCcPaymentCandidate(payment, statement, false, paymentAccountIds, cardLast4ByAccountId));
+                    && (isCcPaymentCandidate(payment, statement, true, paymentAccountIds, cardLast4ByAccountId, ccWindows)
+                        || isCcPaymentCandidate(payment, statement, false, paymentAccountIds, cardLast4ByAccountId, ccWindows));
             if (stillQualifies) valid.add(link);
             else toReject.addAll(link.edges());
         }

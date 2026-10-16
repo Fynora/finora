@@ -84,11 +84,20 @@ public final class ReconciliationPolicy {
      * the same event." Already covered by {@link #CANDIDATE_WINDOW_DAYS}'s existing max (dominated
      * by {@link #REFUND_WINDOW_DAYS}), so no change to that derivation was needed.
      *
-     * <p>Only the late side and the fallback use this now. The window opens on the statement date
-     * when the statement carries one, which is earlier than 10 days before the due date on every
-     * card statement in the real corpus -- see ReconciliationService.inCcPaymentWindow.
+     * <p>Only the late side and the fallback use this now. The window opens the day after the
+     * statement date when the statement carries one, which is earlier than 10 days before the due
+     * date on every card statement in the real corpus -- see ReconciliationService.ccPaymentWindow.
      */
     public static final long CC_PAYMENT_DUE_DATE_WINDOW_DAYS = OWN_ACCOUNT_MATCH_DAY_WINDOW;
+
+    /**
+     * The most days a card statement's date can sit before its due date and still be trusted as that
+     * statement's own date for the payment window. One monthly billing cycle: a card bill falls due
+     * within the cycle after the statement that printed it (18 to 20 days on every card statement in
+     * the real corpus), so a date further back than a whole cycle was misread, and opening the window
+     * there would take in the payments of the bill before.
+     */
+    public static final long CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE = 31;
 
     /**
      * The lowest fraction of a statement's printed total a payment can be and still count as a

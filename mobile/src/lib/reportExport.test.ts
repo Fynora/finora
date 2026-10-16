@@ -87,6 +87,118 @@ describe('toCsv', () => {
   });
 });
 
+describe('toCsv — what qualifies the figures', () => {
+  const plain: ReportData = { month: '2026-09', income: 100000, expense: 40000, categories: [{ category: 'Rent', amount: 25000 }] };
+  const rows = (r: ReportData) => toCsv(r).split('\n').map((l) => l.replace(/"/g, '').split(',').join('|'));
+  const unreliable = (gateReason: string) => ({
+    previousMonth: '2026-08', reliable: false, gateReason, previousIncome: null, previousExpense: null,
+    incomeDeltaPct: null, expenseDeltaPct: null, netDelta: null,
+  });
+
+  it('writes nothing extra for a report with no extras', () => {
+    expect(rows(plain)).toEqual(['Month|2026-09', 'Income|100000', 'Expense|40000', 'Net|60000', '', 'Category|Amount', 'Rent|25000']);
+  });
+
+  it('writes the savings rate to one decimal, or says why it is withheld', () => {
+    expect(rows({ ...plain, savingsRatePct: 33.349 })).toContain('Savings rate (%)|33.3');
+    expect(toCsv({ ...plain, savingsRatePct: null, savingsRateGateReason: 'UNRESOLVED_EXCEEDS_INCOME' }))
+      .toContain('"Savings rate","Not shown: money received has not been sorted into income yet"');
+    expect(toCsv({ ...plain, savingsRatePct: null, savingsRateGateReason: 'SOMETHING_NEW' })).not.toContain('Savings rate');
+  });
+
+  it('writes the comparison only when the server trusted it, and the reason when it did not', () => {
+    const reliable = {
+      previousMonth: '2026-08', reliable: true, gateReason: null, previousIncome: 90000, previousExpense: 50000,
+      incomeDeltaPct: 11.11, expenseDeltaPct: -20, netDelta: 20000,
+    };
+    const ok = rows({ ...plain, comparison: reliable });
+    expect(ok).toContain('Income vs August (%)|11.1');
+    expect(ok).toContain('Expense vs August (%)|-20');
+    expect(ok).toContain('Net vs August|20000');
+
+    const csv = toCsv({ ...plain, comparison: unreliable('PARTIAL_PRIOR_MONTH') });
+    expect(csv).toContain('"Comparison","August is only partly in your history, so it is not compared with September."');
+    expect(csv).not.toContain('Income vs');
+  });
+
+  it('carries the caveats a screen would show: money not counted as income, and a part-month', () => {
+    const csv = toCsv({ ...plain, unresolvedInflow: 84500, complete: false });
+    expect(csv).toContain('"Received, not counted as income yet","84500"');
+    expect(csv).toContain(`"Note","Part of this month isn't in yet, so these figures may change."`);
+    expect(toCsv({ ...plain, unresolvedInflow: 0, complete: true })).not.toContain('Note');
+  });
+
+  it('writes the biggest spends and the spend per day, and leaves out an empty section', () => {
+    const csv = toCsv({
+      ...plain,
+      biggestSpends: [{ id: 'a', date: '2026-09-14', label: 'Big Mart', category: 'Food', amount: 9000 }],
+      dailySpend: [{ date: '2026-09-14', amount: 9000 }],
+    });
+    expect(csv).toContain('"Biggest spends"');
+    expect(csv).toContain('"2026-09-14","Big Mart","Food","9000"');
+    expect(csv).toContain('"Spend by day"');
+    expect(toCsv({ ...plain, biggestSpends: [], dailySpend: [] })).not.toContain('Biggest spends');
+  });
+
+  it('neutralises a purchase name that starts with a formula-triggering character', () => {
+    const csv = toCsv({
+      ...plain,
+      biggestSpends: [{ id: 'a', date: '2026-09-14', label: '=HYPERLINK("http://evil.example")', category: 'Food', amount: 100 }],
+    });
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")"`);
+  });
+});
+
+describe('toPrintableHtml — what qualifies the figures', () => {
+  const plain: ReportData = { month: '2026-09', income: 100000, expense: 40000, categories: [{ category: 'Rent', amount: 25000 }] };
+
+  it('prints no notes list for a report with nothing to qualify', () => {
+    expect(toPrintableHtml(plain)).not.toContain('class="notes"');
+  });
+
+  it('prints the caveats, so the page never reads more certain than the app', () => {
+    const html = toPrintableHtml({
+      ...plain, savingsRatePct: 60, unresolvedInflow: 84500, complete: false,
+      comparison: {
+        previousMonth: '2026-08', reliable: true, gateReason: null, previousIncome: 90000, previousExpense: 50000,
+        incomeDeltaPct: 11.11, expenseDeltaPct: -20, netDelta: 20000,
+      },
+    });
+    expect(html).toContain('Savings rate: 60% of income.');
+    expect(html).toContain('Income ↑ 11% vs August');
+    expect(html).toContain('Expenses ↓ 20% vs August');
+    expect(html).toContain("₹84,500 received isn't counted as income yet.");
+    expect(html).toContain("Part of this month isn't in yet, so these figures may change.");
+  });
+
+  it('prints the reason when the savings rate or the comparison is not shown', () => {
+    const html = toPrintableHtml({
+      ...plain, savingsRatePct: null, savingsRateGateReason: 'NO_INCOME',
+      comparison: {
+        previousMonth: '2026-08', reliable: false, gateReason: 'COVERAGE_GAP', previousIncome: null,
+        previousExpense: null, incomeDeltaPct: null, expenseDeltaPct: null, netDelta: null,
+      },
+    });
+    expect(html).toContain('Not shown: no income was counted this month');
+    expect(html).toContain('A statement is missing around September or August, so they are not compared.');
+  });
+
+  it('prints the biggest spends and the spend per day, escaped, and omits them when there are none', () => {
+    const html = toPrintableHtml({
+      ...plain,
+      biggestSpends: [{ id: 'a', date: '2026-09-14', label: 'Tom & <Jerry>', category: 'Food', amount: 9000 }],
+      dailySpend: [{ date: '2026-09-14', amount: 9000 }],
+    });
+    expect(html).toContain('Biggest spends');
+    expect(html).toContain('Tom &amp; &lt;Jerry&gt;');
+    expect(html).not.toContain('<Jerry>');
+    expect(html).toContain('Spend by day');
+    const bare = toPrintableHtml(plain);
+    expect(bare).not.toContain('Biggest spends');
+    expect(bare).not.toContain('Spend by day');
+  });
+});
+
 describe('toPrintableHtml', () => {
   it('renders the totals and category rows', () => {
     const html = toPrintableHtml(report);

@@ -1,7 +1,8 @@
 import { File, Paths } from 'expo-file-system';
 import * as Print from 'expo-print';
 import type { ReportData } from '../api/endpoints';
-import { fmtCurrency } from './format';
+import { fmtCurrency, monthLabelLong } from './format';
+import { comparisonGateNote, comparisonMonthName, deltaPhrase, netChangePhrase } from './reportSections/comparison';
 import { shareFileAndCleanUp } from './shareFile';
 
 /**
@@ -33,17 +34,72 @@ function csvCell(value: string): string {
   return `"${guarded.replace(/"/g, '""')}"`;
 }
 
-export function toCsv(report: ReportData): string {
+/** One decimal, so 12.34 reads as 12.3 and a whole number stays whole. */
+const oneDecimal = (n: number) => String(Math.round(n * 10) / 10);
+
+/** Why the savings rate is not in the file, in the words the report itself uses. */
+function withheldRate(reason: string | null | undefined): string | null {
+  switch (reason) {
+    case 'NO_INCOME': return 'Not shown: no income was counted this month';
+    case 'UNRESOLVED_EXCEEDS_INCOME': return 'Not shown: money received has not been sorted into income yet';
+    default: return null;
+  }
+}
+
+const PART_MONTH_NOTE = "Part of this month isn't in yet, so these figures may change.";
+
+/**
+ * The month as CSV rows: the totals and what qualifies them, then the categories, the biggest spends
+ * and the spend per day. A file has no screen around it to explain a figure, so every caveat the
+ * report shows on screen is a row here too: a month only partly in the data, money received that is
+ * not counted as income yet, a savings rate the server withheld, a comparison it did not trust. A
+ * section the report has no data for (an older server, a month with nothing spent) is left out whole
+ * rather than written as an empty header. Mirrors frontend/src/pages/reportSections/reportExport.ts.
+ */
+function reportRows(report: ReportData): string[][] {
   const rows: string[][] = [
     ['Month', report.month],
     ['Income', String(report.income)],
     ['Expense', String(report.expense)],
     ['Net', String(report.income - report.expense)],
-    [],
-    ['Category', 'Amount'],
-    ...report.categories.map((c) => [c.category, String(c.amount)]),
   ];
-  return rows.map((r) => r.map(csvCell).join(',')).join('\n');
+
+  if (report.savingsRatePct != null) rows.push(['Savings rate (%)', oneDecimal(report.savingsRatePct)]);
+  else {
+    const why = withheldRate(report.savingsRateGateReason);
+    if (why) rows.push(['Savings rate', why]);
+  }
+
+  const cmp = report.comparison;
+  if (cmp) {
+    const prior = comparisonMonthName(cmp.previousMonth, report.month);
+    if (cmp.reliable) {
+      if (cmp.incomeDeltaPct != null) rows.push([`Income vs ${prior} (%)`, oneDecimal(cmp.incomeDeltaPct)]);
+      if (cmp.expenseDeltaPct != null) rows.push([`Expense vs ${prior} (%)`, oneDecimal(cmp.expenseDeltaPct)]);
+      if (cmp.netDelta != null) rows.push([`Net vs ${prior}`, String(cmp.netDelta)]);
+    } else {
+      const note = comparisonGateNote(cmp, monthLabelLong(report.month).split(' ')[0], prior);
+      if (note) rows.push(['Comparison', note]);
+    }
+  }
+
+  if ((report.unresolvedInflow ?? 0) > 0) rows.push(['Received, not counted as income yet', String(report.unresolvedInflow)]);
+  if (report.complete === false) rows.push(['Note', PART_MONTH_NOTE]);
+
+  rows.push([], ['Category', 'Amount'], ...report.categories.map((c) => [c.category, String(c.amount)]));
+
+  if (report.biggestSpends && report.biggestSpends.length > 0) {
+    rows.push([], ['Biggest spends'], ['Date', 'Description', 'Category', 'Amount'],
+      ...report.biggestSpends.map((s) => [s.date, s.label, s.category, String(s.amount)]));
+  }
+  if (report.dailySpend && report.dailySpend.length > 0) {
+    rows.push([], ['Spend by day'], ['Date', 'Amount'], ...report.dailySpend.map((d) => [d.date, String(d.amount)]));
+  }
+  return rows;
+}
+
+export function toCsv(report: ReportData): string {
+  return reportRows(report).map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
 function escapeHtml(value: string): string {
@@ -54,6 +110,39 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** The sentences that qualify the month's figures, for a page with no screen around it. Each is the
+ *  wording the report shows on screen, so the printed page never reads more certain than the app. */
+function printableNotes(report: ReportData): string[] {
+  const notes: string[] = [];
+  const monthName = monthLabelLong(report.month).split(' ')[0];
+  if (report.savingsRatePct != null) {
+    notes.push(`Savings rate: ${oneDecimal(report.savingsRatePct)}% of income.`);
+  } else {
+    const why = withheldRate(report.savingsRateGateReason);
+    if (why) notes.push(`Savings rate. ${why}.`);
+  }
+  const cmp = report.comparison;
+  if (cmp) {
+    const prior = comparisonMonthName(cmp.previousMonth, report.month);
+    if (cmp.reliable) {
+      const parts = [
+        deltaPhrase(cmp.incomeDeltaPct, prior) && `Income ${deltaPhrase(cmp.incomeDeltaPct, prior)}`,
+        deltaPhrase(cmp.expenseDeltaPct, prior) && `Expenses ${deltaPhrase(cmp.expenseDeltaPct, prior)}`,
+        netChangePhrase(cmp, prior, fmtCurrency) && `Net: ${netChangePhrase(cmp, prior, fmtCurrency)}`,
+      ].filter(Boolean);
+      if (parts.length > 0) notes.push(`${parts.join('. ')}.`);
+    } else {
+      const gate = comparisonGateNote(cmp, monthName, prior);
+      if (gate) notes.push(gate);
+    }
+  }
+  if ((report.unresolvedInflow ?? 0) > 0) {
+    notes.push(`${fmtCurrency(report.unresolvedInflow as number)} received isn't counted as income yet.`);
+  }
+  if (report.complete === false) notes.push(PART_MONTH_NOTE);
+  return notes;
+}
+
 export function toPrintableHtml(report: ReportData): string {
   const net = report.income - report.expense;
   const categoryRows = report.categories
@@ -62,6 +151,20 @@ export function toPrintableHtml(report: ReportData): string {
         `<tr><td>${escapeHtml(c.category)}</td><td class="num">${escapeHtml(fmtCurrency(c.amount))}</td></tr>`
     )
     .join('');
+  const notes = printableNotes(report);
+  const notesHtml = notes.length > 0
+    ? `<ul class="notes">${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`
+    : '';
+  const biggestHtml = report.biggestSpends && report.biggestSpends.length > 0
+    ? `<h2>Biggest spends</h2><table>${report.biggestSpends
+      .map((s) => `<tr><td>${escapeHtml(s.date)}</td><td>${escapeHtml(s.label)}<div class="sub">${escapeHtml(s.category)}</div></td><td class="num">${escapeHtml(fmtCurrency(s.amount))}</td></tr>`)
+      .join('')}</table>`
+    : '';
+  const dailyHtml = report.dailySpend && report.dailySpend.length > 0
+    ? `<h2>Spend by day</h2><table>${report.dailySpend
+      .map((d) => `<tr><td>${escapeHtml(d.date)}</td><td class="num">${escapeHtml(fmtCurrency(d.amount))}</td></tr>`)
+      .join('')}</table>`
+    : '';
 
   // Self-contained: expo-print renders this in a WebView with no network and, on iOS, no access to
   // local asset URLs, so there is nothing to link out to -- styles inline, no images.
@@ -77,7 +180,10 @@ export function toPrintableHtml(report: ReportData): string {
   .total .label { font-size: 10px; text-transform: uppercase; color: #6b7280; }
   .total .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
   .income { color: #16a34a; } .expense { color: #dc2626; }
-  h2 { font-size: 12px; text-transform: uppercase; color: #6b7280; margin: 0 0 8px; }
+  h2 { font-size: 12px; text-transform: uppercase; color: #6b7280; margin: 24px 0 8px; }
+  .notes { margin: 0 0 8px; padding-left: 18px; font-size: 13px; color: #374151; }
+  .notes li { margin-bottom: 4px; }
+  td .sub { color: #6b7280; font-size: 11px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   td { padding: 8px 0; border-bottom: 1px solid #e7e8f2; }
   .num { text-align: right; }
@@ -92,8 +198,11 @@ export function toPrintableHtml(report: ReportData): string {
     <div class="total"><div class="label">Expense</div><div class="value expense">${escapeHtml(fmtCurrency(report.expense))}</div></div>
     <div class="total"><div class="label">Net</div><div class="value">${escapeHtml(fmtCurrency(net))}</div></div>
   </div>
+  ${notesHtml}
   <h2>Category Breakdown</h2>
   ${categoryRows ? `<table>${categoryRows}</table>` : '<p class="empty">No expenses recorded this month.</p>'}
+  ${biggestHtml}
+  ${dailyHtml}
 </body>
 </html>`;
 }

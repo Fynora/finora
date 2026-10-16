@@ -8,6 +8,7 @@ import { downloadBlob, toCsv } from '../lib/download';
 import { Button, FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { trackNavigation } from '../lib/trackNavigation';
 import { fmt, monthLabelLong } from './reportSections/reportFormat';
+import { reportCsvRows } from './reportSections/reportExport';
 import { ReportHero } from './reportSections/ReportHero';
 import { ReportStatCards } from './reportSections/ReportStatCards';
 import { ReviewNotice } from './reportSections/ReviewNotice';
@@ -27,7 +28,7 @@ function downloadCsv(report: ReportData) {
   // The download itself goes through downloadBlob so the object URL isn't revoked out from under
   // the browser's own read. Both used to be open-coded here and in endpoints.ts, identically
   // wrong in both places.
-  const csv = toCsv([['Category', 'Amount'], ...report.categories.map((c) => [c.category, c.amount])]);
+  const csv = toCsv(reportCsvRows(report));
   downloadBlob(new Blob([csv], { type: 'text/csv' }), `fynora-report-${report.month}.csv`);
 }
 

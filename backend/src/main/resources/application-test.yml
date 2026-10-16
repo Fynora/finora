@@ -173,6 +173,11 @@ app:
     redaction:
       enabled: false
 
+  # Short enough that an integration test with an unreachable scanner does not sit out the
+  # production 25 s, long enough that UploadScanGateIT can watch a scanner wake on its second try.
+  malware-scan:
+    unavailable-retry-window-ms: 1500
+
   # Gmail OAuth (Phase B). The client stays unconfigured under test -- the endpoints' behaviour
   # WITHOUT a Google client is itself part of what GmailOAuthEndpointIT pins, and no test should
   # depend on real Google credentials.

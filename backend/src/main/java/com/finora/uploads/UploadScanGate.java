@@ -9,6 +9,7 @@ import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +18,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * The one call every upload endpoint makes before the bytes reach a parser.
@@ -36,6 +39,25 @@ import java.util.UUID;
  * applies when no scanner is configured at all: then every upload is unscanned, silently here and
  * loudly at boot in the prod profile.
  *
+ * <h2>Waiting for a scanner that is waking up</h2>
+ * {@code app.malware-scan.unavailable-retry-window-ms} is how long an unanswered scan keeps being
+ * retried before the policy above applies. It exists for a scanner that sleeps when idle: on
+ * Railway the clamd service can be put to sleep (App Sleeping) and is woken by the first connection
+ * to it, and until clamd has loaded its signatures every attempt answers UNAVAILABLE. Railway's
+ * deploy logs put clamd's start-to-ready time at about 9 s (2026-09-25). Retries back off from
+ * 0.5 s to a 4 s cap and never sleep past the window; an attempt already started inside the window
+ * runs to its own timeouts, so the worst case is the window plus one attempt. Only UNAVAILABLE is
+ * retried: CLEAN and INFECTED are verdicts, and an upload that cannot be read is the upload's
+ * failure, not the scanner's, so it is refused at once. The file is re-read from the start for
+ * every attempt.
+ * {@code allow} waits too, so a waking scanner still gets to scan the file rather than it passing
+ * unscanned on the first refusal. 0 means a single attempt.
+ *
+ * <p>The wait happens on the request thread, before any concurrency permit is taken (see below),
+ * so a slow wake holds a servlet thread and nothing else. Mobile's non-upload calls (a Fyn
+ * screenshot, a support attachment) give up after 30 s, which is why the production window is
+ * below that; statement uploads have no client timeout.
+ *
  * <h2>Why here and not inside {@code StatementUpload.requireReadable}</h2>
  * Order. The cheap structural checks run first so an empty file or a PDF posted to the CSV
  * endpoint is refused without a round trip to the scanner, and the scan runs before the
@@ -49,15 +71,37 @@ public class UploadScanGate {
 
     private static final Logger log = LoggerFactory.getLogger(UploadScanGate.class);
 
+    private static final long FIRST_BACKOFF_MS = 500;
+    private static final long MAX_BACKOFF_MS = 4_000;
+
+    /** {@link Thread#sleep(long)}, as a seam so tests can wait without waiting. */
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
+
     private final ObjectProvider<MalwareScanner> scanner;
     private final AuditService auditService;
     private final boolean rejectWhenUnavailable;
+    private final long retryWindowNanos;
+    private final LongSupplier nanoClock;
+    private final Sleeper sleeper;
 
+    @Autowired
     public UploadScanGate(ObjectProvider<MalwareScanner> scanner, AuditService auditService,
-                          @Value("${app.malware-scan.on-unavailable:reject}") String onUnavailable) {
+                          @Value("${app.malware-scan.on-unavailable:reject}") String onUnavailable,
+                          @Value("${app.malware-scan.unavailable-retry-window-ms:0}") long retryWindowMs) {
+        this(scanner, auditService, onUnavailable, retryWindowMs, System::nanoTime, Thread::sleep);
+    }
+
+    UploadScanGate(ObjectProvider<MalwareScanner> scanner, AuditService auditService, String onUnavailable,
+                   long retryWindowMs, LongSupplier nanoClock, Sleeper sleeper) {
         this.scanner = scanner;
         this.auditService = auditService;
         this.rejectWhenUnavailable = !"allow".equalsIgnoreCase(onUnavailable);
+        this.retryWindowNanos = TimeUnit.MILLISECONDS.toNanos(Math.max(0, retryWindowMs));
+        this.nanoClock = nanoClock;
+        this.sleeper = sleeper;
     }
 
     /** Whether a scanner is configured at all -- for the admin diagnostics page and the boot-time
@@ -84,11 +128,37 @@ public class UploadScanGate {
             return;
         }
 
+        long started = nanoClock.getAsLong();
+        long backoffMs = FIRST_BACKOFF_MS;
+        int attempt = 0;
         ScanResult result;
-        try (InputStream in = file.getInputStream()) {
-            result = active.scan(in);
-        } catch (IOException e) {
-            result = ScanResult.unavailable("could not read the upload for scanning: " + e);
+        while (true) {
+            attempt++;
+            try (InputStream in = file.getInputStream()) {
+                result = active.scan(in);
+            } catch (IOException e) {
+                // The upload, not the scanner: waiting does not make it readable.
+                result = ScanResult.unavailable("could not read the upload for scanning: " + e);
+                break;
+            }
+            if (result.status() != ScanResult.Status.UNAVAILABLE) {
+                break;
+            }
+            long remainingMs = TimeUnit.NANOSECONDS.toMillis(retryWindowNanos - (nanoClock.getAsLong() - started));
+            if (remainingMs <= 0) {
+                break;
+            }
+            try {
+                sleeper.sleep(Math.min(backoffMs, remainingMs));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+        }
+        long waitedMs = TimeUnit.NANOSECONDS.toMillis(nanoClock.getAsLong() - started);
+        if (attempt > 1 && result.status() != ScanResult.Status.UNAVAILABLE) {
+            log.info("Malware scanner {} answered on attempt {} after {} ms", active.describe(), attempt, waitedMs);
         }
 
         String fileName = StatementUpload.safeFileName(file, "upload");
@@ -118,14 +188,14 @@ public class UploadScanGate {
             }
             case UNAVAILABLE -> {
                 if (rejectWhenUnavailable) {
-                    log.error("Malware scanner unavailable ({}); refusing upload {} ({}) per "
-                            + "app.malware-scan.on-unavailable=reject: {}",
-                            active.describe(), loggedName, context, loggedDetail);
+                    log.error("Malware scanner unavailable ({}) after {} attempt(s) over {} ms; refusing upload {} ({}) "
+                            + "per app.malware-scan.on-unavailable=reject: {}",
+                            active.describe(), attempt, waitedMs, loggedName, context, loggedDetail);
                     throw new ApiException(ErrorCode.UPLOAD_SCANNER_UNAVAILABLE);
                 }
-                log.warn("Malware scanner unavailable ({}); upload {} ({}) allowed through UNSCANNED per "
-                        + "app.malware-scan.on-unavailable=allow: {}",
-                        active.describe(), loggedName, context, loggedDetail);
+                log.warn("Malware scanner unavailable ({}) after {} attempt(s) over {} ms; upload {} ({}) allowed "
+                        + "through UNSCANNED per app.malware-scan.on-unavailable=allow: {}",
+                        active.describe(), attempt, waitedMs, loggedName, context, loggedDetail);
             }
         }
     }

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QuickSortCard } from './QuickSortCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
 import type { QuickSortBatch, QuickSortQuestion } from '../types';
+import { formatDate } from '../utils/date';
 
 vi.mock('../api/endpoints', () => ({
   transactionsApi: {
@@ -74,6 +75,12 @@ describe('QuickSortCard', () => {
     expect(screen.getByText(/What kind of shop is this\?/)).toBeInTheDocument();
     expect(screen.getByText(/3 payments/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Groceries' })).toBeInTheDocument();
+  });
+
+  it('writes the latest payment date the way the rest of the app does', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()]));
+    renderCard();
+    expect(await screen.findByText(`3 payments · ₹1,240 · latest ${formatDate('2026-09-12')}`)).toBeInTheDocument();
   });
 
   it('a person question asks what the person was paid for', async () => {
@@ -170,6 +177,50 @@ describe('QuickSortCard', () => {
     expect(await screen.findByText('NEXT SHOP')).toBeInTheDocument();
     // Sorted out of everything that waited: 2,000 of 10,000 is 20%.
     expect(screen.getByText(/You've sorted 20% of your waiting money/)).toBeInTheDocument();
+  });
+
+  // "Stop asking about these" clears only the payees after the batch. A question skipped in the
+  // batch is still waiting, so the card must not call everything sorted or show 100%.
+  it('after stopping, still counts a skipped question as waiting', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch(
+      [question(), question({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })],
+      { waitingTotal: 10000, rest: { questions: 3, payments: 4, amount: 7520, transactionIds: ['r1', 'r2'] } },
+    ));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop asking about these' }));
+    expect(transactionsApi.quickSortKeepRest).toHaveBeenCalledWith(['r1', 'r2']);
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeInTheDocument();
+    expect(screen.queryByText(/All sorted/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sort 10 more' })).not.toBeInTheDocument();
+    // 1,240 answered, out of 10,000 less the 7,520 that stopped waiting.
+    expect(screen.getByText(/You've sorted 50% of your waiting money/)).toBeInTheDocument();
+  });
+
+  it('after stopping with nothing skipped, says all sorted at 100%', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([question()], {
+      waitingTotal: 10000, rest: { questions: 3, payments: 4, amount: 8760, transactionIds: ['r1'] },
+    }));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop asking about these' }));
+    expect(await screen.findByText(/All sorted/)).toBeInTheDocument();
+    expect(screen.getByText(/You've sorted 100% of your waiting money/)).toBeInTheDocument();
+  });
+
+  // Amounts carry paise, and summing them in a different order from the server's total can land a
+  // hair under it: 0.7 + 0.1 is 0.7999999999999999 against 0.8. "All sorted" must still say 100%.
+  it('says 100% when everything is sorted, whatever the floating point does', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([
+      question({ total: 0.7 }),
+      question({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP', total: 0.1 }),
+    ], { waitingTotal: 0.8 }));
+    renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Dining' }));
+    expect(await screen.findByText(/All sorted/)).toBeInTheDocument();
+    expect(screen.getByText(/You've sorted 100% of your waiting money/)).toBeInTheDocument();
   });
 
   // A tester left Quick sort part-way and came back to 0%: progress counted only this visit. It

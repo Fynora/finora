@@ -257,6 +257,50 @@ describe('QuickSortPanel', () => {
     expect(screen.getByText("You've sorted 12% of your waiting money")).toBeTruthy();
   });
 
+  // "Stop asking about these" clears only the payees after the batch. A question skipped in the
+  // batch is still waiting, so the card must not call everything sorted or show 100%.
+  it('after stopping, still counts a skipped question as waiting', async () => {
+    tx.quickSort.mockResolvedValue(batch(
+      [question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })],
+      { waitingTotal: 10000, rest: { questions: 3, payments: 4, amount: 7520, transactionIds: ['r1', 'r2'] } },
+    ));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Skip for now'));
+    fireEvent.press(await screen.findByText('Groceries'));
+    fireEvent.press(await screen.findByText('Stop asking about these'));
+    await waitFor(() => expect(tx.quickSortKeepRest).toHaveBeenCalledWith(['r1', 'r2']));
+    expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeTruthy();
+    expect(screen.queryByText(/All sorted/)).toBeNull();
+    expect(screen.queryByText('Sort 10 more')).toBeNull();
+    // 1240 answered, out of 10000 less the 7520 that stopped waiting.
+    expect(screen.getByText("You've sorted 50% of your waiting money")).toBeTruthy();
+  });
+
+  it('after stopping with nothing skipped, says all sorted at 100%', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()], {
+      waitingTotal: 10000, rest: { questions: 3, payments: 4, amount: 8760, transactionIds: ['r1'] },
+    }));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    fireEvent.press(await screen.findByText('Stop asking about these'));
+    expect(await screen.findByText(/All sorted/)).toBeTruthy();
+    expect(screen.getByText("You've sorted 100% of your waiting money")).toBeTruthy();
+  });
+
+  // Amounts carry paise, and summing them in a different order from the server's total can land a
+  // hair under it: 0.7 + 0.1 is 0.7999999999999999 against 0.8. "All sorted" must still say 100%.
+  it('says 100% when everything is sorted, whatever the floating point does', async () => {
+    tx.quickSort.mockResolvedValue(batch([
+      question({ total: 0.7 }),
+      question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP', total: 0.1 }),
+    ], { waitingTotal: 0.8 }));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    fireEvent.press(await screen.findByText('Dining'));
+    expect(await screen.findByText(/All sorted/)).toBeTruthy();
+    expect(screen.getByText("You've sorted 100% of your waiting money")).toBeTruthy();
+  });
+
   // A tester left Quick sort part-way and came back to 0%: progress counted only this visit. It
   // now counts what earlier visits sorted too.
   it('picks up where the last visit ended', async () => {

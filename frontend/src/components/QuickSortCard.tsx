@@ -5,6 +5,7 @@ import { transactionsApi } from '../api/endpoints';
 import { CategoryCombobox } from './CategoryCombobox';
 import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
 import type { QuickSortBatch, QuickSortKind, QuickSortQuestion } from '../types';
+import { formatDate } from '../utils/date';
 
 function fmt(n: number) {
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
@@ -23,8 +24,9 @@ const AFFECTED_QUERIES = ['transactions', 'recent-transactions', 'dashboard-summ
 /**
  * Quick sort: a few payee questions, biggest money first, in place of studying every waiting row.
  * The server (QuickSortService) decides the batch -- 80% of the waiting money or 10 questions --
- * and the answers offered; this card asks one question at a time. Progress is measured against
- * the waiting money when the card first loaded, so it survives "Sort 10 more".
+ * and the answers offered; this card asks one question at a time. Progress is the money sorted
+ * out of everything that waited, earlier visits included (the batch's sortedTotal), so it carries
+ * across "Sort 10 more" and across visits.
  */
 export function QuickSortCard() {
   const queryClient = useQueryClient();
@@ -37,7 +39,9 @@ export function QuickSortCard() {
   const [error, setError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
   const [creating, setCreating] = useState<string | null>(null);
-  const [allSorted, setAllSorted] = useState(false);
+  // "Stop asking about these" taken for this batch's rest: that money left the queue unsorted, and
+  // the rest is no longer offered. Questions skipped earlier are still waiting.
+  const [restStopped, setRestStopped] = useState(false);
 
   function load(skip: number, first = false) {
     transactionsApi.quickSort(skip)
@@ -45,6 +49,7 @@ export function QuickSortCard() {
         setBatch(b);
         setIndex(0);
         setAnsweredInBatch(0);
+        setRestStopped(false);
         setStartTotal((prev) => prev ?? b.waitingTotal);
       })
       .catch(() => {
@@ -61,11 +66,16 @@ export function QuickSortCard() {
   if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
+  const restOffered = batch.rest.questions > 0 && !restStopped;
+  // Nothing left to ask, offer or come back to.
+  const allSorted = !current && !restOffered && skipped === 0;
   // Out of everything that waited, earlier visits included: the server's sorted money, this
-  // batch's answers moved across from waiting. A server without sortedTotal counts this batch only.
+  // batch's answers moved across from waiting, and a stopped rest out of the count altogether.
+  // A server without sortedTotal counts this batch only. Exactly 100 once all is sorted: amounts
+  // carry paise, and summed in another order than the server's total they can land a hair under.
   const sortedBefore = batch.sortedTotal ?? 0;
-  const everWaiting = sortedBefore + batch.waitingTotal;
-  const sortedPct = everWaiting > 0
+  const everWaiting = sortedBefore + batch.waitingTotal - (restStopped ? batch.rest.amount : 0);
+  const sortedPct = allSorted ? 100 : everWaiting > 0
     ? Math.max(0, Math.min(100, Math.floor(((sortedBefore + answeredInBatch) / everWaiting) * 100)))
     : 0;
 
@@ -119,7 +129,7 @@ export function QuickSortCard() {
     setError(null);
     try {
       await transactionsApi.quickSortKeepRest(batch.rest.transactionIds);
-      setAllSorted(true);
+      setRestStopped(true);
       refreshViews();
     } catch {
       setError("Couldn't stop asking — please try again.");
@@ -139,7 +149,7 @@ export function QuickSortCard() {
             </span>
           )}
         </h2>
-        <p className="text-xs text-muted">You've sorted {allSorted ? 100 : sortedPct}% of your waiting money</p>
+        <p className="text-xs text-muted">You've sorted {sortedPct}% of your waiting money</p>
       </div>
 
       {allSorted && <p className="text-sm text-ink">All sorted. You can change any category later from the Ledger.</p>}
@@ -149,7 +159,7 @@ export function QuickSortCard() {
           <div>
             <p className="text-base font-semibold text-ink">{current.payee}</p>
             <p className="text-xs text-muted">
-              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)} · latest {current.latestDate}
+              {current.payments} {current.payments === 1 ? 'payment' : 'payments'} · {fmt(current.total)} · latest {formatDate(current.latestDate) || current.latestDate}
             </p>
             {current.largeOneOff && (
               <p className="mt-1 inline-block rounded bg-accent-blue-bg px-2 py-0.5 text-xs text-ink">Large one-off payment</p>
@@ -216,7 +226,7 @@ export function QuickSortCard() {
       )}
 
       {!allSorted && !current && (
-        batch.rest.questions > 0 ? (
+        restOffered ? (
           <div className="space-y-2">
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={saving}
@@ -234,7 +244,8 @@ export function QuickSortCard() {
               {batch.rest.payments} {batch.rest.payments === 1 ? 'payment' : 'payments'} ({fmt(batch.rest.amount)}) stay as Personal Transfer or Other. You can change any of them later from the Ledger.
             </p>
           </div>
-        ) : skipped > 0 ? (
+        ) : (
+          // Not all sorted, nothing to ask or offer: only skipped questions are left.
           <div className="space-y-2">
             <p className="text-sm text-ink">
               You skipped {skipped} {skipped === 1 ? "question. It's" : "questions. They're"} still waiting.
@@ -245,8 +256,6 @@ export function QuickSortCard() {
               Ask the skipped ones again
             </button>
           </div>
-        ) : (
-          <p className="text-sm text-ink">All sorted. You can change any category later from the Ledger.</p>
         )
       )}
 

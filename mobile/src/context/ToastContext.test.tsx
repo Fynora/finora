@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Text, Pressable } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, Text } from 'react-native';
 import { ToastProvider, useToast } from './ToastContext';
 import { ThemeProvider } from '../theme';
 import { LaunchCoveredProvider } from '../components/AppModal';
@@ -117,12 +117,78 @@ describe('ToastProvider/useToast', () => {
       jest.useRealTimers();
     });
 
+    // A failed save, retried at once, succeeds while the failure still shows. Dropping that success
+    // left "Could not save" as the last word on a save that had worked; it shows once the error's
+    // own time is up instead, for its full 3 seconds.
+    it('holds a success that arrives while it shows, and shows it once its time is up', () => {
+      jest.useFakeTimers();
+      renderTwo();
+      fireEvent.press(screen.getByText('fail'));
+      act(() => { jest.advanceTimersByTime(1000); });
+      fireEvent.press(screen.getByText('succeed'));
+      expect(screen.queryByText(/Saved Food/)).toBeNull();
+      act(() => { jest.advanceTimersByTime(2000); });
+      expect(screen.queryByText('Could not save that category.')).toBeNull();
+      expect(screen.getByText(/Saved Food for Swiggy/)).toBeTruthy();
+      act(() => { jest.advanceTimersByTime(2900); });
+      expect(screen.getByText(/Saved Food for Swiggy/)).toBeTruthy();
+      act(() => { jest.advanceTimersByTime(100); });
+      expect(screen.queryByText(/Saved Food/)).toBeNull();
+      jest.useRealTimers();
+    });
+
+    it('drops a held success when a later error replaces the first', () => {
+      jest.useFakeTimers();
+      renderTwo();
+      fireEvent.press(screen.getByText('fail'));
+      fireEvent.press(screen.getByText('succeed'));
+      fireEvent.press(screen.getByText('fail'));
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(screen.queryByText(/Saved Food/)).toBeNull();
+      expect(screen.queryByTestId('toast')).toBeNull();
+      jest.useRealTimers();
+    });
+
     it('replaces a success still showing', () => {
       renderTwo();
       fireEvent.press(screen.getByText('succeed'));
       fireEvent.press(screen.getByText('fail'));
       expect(screen.getByText('Could not save that category.')).toBeTruthy();
       expect(screen.queryByText(/Saved Food/)).toBeNull();
+    });
+  });
+
+  // VoiceOver does not read accessibilityLiveRegion (Android-only), so on iOS a toast was silent.
+  describe('on iOS', () => {
+    const originalOS = Platform.OS;
+    beforeEach(() => { Platform.OS = 'ios'; });
+    afterEach(() => { Platform.OS = originalOS; });
+
+    it('announces a toast to VoiceOver, title and body', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      render(<ThemeProvider><ToastProvider><Trigger /></ToastProvider></ThemeProvider>);
+      fireEvent.press(screen.getByText('trigger'));
+      expect(announce).toHaveBeenCalledWith('Goal Created. Your Emergency Fund goal is now active.');
+      announce.mockRestore();
+    });
+
+    it('waits to announce a toast held behind the launch animation until it shows', () => {
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      const tree = (launching: boolean) => (
+        <ThemeProvider>
+          <LaunchCoveredProvider value={launching}>
+            <ToastProvider>
+              <Trigger />
+            </ToastProvider>
+          </LaunchCoveredProvider>
+        </ThemeProvider>
+      );
+      const { rerender } = render(tree(true));
+      fireEvent.press(screen.getByText('trigger'));
+      expect(announce).not.toHaveBeenCalled();
+      rerender(tree(false));
+      expect(announce).toHaveBeenCalledTimes(1);
+      announce.mockRestore();
     });
   });
 });

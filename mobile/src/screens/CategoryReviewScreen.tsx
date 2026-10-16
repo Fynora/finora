@@ -249,7 +249,7 @@ export function CategoryReviewScreen() {
   // A logo, as the Ledger's rows have. Left out at large text sizes, as there, to give the words
   // the width.
   const logo = (name: string, person: boolean) => (largeText ? null : (
-    <MerchantLogo merchant={name || '?'} size={32} person={person} style={styles.logo} />
+    <MerchantLogo merchant={name || '?'} size={LOGO_SIZE} person={person} style={styles.logo} />
   ));
   const chevron = <Ionicons name="chevron-forward" size={16} color={c.mutedInk} />;
 
@@ -343,42 +343,50 @@ export function CategoryReviewScreen() {
                 One choice covers every transaction with that person or business.
               </Text>
               {counterpartyGroups.map((g) => (
-                <Pressable
-                  key={g.counterpartyKey}
-                  onPress={() => setTarget({ kind: 'counterparty', group: g })}
-                  style={[styles.row, { borderBottomColor: c.border }]}
-                  android_ripple={{ color: c.border }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${g.label}, ${g.counterpartyType === 'PERSON' ? 'person' : 'business'}${
-                    g.identityIsStrong ? '' : ', probable match'
-                  }, ${fmtCurrency(g.totalValue)} across ${g.transactionIds.length} transactions`}
-                  accessibilityHint="Opens the category picker for every transaction with this counterparty"
-                >
-                  {logo(g.label, g.counterpartyType === 'PERSON')}
-                  <View style={styles.rowMain}>
-                    <View style={styles.counterpartyTitleRow}>
-                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                        {g.label}
-                      </Text>
-                      {/* Context, not a resolved identity -- same reasoning as the row-level
-                          counterparty label elsewhere in this app. No direction composed in (a
-                          group can carry both sent and received rows), so this shows only the
-                          noun, never "sent to"/"paid". */}
-                      <Text style={[styles.counterpartyTypeBadge, { color: c.ink, backgroundColor: c.border }]}>
-                        {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
-                      </Text>
-                      {/* A name: key is a guess -- must never be presented as a resolved identity.
-                          This group still gets the bulk-apply action (grouping survives a guessed
-                          key), but is visibly marked probable rather than confirmed. */}
-                      {!g.identityIsStrong ? (
-                        <Text style={[styles.counterpartyTypeBadge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
-                          Probable
+                // The row's button and "Show payments" are siblings, not nested: an accessible
+                // element is read as one, so inside the row's button "Show payments" and the list
+                // it opens were out of a screen reader's reach.
+                <View key={g.counterpartyKey} style={[styles.rowGroup, { borderBottomColor: c.border }]}>
+                  <Pressable
+                    onPress={() => setTarget({ kind: 'counterparty', group: g })}
+                    style={styles.rowInGroup}
+                    android_ripple={{ color: c.border }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${g.label}, ${g.counterpartyType === 'PERSON' ? 'person' : 'business'}${
+                      g.identityIsStrong ? '' : ', probable match'
+                    }, ${fmtCurrency(g.totalValue)} across ${g.transactionIds.length} transactions`}
+                    accessibilityHint="Opens the category picker for every transaction with this counterparty"
+                  >
+                    {logo(g.label, g.counterpartyType === 'PERSON')}
+                    <View style={styles.rowMain}>
+                      <View style={styles.counterpartyTitleRow}>
+                        <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                          {g.label}
                         </Text>
-                      ) : null}
+                        {/* Context, not a resolved identity -- same reasoning as the row-level
+                            counterparty label elsewhere in this app. No direction composed in (a
+                            group can carry both sent and received rows), so this shows only the
+                            noun, never "sent to"/"paid". */}
+                        <Text style={[styles.counterpartyTypeBadge, { color: c.ink, backgroundColor: c.border }]}>
+                          {g.counterpartyType === 'PERSON' ? 'Person' : 'Business'}
+                        </Text>
+                        {/* A name: key is a guess -- must never be presented as a resolved identity.
+                            This group still gets the bulk-apply action (grouping survives a guessed
+                            key), but is visibly marked probable rather than confirmed. */}
+                        {!g.identityIsStrong ? (
+                          <Text style={[styles.counterpartyTypeBadge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
+                            Probable
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                        {fmtCurrency(g.totalValue)} · {g.transactionIds.length} transactions
+                      </Text>
                     </View>
-                    <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                      {fmtCurrency(g.totalValue)} · {g.transactionIds.length} transactions
-                    </Text>
+                    {chevron}
+                  </Pressable>
+                  {/* Lined up under the title, past the logo when there is one. */}
+                  <View style={{ marginLeft: largeText ? 0 : LOGO_SIZE + spacing.sm }}>
                     {/* The payments themselves, which the group already carries, so they can be
                         seen before one category is chosen for all of them. Its own button: a tap
                         here opens the list, not the picker. */}
@@ -412,8 +420,7 @@ export function CategoryReviewScreen() {
                       </View>
                     ) : null}
                   </View>
-                  {chevron}
-                </Pressable>
+                </View>
               ))}
             </Card>
           ) : null}
@@ -515,6 +522,8 @@ function pickerTitle(target: PickerTarget | null): string {
   return 'Choose a category';
 }
 
+const LOGO_SIZE = 32;
+
 function transactionCount(n: number): string {
   return `${n} ${n === 1 ? 'transaction' : 'transactions'}`;
 }
@@ -546,6 +555,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
     gap: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  // A person row: its button, then "Show payments" under it, with one rule below both.
+  rowGroup: { borderBottomWidth: StyleSheet.hairlineWidth, paddingBottom: 12 },
+  rowInGroup: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 12, minHeight: 44, gap: spacing.sm,
   },
   logo: { alignSelf: 'flex-start' },
   rowMain: { flex: 1 },

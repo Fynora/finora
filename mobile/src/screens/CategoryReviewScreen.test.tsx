@@ -759,6 +759,23 @@ describe("a person's payments", () => {
     expect(screen.queryByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeNull();
   });
 
+  // An accessible element hides what is inside it from VoiceOver and TalkBack, which read it as one
+  // button. Inside the row's own button, "Show payments" and the list it opens could not be
+  // reached by a screen reader at all.
+  it('keeps "Show payments" and the list outside the row button, where a screen reader reaches them', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    renderScreen();
+    const showButton = await screen.findByRole('button', { name: 'Show 2 payments' });
+    const rowButton = screen.getByLabelText(/^Ravi Kumar, /);
+    expect(within(rowButton).queryByText('Show 2 payments')).toBeNull();
+    fireEvent.press(showButton);
+    expect(within(rowButton).queryByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeNull();
+    expect(screen.getByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeTruthy();
+    // The row itself still opens the picker.
+    fireEvent.press(rowButton);
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(true);
+  });
+
   it('says when the group holds more payments than it brought', async () => {
     transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup({
       transactionIds: ['t-21', 't-22', 't-23', 't-24'],

@@ -39,7 +39,8 @@ function Donut({ rows, total, byName }: { rows: CategoryRow[]; total: number; by
       <Svg width={SIZE} height={SIZE}>
         <G rotation={-90} origin={`${SIZE / 2}, ${SIZE / 2}`}>
           {slices.map((s, i) => {
-            const drawn = Math.max(lengths[i] - SLICE_GAP, 0.01);
+            // A ring of one slice has no neighbour to keep apart from, so it closes without a notch.
+            const drawn = Math.max(lengths[i] - (slices.length > 1 ? SLICE_GAP : 0), 0.01);
             return (
               <Circle
                 key={s.category ?? '__other'} cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} fill="none" stroke={colorOf(s.category)}

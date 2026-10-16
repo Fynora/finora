@@ -39,6 +39,9 @@ import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Exporting = 'csv' | 'pdf' | null;
 
+/** The label the server gives a purchase with no merchant and no description. */
+const NO_LABEL = 'Transaction';
+
 /** The hero, stat cards and a section: the skeleton shape shared by the months-still-loading shell
  *  and the report-still-loading (uncached month) branch below -- one definition means the two
  *  loading states can't silently drift apart from each other. */
@@ -205,7 +208,14 @@ export function ReportsScreen() {
         <AppRefreshControl
           refreshing={isFetching && !reportLoading}
           // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
-          onRefresh={() => withBypass(() => void queryClient.invalidateQueries({ queryKey: ['report', month] }))}
+          // The extras are keyed by month under different second elements, so ['report', month] does
+          // not reach them: without these a pull would refresh the totals and leave the trend and
+          // the observations on the old figures.
+          onRefresh={() => withBypass(() => {
+            void queryClient.invalidateQueries({ queryKey: ['report', month] });
+            void queryClient.invalidateQueries({ queryKey: ['report', 'trend', month] });
+            void queryClient.invalidateQueries({ queryKey: ['insights', 'reports', month] });
+          })}
           tintColor={c.primary}
         />
       }
@@ -309,7 +319,13 @@ export function ReportsScreen() {
           ) : null}
           <BiggestSpends
             items={report.biggestSpends}
-            onOpen={(s: BiggestSpend) => openTransactions({ keyword: s.label, dateFrom: s.date, dateTo: s.date, label: `${s.label} · ${shortDate(s.date)}` })}
+            onOpen={(s: BiggestSpend) => openTransactions({
+              // "Transaction" is what the server writes when a row has neither a merchant nor a
+              // description (ReportService.spendLabel): no row contains that word, so searching
+              // for it would open an empty list. The day alone is the honest narrowing then.
+              keyword: s.label === NO_LABEL ? undefined : s.label,
+              dateFrom: s.date, dateTo: s.date, label: `${s.label} · ${shortDate(s.date)}`,
+            })}
           />
           <MerchantsCard
             month={report.month}

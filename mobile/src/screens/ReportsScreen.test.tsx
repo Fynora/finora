@@ -1,3 +1,4 @@
+import { RefreshControl } from 'react-native';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
@@ -385,6 +386,37 @@ describe('drill-through into the ledger (Track C/C4)', () => {
     expect(navigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({ keyword: 'Big Mart', dateFrom: '2026-07-14', dateTo: '2026-07-14' }),
     });
+  });
+
+  it('refreshes the trend and the insights as well as the report on a pull', async () => {
+    renderScreen();
+    await loadedReport();
+    await waitFor(() => expect(mockInsights.get).toHaveBeenCalledTimes(1));
+    expect(api.trend).toHaveBeenCalledTimes(1);
+    expect(api.forMonth).toHaveBeenCalledTimes(1);
+
+    await act(async () => screen.UNSAFE_getByType(RefreshControl).props.onRefresh());
+
+    await waitFor(() => expect(api.forMonth).toHaveBeenCalledTimes(2));
+    expect(api.trend).toHaveBeenCalledTimes(2);
+    expect(mockInsights.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens a purchase the server could not name on its day alone, with no search word', async () => {
+    api.forMonth.mockReset().mockImplementation(async (m: string) => reportFor(m, {
+      biggestSpends: [{ id: 'b', date: '2026-07-09', label: 'Transaction', category: 'Uncategorized', amount: 900 }],
+    }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('biggest-spends');
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+
+    fireEvent.press(screen.getByLabelText(/Transaction, ₹900 on Jul 9/));
+    const [, params] = navigate.mock.calls[0] as [string, { filters: Record<string, unknown> }];
+    expect(params.filters).toEqual(expect.objectContaining({ dateFrom: '2026-07-09', dateTo: '2026-07-09' }));
+    expect(params.filters.keyword).toBeUndefined();
   });
 });
 

@@ -49,7 +49,13 @@ function SavingsRing({ pct }: { pct: number }) {
           />
         ) : null}
       </Svg>
-      <Text style={[typography.numberS, styles.ringText, { color: c.ink }]}>{Math.round(pct)}%</Text>
+      {/* The rate is not capped (a month of little income and a lot of spend reads in the thousands of
+          percent), so the figure shrinks to the ring's inside rather than spilling over its edge. */}
+      <Text
+        style={[typography.numberS, styles.ringText, { color: c.ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.4}
+      >
+        {Math.round(pct)}%
+      </Text>
     </View>
   );
 }
@@ -123,7 +129,7 @@ const styles = StyleSheet.create({
   top: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md },
   text: { flex: 1, minWidth: 180, gap: 2 },
   ring: { width: RING, height: RING, alignItems: 'center', justifyContent: 'center' },
-  ringText: { position: 'absolute' },
+  ringText: { position: 'absolute', maxWidth: RING - STROKE * 2 - 4, textAlign: 'center' },
   bar: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', gap: 2 },
   legend: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6, gap: spacing.sm, flexWrap: 'wrap' },
 });

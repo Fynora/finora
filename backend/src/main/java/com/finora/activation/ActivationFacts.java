@@ -29,12 +29,16 @@ public class ActivationFacts {
 
     /**
      * Whether a statement this user uploaded was read and then expired unconfirmed at or after
-     * {@code since}. The 48-hour session sweep stamps it, for direct uploads and queued imports alike.
+     * {@code since}, with nothing imported since that expiry. The 48-hour session sweep stamps it, for
+     * direct uploads and queued imports alike. An import after the expiry means they got a statement
+     * in after all -- asking them why they stopped would be asking the wrong person.
      */
     public boolean hasUnconfirmedExpirySince(UUID userId, Instant since) {
         return Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM statement_analysis_sessions "
-                        + "WHERE user_id = ? AND expired_unconfirmed_at >= ?)",
+                "SELECT EXISTS (SELECT 1 FROM statement_analysis_sessions s "
+                        + "WHERE s.user_id = ? AND s.expired_unconfirmed_at >= ? "
+                        + "AND NOT EXISTS (SELECT 1 FROM statement_imports i "
+                        + "WHERE i.user_id = s.user_id AND i.imported_at > s.expired_unconfirmed_at))",
                 Boolean.class, userId, since.atOffset(ZoneOffset.UTC)));
     }
 }

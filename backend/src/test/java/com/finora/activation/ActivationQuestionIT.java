@@ -145,6 +145,25 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
         assertThat(question(user)).isEqualTo("NOT_CONFIRMED");
     }
 
+    /** Someone whose read expired and who then got a statement in is not asked why they stopped. */
+    @Test
+    void notConfirmedNotAskedOnceAStatementWasImportedAfterTheExpiry() throws Exception {
+        User user = user();
+        readExpiredUnconfirmed(user, NOW.minus(2, ChronoUnit.DAYS));
+        statementImportedAt(user, NOW.minus(1, ChronoUnit.DAYS));
+
+        assertThat(question(user)).isNull();
+    }
+
+    @Test
+    void notConfirmedStillAskedWhenTheOnlyImportCameBeforeTheExpiry() throws Exception {
+        User user = user();
+        statementImportedAt(user, NOW.minus(3, ChronoUnit.DAYS));
+        readExpiredUnconfirmed(user, NOW.minus(2, ChronoUnit.DAYS));
+
+        assertThat(question(user)).isEqualTo("NOT_CONFIRMED");
+    }
+
     @Test
     void notConfirmedComesBeforeNoFile() throws Exception {
         User user = user();
@@ -199,6 +218,40 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
         assertThat(answers.findByUserIdOrderByAnswerDateAsc(user.getId())).hasSize(1);
     }
 
+    /** Two answers sent at the same moment (two devices): the database keeps one, the other is a 409. */
+    @Test
+    void concurrentAnswersOnTheSameDayKeepOne() throws Exception {
+        User user = user();
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Future<HttpStatus> a = pool.submit(() -> {
+                start.await();
+                return HttpStatus.valueOf(answer(user, "REFUSED", "TRY_ANOTHER_FILE").getStatusCode().value());
+            });
+            java.util.concurrent.Future<HttpStatus> b = pool.submit(() -> {
+                start.await();
+                return HttpStatus.valueOf(answer(user, "NOT_CONFIRMED", "WRONG_FILE").getStatusCode().value());
+            });
+            start.countDown();
+            assertThat(java.util.List.of(a.get(), b.get())).containsExactlyInAnyOrder(HttpStatus.OK, HttpStatus.CONFLICT);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(answers.findByUserIdOrderByAnswerDateAsc(user.getId())).hasSize(1);
+    }
+
+    @Test
+    void theDatabaseRefusesASecondAnswerOnTheSameDay() {
+        UUID userId = user().getId();
+        jdbc.update("INSERT INTO activation_answers (user_id, moment, answer, answer_date) VALUES (?, 'NO_FILE', 'NOT_NOW', ?)",
+                userId, TODAY);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO activation_answers (user_id, moment, answer, answer_date) VALUES (?, 'REFUSED', 'SKIPPED', ?)",
+                userId, TODAY)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
     @Test
     void sameMomentWithinThirtyDaysIsRefused() throws Exception {
         User user = user();
@@ -245,11 +298,13 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
     @Test
     void everyAnswerIsAcceptedByTheDatabase() {
         UUID userId = user().getId();
+        int day = 0;
         for (ActivationAnswer answer : ActivationAnswer.values()) {
             ActivationMoment moment = java.util.Arrays.stream(ActivationMoment.values())
                     .filter(answer::allowedFor).findFirst().orElseThrow();
+            // One per day: V276 allows a user one answer a day.
             jdbc.update("INSERT INTO activation_answers (user_id, moment, answer, answer_date) VALUES (?, ?, ?, ?)",
-                    userId, moment.name(), answer.name(), TODAY);
+                    userId, moment.name(), answer.name(), TODAY.minusDays(day++));
         }
         assertThat(answers.findByUserIdOrderByAnswerDateAsc(userId)).hasSize(ActivationAnswer.values().length);
     }
@@ -328,6 +383,11 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
                         + "VALUES (?, ?, ?, ?, ?)",
                 user.getId(), accountId, "statement.csv", JULY.getBytes(StandardCharsets.UTF_8),
                 deleted ? Timestamp.from(NOW) : null);
+    }
+
+    private void statementImportedAt(User user, Instant importedAt) {
+        statementImported(user, false);
+        jdbc.update("UPDATE statement_imports SET imported_at = ? WHERE user_id = ?", Timestamp.from(importedAt), user.getId());
     }
 
     private void readExpiredUnconfirmed(User user, Instant expiredAt) {

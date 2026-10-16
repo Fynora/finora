@@ -10,8 +10,9 @@
 -- privacy policy promises -- so no created_at, the same reasoning as V249 and V275. answer_date is
 -- the calendar day in app.platform.reporting-zone.
 --
--- No uniqueness: one user answers many times over the months. The limits (one answer a day, a moment
--- asked again only after 30 days) are enforced by ActivationQuestionService.
+-- One answer or skip per user per day, of any moment (spec §4.3), held by the UNIQUE constraint so
+-- two answers sent at the same moment cannot both land; ActivationQuestionService turns the second
+-- into a 409. The 30-day rule per moment is enforced by the service.
 --
 -- ON DELETE CASCADE, but AccountPurgeSweepService deletes these rows explicitly: it anonymizes the
 -- users row rather than deleting it, so the cascade never fires on that path.
@@ -28,8 +29,9 @@ CREATE TABLE activation_answers (
             'TRY_ANOTHER_FILE', 'NO_OTHER_STATEMENT', 'DONT_UNDERSTAND_FAILURE', 'LEAVE_FOR_NOW',
             'ROWS_LOOKED_WRONG', 'WRONG_FILE', 'NOT_READY_TO_SAVE', 'COME_BACK_LATER',
             'SKIPPED')),
-    answer_date DATE NOT NULL
+    answer_date DATE NOT NULL,
+    CONSTRAINT activation_answers_one_per_day UNIQUE (user_id, answer_date)
 );
--- The limits look up one user's answers by date; the activation page counts by date range.
-CREATE INDEX idx_activation_answers_user_date ON activation_answers(user_id, answer_date);
+-- The UNIQUE index leads with user_id, which covers the limits' per-user lookups and the purge delete.
+-- This one is for the activation page's date-range counts.
 CREATE INDEX idx_activation_answers_answer_date ON activation_answers(answer_date);

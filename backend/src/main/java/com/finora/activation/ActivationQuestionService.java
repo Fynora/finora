@@ -1,6 +1,7 @@
 package com.finora.activation;
 
 import com.finora.exception.ApiException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,7 +78,13 @@ public class ActivationQuestionService {
         if (answers.existsByUserIdAndAnswerDate(userId, today) || blocked(userId, moment, today)) {
             throw new ApiException(HttpStatus.CONFLICT, "This question is not being asked now.");
         }
-        answers.save(new ActivationAnswerEntry(userId, moment, answer, today));
+        try {
+            // Flushed here so a concurrent answer for the same day (V276's one-per-day key) surfaces
+            // as the 409 it is, not as a 500 at commit.
+            answers.saveAndFlush(new ActivationAnswerEntry(userId, moment, answer, today));
+        } catch (DataIntegrityViolationException alreadyAnsweredToday) {
+            throw new ApiException(HttpStatus.CONFLICT, "This question is not being asked now.");
+        }
     }
 
     private boolean blocked(UUID userId, ActivationMoment moment, LocalDate today) {

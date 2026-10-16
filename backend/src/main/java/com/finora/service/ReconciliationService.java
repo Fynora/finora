@@ -2043,7 +2043,7 @@ public class ReconciliationService {
      * partial payment and outranks every other candidate, and one naming another card excludes the
      * payment outright, so it has to be a card number, not a number.
      */
-    private static Set<String> cardFragmentsIn(String text) {
+    static Set<String> cardFragmentsIn(String text) {
         if (text == null || text.isBlank()) return Set.of();
         String withoutDates = DATE.matcher(text).replaceAll(" ");
         Set<String> fragments = new HashSet<>();
@@ -2064,7 +2064,7 @@ public class ReconciliationService {
      * ends in the genuine trailing digits, never in mask characters. Null if there aren't at least
      * four digits to take -- an unmasked, malformed, or absent value.
      */
-    private static String last4Of(String accountNumberMasked) {
+    static String last4Of(String accountNumberMasked) {
         if (accountNumberMasked == null) return null;
         String digitsOnly = accountNumberMasked.replaceAll("[^0-9]", "");
         return digitsOnly.length() >= 4 ? digitsOnly.substring(digitsOnly.length() - 4) : null;

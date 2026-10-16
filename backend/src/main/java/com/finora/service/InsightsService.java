@@ -267,22 +267,57 @@ public class InsightsService {
         }
 
         return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
-                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(cardBills, currentMonth, refunds));
+                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds));
     }
 
     /**
      * This month's card bills that reached the spend set: a bill reconciliation linked to a card
      * statement never does (RefundNetting.reportable drops it), so every one here has no statement
-     * behind it. Null when there are none.
+     * behind it. Null when there are none. The card is named only when every one of them points to
+     * the same card of the user's (see {@link #cardPaidBy}); otherwise both card fields are null and
+     * the app says "a credit card".
      */
-    private static InsightsDto.UnlinkedCardBills unlinkedCardBills(List<Transaction> cardBills, String month,
-                                                                   RefundNetting refunds) {
+    private InsightsDto.UnlinkedCardBills unlinkedCardBills(UUID userId, List<Transaction> cardBills, String month,
+                                                            RefundNetting refunds) {
         List<Transaction> inMonth = cardBills.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .toList();
         if (inMonth.isEmpty()) return null;
         BigDecimal total = inMonth.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new InsightsDto.UnlinkedCardBills(month, total, inMonth.size());
+        List<com.finora.entity.Account> cards = accountRepository.findByUserId(userId).stream()
+                .filter(a -> a.getAccountType() == com.finora.entity.Account.Type.CREDIT_CARD)
+                .toList();
+        Set<com.finora.entity.Account> paid = new HashSet<>();
+        boolean allKnown = true;
+        for (Transaction t : inMonth) {
+            com.finora.entity.Account card = cardPaidBy(t, cards);
+            if (card == null) allKnown = false;
+            else paid.add(card);
+        }
+        com.finora.entity.Account card = allKnown && paid.size() == 1 ? paid.iterator().next() : null;
+        return new InsightsDto.UnlinkedCardBills(month, total, inMonth.size(),
+                card == null ? null : card.getName(),
+                card == null ? null : ReconciliationService.last4Of(card.getAccountNumberMasked()));
+    }
+
+    /**
+     * The user's card a bill payment paid, when that is known (Sid, 2026-10-16): the narration
+     * carries exactly one of their cards' last 4 digits (read as reconciliation reads them,
+     * ReconciliationService#cardFragmentsIn), or it carries no card digits at all and the user has
+     * exactly one card. Digits naming no card of theirs leave it unknown: that bill paid some other
+     * card, so their only card would be the wrong answer.
+     */
+    private static com.finora.entity.Account cardPaidBy(Transaction t, List<com.finora.entity.Account> cards) {
+        Set<String> fragments = ReconciliationService.cardFragmentsIn(t.getDescription());
+        List<com.finora.entity.Account> named = cards.stream()
+                .filter(c -> {
+                    String last4 = ReconciliationService.last4Of(c.getAccountNumberMasked());
+                    return last4 != null && fragments.contains(last4);
+                })
+                .toList();
+        if (named.size() == 1) return named.get(0);
+        if (!named.isEmpty() || !fragments.isEmpty()) return null;
+        return cards.size() == 1 ? cards.get(0) : null;
     }
 
     /** BH-005: the netting is a parameter rather than a field because it is derived per request

@@ -130,7 +130,12 @@ A new table and two endpoints:
   month: `unlinkedCardBills: { month, total, count } | null` (card bills by the rule above that have
   no `CC_PAYMENT` link). "To look at" shows it as one row: "You paid ₹X in card bills in September
   with no card statement uploaded for it. Upload it to see what you bought." Tapping opens Import.
-  It names the month, not the card: a payment through a card-bill app does not say which card.
+  Sid, 2026-10-16 (decided in the card-bill session, confirmed here): name the card when it is
+  known, else say "a credit card". Known means every card bill that month points to the same card
+  of the user's: its narration carries exactly that card's last 4 digits (read as reconciliation
+  reads them), or it carries no card digits and the user has exactly one card. Digits naming no
+  card of theirs leave it unknown. `unlinkedCardBills` therefore also carries
+  `cardName: string | null` and `cardLast4: string | null`.
   "Got it" kind `CARD_STATEMENT_MISSING`, key `<yyyy-MM>`.
 - Amounts in Indian grouping via the app's own formatter; months as "September 2026" / "Sep 2026",
   through `withSep` (#2251) wherever a short month is written.

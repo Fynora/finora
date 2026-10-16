@@ -23836,6 +23836,12 @@
                     "count": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "cardName": {
+                        "type": "string"
+                    },
+                    "cardLast4": {
+                        "type": "string"
                     }
                 }
             },

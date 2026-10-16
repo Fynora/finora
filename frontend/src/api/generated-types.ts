@@ -9820,6 +9820,8 @@ export interface components {
             total?: number;
             /** Format: int32 */
             count?: number;
+            cardName?: string;
+            cardLast4?: string;
         };
         ApiResponseFynInsightsNarrationDto: {
             success?: boolean;

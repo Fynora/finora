@@ -23,7 +23,7 @@ public record InsightsDto(
         UnlinkedCardBills unlinkedCardBills
 ) {
     /** {@code month} is "yyyy-MM"; {@code total} is what those bills took out of spending. */
-    public record UnlinkedCardBills(String month, BigDecimal total, int count) {}
+    public record UnlinkedCardBills(String month, BigDecimal total, int count, String cardName, String cardLast4) {}
 
     @Schema(name = "InsightsCategoryMover")
     public record CategoryMover(String category, BigDecimal current, BigDecimal priorAverage, Double pctChange) {}

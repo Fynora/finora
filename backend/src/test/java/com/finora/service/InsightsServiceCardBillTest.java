@@ -41,6 +41,8 @@ class InsightsServiceCardBillTest {
 
     private TransactionRepository transactionRepository;
     private TransactionGraphService transactionGraphService;
+    private AccountRepository accountRepository;
+    private Account liveAccount;
     private InsightsService insightsService;
     private final UUID userId = UUID.randomUUID();
     private Category dining;
@@ -50,7 +52,7 @@ class InsightsServiceCardBillTest {
     @BeforeEach
     void setUp() {
         transactionRepository = mock(TransactionRepository.class);
-        AccountRepository accountRepository = mock(AccountRepository.class);
+        accountRepository = mock(AccountRepository.class);
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
         BudgetRepository budgetRepository = mock(BudgetRepository.class);
         StatementImportRepository statementImportRepository = mock(StatementImportRepository.class);
@@ -58,7 +60,7 @@ class InsightsServiceCardBillTest {
         transactionGraphService = mock(TransactionGraphService.class);
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
 
-        Account liveAccount = new Account();
+        liveAccount = new Account();
         ReflectionTestUtils.setField(liveAccount, "id", UUID.randomUUID());
         liveAccount.setUserId(userId);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(liveAccount));
@@ -166,5 +168,87 @@ class InsightsServiceCardBillTest {
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of(bill.getId()));
 
         assertThat(insightsService.build(userId).unlinkedCardBills()).isNull();
+    }
+
+    // --- Which card: named when known (Sid, 2026-10-16) ---------------------------------------
+
+    private Account card(String name, String masked) {
+        Account a = new Account();
+        ReflectionTestUtils.setField(a, "id", UUID.randomUUID());
+        a.setUserId(userId);
+        a.setName(name);
+        a.setAccountType(Account.Type.CREDIT_CARD);
+        a.setAccountNumberMasked(masked);
+        return a;
+    }
+
+    private void givenCards(Account... cards) {
+        List<Account> accounts = new ArrayList<>(List.of(liveAccount));
+        accounts.addAll(List.of(cards));
+        when(accountRepository.findByUserId(userId)).thenReturn(accounts);
+    }
+
+    private InsightsDto.UnlinkedCardBills billsFor(String... descriptions) {
+        List<Transaction> txns = new ArrayList<>();
+        txns.add(expense(LocalDate.of(2026, 8, 3), 1000, dining, "Cafe"));
+        int day = 10;
+        for (String d : descriptions) txns.add(expense(LocalDate.of(2026, 8, day++), 5000, cardBill, d));
+        givenTransactions(txns);
+        return insightsService.build(userId).unlinkedCardBills();
+    }
+
+    @Test
+    void cardIsNamed_whenTheUserHasExactlyOneCard() {
+        givenCards(card("Sample Bank Card", "400000XXXXXX0001")); // synthetic-ok
+
+        InsightsDto.UnlinkedCardBills bills = billsFor(CRED_BILL);
+
+        assertThat(bills.cardName()).isEqualTo("Sample Bank Card");
+        assertThat(bills.cardLast4()).isEqualTo("0001");
+    }
+
+    @Test
+    void cardIsNamed_byTheLast4InTheNarration_amongSeveralCards() {
+        givenCards(card("First Card", "400000XXXXXX0001"), card("Second Card", "400000XXXXXX0002")); // synthetic-ok
+
+        InsightsDto.UnlinkedCardBills bills = billsFor("IB BILLPAY DR-SAMP92-400000XXXXXX0002"); // synthetic-ok
+
+        assertThat(bills.cardName()).isEqualTo("Second Card");
+        assertThat(bills.cardLast4()).isEqualTo("0002");
+    }
+
+    @Test
+    void cardIsUnknown_withSeveralCardsAndNoDigits() {
+        givenCards(card("First Card", "400000XXXXXX0001"), card("Second Card", "400000XXXXXX0002")); // synthetic-ok
+
+        InsightsDto.UnlinkedCardBills bills = billsFor(CRED_BILL);
+
+        assertThat(bills.cardName()).isNull();
+        assertThat(bills.cardLast4()).isNull();
+    }
+
+    @Test
+    void cardIsUnknown_whenTheMonthsBillsPointToDifferentCards() {
+        givenCards(card("First Card", "400000XXXXXX0001"), card("Second Card", "400000XXXXXX0002")); // synthetic-ok
+
+        InsightsDto.UnlinkedCardBills bills = billsFor(
+                "IB BILLPAY DR-SAMP92-400000XXXXXX0001", "IB BILLPAY DR-SAMP92-400000XXXXXX0002"); // synthetic-ok
+
+        assertThat(bills.cardName()).isNull();
+        assertThat(bills.count()).isEqualTo(2);
+    }
+
+    @Test
+    void cardIsUnknown_whenTheNarrationNamesACardTheUserDoesNotHave() {
+        givenCards(card("Only Card", "400000XXXXXX0001")); // synthetic-ok
+
+        InsightsDto.UnlinkedCardBills bills = billsFor("IB BILLPAY DR-SAMP92-400000XXXXXX0009"); // synthetic-ok
+
+        assertThat(bills.cardName()).isNull();
+    }
+
+    @Test
+    void cardIsUnknown_withNoCardAccount() {
+        assertThat(billsFor(CRED_BILL).cardName()).isNull();
     }
 }

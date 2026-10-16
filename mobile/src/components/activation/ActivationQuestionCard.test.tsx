@@ -8,6 +8,9 @@ import { markActivationAnsweredToday, resetActivationAnsweredForTests } from '..
 jest.mock('../../api/endpoints', () => ({
   activationApi: { question: jest.fn(), answer: jest.fn() },
 }));
+// Pinned to "unknown", as on a first render: GlassSurface switches between its solid and glass
+// renders once the real setting resolves, re-mounting the card's children mid-test.
+jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
 
 const question = activationApi.question as jest.Mock;
 const answer = activationApi.answer as jest.Mock;

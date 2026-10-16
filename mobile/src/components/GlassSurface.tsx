@@ -12,8 +12,10 @@ export type GlassVariant = 'panel' | 'row';
  * The one glass surface. `panel` (cards, sheets, modals, the tab bar) gets real glass on iOS:
  * Liquid Glass (GlassView) on iOS 26+ when the API is actually present -- some iOS 26 betas ship
  * without it and crash, which is what `isGlassEffectAPIAvailable()` exists for -- and BlurView on
- * iOS 16.4-25. Android and `row` surfaces (list rows, inputs, chips; a FlatList of native blur
- * views is costly) stay on the Phase 1 tinted View. Callers never branch on platform.
+ * iOS 16.4-25. `row` surfaces (list rows, inputs, chips; a FlatList of native blur views is
+ * costly) stay on the Phase 1 tinted View. Android has no blur: a panel there is solid with the
+ * glass edge, since a see-through one let what it floats over read through it. Callers never
+ * branch on platform.
  *
  * The native paths keep the Phase 1 tint as an inner layer under the children: that is the fill
  * glassContrast.test.ts measured, so text contrast never drops below the measured floor however
@@ -31,8 +33,12 @@ export function GlassSurface({ style, children, variant = 'panel', ...rest }: Vi
   const native = !solid && variant === 'panel' && Platform.OS === 'ios';
 
   if (!native) {
+    // Android has no blur, so a see-through panel let whatever it floats over read through it:
+    // the tab bar's labels through a sheet's rows (Pixel 10 emulator, 2026-10-16). A panel there
+    // is solid, keeping the glass edge; a caller's own fill still wins, and rows stay tinted.
+    const androidPanel = !solid && variant === 'panel' && Platform.OS === 'android';
     return (
-      <View {...rest} style={[styles.edge, surface, style]}>
+      <View {...rest} style={[styles.edge, surface, androidPanel && { backgroundColor: c.card }, style]}>
         {children}
       </View>
     );

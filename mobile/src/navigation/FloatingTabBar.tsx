@@ -58,8 +58,9 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
       <GlassSurface
         testID="tab-pill-glass"
         accessibilityRole="tablist"
-        // Solid on Android, which has no blur: see-through, the page read through the labels.
-        style={[styles.pill, Platform.OS === 'android' && [styles.android, { backgroundColor: c.card /* glass-exempt: Android has no blur; see-through, the page read through the tab labels */ }]]}
+        // Solid on Android, as every panel is there (GlassSurface): no blur, so see-through, the
+        // page read through the labels.
+        style={[styles.pill, Platform.OS === 'android' && styles.android]}
       >
         {state.routes.map((route, index) => {
           const focused = index === state.index;

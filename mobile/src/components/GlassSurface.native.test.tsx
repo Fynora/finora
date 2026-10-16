@@ -75,11 +75,26 @@ describe('panel paths', () => {
     expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)' });
   });
 
-  it('Android panel is the Phase 1 tinted View', () => {
+  // Android has no blur. A see-through panel let whatever it floats over read through it: the tab
+  // bar's labels through a sheet's rows (Pixel 10 emulator, 2026-10-16). So a panel there is
+  // solid, with the glass edge kept; a row, which sits inside a panel or on the page, stays tinted.
+  it('Android panel is solid, with the glass edge', () => {
     on('android');
     render(<ThemeProvider><GlassSurface testID="s" /></ThemeProvider>);
     expect(hintOf('s')).toBeUndefined();
+    expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: '#ffffff', borderColor: 'rgba(255,255,255,0.85)' });
+  });
+
+  it('Android row stays the tinted View', () => {
+    on('android');
+    render(<ThemeProvider><GlassSurface testID="s" variant="row" /></ThemeProvider>);
     expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(255,255,255,0.85)' });
+  });
+
+  it('Android panel keeps a fill its caller asks for', () => {
+    on('android');
+    render(<ThemeProvider><GlassSurface testID="s" style={{ backgroundColor: '#fef3c7' }} /></ThemeProvider>);
+    expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: '#fef3c7' });
   });
 });
 

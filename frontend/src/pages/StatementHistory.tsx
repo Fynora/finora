@@ -11,7 +11,9 @@ import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { BankLogo } from '../components/BankLogo';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { PasswordInput } from '../components/PasswordInput';
-import { failureReason, isDismissable, recentImportsRefetchIntervalMs, label as jobLabel } from '../lib/importJob';
+import {
+  failureReason, isDismissable, listedRecentImports, recentImportsRefetchIntervalMs, label as jobLabel,
+} from '../lib/importJob';
 import { navigateToReimport } from '../lib/importNavState';
 import type { AccountStatementGroup, StatementSummary, Transaction } from '../types';
 import { formatDate } from '../utils/date';
@@ -87,8 +89,9 @@ export default function StatementHistory() {
   // import" (Import.tsx's unfinishedSessions list). Listing it again here would offer the same
   // staged review in two different sections with two different shapes. Every OTHER status
   // (QUEUED/PARSING/ANALYZING/DEDUPING/IMPORTING/LEARNING/FAILED/CANCELLED) is genuinely invisible
-  // anywhere else today -- that's this section's actual reason to exist.
-  const inProgressJobs = (recentJobs ?? []).filter((j) => j.status !== 'COMPLETED');
+  // anywhere else today -- that's this section's actual reason to exist. So is a completed job
+  // whose review expired unconfirmed: "Continue previous import" drops it, and it used to vanish.
+  const inProgressJobs = listedRecentImports(recentJobs ?? []);
 
   // Hooks below must run on every render regardless of the isLoading early-return further down,
   // so accountGroups (and everything derived from it) is computed here rather than after that
@@ -748,7 +751,7 @@ function ReimportPasswordModal({
  * The entry point to the self-service import detail page (Premium Import Reliability v1, §3.2) --
  * without this, `/app/imports/:jobId` is reachable only by typing a UUID into the address bar,
  * which does not answer "what happened to my import yesterday". `jobs` here has already excluded
- * COMPLETED (see the caller's own comment on why).
+ * COMPLETED, except an expired review (see the caller's own comment on why).
  *
  * Collapsed by default -- same as the account accordion below, per direct feedback: a section
  * that opens itself isn't "collapsible", it's just noise the user has to close. Defaults changed,

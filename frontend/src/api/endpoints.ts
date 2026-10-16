@@ -697,6 +697,11 @@ export interface ImportJobProgress {
   // the server's clock. Optional because a server deployed before it omits the field -- which
   // must read as "within the promise", never as overdue.
   holdOverdue?: boolean;
+  // Where a COMPLETED job's review stands (ImportJobReviewStates on the server): OPEN, IMPORTED,
+  // or EXPIRED -- read, never confirmed, and past its expiry, so nothing was imported. Null for
+  // any other status. Optional because a server deployed before it omits the field, which reads
+  // as OPEN: the review step then answers for itself, as it always did.
+  reviewState?: 'OPEN' | 'IMPORTED' | 'EXPIRED' | null;
 }
 
 /** One stage's transition, for the import timeline (Premium Import Reliability v1, §3.1).

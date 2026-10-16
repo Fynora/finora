@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HELD_DETAIL, HELD_LABEL, HELD_OVERDUE_DETAIL, detail, heldDetail,isCancellable, isReviewable, isSettled, label, percent, recentImportsRefetchIntervalMs } from './importJob';
+import { HELD_DETAIL, HELD_LABEL, HELD_OVERDUE_DETAIL, REVIEW_EXPIRED_DETAIL, REVIEW_EXPIRED_LABEL, detail, failureReason, heldDetail,isCancellable, isDismissable, isReviewExpired, isReviewable, isSettled, label, listedRecentImports, percent, recentImportsRefetchIntervalMs } from './importJob';
 import type { ImportJobProgress } from '../api/endpoints';
 
 /**
@@ -304,5 +304,64 @@ describe('importJob — a hold past its 48-hour promise', () => {
     expect(detail(job({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, holdOverdue: true })))
       .toBe('3 transactions found');
     expect(detail(job({ status: 'FAILED', userStatus: 'FAILED', holdOverdue: true }))).toBeNull();
+  });
+});
+
+describe('importJob — a completed import whose review expired', () => {
+  // Gate 1: every import ends somewhere visible. The server decides (reviewState); the client only
+  // renders it. Before this, an expired review kept saying "Ready to review" and its button failed.
+  const completed = (over: Partial<ImportJobProgress> = {}) =>
+    job({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 3, importSessionId: 'session-1', ...over });
+
+  it('says the review expired, why nothing was imported, and what to do', () => {
+    const expired = completed({ reviewState: 'EXPIRED' });
+    expect(label(expired)).toBe(REVIEW_EXPIRED_LABEL);
+    expect(detail(expired)).toBe(REVIEW_EXPIRED_DETAIL);
+    expect(failureReason(expired)).toBe(REVIEW_EXPIRED_DETAIL);
+    expect(REVIEW_EXPIRED_DETAIL).toBe(
+      'This statement was read but never confirmed, so nothing was imported. Upload it again if you still want it in Fynora.',
+    );
+  });
+
+  it('no longer offers the review, which would only fail', () => {
+    expect(isReviewable(completed({ reviewState: 'EXPIRED' }))).toBe(false);
+    expect(isReviewExpired(completed({ reviewState: 'EXPIRED' }))).toBe(true);
+  });
+
+  it('is listed and dismissable, like a failure', () => {
+    const expired = completed({ jobId: 'expired', reviewState: 'EXPIRED' });
+    const open = completed({ jobId: 'open', reviewState: 'OPEN' });
+    const imported = completed({ jobId: 'imported', reviewState: 'IMPORTED' });
+    const failed = job({ jobId: 'failed', status: 'FAILED', userStatus: 'FAILED' });
+
+    expect(listedRecentImports([expired, open, imported, failed]).map((j) => j.jobId)).toEqual(['expired', 'failed']);
+    expect(isDismissable(expired)).toBe(true);
+    expect(isDismissable(open)).toBe(false);
+    expect(isDismissable(imported)).toBe(false);
+  });
+
+  it('reads an imported one as imported, with no review to open', () => {
+    const imported = completed({ reviewState: 'IMPORTED' });
+    expect(label(imported)).toBe('Imported');
+    expect(isReviewable(imported)).toBe(false);
+    expect(failureReason(imported)).toBeNull();
+    expect(detail(imported)).toBe('3 transactions found');
+  });
+
+  it('keeps the open review exactly as before, and reads a server that omits the field as open', () => {
+    for (const open of [completed({ reviewState: 'OPEN' }), completed()]) {
+      expect(label(open)).toBe('Ready to review');
+      expect(isReviewable(open)).toBe(true);
+      expect(detail(open)).toBe('3 transactions found');
+      expect(failureReason(open)).toBeNull();
+      expect(isDismissable(open)).toBe(false);
+    }
+    expect(listedRecentImports([completed()])).toEqual([]);
+  });
+
+  it('ignores a stray reviewState on a job that did not complete', () => {
+    const failed = job({ status: 'FAILED', userStatus: 'FAILED', reviewState: 'EXPIRED' });
+    expect(label(failed)).toBe("Couldn't finish");
+    expect(isReviewExpired(failed)).toBe(false);
   });
 });

@@ -508,13 +508,14 @@ export const adminOriginalViewApi = {
     api.get<{ lines: string[] }>(`/admin/original-views/${viewId}/csv`).then((r) => r.data.lines),
 };
 
-/** Blanked copies of held statements. Every fetch is audited server-side, like an opening. */
+/** Blanked copies of held statements. Every fetch is audited server-side, like an opening, so
+ *  making a copy is a POST (an action), not a GET: only the status, which reads a switch, is a GET. */
 export const adminBlankedCopyApi = {
   status: () => api.get<{ enabled: boolean }>('/admin/blanked-copy/status').then((r) => r.data),
   heldImport: (jobId: string) =>
-    api.get<BlankedCopy>(`/admin/held-imports/${jobId}/blanked-copy`).then((r) => r.data),
+    api.post<BlankedCopy>(`/admin/held-imports/${jobId}/blanked-copy`).then((r) => r.data),
   heldStatement: (heldId: string) =>
-    api.get<BlankedCopy>(`/admin/held-statements/${heldId}/blanked-copy`).then((r) => r.data),
+    api.post<BlankedCopy>(`/admin/held-statements/${heldId}/blanked-copy`).then((r) => r.data),
 };
 
 /** The Merchant Review Center (WI4). Listing crosses users; every action is scoped to the owner,

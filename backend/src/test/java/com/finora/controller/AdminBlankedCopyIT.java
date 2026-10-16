@@ -157,6 +157,10 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
     }
 
+    private ResponseEntity<String> post(String path, User user) {
+        return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
     /** A job in the state the parser-gap queue holds, as {@code AdminHeldImportDownloadIT} builds it. */
     private ImportJob heldJob(byte[] content, String fileName, String sourceFormat) {
         User owner = createUser("USER");
@@ -224,7 +228,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
         ResponseEntity<String> real = restTemplate.exchange("/api/v1/admin/held-imports/" + job.getId() + "/original-view",
                 HttpMethod.POST, new HttpEntity<>(java.util.Map.of("reason", "Rows on page 2 are missing from the preview"),
                         bearerFor(support)), String.class);
@@ -241,11 +245,27 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(auditOf(job.getId())).contains("HELD_IMPORT_BLANKED_COPY");
         assertNothingLeft(copy.getBody(), auditOf(job.getId()), output);
+    }
+
+    /**
+     * Making a copy writes audit entries and takes an import slot, so it is an action: only POST
+     * reaches it. A GET -- which a browser, a prefetch or a cache may issue on its own -- is refused
+     * and leaves no audit row behind (CodeQL java/csrf-unprotected-request-type).
+     */
+    @Test
+    void aGetIsRefusedAndRecordsNothing() {
+        ImportJob job = heldJob();
+        User admin = createUser("ADMIN");
+
+        ResponseEntity<String> byGet = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+
+        assertThat(byGet.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(auditOf(job.getId())).doesNotContain("HELD_IMPORT_BLANKED_COPY");
     }
 
     /** The audit row carries ids and whether a password was on file -- nothing else. */
@@ -254,7 +274,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
 
-        get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+        post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
 
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .filteredOn(e -> e.getAction().equals("HELD_IMPORT_BLANKED_COPY"))
@@ -294,7 +314,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
@@ -307,7 +327,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsAWordSample(), CUSTOMER_FILE_NAME, "PDF");
         User support = createSupportUser("IMPORT_TRIAGE_MANAGE");
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", support);
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
@@ -321,7 +341,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob(pdfWithAnEmailTheRedactorCannotBlank(), CUSTOMER_FILE_NAME, "PDF");
         User admin = createUser("ADMIN");
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()),
@@ -334,7 +354,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         HeldStatement held = seedHold("HLD-2026-610010");
         User support = createSupportUser("TRUST_REVIEW_MANAGE");
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610010/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-statements/HLD-2026-610010/blanked-copy", support);
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()),
@@ -347,7 +367,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         HeldStatement held = seedHold("HLD-2026-610011", pdfWithAnEmailTheRedactorCannotBlank());
         User admin = createUser("ADMIN");
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610011/blanked-copy", admin);
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610011/blanked-copy", admin);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertResultEntry(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()),
@@ -361,7 +381,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void aFailedReadWritesNoResultEntry() {
         ImportJob job = heldJobWithMissingObject();
-        get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .extracting(com.finora.entity.AuditLog::getAction)
                 .contains("HELD_IMPORT_BLANKED_COPY").doesNotContain("HELD_IMPORT_BLANKED_COPY_RESULT");
@@ -371,7 +391,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void aSuccessfulCopyIsAudited() throws Exception {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
-        get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+        post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
         // The read and both readings ran under an import slot, as every other parse does.
@@ -394,7 +414,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         doThrow(new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY)).when(limiter).runGated(any());
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -410,7 +430,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void aFailedReadIsStillAudited(CapturedOutput output) {
         ImportJob job = heldJobWithMissingObject();
         User admin = createUser("ADMIN");
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .anySatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
@@ -428,7 +448,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void aCopyThatReadsDifferentlyListsTheDifferences(CapturedOutput output) throws Exception {
         ImportJob job = heldJob(PdfFixtureBuilder.buildDirectionOnlyAsAWordSample(), CUSTOMER_FILE_NAME, "PDF");
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -459,7 +479,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         job.returnToQueueForReprocess(Instant.now());
         importJobRepository.save(job);
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
@@ -470,7 +490,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void aCsvIsRefusedWithTheCsvMessage(CapturedOutput output) {
         ImportJob job = heldJob(("Date,Narration,Amount\n01/07/2026,UPI/" + PdfFixtureBuilder.PLANTED_NAME
                 + ",-1000.00\n").getBytes(StandardCharsets.UTF_8), "Asha Verma statement.csv", "CSV");
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).contains("Blanked copy not available for CSV yet.");
         assertNothingLeft(response.getBody(), auditOf(job.getId()), output);
@@ -480,7 +500,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void theWrongQueuePermissionIsRefused() {
         ImportJob job = heldJob();
         User trustOnly = createSupportUser("TRUST_REVIEW_MANAGE");
-        assertThat(get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", trustOnly).getStatusCode())
+        assertThat(post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", trustOnly).getStatusCode())
                 .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
@@ -498,7 +518,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void aPlainUserIsRefused() {
         ImportJob job = heldJob();
-        assertThat(get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("USER")).getStatusCode())
+        assertThat(post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("USER")).getStatusCode())
                 .isEqualTo(HttpStatus.FORBIDDEN);
     }
 
@@ -506,7 +526,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void aCopyThePrivacyScanRefusesIsA422NamingKindsOnly(CapturedOutput output) {
         ImportJob job = heldJob(pdfWithAnEmailTheRedactorCannotBlank(), CUSTOMER_FILE_NAME, "PDF");
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
         assertThat(response.getBody()).contains("The blanked copy was refused: it still contained email address.");
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
@@ -517,7 +537,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void aLockedPdfWithNoSavedPasswordIsRefused(CapturedOutput output) {
         ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).contains("This statement is password-protected and no password is saved.");
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
@@ -531,7 +551,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
         statementPasswordService.saveForJob(job.getUserId(), job.getId(), PASSWORD);
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -549,7 +569,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob(lockedPlantedPdf(), CUSTOMER_FILE_NAME, "PDF");
         statementPasswordService.saveForJob(job.getUserId(), job.getId(), WRONG_PASSWORD);
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", createUser("ADMIN"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).contains("The saved password did not open the statement behind held import "
@@ -563,7 +583,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void theTrustQueueWorksTheSameWay(CapturedOutput output) {
         HeldStatement held = seedHold("HLD-2026-610001");
         User support = createSupportUser("TRUST_REVIEW_MANAGE");
-        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610001/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-statements/HLD-2026-610001/blanked-copy", support);
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(copy.getBody()).contains("blanked-HLD-2026-610001.trace").doesNotContain(PdfFixtureBuilder.PLANTED_NAME);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
@@ -579,7 +599,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         HeldStatement held = seedHold("HLD-2026-610009");
         doThrow(new ApiException(ErrorCode.IMPORT_SYSTEM_BUSY)).when(limiter).runGated(any());
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610009/blanked-copy",
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610009/blanked-copy",
                 createSupportUser("TRUST_REVIEW_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
@@ -594,7 +614,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void aSupportAccountGetsTheTrustQueueCopyButNotTheStatement() {
         seedHold("HLD-2026-610002");
         User support = createSupportUser("TRUST_REVIEW_MANAGE");
-        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610002/blanked-copy", support);
+        ResponseEntity<String> copy = post("/api/v1/admin/held-statements/HLD-2026-610002/blanked-copy", support);
         ResponseEntity<String> real = restTemplate.exchange("/api/v1/admin/held-statements/HLD-2026-610002/original-view",
                 HttpMethod.POST, new HttpEntity<>(java.util.Map.of("reason", "Rows on page 2 are missing from the preview"),
                         bearerFor(support)), String.class);
@@ -605,7 +625,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void theTrustQueueRefusesTheTriagePermission() {
         HeldStatement held = seedHold("HLD-2026-610003");
-        assertThat(get("/api/v1/admin/held-statements/HLD-2026-610003/blanked-copy",
+        assertThat(post("/api/v1/admin/held-statements/HLD-2026-610003/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE")).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));
@@ -619,7 +639,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         held.reject(admin.getId(), Instant.now());
         heldStatementRepository.save(held);
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610004/blanked-copy", admin);
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610004/blanked-copy", admin);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
@@ -634,7 +654,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         HeldStatement held = seedHold("HLD-2026-610005");
         storage.delete(importJobRepository.findById(held.getImportJobId()).orElseThrow().getObjectKey());
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610005/blanked-copy",
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610005/blanked-copy",
                 createUser("ADMIN"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -647,7 +667,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     @Test
     void theTrustQueueRefusesALockedPdfWithNoSavedPassword(CapturedOutput output) {
         HeldStatement held = seedHold("HLD-2026-610006", lockedPlantedPdf());
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610006/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610006/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).contains("This statement is password-protected and no password is saved.");
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
@@ -663,7 +683,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         held.markLockedWithoutPassword();
         heldStatementRepository.save(held);
 
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610012/blanked-copy",
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610012/blanked-copy",
                 createSupportUser("TRUST_REVIEW_MANAGE"));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -681,7 +701,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
         ImportJob job = heldJob();
         statementPasswordService.saveForJob(job.getUserId(), job.getId(), PASSWORD);
 
-        ResponseEntity<String> copy = get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
+        ResponseEntity<String> copy = post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy",
                 createSupportUser("IMPORT_TRIAGE_MANAGE"));
 
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -697,7 +717,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void theTrustQueueCopiesALockedPdfWithItsSavedPassword(CapturedOutput output) {
         HeldStatement held = seedHold("HLD-2026-610007", lockedPlantedPdf());
         statementPasswordService.saveForJob(held.getUserId(), held.getImportJobId(), PASSWORD);
-        ResponseEntity<String> copy = get("/api/v1/admin/held-statements/HLD-2026-610007/blanked-copy",
+        ResponseEntity<String> copy = post("/api/v1/admin/held-statements/HLD-2026-610007/blanked-copy",
                 createSupportUser("TRUST_REVIEW_MANAGE"));
         assertThat(copy.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(copy.getBody()).contains("blanked-HLD-2026-610007.trace").contains("\"check\":\"MATCHES\"");
@@ -708,7 +728,7 @@ class AdminBlankedCopyIT extends AbstractIntegrationTest {
     void theTrustQueueRefusesASavedPasswordThatDoesNotOpenTheStatement(CapturedOutput output) {
         HeldStatement held = seedHold("HLD-2026-610008", lockedPlantedPdf());
         statementPasswordService.saveForJob(held.getUserId(), held.getImportJobId(), WRONG_PASSWORD);
-        ResponseEntity<String> response = get("/api/v1/admin/held-statements/HLD-2026-610008/blanked-copy", createUser("ADMIN"));
+        ResponseEntity<String> response = post("/api/v1/admin/held-statements/HLD-2026-610008/blanked-copy", createUser("ADMIN"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).contains("The saved password did not open the statement behind HLD-2026-610008")
                 .doesNotContain("no password is saved");

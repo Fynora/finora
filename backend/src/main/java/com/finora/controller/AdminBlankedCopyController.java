@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -78,8 +79,11 @@ public class AdminBlankedCopyController {
         return ApiResponse.ok(new BlankedCopyDto.SwitchStatus(enabled));
     }
 
+    // POST, not GET: making a copy writes two audit entries and takes an import slot, so it is an
+    // action and not a read (a GET may be prefetched, replayed or cached; CodeQL
+    // java/csrf-unprotected-request-type). The status below stays a GET: it only reads a switch.
     @PreAuthorize("hasAuthority('IMPORT_TRIAGE_MANAGE')")
-    @GetMapping("/held-imports/{jobId}/blanked-copy")
+    @PostMapping("/held-imports/{jobId}/blanked-copy")
     public ApiResponse<BlankedCopyDto.Response> heldImport(@PathVariable UUID jobId) throws Exception {
         requireEnabled();
         UUID actor = currentUser.id();
@@ -89,7 +93,7 @@ public class AdminBlankedCopyController {
     }
 
     @PreAuthorize("hasAuthority('TRUST_REVIEW_MANAGE')")
-    @GetMapping("/held-statements/{heldId}/blanked-copy")
+    @PostMapping("/held-statements/{heldId}/blanked-copy")
     public ApiResponse<BlankedCopyDto.Response> heldStatement(@PathVariable String heldId) throws Exception {
         requireEnabled();
         UUID actor = currentUser.id();

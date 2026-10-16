@@ -72,6 +72,10 @@ class AdminBlankedCopyDisabledIT extends AbstractIntegrationTest {
         return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
     }
 
+    private ResponseEntity<String> post(String path, User user) {
+        return restTemplate.exchange(path, HttpMethod.POST, new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
     private ImportJob heldJob() throws Exception {
         User owner = createUser("USER");
         ContentAddress address = storage.store(PdfFixtureBuilder.buildSampleWithPlantedCustomerData());
@@ -104,7 +108,7 @@ class AdminBlankedCopyDisabledIT extends AbstractIntegrationTest {
     void offMeansNotFoundAndStatusFalse() throws Exception {
         ImportJob job = heldJob();
         User admin = createUser("ADMIN");
-        assertThat(get("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin).getStatusCode())
+        assertThat(post("/api/v1/admin/held-imports/" + job.getId() + "/blanked-copy", admin).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(get("/api/v1/admin/blanked-copy/status", admin).getBody()).contains("\"enabled\":false");
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
@@ -115,7 +119,7 @@ class AdminBlankedCopyDisabledIT extends AbstractIntegrationTest {
     void offMeansNotFoundOnTheTrustQueueToo() throws Exception {
         HeldStatement held = seedHold("HLD-2026-610101");
         User admin = createUser("ADMIN");
-        assertThat(get("/api/v1/admin/held-statements/HLD-2026-610101/blanked-copy", admin).getStatusCode())
+        assertThat(post("/api/v1/admin/held-statements/HLD-2026-610101/blanked-copy", admin).getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(held.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_STATEMENT_BLANKED_COPY"));

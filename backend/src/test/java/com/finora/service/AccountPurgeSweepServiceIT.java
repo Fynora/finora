@@ -215,6 +215,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private HealthScoreSnapshotRepository healthScoreSnapshotRepository;
     @Autowired private FeatureViewCountRepository featureViewCountRepository;
     @Autowired private com.finora.repository.UserActivityDayRepository userActivityDayRepository;
+    @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private RecurringDismissalRepository recurringDismissalRepository;
     @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     @Autowired private AiAuditLogRepository aiAuditLogRepository;
@@ -262,7 +263,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, importFunnelDayRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -347,6 +348,22 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(transactionRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /**
+     * Gate 2a (V275): the import-funnel record. Like user_activity_days, its ON DELETE CASCADE never
+     * fires here, since the purge anonymizes the users row; it needs its own explicit delete.
+     */
+    @Test
+    @Transactional
+    void purgeDeletesImportFunnelDays() {
+        importFunnelDayRepository.record(userId, "IMPORT_SCREEN_OPENED", LocalDate.of(2026, 10, 15));
+        importFunnelDayRepository.record(userId, "FILE_CHOSEN", LocalDate.of(2026, 10, 16));
+        assertThat(importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(userId)).hasSize(2);
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(userId)).isEmpty();
     }
 
     /**

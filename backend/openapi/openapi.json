@@ -7681,6 +7681,36 @@
                 }
             }
         },
+        "/api/v1/activation/funnel-events": {
+            "post": {
+                "tags": [
+                    "activation-controller"
+                ],
+                "operationId": "funnelEvent",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FunnelEventRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/accounts": {
             "get": {
                 "tags": [
@@ -20993,6 +21023,22 @@
                         "additionalProperties": {}
                     }
                 }
+            },
+            "FunnelEventRequest": {
+                "type": "object",
+                "properties": {
+                    "event": {
+                        "type": "string",
+                        "enum": [
+                            "IMPORT_SCREEN_OPENED",
+                            "FILE_CHOSEN",
+                            "REVIEW_OPENED"
+                        ]
+                    }
+                },
+                "required": [
+                    "event"
+                ]
             },
             "UpdateKindRequest": {
                 "type": "object",

@@ -164,4 +164,11 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/linked to your account and are deleted if you delete your account/i);
   });
 
+  it('discloses the import-funnel dates: which three moments, the date only, and deletion with the account', () => {
+    const t = policyText();
+    expect(t).toMatch(/opened the import screen, chose a file to upload and opened\s+an import's review/i);
+    expect(t).toMatch(/the date only, never the time, the file or anything in it/i);
+    expect(t).toMatch(/where adding a statement gets difficult/i);
+  });
+
 });

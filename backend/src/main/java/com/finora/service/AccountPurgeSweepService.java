@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.finora.activation.ImportFunnelDayRepository;
 import com.finora.entity.Account;
 import com.finora.entity.AuditLog;
 import com.finora.entity.Relationship;
@@ -248,6 +249,7 @@ public class AccountPurgeSweepService {
     private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
     private final FeatureViewCountRepository featureViewCountRepository;
     private final UserActivityDayRepository userActivityDayRepository;
+    private final ImportFunnelDayRepository importFunnelDayRepository;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
@@ -319,6 +321,7 @@ public class AccountPurgeSweepService {
                                      HealthScoreSnapshotRepository healthScoreSnapshotRepository,
                                      FeatureViewCountRepository featureViewCountRepository,
                                      UserActivityDayRepository userActivityDayRepository,
+                                     ImportFunnelDayRepository importFunnelDayRepository,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
@@ -389,6 +392,7 @@ public class AccountPurgeSweepService {
         this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
         this.featureViewCountRepository = featureViewCountRepository;
         this.userActivityDayRepository = userActivityDayRepository;
+        this.importFunnelDayRepository = importFunnelDayRepository;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
@@ -806,6 +810,8 @@ public class AccountPurgeSweepService {
             featureViewCountRepository.deleteByUserId(userId);
             // V249: same anonymize-not-delete trap -- its ON DELETE CASCADE never fires here.
             userActivityDayRepository.deleteByUserId(userId);
+            // V275 (Gate 2a): the import-funnel record, same anonymize-not-delete trap.
+            importFunnelDayRepository.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);

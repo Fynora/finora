@@ -247,6 +247,76 @@ const comparison = (over: Partial<NonNullable<ReportData['comparison']>> = {}): 
   incomeDeltaPct: 11.1, expenseDeltaPct: -42.9, netDelta: 40000, ...over,
 });
 
+describe('Reports — biggest changes since the month before', () => {
+  const august = report({ categories: [{ category: 'Rent', amount: 25000 }, { category: 'Food', amount: 9000 }, { category: 'Gifts', amount: 380 }] });
+  const july = report({ month: '2026-07', categories: [{ category: 'Rent', amount: 23000 }, { category: 'Food', amount: 12000 }, { category: 'Gym', amount: 1200 }] });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
+  });
+
+  const serve = (current: ReportData, prior: ReportData | Error) =>
+    vi.mocked(reportsApi.forMonth).mockImplementation(async (m: string) => {
+      if (m === '2026-08') return current;
+      if (prior instanceof Error) throw prior;
+      return prior;
+    });
+
+  it('lists the categories that moved most, in rupees, with their direction', async () => {
+    serve({ ...august, comparison: comparison() }, july);
+    renderPage();
+
+    const list = await screen.findByTestId('category-changes');
+    expect(screen.getByText('Biggest changes since July')).toBeInTheDocument();
+    const rows = within(list).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual([
+      'Food₹9,000 now, ₹12,000 in July-₹3,000',
+      'Rent₹25,000 now, ₹23,000 in July+₹2,000',
+      'GymNothing this month, ₹1,200 in July-₹1,200',
+      'GiftsNew this month, nothing in July+₹380',
+    ]);
+    expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07');
+  });
+
+  it('does not ask for the month before, or draw the list, when the server did not trust the comparison', async () => {
+    serve({ ...august, comparison: comparison({ reliable: false, gateReason: 'PARTIAL_PRIOR_MONTH', incomeDeltaPct: null, expenseDeltaPct: null, netDelta: null }) }, july);
+    renderPage();
+
+    await screen.findByTestId('category-rows');
+    expect(reportsApi.forMonth).not.toHaveBeenCalledWith('2026-07');
+    expect(screen.queryByTestId('category-changes')).not.toBeInTheDocument();
+  });
+
+  it('leaves the list out, and the page alone, when the month before cannot be loaded', async () => {
+    serve({ ...august, comparison: comparison() }, new Error('down'));
+    renderPage();
+
+    await screen.findByTestId('category-rows');
+    await waitFor(() => expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07'));
+    expect(screen.queryByTestId('category-changes')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hero-net')).toBeInTheDocument();
+  });
+
+  it('draws nothing when no category moved', async () => {
+    serve({ ...august, comparison: comparison() }, { ...august, month: '2026-07' });
+    renderPage();
+
+    await screen.findByTestId('category-rows');
+    await waitFor(() => expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07'));
+    expect(screen.queryByTestId('category-changes')).not.toBeInTheDocument();
+  });
+
+  it('ignores an answer for some other month than the one it asked for', async () => {
+    serve({ ...august, comparison: comparison() }, { ...july, month: '2026-06' });
+    renderPage();
+
+    await screen.findByTestId('category-rows');
+    await waitFor(() => expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07'));
+    expect(screen.queryByTestId('category-changes')).not.toBeInTheDocument();
+  });
+});
+
 describe('Reports — the hero', () => {
   beforeEach(() => {
     vi.clearAllMocks();

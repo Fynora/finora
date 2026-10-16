@@ -219,6 +219,9 @@ public final class DataExportDto {
      *  -- a SpendingTrackingMethod name -- and when it was given (V256). */
     public record SpendingTrackingExportDto(String method, Instant answeredAt) {}
 
+    /** Gate 2a (V275). One import-funnel moment and its date -- ISO date string, no time. */
+    public record ImportFunnelDayExportDto(String event, String date) {}
+
     /** F-03. One onboarding financial-focus selection. */
     public record UserFinancialFocusExportDto(UUID id, String focusKey, Instant createdAt) {
         public static UserFinancialFocusExportDto from(UserFinancialFocus f) {

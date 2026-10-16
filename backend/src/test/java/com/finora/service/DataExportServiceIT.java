@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -92,6 +93,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository statementImportExcludedRowRepository;
     @Autowired private com.finora.repository.CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     @Autowired private com.finora.repository.StatementRefreshRunRepository statementRefreshRunRepository;
+    @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private DataExportService service;
 
     private UUID userId;
@@ -581,6 +583,33 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     private ImportJob upload(String fileName, byte[] bytes, StatementUpload.Format format) throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", fileName, format.contentType(), bytes);
         return importJobRepository.findById(importJobService.accept(userId, file, format).getId()).orElseThrow();
+    }
+
+    /**
+     * Gate 2a (V275): the import-funnel record leaves as event and date only -- no id, no user id,
+     * nothing that could carry a time -- and only this user's rows.
+     */
+    @Test
+    void exportIncludesImportFunnelDays() throws Exception {
+        importFunnelDayRepository.record(userId, "FILE_CHOSEN", LocalDate.of(2026, 10, 16));
+        importFunnelDayRepository.record(userId, "IMPORT_SCREEN_OPENED", LocalDate.of(2026, 10, 15));
+        User otherUser = new User();
+        otherUser.setEmail("export-it-funnel-" + UUID.randomUUID() + "@example.com");
+        otherUser.setPasswordHash(passwordEncoder.encode(PASSWORD));
+        otherUser.setFullName("Other Export Test User");
+        UUID otherUserId = userRepository.save(otherUser).getId();
+        importFunnelDayRepository.record(otherUserId, "REVIEW_OPENED", LocalDate.of(2026, 10, 16));
+
+        Map<String, byte[]> entries = export();
+
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode days = mapper.readTree(entries.get("import_funnel_days.json"));
+        assertThat(days).hasSize(2);
+        assertThat(days.get(0).get("event").asText()).isEqualTo("IMPORT_SCREEN_OPENED");
+        assertThat(days.get(0).get("date").asText()).isEqualTo("2026-10-15");
+        assertThat(days.get(1).get("event").asText()).isEqualTo("FILE_CHOSEN");
+        assertThat(days.get(1).get("date").asText()).isEqualTo("2026-10-16");
+        days.forEach(d -> assertThat(d.fieldNames()).toIterable().containsExactlyInAnyOrder("event", "date"));
     }
 
     private Map<String, byte[]> export() throws Exception {

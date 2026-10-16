@@ -172,6 +172,12 @@ export default function Privacy() {
           the time or what you did — so we can understand how often the product is used. These records
           are linked to your account and are deleted if you delete your account.
         </p>
+        <p>
+          We also record the dates on which you opened the import screen, chose a file to upload and opened
+          an import's review — the date only, never the time, the file or anything in it — so we can see
+          where adding a statement gets difficult. These records are linked to your account and are deleted
+          if you delete your account.
+        </p>
       </PublicSection>
 
       <PublicSection title="Data Usage">

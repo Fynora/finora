@@ -3012,6 +3012,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/activation/funnel-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["funnelEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts": {
         parameters: {
             query?: never;
@@ -8714,6 +8730,10 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        FunnelEventRequest: {
+            /** @enum {string} */
+            event: "IMPORT_SCREEN_OPENED" | "FILE_CHOSEN" | "REVIEW_OPENED";
         };
         UpdateKindRequest: {
             name?: string;
@@ -18051,6 +18071,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseAdminMfaConfirmResponse"];
+                };
+            };
+        };
+    };
+    funnelEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FunnelEventRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };

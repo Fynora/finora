@@ -106,6 +106,25 @@ class ImportFunnelIT extends AbstractIntegrationTest {
         assertThat(importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(other.getId())).isEmpty();
     }
 
+    /**
+     * The event list lives twice: in {@link FunnelEvent} and in V275's CHECK constraint. A value added
+     * to the enum without a migration would fail every insert with a 500 that the clients swallow by
+     * design, so the drift would go unnoticed. Every enum value must land a row.
+     */
+    @Test
+    void everyEventIsAcceptedByTheDatabase() {
+        User user = newUser();
+        String token = tokenFor(user);
+
+        for (FunnelEvent event : FunnelEvent.values()) {
+            assertThat(post(token, "{\"event\":\"" + event.name() + "\"}")).as(event.name()).isEqualTo(200);
+        }
+
+        assertThat(importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(user.getId()))
+                .extracting(ImportFunnelDay::getEvent)
+                .containsExactlyInAnyOrder(FunnelEvent.values());
+    }
+
     @Test
     void unauthenticatedIsRefused() {
         assertThat(post(null, "{\"event\":\"FILE_CHOSEN\"}")).isEqualTo(401);

@@ -44,7 +44,7 @@ be increased", 2026-08-07). See [self-hosted-runner.md](self-hosted-runner.md).
 | `ci.yml` — every other job | as before, plus the weekly run | `full-ci` PRs, by hand, and the weekly run of main (Monday 04:30 UTC) |
 | `migration-order.yml` — both jobs | only when migrations (or the checker) change | same |
 | `codeql.yml` | as before | skipped (code scanning needs GitHub Code Security on private repos) |
-| `maestro-nightly.yml` | mobile merges, nightly | by hand only |
+| `maestro-nightly.yml` | nightly (push-to-main dropped 2026-10-16, see its header) | by hand only |
 | `e2e-nightly.yml` | nightly | by hand only |
 | `sync-dev-branch.yml` | every push to main | by hand only, and needs a passing by-hand CI run on main |
 | `github-traffic-metrics.yml` | every 6 hours | skipped (no outside traffic; auto-merge is public-only on Free) |

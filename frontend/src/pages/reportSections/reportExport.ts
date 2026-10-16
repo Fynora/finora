@@ -40,9 +40,10 @@ export function reportCsvRows(report: ReportData): (string | number)[][] {
   if (cmp) {
     const prior = comparisonMonthName(cmp.previousMonth, report.month);
     if (cmp.reliable) {
-      if (cmp.incomeDeltaPct != null) rows.push([`Income vs ${prior} (%)`, oneDecimal(cmp.incomeDeltaPct)]);
-      if (cmp.expenseDeltaPct != null) rows.push([`Expense vs ${prior} (%)`, oneDecimal(cmp.expenseDeltaPct)]);
-      if (cmp.netDelta != null) rows.push([`Net vs ${prior}`, cmp.netDelta]);
+      // "change", because the figure is how far it moved, not the earlier month's income or net.
+      if (cmp.incomeDeltaPct != null) rows.push([`Income change vs ${prior} (%)`, oneDecimal(cmp.incomeDeltaPct)]);
+      if (cmp.expenseDeltaPct != null) rows.push([`Expense change vs ${prior} (%)`, oneDecimal(cmp.expenseDeltaPct)]);
+      if (cmp.netDelta != null) rows.push([`Net change vs ${prior}`, cmp.netDelta]);
     } else {
       const note = comparisonGateNote(cmp, monthLabelLong(report.month).split(' ')[0], prior);
       if (note) rows.push(['Comparison', note]);

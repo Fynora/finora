@@ -68,6 +68,11 @@ public class CapabilityCoverageService {
             // statement's fee-and-tax pair), not a wrapped description. See the SAME_DAY branch in
             // PdfTableLocator.locateAll.
             "DATELESS_AMOUNT_ROW_SPLIT",
+            // A dated row that carried no figure, completed by the first dateless row below it that
+            // does, past the trailing cap: a ledger printing a transaction's date on its first line
+            // and its figures on its last (a real scanned HSBC savings statement). See
+            // AMOUNTLESS_ANCHOR_COMPLETED in PdfTableLocator.locateAll.
+            "AMOUNTLESS_ANCHOR_COMPLETED",
             // A blank posting-Date cell beside a printed Value Date inherits the Date of the row
             // above: the bank printed the date once for a run of same-day transactions (a real
             // Standard Chartered export). See PdfTableLocator.inheritDittoDate.

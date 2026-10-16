@@ -191,6 +191,20 @@ class CsvParserTest {
     }
 
     @Test
+    void parseDate_readsAZeroThatOcrReadAsTheLetterO() {
+        // A scanned HSBC savings statement: "05SEP2026" came back from OCR as "O5SEP2026".
+        assertThat(CsvParser.parseDate("O5SEP2026")).isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        assertThat(CsvParser.parseDate("o5SEP2026")).isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        assertThat(CsvParser.parseDate("O5/09/2026")).isEqualTo(java.time.LocalDate.of(2026, 9, 5));
+        // Month names keep their O: it is followed or preceded by a letter, never a digit.
+        assertThat(CsvParser.parseDate("29OCT2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 29));
+        assertThat(CsvParser.parseDate("05 Oct 2026")).isEqualTo(java.time.LocalDate.of(2026, 10, 5));
+        assertThat(CsvParser.parseDate("05NOV2026")).isEqualTo(java.time.LocalDate.of(2026, 11, 5));
+        // An O inside a word stays a letter, so a word is never turned into a date.
+        assertThat(CsvParser.parseDate("NO5SEP2026")).isNull();
+    }
+
+    @Test
     void parseDate_stripsATrailingTimeComponent() {
         // HDFC's "DATE & TIME" column combines a date and a 24-hour time in one cell, joined by
         // a literal "|" glyph in at least one real export ("30/06/2026| 14:18").

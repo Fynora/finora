@@ -604,12 +604,32 @@ public class PdfPreviewGenerator {
         // so one index serves both.
         int[] stagedIndexOfLocatedRow = new int[sectionRows.size()];
         java.util.Arrays.fill(stagedIndexOfLocatedRow, ColumnAmbiguityValidator.NOT_SHOWN);
+        // The running balance printed on the most recent located row that printed one -- what a
+        // balance marker must repeat to BE a marker (see BALANCE_MOVED_WITHOUT_AN_AMOUNT below).
+        BigDecimal previousPrintedBalance = null;
+        // The running balance printed on the next located row below each row that prints one. On
+        // a newest-first statement a marker restates the balance of the row BELOW it (the older
+        // transaction), not the row above, so a marker is judged against both neighbours; and a
+        // marker at either edge of the table -- an opening balance printed under the oldest
+        // transaction -- has only one, so it is not judged at all.
+        BigDecimal[] nextPrintedBalance = new BigDecimal[sectionRows.size()];
+        BigDecimal printedBelow = null;
+        for (int i = sectionRows.size() - 1; i >= 0; i--) {
+            nextPrintedBalance[i] = printedBelow;
+            BigDecimal printed = CsvParser.parseNumeric(CsvParser.firstNonBlank(sectionRows.get(i),
+                    "balance", "running balance", "closing balance"));
+            if (printed != null) printedBelow = printed;
+        }
         for (int i = 0; i < sectionRows.size(); i++) {
             Map<String, String> row = sectionRows.get(i);
             // 1-based, within this section -- same convention as PreviewGenerator's CSV path.
             int rowPosition = i + 1;
             StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
                     resolutionIndex, existingCategoryNames);
+            BigDecimal printedBalance = CsvParser.parseNumeric(
+                    CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance"));
+            BigDecimal balanceBeforeThisRow = previousPrintedBalance;
+            if (printedBalance != null) previousPrintedBalance = printedBalance;
             if (parsed == null) {
                 unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
                 continue;
@@ -656,6 +676,24 @@ public class PdfPreviewGenerator {
                         "Row has a value in a recognized transactional amount column that could not be "
                                 + "parsed as a number, so it could not be confidently classified as a "
                                 + "transaction or excluded as a balance marker"));
+            } else if (printedBalance != null && balanceBeforeThisRow != null && nextPrintedBalance[i] != null
+                    && printedBalance.compareTo(balanceBeforeThisRow) != 0
+                    && printedBalance.compareTo(nextPrintedBalance[i]) != 0) {
+                // BALANCE_MOVED_WITHOUT_AN_AMOUNT. A balance marker restates a balance -- an
+                // opening balance, a balance brought or carried forward -- so the figure it prints
+                // is the one the row above it ended on (the row below it, on a newest-first
+                // statement). This row's balance matches neither, and only a transaction moves a
+                // balance: it is a transaction whose amount was not read.
+                // Measured on a scanned HSBC savings statement: OCR returned a transaction's
+                // description and its new balance but not its amount, the row was classified a
+                // marker and excluded without a trace, and ROW_ACCOUNTING reported every row
+                // accounted for while the statement fell short by exactly that amount. A row at
+                // either edge (no printed balance on one side) and a marker that repeats a
+                // neighbour's balance are unaffected.
+                unparseable.add(new UnparseableRow(row,
+                        "The running balance changed on this row, but no amount was read for it, so it "
+                                + "could not be staged as a transaction"));
+                if (ctx != null) ctx.recordDiagnostic("BALANCE_MOVED_WITHOUT_AN_AMOUNT");
             }
 
             BigDecimal balance = CsvParser.parseNumeric(

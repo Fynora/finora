@@ -233,6 +233,97 @@ public final class PdfFixtureBuilder {
      * to exercise BalanceChainUtil's chain reconstruction -- modeled on PNB ONE's export, but not
      * specific to it; any bank's statement generator could list transactions this same way.
      */
+    /**
+     * A savings ledger that prints a transaction's DATE on its first line and its FIGURES on its
+     * last, with the narration between -- modeled on a real scanned HSBC savings statement, synthetic
+     * values throughout. A second same-day transaction repeats no date at all. It exercises, in order:
+     * <ul>
+     *   <li>a bank transfer whose narration runs five lines, past the trailing cap, so its figures
+     *       arrive on a row the trailing branch refuses (AMOUNTLESS_ANCHOR_COMPLETED);</li>
+     *   <li>same-day transactions whose own reference lines print ABOVE their figures and below the
+     *       previous transaction's (AMOUNT_CLOSES_THE_TRANSACTION);</li>
+     *   <li>a transaction whose balance moved but whose amount cell is empty -- the shape OCR left
+     *       when it missed an amount (BALANCE_MOVED_WITHOUT_AN_AMOUNT);</li>
+     *   <li>a date printed with the letter O for its leading zero, as OCR read it.</li>
+     * </ul>
+     */
+    public static byte[] buildAmountOnLastLineSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "29AUG2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "31AUG2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "", "50,000.00", "58,000.00")
+                .row(col, "01SEP2026", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "500.00", "", "56,500.00")
+                .row(col, "", "UPI100000000007", "", "", "")
+                .row(col, "", "100000000008", "", "", "")
+                .row(col, "", "SAMPLE PAYEE THREE", "", "", "56,000.00")
+                .row(col, "O5SEP2026", "ECS-SAMPLE", "", "", "")
+                .row(col, "", "100000000009", "", "", "")
+                .row(col, "", "100000000010", "2,000.00", "", "54,000.00");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * A newest-first ledger with balance markers at the top, in the middle and at the bottom, plus
+     * one transaction whose amount is missing. Each marker restates a neighbour's balance -- the
+     * middle one the row BELOW it, as newest-first statements print it -- or sits at an edge (the
+     * opening balance under the oldest transaction), so none of them is an unread amount; the
+     * amountless transaction matches neither neighbour. Synthetic values throughout.
+     */
+    public static byte[] buildNewestFirstBalanceMarkersSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "05SEP2026", "CLOSING BALANCE", "", "", "7,500.00")
+                .row(col, "05SEP2026", "UPI SAMPLE PAYEE ONE", "200.00", "", "7,500.00")
+                .row(col, "04SEP2026", "UPI SAMPLE PAYEE TWO", "", "", "7,700.00")
+                .row(col, "03SEP2026", "UPI SAMPLE PAYER", "", "2,000.00", "8,000.00")
+                .row(col, "02SEP2026", "BALANCE BROUGHT FORWARD", "", "", "6,000.00")
+                .row(col, "01SEP2026", "NEFT SAMPLE PAYEE THREE", "1,000.00", "", "6,000.00")
+                .row(col, "01SEP2026", "OPENING BALANCE", "", "", "7,000.00");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * The layout AMOUNTLESS_ANCHOR_COMPLETED must leave alone: date and the start of the narration,
+     * then the reference and figures, then the value date and the narration's TAIL -- figures in the
+     * middle of the block, more narration under them. Modeled on a real Indian Overseas Bank
+     * statement, synthetic values throughout.
+     */
+    public static byte[] buildFiguresMidBlockSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 290f, 370f, 430f, 500f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("STATEMENT OF THE ACCOUNT")
+                .blankLine()
+                .row(col, "Date", "Particulars", "Ref No", "Debit", "Credit", "Balance")
+                .row(col, "01-Aug-26", "UPI/100000000001/DR/SAMPLE", "", "", "", "")
+                .row(col, "", "", "S10000001", "120.00", "-", "9,880.00")
+                .row(col, "(01-Aug-26)", "PAYEE ONE/BAR/Payment f", "", "", "", "")
+                .row(col, "02-Aug-26", "UPI/100000000002/CR/SAMPLE", "", "", "", "")
+                .row(col, "", "", "S10000002", "-", "1,000.00", "10,880.00")
+                .row(col, "(02-Aug-26)", "PAYEE TWO/SBI/UPI", "", "", "", "");
+
+        return render(List.of(page));
+    }
+
     public static byte[] buildReverseChronologicalRunningBalanceSample() throws IOException {
         float[] col = {LEFT_MARGIN, 130f, 230f, 320f, 400f, 480f};
 

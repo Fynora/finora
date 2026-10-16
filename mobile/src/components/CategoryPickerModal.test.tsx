@@ -1,7 +1,7 @@
 import { Dimensions } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CategoryPickerModal } from './CategoryPickerModal';
+import { CategoryPickerModal, NESTED_SHEET_DISMISS_MS } from './CategoryPickerModal';
 import { CategoryEditSheet } from './CategoryEditSheet';
 import { categoriesApi, type CategoryOption } from '../api/endpoints';
 import { expectHaptics } from '../test/haptics';
@@ -161,10 +161,77 @@ describe('CategoryPickerModal', () => {
     await settle();
 
     const saved: CategoryOption = { id: 'c-9', name: 'Subscriptions', isSystem: false, icon: 'tag', color: 'gray' };
-    await act(async () => { screen.UNSAFE_getByType(CategoryEditSheet).props.onSaved(saved); });
+    jest.useFakeTimers();
+    try {
+      act(() => { screen.UNSAFE_getByType(CategoryEditSheet).props.onSaved(saved); });
+      act(() => { jest.advanceTimersByTime(NESTED_SHEET_DISMISS_MS); });
+    } finally {
+      jest.useRealTimers();
+    }
 
     expect(onSelect).toHaveBeenCalledWith(saved);
     expectHaptics({});
+  });
+
+  // Reproduced on the iOS simulator (2026-10-16): the edit sheet is a native Modal inside this
+  // one, and unmounting it in the same commit that the caller closes this picker left an
+  // invisible modal layer over the app that swallowed every touch until the app was killed. A
+  // tester hit it creating a category from Quick sort's More….
+  describe('after a category is created from the edit sheet', () => {
+    const saved: CategoryOption = { id: 'c-9', name: 'Subscriptions', isSystem: false, icon: 'tag', color: 'gray' };
+
+    async function createAndSave() {
+      renderPicker();
+      await settle();
+      await screen.findByTestId('category-Food');
+      fireEvent.changeText(screen.getByLabelText('Search categories'), 'Subscriptions');
+      await settle();
+      fireEvent.press(screen.getByText('Create "Subscriptions"'));
+      await settle();
+      jest.useFakeTimers();
+      act(() => { screen.UNSAFE_getByType(CategoryEditSheet).props.onSaved(saved); });
+    }
+
+    afterEach(() => { jest.useRealTimers(); });
+
+    it('closes the edit sheet first, and selects and closes only once it has gone', async () => {
+      await createAndSave();
+      expect(screen.UNSAFE_queryByType(CategoryEditSheet)).toBeNull();
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+
+      act(() => { jest.advanceTimersByTime(NESTED_SHEET_DISMISS_MS - 1); });
+      expect(onSelect).not.toHaveBeenCalled();
+
+      act(() => { jest.advanceTimersByTime(1); });
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(saved);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('selects only what was tapped when a row is picked during the wait', async () => {
+      await createAndSave();
+      // The search still holds the new category's name; cleared, the other rows come back.
+      fireEvent.changeText(screen.getByLabelText('Search categories'), '');
+      fireEvent.press(screen.getByTestId('category-Travel'));
+      act(() => { jest.advanceTimersByTime(NESTED_SHEET_DISMISS_MS * 2); });
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(TRAVEL);
+    });
+
+    it('selects nothing when the picker is closed during the wait', async () => {
+      await createAndSave();
+      fireEvent.press(screen.getByText('Done'));
+      act(() => { jest.advanceTimersByTime(NESTED_SHEET_DISMISS_MS * 2); });
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('selects nothing once the picker has unmounted', async () => {
+      await createAndSave();
+      screen.unmount();
+      act(() => { jest.advanceTimersByTime(NESTED_SHEET_DISMISS_MS * 2); });
+      expect(onSelect).not.toHaveBeenCalled();
+    });
   });
 
   it('offers to create a new category only when the typed name has no exact match', async () => {

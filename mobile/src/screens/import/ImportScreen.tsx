@@ -1226,7 +1226,7 @@ export function ImportScreen() {
                 ))}
               </View>
             ) : null}
-            <View style={styles.actions}>
+            <View testID="import-summary-actions" style={styles.summaryActions}>
               <QuickSortCta
                 onPress={() => {
                   trackNavigation('review-categories', 'contextual');
@@ -1239,27 +1239,25 @@ export function ImportScreen() {
                   tab a user could already reach on their own. account can genuinely be null (see
                   ImportSummary's own type); the period alone still narrows down to this import
                   when it is. */}
-              <View style={styles.viewInLedger}>
-                <Button
-                  label="View in Ledger"
-                  variant="link"
-                  onPress={() => {
-                    const period = summary.statementPeriodStart && summary.statementPeriodEnd
-                      ? ` · ${summary.statementPeriodStart} to ${summary.statementPeriodEnd}`
-                      : '';
-                    trackNavigation('transactions', 'contextual');
-                    navigation.navigate('Transactions', {
-                      filters: {
-                        accountId: summary.account?.id,
-                        dateFrom: summary.statementPeriodStart ?? undefined,
-                        dateTo: summary.statementPeriodEnd ?? undefined,
-                        label: `${summary.account?.name ?? 'This import'}${period}`,
-                        nonce: Date.now(),
-                      },
-                    });
-                  }}
-                />
-              </View>
+              <Button
+                label="View in Ledger"
+                variant="link"
+                onPress={() => {
+                  const period = summary.statementPeriodStart && summary.statementPeriodEnd
+                    ? ` · ${summary.statementPeriodStart} to ${summary.statementPeriodEnd}`
+                    : '';
+                  trackNavigation('transactions', 'contextual');
+                  navigation.navigate('Transactions', {
+                    filters: {
+                      accountId: summary.account?.id,
+                      dateFrom: summary.statementPeriodStart ?? undefined,
+                      dateTo: summary.statementPeriodEnd ?? undefined,
+                      label: `${summary.account?.name ?? 'This import'}${period}`,
+                      nonce: Date.now(),
+                    },
+                  });
+                }}
+              />
             </View>
           </Card>
         </ScrollView>
@@ -1732,6 +1730,10 @@ const styles = StyleSheet.create({
   rowsTitle: { fontSize: 15, fontWeight: '700' },
   unparseable: { fontSize: 12, marginTop: 6 },
   actions: { marginTop: spacing.md },
+  // Button has no margin of its own, so the stack carries the space between "Sort N questions"
+  // and "Import another"; without it the two sat edge to edge. The gap also puts "View in Ledger"
+  // spacing.sm below the last button, which its own marginTop used to do.
+  summaryActions: { marginTop: spacing.md, gap: spacing.sm },
   limitNotice: {
     padding: 10,
     borderRadius: radius.md,
@@ -1746,7 +1748,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cancel: { marginTop: spacing.sm },
-  viewInLedger: { marginTop: spacing.sm },
   statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.sm },
   stat: { flex: 1 },
   statValue: { fontSize: 20, fontWeight: '700' },

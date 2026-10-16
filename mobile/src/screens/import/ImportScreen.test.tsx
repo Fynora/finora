@@ -2062,4 +2062,28 @@ describe('ImportScreen — the summary under the floating tab pill', () => {
     expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom).toBe(104);
     expect(within(scroll).getByText('View in Ledger')).toBeTruthy();
   });
+
+  // Reported on an Android phone: with questions waiting, "Sort 2 questions" and "Import another"
+  // sat edge to edge, because the stack had no gap and Button has no margin of its own.
+  it('spaces the summary buttons apart when Quick sort has questions waiting', async () => {
+    const { transactionsApi } = jest.requireMock('../../api/endpoints');
+    transactionsApi.quickSort.mockResolvedValueOnce({
+      questions: [{}, {}], waitingTotal: 2, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+    });
+    api.statements.confirmReimport.mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'reimport',
+    });
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(tree());
+    await pressImport();
+    expect(await screen.findByText('Sort 2 questions')).toBeTruthy();
+
+    const actions = screen.getByTestId('import-summary-actions');
+    expect(within(actions).getByText('Import another')).toBeTruthy();
+    expect(StyleSheet.flatten(actions.props.style).gap).toBe(8);
+  });
 });

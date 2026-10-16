@@ -217,8 +217,10 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
           loading={busy}
           disabled={!codeValid}
         />
-        <Button label="Resend code" variant="link" onPress={() => void resendCode()} disabled={busy} />
-        <Button label="Start over" variant="link" onPress={startOver} disabled={busy} />
+        <View style={styles.linkRow} testID="reset-code-links">
+          <Button label="Resend code" variant="link" onPress={() => void resendCode()} disabled={busy} />
+          <Button label="Start over" variant="link" onPress={startOver} disabled={busy} />
+        </View>
       </AuthScreenLayout>
     );
   }
@@ -271,13 +273,19 @@ export function ResetPasswordScreen({ navigation, route }: Props) {
         loading={busy}
         disabled={!passwordLongEnough || !passwordsMatch}
       />
-      <Button label="Start over" variant="link" onPress={startOver} disabled={busy} />
+      <View style={styles.linkRow} testID="reset-password-links">
+        <Button label="Start over" variant="link" onPress={startOver} disabled={busy} />
+      </View>
     </AuthScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
   strengthWrap: { marginTop: -spacing.xs, marginBottom: spacing.sm },
+  // AuthScreenLayout's card has no gap and Button no margin, so without this the links sat flush
+  // under the button above, their 8pt hit area reaching into its bottom edge. Same spacing as
+  // LoginScreen's cancelRow.
+  linkRow: { alignItems: 'center', marginTop: spacing.sm, gap: spacing.sm },
   strengthBars: { flexDirection: 'row', gap: spacing.xs },
   strengthBar: { flex: 1, height: 4, borderRadius: 2 },
   strengthLabel: { fontSize: 12, marginTop: spacing.xs },

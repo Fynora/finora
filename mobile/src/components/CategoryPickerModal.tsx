@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View
 } from 'react-native';
@@ -52,6 +52,18 @@ interface Props {
    */
   silent?: boolean;
 }
+
+/**
+ * How long a category saved from the edit sheet waits before it is picked. The edit sheet is a
+ * native Modal inside this one; unmounting it in the same commit that the caller closes this
+ * picker (which every caller does on a pick) left an invisible modal layer over the app on iOS,
+ * swallowing every touch until the app was killed -- reproduced on the iOS simulator on
+ * 2026-10-16, matching a tester's report of the app sticking after creating a category from
+ * Quick sort's More…. Closing the sheet first and picking once its slide-out is over did not
+ * freeze. 350ms is UIKit's standard modal transition, the same wait SettingsDataScreen uses after
+ * closing its export sheet.
+ */
+export const NESTED_SHEET_DISMISS_MS = 350;
 
 /**
  * Mobile counterpart to frontend/src/components/CategoryCombobox.tsx -- a searchable category
@@ -115,12 +127,27 @@ export function CategoryPickerModal({
   // exactly (nothing useful to "create" at that point).
   const showCreateRow = allowManage && !exactMatch;
 
+  // A saved category waiting out the edit sheet's slide-out (NESTED_SHEET_DISMISS_MS). Anything
+  // that ends the pick first -- a row tapped, Done, the picker closing or unmounting -- cancels it,
+  // so the caller never gets a second pick it did not ask for.
+  const pendingPick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function cancelPendingPick() {
+    if (pendingPick.current) clearTimeout(pendingPick.current);
+    pendingPick.current = null;
+  }
+  useEffect(() => cancelPendingPick, []);
+  useEffect(() => {
+    if (!visible) cancelPendingPick();
+  }, [visible]);
+
   function close() {
+    cancelPendingPick();
     setQuery('');
     onClose();
   }
 
   function choose(category: CategoryOption) {
+    cancelPendingPick();
     onSelect(category);
     close();
   }
@@ -277,8 +304,15 @@ export function CategoryPickerModal({
             // close the picker out from under them.
             const shouldSelect = editing.mode === 'create' || editing.category.name === selectedName;
             setEditing(null);
-            // No tick: the sheet's save already gave this action its one haptic.
-            if (shouldSelect) choose(saved);
+            // No tick: the sheet's save already gave this action its one haptic. Not picked in
+            // this commit: see NESTED_SHEET_DISMISS_MS.
+            if (shouldSelect) {
+              cancelPendingPick();
+              pendingPick.current = setTimeout(() => {
+                pendingPick.current = null;
+                choose(saved);
+              }, NESTED_SHEET_DISMISS_MS);
+            }
           }}
         />
       ) : null}

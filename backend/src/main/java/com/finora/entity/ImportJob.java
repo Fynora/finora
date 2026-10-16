@@ -955,7 +955,9 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
      * The owner hides this finished job from their recent-imports list (V264).
      *
      * <p>Only FAILED and CANCELLED: a running or held import is not over, and hiding it would hide
-     * the one place that says so; a COMPLETED job is never listed. Display state only -- status,
+     * the one place that says so. A COMPLETED job is listed only once its review expired, and is
+     * dismissed through {@link #dismissExpiredReview}, which the caller reaches only after checking
+     * that the staged rows are gone or past their expiry. Display state only -- status,
      * failure and stored object are untouched, so support, the admin queue and the storage sweep
      * see exactly what they saw before.
      *
@@ -968,6 +970,24 @@ public class ImportJob implements com.finora.imports.storage.StoredStatement {
             throw new IllegalStateException(
                     "Import job " + id + " is at " + status + "; only a failed or cancelled import can "
                             + "be dismissed.");
+        }
+        if (this.dismissedAt == null) this.dismissedAt = now;
+    }
+
+    /**
+     * The owner hides a COMPLETED job whose review expired unconfirmed (Gate 1: the import ended
+     * without importing anything, and the recent-imports list says so). Whether it expired is
+     * decided outside the job, from its session and the user's statements
+     * ({@code ImportJobReviewStates}), so the caller checks that first; this only refuses any status
+     * other than COMPLETED. Idempotent, like {@link #dismiss}.
+     *
+     * @throws IllegalStateException for any status other than COMPLETED
+     */
+    public void dismissExpiredReview(Instant now) {
+        if (status != Status.COMPLETED) {
+            throw new IllegalStateException(
+                    "Import job " + id + " is at " + status + "; only a completed import's expired review "
+                            + "can be dismissed this way.");
         }
         if (this.dismissedAt == null) this.dismissedAt = now;
     }

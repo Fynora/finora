@@ -7526,6 +7526,8 @@ export interface components {
             /** @enum {string} */
             userStatus?: "PROCESSING" | "COMPLETED" | "ACTION_REQUIRED" | "FAILED" | "HELD_FOR_REVIEW" | "CANCELLED";
             holdOverdue?: boolean;
+            /** @enum {string} */
+            reviewState?: "OPEN" | "IMPORTED" | "EXPIRED";
         };
         ApiResponseStagingSessionResponse: {
             success?: boolean;

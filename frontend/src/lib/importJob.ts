@@ -44,6 +44,24 @@ export const HELD_OVERDUE_DETAIL = 'This is taking longer than we promised — s
   + "waiting, or upload a different statement in the meantime. We'll notify you as soon as this one "
   + 'is done.';
 
+/**
+ * What a completed import says once its review is gone without anything imported (Gate 1: every
+ * import ends somewhere the user can see) -- its rows expired unconfirmed, or the user cancelled the
+ * review, which deletes them too. The server decides it (`reviewState` EXPIRED); this only renders
+ * it, in words true of both. Before this, such an import kept saying "Ready to review" and its
+ * button opened an error -- or, in the recent-imports lists, it simply vanished. Mobile's
+ * importJob.ts carries the same sentences.
+ */
+export const REVIEW_EXPIRED_LABEL = 'Not imported';
+export const REVIEW_EXPIRED_DETAIL = 'This statement was read but never confirmed, so nothing was '
+  + 'imported. Upload it again if you still want it in Fynora.';
+
+/** Whether this import finished, was never confirmed, and is past its review -- see
+ *  {@link REVIEW_EXPIRED_DETAIL}. */
+export function isReviewExpired(job: Pick<ImportJobProgress, 'status' | 'reviewState'>): boolean {
+  return job.status === 'COMPLETED' && job.reviewState === 'EXPIRED';
+}
+
 /** The held explanation for this job: the apology once past the promise, else the 48-hour copy. A
  *  server that predates `holdOverdue` omits it, which reads as within the promise. */
 export function heldDetail(job: Pick<ImportJobProgress, 'holdOverdue'>): string {
@@ -76,6 +94,8 @@ const LABELS: Record<ImportJobProgress['status'], string> = {
 };
 
 export function label(job: ImportJobProgress): string {
+  if (isReviewExpired(job)) return REVIEW_EXPIRED_LABEL;
+  if (job.status === 'COMPLETED' && job.reviewState === 'IMPORTED') return 'Imported';
   return LABELS[job.status] ?? 'Working';
 }
 
@@ -143,7 +163,10 @@ export function recentImportsRefetchIntervalMs(jobs: { status: ImportJobProgress
  * assertion repeating the same guarantee.
  */
 export function isReviewable(job: ImportJobProgress): job is ImportJobProgress & { importSessionId: string } {
-  return job.status === 'COMPLETED' && job.importSessionId !== null;
+  // Not once the rows were imported or expired: the review would only answer "already confirmed"
+  // or "expired". Absent (an older server) still reads as reviewable.
+  return job.status === 'COMPLETED' && job.importSessionId !== null
+    && job.reviewState !== 'EXPIRED' && job.reviewState !== 'IMPORTED';
 }
 
 /**
@@ -204,6 +227,7 @@ export function detail(job: ImportJobProgress): string | null {
   // genuineness is a worse trust hit than the delay it would excuse. And "by hand" has to stay
   // true: a person reviews every hold before the import proceeds.
   if (isHeld(job)) return heldDetail(job);
+  if (isReviewExpired(job)) return REVIEW_EXPIRED_DETAIL;
   if (job.rowsTotal === null) return null;
   if (job.status === 'COMPLETED') {
     return `${job.rowsTotal} ${job.rowsTotal === 1 ? 'transaction' : 'transactions'} found`;
@@ -223,6 +247,9 @@ export const FAILED_IMPORT_FALLBACK = "Fynora couldn't complete this import. Ple
  * a server that predates that guarantee and still sends null for a failure with no curated message.
  */
 export function failureReason(job: ImportJobProgress): string | null {
+  // An expired review ended without importing anything, as a failure does, and is listed beside
+  // the failures -- so a row says why in the same place.
+  if (isReviewExpired(job)) return REVIEW_EXPIRED_DETAIL;
   if (job.status !== 'FAILED') return null;
   return job.error?.trim() || FAILED_IMPORT_FALLBACK;
 }
@@ -232,6 +259,18 @@ export function failureReason(job: ImportJobProgress): string | null {
  * `ImportJob.DISMISSABLE` on the server. A running or held import is not over, and hiding it would
  * hide the one place that says so.
  */
-export function isDismissable(job: { status: ImportJobProgress['status'] }): boolean {
-  return job.status === 'FAILED' || job.status === 'CANCELLED';
+export function isDismissable(job: Pick<ImportJobProgress, 'status' | 'reviewState'>): boolean {
+  // An expired review too: it ended without importing anything, and the server allows it.
+  return job.status === 'FAILED' || job.status === 'CANCELLED' || isReviewExpired(job);
+}
+
+/**
+ * Which recent jobs the Statement History "Recent Imports" list shows: everything except a COMPLETED
+ * job, unless its review expired. A completed job's open review is already offered by "Continue
+ * previous import", and an imported one is a statement in the list below -- but an expired review
+ * appears nowhere else, and without this it simply disappeared. Mobile's listedRecentImports makes
+ * the same cut.
+ */
+export function listedRecentImports(jobs: ImportJobProgress[]): ImportJobProgress[] {
+  return jobs.filter((j) => j.status !== 'COMPLETED' || isReviewExpired(j));
 }

@@ -111,6 +111,30 @@ describe('ImportDetail', () => {
     expect(screen.queryByRole('button', { name: /review this import/i })).not.toBeInTheDocument();
   });
 
+  /** Gate 1: read, never confirmed, past its expiry -- the review button would only fail. */
+  it('says an expired review imported nothing and offers to upload it again, not to review it', async () => {
+    api.progress.mockResolvedValue(job({ status: 'COMPLETED', importSessionId: 'session-1', reviewState: 'EXPIRED' }));
+    const user = userEvent.setup();
+    renderDetail();
+
+    expect(await screen.findByTestId('import-detail-review-expired')).toHaveTextContent(/nothing was imported/i);
+    expect(screen.getByText(/Not imported/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /review this import/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /upload it again/i }));
+
+    expect(navigate).toHaveBeenCalledWith('/app/import');
+  });
+
+  it('does not offer to review an import whose rows were already imported', async () => {
+    api.progress.mockResolvedValue(job({ status: 'COMPLETED', importSessionId: 'session-1', reviewState: 'IMPORTED' }));
+    renderDetail();
+
+    await screen.findByText('hdfc-july.pdf');
+    expect(screen.queryByRole('button', { name: /review this import/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /upload it again/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('import-detail-review-expired')).not.toBeInTheDocument();
+  });
+
   it('offers to upload a different file for a failed import', async () => {
     api.progress.mockResolvedValue(job({ status: 'FAILED', importSessionId: null }));
     api.timeline.mockResolvedValue(emptyTimeline({ status: 'FAILED', failureCode: 'IMPORT_011' }));

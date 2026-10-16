@@ -326,6 +326,26 @@ describe('StatementHistory — recent imports', () => {
       .toBe("Fynora couldn't complete this import. Please try again.");
   });
 
+  /** Gate 1: a completed import whose review expired unconfirmed used to vanish from every list. */
+  it('lists an expired review with its reason and lets it be dismissed, but not an open or imported one', async () => {
+    const completed = { status: 'COMPLETED' as const, userStatus: 'COMPLETED' as const, importSessionId: 'session-1', rowsTotal: 3 };
+    vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([
+      aJob({ jobId: 'job-expired', fileName: 'expired.csv', ...completed, reviewState: 'EXPIRED' }),
+      aJob({ jobId: 'job-open', fileName: 'open.csv', ...completed, reviewState: 'OPEN' }),
+      aJob({ jobId: 'job-imported', fileName: 'imported.csv', ...completed, reviewState: 'IMPORTED' }),
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await openRecentImports(user);
+    expect(await screen.findByText('expired.csv')).toBeInTheDocument();
+    expect(screen.getByText('Not imported')).toBeInTheDocument();
+    expect(screen.getByTestId('recent-import-failure-reason').textContent).toContain('nothing was imported');
+    expect(screen.getByRole('button', { name: 'Dismiss expired.csv' })).toBeInTheDocument();
+    expect(screen.queryByText('open.csv')).not.toBeInTheDocument();
+    expect(screen.queryByText('imported.csv')).not.toBeInTheDocument();
+  });
+
   it('adds no reason line to a job that has not failed', async () => {
     vi.mocked(importJobsApi.recent).mockReset().mockResolvedValue([aJob()]);
     const user = userEvent.setup();

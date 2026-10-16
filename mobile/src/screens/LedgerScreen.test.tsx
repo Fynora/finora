@@ -13,6 +13,7 @@ import { expectHaptics } from '../test/haptics';
 import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { ToastProvider } from '../context/ToastContext';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
 import { useScrollToTop } from '@react-navigation/native';
@@ -68,6 +69,7 @@ jest.mock('../api/endpoints', () => ({
 jest.mock('../lib/invalidateFinancialData', () => ({
   invalidateFinancialData: jest.fn(),
 }));
+jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
 
 // React Native's jest setup reports a font scale of 2, which is "large text" to this screen: rows
 // lose their avatar and the controls stack. These tests describe the ordinary layout; the one that
@@ -2361,6 +2363,8 @@ describe('empty states that offer the next step', () => {
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Import a statement' }));
     expect(mockNavigate).toHaveBeenCalledWith('Import');
+    // Recorded as every chosen route to Import is (scripts/check-nav-tracking-coverage.py).
+    expect(trackNavigation).toHaveBeenCalledWith('import-statement', 'contextual');
   });
 
   it('does not offer Import when the list is empty only because of filters', async () => {

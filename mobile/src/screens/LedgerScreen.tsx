@@ -39,6 +39,7 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { buildDayPieces, mergePagesById, rowTitle, type DayPiece } from '../lib/ledgerRows';
 import { useToast } from '../context/ToastContext';
+import { trackNavigation } from '../lib/trackNavigation';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
@@ -637,7 +638,10 @@ export function LedgerScreen() {
                     : 'No transactions yet. Import a statement to get started.'}
                 </Text>
                 <Pressable
-                  onPress={anyFilterOn ? clearAllFilters : () => navigation.navigate('Import')}
+                  onPress={anyFilterOn ? clearAllFilters : () => {
+                    trackNavigation('import-statement', 'contextual');
+                    navigation.navigate('Import');
+                  }}
                   style={styles.retryButton}
                   accessibilityRole="button"
                 >

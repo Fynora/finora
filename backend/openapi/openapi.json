@@ -7221,6 +7221,36 @@
                 }
             }
         },
+        "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
+            "post": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "heldStatement",
+                "parameters": [
+                    {
+                        "name": "heldId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/held-statements/{heldId}/assign": {
             "post": {
                 "tags": [
@@ -7443,6 +7473,37 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseOriginalViewOpened"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
+            "post": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "heldImport",
+                "parameters": [
+                    {
+                        "name": "jobId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
                                 }
                             }
                         }
@@ -12086,36 +12147,6 @@
                 }
             }
         },
-        "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
-            "get": {
-                "tags": [
-                    "admin-blanked-copy-controller"
-                ],
-                "operationId": "heldStatement",
-                "parameters": [
-                    {
-                        "name": "heldId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/held-statements/without-review-record": {
             "get": {
                 "tags": [
@@ -12244,37 +12275,6 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseHeldImportDetail"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
-            "get": {
-                "tags": [
-                    "admin-blanked-copy-controller"
-                ],
-                "operationId": "heldImport",
-                "parameters": [
-                    {
-                        "name": "jobId",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "content": {
-                            "*/*": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
                                 }
                             }
                         }
@@ -20666,6 +20666,109 @@
                     "expiresAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseBlankedCopyResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/BlankedCopyResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BlankedCopyDifference": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "maskedTokens": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "BlankedCopyResponse": {
+                "type": "object",
+                "properties": {
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "trace": {
+                        "type": "string"
+                    },
+                    "check": {
+                        "type": "string"
+                    },
+                    "notCheckedReason": {
+                        "type": "string"
+                    },
+                    "differences": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlankedCopyDifference"
+                        }
+                    },
+                    "unusualRows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlankedCopyUnusualRow"
+                        }
+                    }
+                }
+            },
+            "BlankedCopyUnusualRow": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "pages": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -29128,109 +29231,6 @@
                         "format": "int64"
                     },
                     "totalPages": {
-                        "type": "integer",
-                        "format": "int32"
-                    }
-                }
-            },
-            "ApiResponseBlankedCopyResponse": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/BlankedCopyResponse"
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "BlankedCopyDifference": {
-                "type": "object",
-                "properties": {
-                    "section": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "row": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "field": {
-                        "type": "string"
-                    },
-                    "maskedTokens": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                }
-            },
-            "BlankedCopyResponse": {
-                "type": "object",
-                "properties": {
-                    "fileName": {
-                        "type": "string"
-                    },
-                    "trace": {
-                        "type": "string"
-                    },
-                    "check": {
-                        "type": "string"
-                    },
-                    "notCheckedReason": {
-                        "type": "string"
-                    },
-                    "differences": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BlankedCopyDifference"
-                        }
-                    },
-                    "unusualRows": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BlankedCopyUnusualRow"
-                        }
-                    }
-                }
-            },
-            "BlankedCopyUnusualRow": {
-                "type": "object",
-                "properties": {
-                    "section": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "row": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "kind": {
-                        "type": "string"
-                    },
-                    "lines": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "pages": {
                         "type": "integer",
                         "format": "int32"
                     }

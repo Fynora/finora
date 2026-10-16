@@ -2804,6 +2804,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["heldStatement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/held-statements/{heldId}/assign": {
         parameters: {
             query?: never;
@@ -2894,6 +2910,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["openImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["heldImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5300,22 +5332,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/held-statements/{heldId}/blanked-copy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["heldStatement"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/held-statements/without-review-record": {
         parameters: {
             query?: never;
@@ -5372,22 +5388,6 @@ export interface paths {
             cookie?: never;
         };
         get: operations["detail_3"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/admin/held-imports/{jobId}/blanked-copy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["heldImport"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8594,6 +8594,45 @@ export interface components {
             pageCount?: number;
             /** Format: date-time */
             expiresAt?: string;
+        };
+        ApiResponseBlankedCopyResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BlankedCopyResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BlankedCopyDifference: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            field?: string;
+            maskedTokens?: string[];
+        };
+        BlankedCopyResponse: {
+            fileName?: string;
+            trace?: string;
+            check?: string;
+            notCheckedReason?: string;
+            differences?: components["schemas"]["BlankedCopyDifference"][];
+            unusualRows?: components["schemas"]["BlankedCopyUnusualRow"][];
+        };
+        BlankedCopyUnusualRow: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            kind?: string;
+            /** Format: int32 */
+            lines?: number;
+            /** Format: int32 */
+            pages?: number;
         };
         ApiResponseHeldImportDto: {
             success?: boolean;
@@ -11962,45 +12001,6 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-        };
-        ApiResponseBlankedCopyResponse: {
-            success?: boolean;
-            message?: string;
-            data?: components["schemas"]["BlankedCopyResponse"];
-            /** Format: date-time */
-            timestamp?: string;
-            errorCode?: string;
-            requestId?: string;
-            details?: {
-                [key: string]: unknown;
-            };
-        };
-        BlankedCopyDifference: {
-            /** Format: int32 */
-            section?: number;
-            /** Format: int32 */
-            row?: number;
-            field?: string;
-            maskedTokens?: string[];
-        };
-        BlankedCopyResponse: {
-            fileName?: string;
-            trace?: string;
-            check?: string;
-            notCheckedReason?: string;
-            differences?: components["schemas"]["BlankedCopyDifference"][];
-            unusualRows?: components["schemas"]["BlankedCopyUnusualRow"][];
-        };
-        BlankedCopyUnusualRow: {
-            /** Format: int32 */
-            section?: number;
-            /** Format: int32 */
-            row?: number;
-            kind?: string;
-            /** Format: int32 */
-            lines?: number;
-            /** Format: int32 */
-            pages?: number;
         };
         ApiResponsePagedResponseHoldWithoutReviewRecordDto: {
             success?: boolean;
@@ -17719,6 +17719,28 @@ export interface operations {
             };
         };
     };
+    heldStatement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                heldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
+                };
+            };
+        };
+    };
     assign: {
         parameters: {
             query?: never;
@@ -17869,6 +17891,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseOriginalViewOpened"];
+                };
+            };
+        };
+    };
+    heldImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
                 };
             };
         };
@@ -21309,28 +21353,6 @@ export interface operations {
             };
         };
     };
-    heldStatement: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                heldId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
-                };
-            };
-        };
-    };
     listWithoutReviewRecord: {
         parameters: {
             query?: {
@@ -21415,28 +21437,6 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseHeldImportDetail"];
-                };
-            };
-        };
-    };
-    heldImport: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
                 };
             };
         };

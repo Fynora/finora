@@ -1820,8 +1820,7 @@ public class ReconciliationService {
         // proof -- a purchase can equal a round total due -- so it too needs a narration that
         // could be a card payment, but a weaker one: see hasCardPaymentEvidence.
         if (!hasCardPaymentEvidence(t, thisCardLast4, exactAmount)) return false;
-        if (Math.abs(ChronoUnit.DAYS.between(t.getTxnDate(), statement.getPaymentDueDate()))
-                > ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS) return false;
+        if (!inCcPaymentWindow(t.getTxnDate(), statement)) return false;
         // A candidate whose OWN description names a DIFFERENT known card is excluded outright --
         // real evidence it belongs elsewhere, not just a weaker candidate. A candidate with no
         // identifiable fragment at all, or one that matches THIS card, is unaffected here; see
@@ -1831,6 +1830,26 @@ public class ReconciliationService {
         return cardLast4ByAccountId.entrySet().stream()
                 .noneMatch(e -> !e.getKey().equals(statement.getAccountId())
                         && descriptionLast4s.contains(e.getValue()));
+    }
+
+    /**
+     * Whether a payment made on {@code paidOn} could be paying {@code statement}: from the statement
+     * date to {@link ReconciliationPolicy#CC_PAYMENT_DUE_DATE_WINDOW_DAYS} past the due date.
+     *
+     * <p>The window opens on the statement date (the last day of its period, which is the date the
+     * statement is generated), not a fixed number of days before the due date. Every card statement
+     * in the real corpus falls due 18 to 20 days after that date, so a bill paid in the first week
+     * after it arrived used to sit outside "due date +/- 10" and stayed counted as spending. A payment
+     * made before the statement date falls inside the statement's own period and pays the bill before
+     * it, so it is never a candidate for this one, even when that is within 10 days of the due date.
+     * A statement whose date was not read keeps the old opening, 10 days before the due date.
+     */
+    private static boolean inCcPaymentWindow(LocalDate paidOn, StatementImport statement) {
+        LocalDate due = statement.getPaymentDueDate();
+        LocalDate opens = statement.getStatementPeriodEnd() != null && statement.getStatementPeriodEnd().isBefore(due)
+                ? statement.getStatementPeriodEnd()
+                : due.minusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
+        return !paidOn.isBefore(opens) && !paidOn.isAfter(due.plusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS));
     }
 
     /**

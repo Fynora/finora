@@ -83,6 +83,10 @@ public final class ReconciliationPolicy {
      * already judged reasonable for "settles slower than an instant transfer, but is still clearly
      * the same event." Already covered by {@link #CANDIDATE_WINDOW_DAYS}'s existing max (dominated
      * by {@link #REFUND_WINDOW_DAYS}), so no change to that derivation was needed.
+     *
+     * <p>Only the late side and the fallback use this now. The window opens on the statement date
+     * when the statement carries one, which is earlier than 10 days before the due date on every
+     * card statement in the real corpus -- see ReconciliationService.inCcPaymentWindow.
      */
     public static final long CC_PAYMENT_DUE_DATE_WINDOW_DAYS = OWN_ACCOUNT_MATCH_DAY_WINDOW;
 

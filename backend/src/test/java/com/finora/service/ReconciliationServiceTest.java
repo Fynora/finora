@@ -3265,6 +3265,84 @@ class ReconciliationServiceTest {
                 .findByStatementImportId(org.mockito.ArgumentMatchers.any());
     }
 
+    // --- The payment window opens on the statement date. Indian card statements fall due 18 to 20
+    // days after they are generated, and a bill paid soon after it arrives sat outside the old
+    // due date +/- 10 days, so the payment stayed counted as spending. ---
+
+    /** A card statement generated 20 days before it falls due, with one charge, and one payment. */
+    private List<TransactionGraphService.PendingEdge> ccEdgesForPaymentOn(LocalDate statementDate,
+                                                                          LocalDate dueDate, LocalDate paidOn) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), dueDate);
+        statement.setStatementPeriodEnd(statementDate);
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), paidOn, new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-07-01T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-06-20T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream()
+                .filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+    }
+
+    @Test
+    void reconcileForUser_linksABillPaidTheDayAfterTheStatementDate_eighteenDaysBeforeItIsDue() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 24)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_linksABillPaidOnTheStatementDateItself() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 22)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentMadeBeforeTheStatementDate() {
+        // Made inside the statement's own period, so it is printed on this statement as a payment
+        // of the bill before it, not a payment of this one.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 21)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentMadeBeforeAShortGapStatementDate_evenWithinTenDaysOfTheDueDate() {
+        // A statement due 5 days after it is generated: a payment 8 days before the due date predates
+        // the statement, so it cannot be paying it.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 8, 6), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 3)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_stillLinksAPaymentTenDaysPastTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 21)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentElevenDaysPastTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 22)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withoutAStatementDate_stillLinksAPaymentTenDaysBeforeTheDueDate() {
+        // No statement date read off the document: the window stays the due date +/- 10 days.
+        assertThat(ccEdgesForPaymentOn(null, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 1)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_withoutAStatementDate_doesNotLinkAPaymentElevenDaysBeforeTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(null, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 31)))
+                .isEmpty();
+    }
+
     // --- Partial payment / overpayment (roadmap Part 4) -- was exact-amount-only, so a real user
     // paying just the minimum due, or clearing an old balance on top of this one, matched nothing
     // at all: both the payment AND the full unpaid statement balance were double-counted as real

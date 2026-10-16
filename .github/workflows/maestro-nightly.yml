@@ -38,29 +38,26 @@ name: Mobile E2E (Maestro)
 # signal turns out to matter enough to restore, do it deliberately (e.g. only for PRs already
 # marked ready for review) rather than reverting this wholesale.
 #
-# `paths: mobile/**` keeps the emulator boot off every push that can't have touched it, matching
-# ci.yml's own path-scoping reasoning for its jobs. `workflow_dispatch` still exists so a release
-# can force a run on demand, or a specific PR can be checked by hand.
+# 2026-10-16: dropped from push-to-main too, so this is nightly and by hand only. Railway's
+# "Wait for CI" holds a backend deploy until every workflow run on the pushed commit has finished,
+# and skips the deploy if one fails. On main this job took 29-56 minutes a run (the other push
+# workflows: CI about 6, CodeQL about 3), and a newer merge often cancelled it, so a backend fix
+# riding a commit that touched mobile/ would wait up to an hour, or not deploy at all if the
+# emulator flaked (see the flake history above). Nightly still catches a mobile regression within
+# a day, and nothing ships to phones without a store build or an OTA update, which a release can
+# gate on a `workflow_dispatch` run first.
 #
 # 03:15 UTC, offset from e2e-nightly.yml's 03:00 and gitleaks-nightly.yml's 03:30 for the same
 # reason those two are offset from each other: keeping schedules visibly distinct in the Actions
 # history, not because the jobs would conflict (GitHub-hosted runners give every job its own VM).
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/maestro-nightly.yml'
   schedule:
     - cron: '15 3 * * *'
   workflow_dispatch:
 
-# Per-ref, not the single global lane this had while nightly-only -- that would have serialised
-# every open PR's run behind one queue once this started triggering on pull_request. Matches
-# ci.yml's own group exactly: a new push supersedes the in-flight run on any branch except main,
-# where every run's result (a merge landing via push, nightly, or workflow_dispatch) is worth
-# keeping rather than discarding.
+# Per-ref, as ci.yml's group is: a by-hand run on a branch supersedes that branch's earlier
+# by-hand run, while on main every run's result (nightly or workflow_dispatch) is kept rather than
+# discarded.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}

@@ -56,8 +56,17 @@ import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationR
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
 import { formatForeignAmount } from '../lib/foreignAmount';
 import { trackNavigation } from '../lib/trackNavigation';
+import { trackFunnel, type FunnelEvent } from '../lib/trackFunnel';
 
 type Step = 'upload' | 'review' | 'summary';
+
+/** Sends an import-funnel moment unless this visit already sent it (Gate 2a spec §3: at most once per
+ *  screen visit; the server collapses the rest to one row a day anyway). */
+function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
+  if (sent.has(event)) return;
+  sent.add(event);
+  trackFunnel(event);
+}
 type AccountChoice = 'existing' | 'new';
 
 // How long the "Completed" checkmark stays on screen before the step actually advances -- long
@@ -189,6 +198,17 @@ export default function Import() {
   const retryState = navState?.kind === 'retry' ? navState : null;
 
   const [step, setStep] = useState<Step>('upload');
+  // The import-funnel moments this visit has already sent. A ref, not state: it guards a side
+  // effect and must not re-render, and it survives StrictMode running the effects below twice.
+  const funnelSent = useRef<Set<FunnelEvent>>(new Set());
+  useEffect(() => {
+    trackFunnelOnce(funnelSent.current, 'IMPORT_SCREEN_OPENED');
+  }, []);
+  // Every path into the review (a fresh upload, a watched queued job, a resumed or re-opened import)
+  // ends in setStep('review'), so watching the step covers them all.
+  useEffect(() => {
+    if (step === 'review') trackFunnelOnce(funnelSent.current, 'REVIEW_OPENED');
+  }, [step]);
   // "disables both motion props entirely rather than just shrinking them" -- same convention
   // Button.tsx/QuickActionCard.tsx already established: an empty props object means the step's
   // motion.div mounts/unmounts in its final state with no transition at all, and AnimatePresence
@@ -444,6 +464,8 @@ export default function Import() {
    * into one upload rather than an upload, a rejection, and a second upload.
    */
   function handleFile(file: File) {
+    // Before any check: a file the page then refuses still counts as chosen (spec §3).
+    trackFunnelOnce(funnelSent.current, 'FILE_CHOSEN');
     clearError();
     setMultiSections(null); // clear any previous multi-account run before staging a new file
     const lowerName = file.name.toLowerCase();

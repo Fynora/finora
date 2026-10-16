@@ -6,6 +6,7 @@ import com.finora.imports.ColumnAmbiguityValidator;
 import com.finora.imports.CreditCardFlowReconciliationValidator;
 import com.finora.imports.DescriptionCorruptionValidator;
 import com.finora.imports.RowAccountingValidator;
+import com.finora.imports.StatementTotalsValidator;
 import com.finora.imports.SummaryTotalsValidator;
 
 import java.time.LocalDate;
@@ -19,7 +20,7 @@ import java.util.Set;
 /**
  * Decides whether an extraction is trustworthy enough to reach a user's ledger unreviewed.
  *
- * <p>Eight conditions. Each is a signal the pipeline already computes, chosen because it is
+ * <p>Nine conditions. Each is a signal the pipeline already computes, chosen because it is
  * evidence that a specific transaction is <em>wrong, missing, or corrupted</em> rather than
  * evidence that extraction was merely difficult:
  *
@@ -58,6 +59,10 @@ import java.util.Set;
  *       disagreeing with itself ({@code CREDIT_CARD_STATEMENT_TOTALS}) does not: it says nothing
  *       about the rows. Measured on the real card corpus before this shipped: it fired on none of
  *       its statements.</li>
+ *   <li><b>The transactions do not reach the closing balance.</b> See
+ *       {@link #statementTotalsDisagree}: opening balance plus transactions misses the printed
+ *       closing balance, unless the opening figure is the suspect AND the balance chain verifies
+ *       every row.</li>
  * </ol>
  *
  * <h2>What is still deliberately excluded</h2>
@@ -147,7 +152,7 @@ public final class TrustPredicate {
     public enum Category {
         COUNT_MISMATCH, DROPPED_TRANSACTION, PERIOD_INTEGRITY,
         BALANCE_CHAIN_DISCREPANCY, COLUMN_AMBIGUITY, HEADER_RECONSTRUCTION_UNCERTAIN,
-        DESCRIPTION_CORRUPTION, CARD_ROWS_DISAGREE_WITH_SUMMARY
+        DESCRIPTION_CORRUPTION, CARD_ROWS_DISAGREE_WITH_SUMMARY, STATEMENT_TOTALS_DISAGREE
     }
 
     /**
@@ -175,6 +180,10 @@ public final class TrustPredicate {
                     categories.add(Category.HEADER_RECONSTRUCTION_UNCERTAIN);
                 }
                 if (report.findings() == null) continue;
+                // Per-report too: the totals rule may only clear its rows when THIS section's chain
+                // vouches for them -- see statementTotalsDisagree.
+                boolean chainVerified = report.findings().stream().anyMatch(f -> f != null
+                        && BalanceChainValidator.RULE.equals(f.rule()) && "VERIFIED".equals(f.outcome()));
                 for (ImportDto.VerificationFinding finding : report.findings()) {
                     if (finding == null) continue;
                     countMismatch(finding).ifPresent(r -> {
@@ -200,6 +209,10 @@ public final class TrustPredicate {
                     cardRowsDisagreeWithSummary(finding).ifPresent(r -> {
                         reasons.add(r);
                         categories.add(Category.CARD_ROWS_DISAGREE_WITH_SUMMARY);
+                    });
+                    statementTotalsDisagree(finding, chainVerified).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.STATEMENT_TOTALS_DISAGREE);
                     });
                 }
             }
@@ -269,6 +282,35 @@ public final class TrustPredicate {
         if (!CreditCardFlowReconciliationValidator.RULE.equals(finding.rule())) return Optional.empty();
         if (!"WARNING".equals(finding.outcome())) return Optional.empty();
         return Optional.of("The card's transactions do not add up to the purchases or payments its summary printed");
+    }
+
+    /**
+     * The statement's opening balance plus its transactions does not reach its closing balance,
+     * and the transactions are the suspect -- see {@link StatementTotalsValidator}'s
+     * {@code suspectedCause}. Sid's rule (2026-10-11): a statement imports only once its amounts are
+     * confirmed. Before this, a scanned HSBC statement whose transactions fell short of its own
+     * closing balance by five missing rows imported, because neither of the checks that saw it held:
+     * the chain broke on 2 of 8 pairs (a WARNING, below its systematic threshold) and this rule was
+     * not a hold condition at all.
+     *
+     * <p>{@code OPENING_BALANCE} does not hold -- but only when the section's balance chain is
+     * VERIFIED. The cause is inferred from one fact, that the most recent row's balance equals the
+     * closing balance, and that fact is just as true of a statement that lost a row in the middle
+     * and read its last row correctly: the sum falls short, the last balance still matches, and the
+     * opening figure is blamed for a missing transaction. A chain that verifies every link rules
+     * that out -- the rows account for every balance between them -- and then the rows that reach
+     * the ledger are confirmed and only the detected opening figure is off. A FAILED finding with
+     * no cause (no row carried a running balance) holds: nothing confirms the rows. Measured before
+     * this shipped: the rule did not fail on any of the 34 statements in the real corpus
+     * (19 VERIFIED, 15 NOT_APPLICABLE), OCR on.
+     */
+    private static Optional<String> statementTotalsDisagree(ImportDto.VerificationFinding finding,
+                                                            boolean chainVerified) {
+        if (!StatementTotalsValidator.RULE.equals(finding.rule())) return Optional.empty();
+        if (!"FAILED".equals(finding.outcome())) return Optional.empty();
+        Object cause = finding.details() == null ? null : finding.details().get(SUSPECTED_CAUSE);
+        if ("OPENING_BALANCE".equals(cause) && chainVerified) return Optional.empty();
+        return Optional.of("The transactions do not reach the statement's closing balance");
     }
 
     private static Optional<String> periodIntegrity(LocalDate[] period, LocalDate today) {

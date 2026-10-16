@@ -113,10 +113,40 @@ public class StatementTotalsValidator {
 
     /** The running balance of the last row that states one -- not necessarily the last row, since a
      *  trailing summary line may carry none. */
+    /**
+     * The running balance of the statement's most recent row -- the one that should equal the
+     * closing balance.
+     *
+     * <p>Rows arrive in document order (ImportVerifier hands every rule the document's own
+     * sequence, for the balance chain's sake), and a newest-first export -- PNB ONE prints this
+     * way -- puts its most recent row FIRST. Reading the document-last row there compared the
+     * OLDEST balance with the closing one, so a statement whose rows were correct and whose opening
+     * balance alone was misdetected was blamed on its transactions, and held for review. The
+     * direction is read from the dates at the two ends; when they do not say (equal or missing),
+     * document order stands, as before.
+     */
     private static BigDecimal lastStatedBalance(List<StagedRow> rows) {
+        if (newestFirst(rows)) {
+            for (StagedRow row : rows) {
+                if (row.balanceAfter() != null) return row.balanceAfter();
+            }
+            return null;
+        }
         for (int i = rows.size() - 1; i >= 0; i--) {
             if (rows.get(i).balanceAfter() != null) return rows.get(i).balanceAfter();
         }
         return null;
+    }
+
+    private static boolean newestFirst(List<StagedRow> rows) {
+        java.time.LocalDate first = null;
+        for (StagedRow row : rows) {
+            if (row.date() != null) { first = row.date(); break; }
+        }
+        java.time.LocalDate last = null;
+        for (int i = rows.size() - 1; i >= 0; i--) {
+            if (rows.get(i).date() != null) { last = rows.get(i).date(); break; }
+        }
+        return first != null && last != null && first.isAfter(last);
     }
 }

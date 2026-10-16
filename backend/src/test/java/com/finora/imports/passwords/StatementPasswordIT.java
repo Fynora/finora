@@ -105,7 +105,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     }
 
     private static byte[] lockedPdf() throws Exception {
-        return PdfFixtureBuilder.encrypt(PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), PASSWORD);
+        return PdfFixtureBuilder.encrypt(PdfFixtureBuilder.buildChainedReverseChronologicalRunningBalanceSample(), PASSWORD);
     }
 
     private User user() {
@@ -280,7 +280,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
         User user = user();
 
         ResponseEntity<String> response = upload(user,
-                PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), PASSWORD, true);
+                PdfFixtureBuilder.buildChainedReverseChronologicalRunningBalanceSample(), PASSWORD, true);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(read(response).get("data").get("passwordSaved").asBoolean())
@@ -402,7 +402,7 @@ class StatementPasswordIT extends AbstractIntegrationTest {
     void aPasswordGivenToRefreshAnUnlockedStatement_isNeverKept() throws Exception {
         User user = user();
         UUID statementId = importQueued(user, account(user),
-                PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), null, null);
+                PdfFixtureBuilder.buildChainedReverseChronologicalRunningBalanceSample(), null, null);
 
         assertOpenedWithNoRowChanges(refreshService.refresh(user.getId(), statementId, PASSWORD, true));
 

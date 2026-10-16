@@ -13,8 +13,8 @@ import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, statementImportsApi, type ImportJobProgress } from '../api/endpoints';
 import {
-  detail as jobDetail, failureReason, isDismissable, isHeld, label as jobLabel, listedRecentImports,
-  recentImportsRefetchIntervalMs,
+  detail as jobDetail, failureReason, isDismissable, isHeld, isReviewExpired, label as jobLabel,
+  listedRecentImports, recentImportsRefetchIntervalMs,
 } from '../lib/importJob';
 import { PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED } from '../api/errorCodes';
 import { Button } from '../components/Button';
@@ -319,7 +319,10 @@ function RecentImportsCard({ jobs, onUploadAnother }: { jobs: ImportJobProgress[
         return (
           <View key={job.jobId} style={[styles.statementRow, { borderTopColor: c.border }]} testID={`recent-import-${job.jobId}`}>
             <Text style={[styles.fileName, { color: c.ink }]} numberOfLines={2}>{job.fileName}</Text>
-            <Text style={[styles.body, { color: job.status === 'FAILED' ? c.warningInk : c.mutedInk }]}>
+            <Text style={[styles.body, {
+              // An expired review ended without importing anything, as a failure does.
+              color: job.status === 'FAILED' || isReviewExpired(job) ? c.warningInk : c.mutedInk,
+            }]}>
               {jobLabel(job)}
               {fmtDate(job.createdAt) ? ` · ${fmtDate(job.createdAt)}` : ''}
             </Text>
@@ -340,6 +343,18 @@ function RecentImportsCard({ jobs, onUploadAnother }: { jobs: ImportJobProgress[
             {/* An overdue hold's apology offers uploading a different statement meanwhile (Gate 1
                 spec §4), so its row offers the way to do it. Within the promise there is nothing
                 to do but wait, and the copy says so. */}
+            {/* An expired review's way on is a new upload of the same file, and its reason says so;
+                the row offers it, as web's import detail page does. */}
+            {isReviewExpired(job) ? (
+              <View style={styles.actionRow}>
+                <RowAction
+                  label="Upload it again"
+                  accessibilityLabel={`Upload ${job.fileName} again`}
+                  icon="cloud-upload-outline"
+                  onPress={onUploadAnother}
+                />
+              </View>
+            ) : null}
             {isHeld(job) && job.holdOverdue ? (
               <View style={styles.actionRow}>
                 <RowAction

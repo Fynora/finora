@@ -552,6 +552,8 @@ describe('StatementHistoryScreen — recent imports', () => {
     expect(screen.getByText(/Not imported/)).toBeOnTheScreen();
     expect(screen.getByText(/nothing was imported/)).toBeOnTheScreen();
     expect(screen.getByLabelText('Dismiss expired.pdf')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('Upload expired.pdf again'));
+    expect(mockNavigateToImport).toHaveBeenCalledWith('Import');
     expect(screen.queryByText('open.pdf')).toBeNull();
   });
 

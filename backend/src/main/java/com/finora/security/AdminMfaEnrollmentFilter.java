@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -109,6 +110,9 @@ public class AdminMfaEnrollmentFilter extends OncePerRequestFilter {
         if (adminMfaService.isEnforced() && mustEnrolBefore(request)) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            // Written outside Spring MVC: without this the servlet default, ISO-8859-1, turns any
+            // non-ASCII character into "?". Must come before getWriter().
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
             response.getWriter().write(objectMapper.writeValueAsString(ApiResponse.error(
                     "Set up two-factor authentication to continue.", ERROR_CODE)));
             return;

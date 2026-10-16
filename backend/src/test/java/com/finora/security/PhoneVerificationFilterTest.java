@@ -11,12 +11,15 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -307,5 +310,27 @@ class PhoneVerificationFilterTest {
 
         verify(response).setStatus(HttpServletResponse.SC_FORBIDDEN);
         verify(filterChain, never()).doFilter(any(), any());
+    }
+
+    /** The 403 body is written outside Spring MVC, so the charset is this filter's to set; left to
+     *  the servlet default (ISO-8859-1) any non-ASCII text in it reaches the apps as "?". The mock
+     *  response quietly encodes bare application/json as UTF-8 where Tomcat does not, so the header's
+     *  charset is the check that bites here; AdminMfaEnforcementIT checks the same header on
+     *  the real server. */
+    @Test
+    void writesTheBlockedBodyAsUtf8() throws Exception {
+        authenticateAs("unverified@example.com");
+        when(userRepository.findPhoneVerifiedById(idFor("unverified@example.com")))
+                .thenReturn(Optional.of(false));
+        MockHttpServletResponse realResponse = new MockHttpServletResponse();
+
+        filter.doFilter(requestFor("/api/v1/accounts"), realResponse, filterChain);
+
+        assertThat(realResponse.getStatus()).isEqualTo(HttpServletResponse.SC_FORBIDDEN);
+        assertThat(MediaType.parseMediaType(realResponse.getContentType()).getCharset())
+                .isEqualTo(StandardCharsets.UTF_8);
+        assertThat(new String(realResponse.getContentAsByteArray(), StandardCharsets.UTF_8))
+                .contains("Please verify your phone number to continue.")
+                .contains("PHONE_VERIFICATION_REQUIRED");
     }
 }

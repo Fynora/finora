@@ -77,6 +77,15 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
         return restTemplate.exchange(path, method, new HttpEntity<>(body, headers), String.class);
     }
 
+    /** Both gates write their 403 straight to the servlet response, outside Spring MVC, so the
+     *  charset is theirs to set. Without it Tomcat sends ISO-8859-1 and any non-ASCII character in
+     *  the message reaches the apps as "?". Read here off the real server, which a mock cannot show. */
+    private static void assertWrittenAsUtf8(ResponseEntity<String> response) {
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().getCharset())
+                .isEqualTo(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     @Test
     @DisplayName("an admin who has not enrolled is refused an admin endpoint with MFA_ENROLLMENT_REQUIRED")
     void anUnenrolledAdminIsRefused() throws Exception {
@@ -88,6 +97,7 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
         JsonNode body = mapper.readTree(response.getBody());
         assertThat(body.get("success").asBoolean()).isFalse();
         assertThat(body.get("errorCode").asText()).isEqualTo("MFA_ENROLLMENT_REQUIRED");
+        assertWrittenAsUtf8(response);
     }
 
     @Test
@@ -199,6 +209,7 @@ class AdminMfaEnforcementIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(mapper.readTree(response.getBody()).get("errorCode").asText()).isEqualTo("PHONE_VERIFICATION_REQUIRED");
+        assertWrittenAsUtf8(response);
     }
 
     @Test

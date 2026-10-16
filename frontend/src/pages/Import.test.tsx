@@ -44,7 +44,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, type ImportJobProgress } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
@@ -83,6 +83,9 @@ vi.mock('../api/endpoints', () => ({
   // the synchronous flow -- so they keep exercising it rather than silently becoming tests of the
   // queue. The queue's own behaviour is asserted in "Import — queued imports" at the bottom, which
   // turns it on for itself.
+  activationApi: {
+    funnelEvent: vi.fn(),
+  },
   importJobsApi: {
     availability: vi.fn(),
     submit: vi.fn(),
@@ -195,6 +198,7 @@ beforeEach(() => {
   // this file exercising exactly what it did before that chrome existed.
   vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+  vi.mocked(activationApi.funnelEvent).mockReset().mockResolvedValue(undefined);
 });
 
 function renderImport() {
@@ -442,6 +446,80 @@ describe('Import — file-type routing', () => {
     // catch block that never computes an ErrorCode-derived actionRequired value at all.
     expect(banner.closest('p')?.className).toContain('text-danger');
     expect(banner.closest('p')?.className).not.toContain('text-warning');
+  });
+});
+
+/** Gate 2a spec §3: the three import-funnel moments, each sent at most once per visit. */
+describe('Import — funnel events', () => {
+  beforeEach(() => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  function callsFor(event: string) {
+    return vi.mocked(activationApi.funnelEvent).mock.calls.filter(([e]) => e === event).length;
+  }
+
+  it('sendsScreenOpenedOnce', async () => {
+    const { rerender, queryClient } = renderImport();
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AuthProvider>
+            <Import />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(callsFor('IMPORT_SCREEN_OPENED')).toBe(1));
+    expect(callsFor('FILE_CHOSEN')).toBe(0);
+    expect(callsFor('REVIEW_OPENED')).toBe(0);
+  });
+
+  it('sendsFileChosenForARefusedFileType', async () => {
+    renderImport();
+
+    fireEvent.drop(screen.getByTestId('statement-dropzone'),
+      { dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } });
+
+    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sendsFileChosenOncePerVisit', async () => {
+    renderImport();
+    const dropzone = screen.getByTestId('statement-dropzone');
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [new File(['a'], 'first.txt', { type: 'text/plain' })] } });
+    fireEvent.drop(dropzone, { dataTransfer: { files: [new File(['b'], 'second.txt', { type: 'text/plain' })] } });
+
+    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sendsReviewOpenedWhenReviewShows', async () => {
+    const user = userEvent.setup();
+    renderImport();
+    expect(callsFor('REVIEW_OPENED')).toBe(0);
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByText(/which account is this statement for/i)).toBeInTheDocument();
+    await waitFor(() => expect(callsFor('REVIEW_OPENED')).toBe(1));
+  });
+
+  it('funnelFailureNeverShows', async () => {
+    vi.mocked(activationApi.funnelEvent).mockRejectedValue(new Error('network down'));
+    const user = userEvent.setup();
+    const { container } = renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByText(/which account is this statement for/i)).toBeInTheDocument();
+    await waitFor(() => expect(callsFor('REVIEW_OPENED')).toBe(1));
+    expect(container.querySelector('p.text-danger, p.text-warning')).toBeNull();
   });
 });
 

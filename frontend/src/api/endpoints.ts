@@ -860,6 +860,15 @@ export const onboardingApi = {
     api.post<void>(`/onboarding/checklist/${itemKey}/complete`, {}),
 };
 
+/** Gate 2a spec §3: the three import-funnel moments. The server refuses any other name. */
+export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENED';
+
+export const activationApi = {
+  /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
+  funnelEvent: (event: FunnelEvent) =>
+    api.post<void>('/activation/funnel-events', { event }).then(() => undefined),
+};
+
 export interface CategoryOption {
   id: string;
   name: string;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -353,13 +353,50 @@ export default function Ledger() {
   // only the request gains the row to continue from, and the answer is turned back into a page of
   // the whole list, so everything below still reads page/totalPages/totalElements as before.
   const [pageAnchors, setPageAnchors] = useState<PageAnchors>(NO_ANCHORS);
+
+  const { data: categories, isError: categoriesFailed } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
+  const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
+
+  // Applies the date range and category a link carries (see the filters state above). Ledger does
+  // not unmount between two such links, so this runs for every new one, not only the first visit.
+  // `appliedUrlSignature` is what stops it re-running when `categories` refetches: without it a
+  // category the user has since changed with a chip would be put back.
+  const urlFilters = useMemo(() => parseLedgerUrlFilters(searchParams), [searchParams]);
+  const urlSignature = JSON.stringify(urlFilters);
+  const [appliedUrlSignature, setAppliedUrlSignature] = useState('');
+  // A link's category is a NAME and the list filters on its id, so until the categories have loaded
+  // (and been applied) the list request would be the month without its category: a wrong list
+  // flashing before the right one. The list waits instead, and the table shows its loading state.
+  const waitingForUrlCategory = !!urlFilters.categoryName && appliedUrlSignature !== urlSignature;
+  useEffect(() => {
+    if (urlSignature === '{}' || appliedUrlSignature === urlSignature) return;
+    // Waits for the categories, unless they cannot be had: the dates still apply then, and the
+    // list is the month without a category rather than a table that never loads.
+    if (urlFilters.categoryName && !categories && !categoriesFailed) return;
+    setAppliedUrlSignature(urlSignature);
+    setFilters((f) => ({
+      ...f,
+      dateFrom: urlFilters.dateFrom ?? f.dateFrom,
+      dateTo: urlFilters.dateTo ?? f.dateTo,
+      // No matching category (a report's catch-all "Uncategorized") means no category filter.
+      categoryId: (urlFilters.categoryName && categoryIdByName(categories, urlFilters.categoryName)) || f.categoryId,
+      page: 0,
+    }));
+  }, [urlFilters, urlSignature, appliedUrlSignature, categories, categoriesFailed]);
+
   const listRequest = requestFor(activeFilters, pageAnchors);
-  const { data: page, isLoading, isFetching, isPlaceholderData } = useQuery({
+  const { data: listData, isLoading: listPending, isFetching, isPlaceholderData } = useQuery({
     queryKey: ['transactions', listRequest],
     queryFn: () => transactionsApi.search(listRequest)
       .then((response) => asWholeListPage(response, listRequest.page ?? 0, listRequest.after !== undefined)),
     placeholderData: keepPreviousData, // keep showing the old page while the new one loads, no flash-to-empty
+    enabled: !waitingForUrlCategory,
   });
+  // A held query is not "loading" to react-query, and it can still hand back a cached page for the
+  // filters as they are before the category lands (an earlier visit's, say) -- the very list this
+  // wait exists to keep off the screen. So while waiting there is no page, and the table is loading.
+  const page = waitingForUrlCategory ? undefined : listData;
+  const isLoading = listPending || waitingForUrlCategory;
   const listSignature = pagingSignature(activeFilters);
   useEffect(() => {
     // Not from placeholder data: that is the previous request's page, shown while this one loads,
@@ -392,31 +429,6 @@ export default function Ledger() {
     placeholderData: keepPreviousData,
   });
   const transactionCount = statsPage?.totalElements ?? 0;
-
-  const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() });
-  const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
-
-  // Applies the date range and category a link carries (see the filters state above). Ledger does
-  // not unmount between two such links, so this runs for every new one, not only the first visit.
-  // `appliedUrlFilters` is what stops it re-running when `categories` refetches: without it a
-  // category the user has since changed with a chip would be put back.
-  const urlFilters = useMemo(() => parseLedgerUrlFilters(searchParams), [searchParams]);
-  const appliedUrlFilters = useRef('');
-  useEffect(() => {
-    const signature = JSON.stringify(urlFilters);
-    if (signature === '{}' || appliedUrlFilters.current === signature) return;
-    // The category is a NAME in the link and a filter on its id, so it waits for the categories.
-    if (urlFilters.categoryName && !categories) return;
-    appliedUrlFilters.current = signature;
-    setFilters((f) => ({
-      ...f,
-      dateFrom: urlFilters.dateFrom ?? f.dateFrom,
-      dateTo: urlFilters.dateTo ?? f.dateTo,
-      // No matching category (a report's catch-all "Uncategorized") means no category filter.
-      categoryId: (urlFilters.categoryName && categoryIdByName(categories, urlFilters.categoryName)) || f.categoryId,
-      page: 0,
-    }));
-  }, [urlFilters, categories]);
 
   const { data: accounts } = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
   const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);

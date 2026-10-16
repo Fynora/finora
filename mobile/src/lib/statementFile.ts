@@ -34,6 +34,20 @@ export function detectStatementFormat(name: string): StatementFormat | null {
   return null;
 }
 
+const UNSUPPORTED_CODE = 'UNSUPPORTED_STATEMENT_FILE';
+
+/** The refusal of a file of the wrong type. Marked with a code rather than an Error subclass:
+ *  `instanceof` on Error subclasses is unreliable under React Native's class transforms. */
+function unsupportedStatementFile(): Error {
+  return Object.assign(new Error('Choose a .csv or .pdf bank or credit card statement.'), { code: UNSUPPORTED_CODE });
+}
+
+/** Whether a pickStatement() throw means the person chose a file the app refuses, as opposed to the
+ *  picker itself failing. The import funnel counts the first as a file chosen (Gate 2a spec §3). */
+export function isUnsupportedStatementFile(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === UNSUPPORTED_CODE;
+}
+
 /**
  * Returns null when the user dismisses the picker -- a cancel is not an error and must not surface
  * one. Throws only for a genuinely unusable selection, so callers can show that message.
@@ -58,7 +72,7 @@ export async function pickStatement(): Promise<PickedStatement | null> {
   const format = detectStatementFormat(name);
 
   if (!format) {
-    throw new Error('Choose a .csv or .pdf bank or credit card statement.');
+    throw unsupportedStatementFile();
   }
 
   return {

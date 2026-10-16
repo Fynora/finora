@@ -847,6 +847,15 @@ export interface ChecklistStatus {
   totalCount: number;
 }
 
+/** Gate 2a spec §3: the three import-funnel moments. The server refuses any other name. */
+export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENED';
+
+export const activationApi = {
+  /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
+  funnelEvent: (event: FunnelEvent) =>
+    api.post<void>('/activation/funnel-events', { event }).then(() => undefined),
+};
+
 export const onboardingApi = {
   status: () => api.get<OnboardingStatus>('/onboarding/status').then((r) => r.data),
   setFinancialFocus: (focusKeys: string[]) =>

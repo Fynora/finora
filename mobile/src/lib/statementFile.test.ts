@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as appLock from './appLock';
-import { detectStatementFormat, pickStatement } from './statementFile';
+import { detectStatementFormat, isUnsupportedStatementFile, pickStatement } from './statementFile';
 
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 
@@ -24,6 +24,25 @@ describe('pickStatement', () => {
     expect(appLock.isSharing()).toBe(false);
     await pickStatement();
     expect(appLock.isSharing()).toBe(false);
+  });
+
+  // The import funnel counts a file the app refuses as chosen, so the screen must be able to tell
+  // this refusal apart from a picker that failed for some other reason.
+  it('marks a file of the wrong type as an unsupported statement file', async () => {
+    picker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///notes.txt', name: 'notes.txt' }],
+    } as never);
+
+    const error = await pickStatement().catch((e: unknown) => e);
+
+    expect(isUnsupportedStatementFile(error)).toBe(true);
+    expect((error as Error).message).toBe('Choose a .csv or .pdf bank or credit card statement.');
+  });
+
+  it('does not mark any other failure as an unsupported statement file', () => {
+    expect(isUnsupportedStatementFile(new Error('picker crashed'))).toBe(false);
+    expect(isUnsupportedStatementFile(null)).toBe(false);
   });
 });
 

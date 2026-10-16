@@ -5,7 +5,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
-import { accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
+import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 
@@ -46,6 +46,7 @@ jest.mock('../../api/endpoints', () => ({
     cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
+  activationApi: { funnelEvent: jest.fn().mockResolvedValue(undefined) },
 }));
 
 // Unconfigured by default -- most of this file's tests arrive via the reimport path, never
@@ -78,13 +79,15 @@ const mockNavigate = jest.fn();
 // The screen subscribes to 'focus' (to re-check the Free plan limit on returning to the tab); the
 // listeners are kept so a test can fire that return. One stable object, as the real hook returns.
 const mockFocusListeners: (() => void)[] = [];
+const mockBlurListeners: (() => void)[] = [];
 const mockNavigation = {
   navigate: mockNavigate,
   addListener: (event: string, listener: () => void) => {
-    if (event === 'focus') mockFocusListeners.push(listener);
+    const listeners = event === 'focus' ? mockFocusListeners : event === 'blur' ? mockBlurListeners : null;
+    listeners?.push(listener);
     return () => {
-      const at = mockFocusListeners.indexOf(listener);
-      if (at >= 0) mockFocusListeners.splice(at, 1);
+      const at = listeners ? listeners.indexOf(listener) : -1;
+      if (listeners && at >= 0) listeners.splice(at, 1);
     };
   },
 };
@@ -2085,5 +2088,189 @@ describe('ImportScreen — the summary under the floating tab pill', () => {
     const actions = screen.getByTestId('import-summary-actions');
     expect(within(actions).getByText('Import another')).toBeTruthy();
     expect(StyleSheet.flatten(actions.props.style).gap).toBe(8);
+  });
+});
+
+/** Gate 2a spec §3: the three import-funnel moments, each at most once per visit of the Import tab. */
+describe('ImportScreen — funnel events', () => {
+  const funnelEvent = activationApi.funnelEvent as jest.Mock;
+
+  function callsFor(event: string) {
+    return funnelEvent.mock.calls.filter(([e]) => e === event).length;
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    funnelEvent.mockReset().mockResolvedValue(undefined);
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: { rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('sendsScreenOpenedOnce', async () => {
+    const { rerender } = render(tree());
+    await settle();
+    rerender(tree());
+    await settle();
+
+    expect(callsFor('IMPORT_SCREEN_OPENED')).toBe(1);
+    expect(callsFor('FILE_CHOSEN')).toBe(0);
+    expect(callsFor('REVIEW_OPENED')).toBe(0);
+  });
+
+  it('sends nothing more for the first focus event right after mounting', async () => {
+    render(tree());
+    await settle();
+
+    act(() => mockFocusListeners.forEach((listener) => listener()));
+
+    expect(callsFor('IMPORT_SCREEN_OPENED')).toBe(1);
+  });
+
+  it('counts a return to the tab as a new visit', async () => {
+    render(tree());
+    await settle();
+
+    act(() => mockBlurListeners.forEach((listener) => listener()));
+    act(() => mockFocusListeners.forEach((listener) => listener()));
+
+    expect(callsFor('IMPORT_SCREEN_OPENED')).toBe(2);
+  });
+
+  it('counts a file shared in while the tab was in the background towards the new visit', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///notes.txt', name: 'notes.txt' } as never],
+    } as never);
+    const { rerender } = render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+
+    // Leave the tab; the share arrives (params change) before the tab's focus event fires.
+    act(() => mockBlurListeners.forEach((listener) => listener()));
+    api.import.stageCsv.mockReset().mockImplementation(() => new Promise(() => {}));
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/shared.csv', name: 'shared.csv', type: 'text/csv' }, format: 'CSV', nonce: 7 },
+    };
+    rerender(tree());
+    await settle();
+    act(() => mockFocusListeners.forEach((listener) => listener()));
+
+    expect(callsFor('FILE_CHOSEN')).toBe(2);
+    expect(callsFor('IMPORT_SCREEN_OPENED')).toBe(2);
+  });
+
+  it('sendsFileChosenForARefusedFileType', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///notes.txt', name: 'notes.txt' } as never],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sends nothing when the picker is dismissed', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({ canceled: true, assets: null } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(callsFor('FILE_CHOSEN')).toBe(0);
+  });
+
+  it('sendsFileChosenOncePerVisit', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///notes.txt', name: 'notes.txt' } as never],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sendsFileChosenForASharedFile', async () => {
+    api.import.stageCsv.mockReset().mockImplementation(() => new Promise(() => {}));
+    mockRouteParams = {
+      sharedFile: { file: { uri: 'file:///cache/shared.csv', name: 'shared.csv', type: 'text/csv' }, format: 'CSV', nonce: 1 },
+    };
+    render(tree());
+    await settle();
+
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sendsFileChosenForARefusedSharedFile', async () => {
+    mockRouteParams = {
+      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+    };
+    render(tree());
+    await settle();
+
+    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(callsFor('FILE_CHOSEN')).toBe(1);
+  });
+
+  it('sendsReviewOpenedWhenReviewShows', async () => {
+    render(tree());
+    expect(callsFor('REVIEW_OPENED')).toBe(0);
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why not.toBeOnTheScreen().
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+
+    expect(callsFor('REVIEW_OPENED')).toBe(1);
+  });
+
+  it('sends review opened again when a new visit returns to a review still on screen', async () => {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+    expect(callsFor('REVIEW_OPENED')).toBe(1);
+
+    act(() => mockFocusListeners.forEach((listener) => listener()));
+    expect(callsFor('REVIEW_OPENED')).toBe(1);
+
+    act(() => mockBlurListeners.forEach((listener) => listener()));
+    act(() => mockFocusListeners.forEach((listener) => listener()));
+    expect(callsFor('REVIEW_OPENED')).toBe(2);
+  });
+
+  it('funnelFailureNeverShows', async () => {
+    funnelEvent.mockRejectedValue(new Error('network down'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+
+    expect(callsFor('REVIEW_OPENED')).toBe(1);
+    expect(screen.queryByText(/network down/i)).not.toBeOnTheScreen();
   });
 });

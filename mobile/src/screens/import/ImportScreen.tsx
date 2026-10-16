@@ -52,7 +52,7 @@ import {
 } from '../../lib/importReview';
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
-import { pickStatement, type PickedStatement, type StatementFormat } from '../../lib/statementFile';
+import { isUnsupportedStatementFile, pickStatement, type PickedStatement, type StatementFormat } from '../../lib/statementFile';
 import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
 import type { AppTabParamList } from '../../navigation/types';
@@ -60,11 +60,20 @@ import type { DetectedAccountInfo, ImportSummary, StagedRow, UnparseableRow, Ver
 import { VerificationPanel } from '../../components/VerificationPanel';
 import { flaggedRows } from '../../components/verificationFlags';
 import { trackNavigation } from '../../lib/trackNavigation';
+import { trackFunnel, type FunnelEvent } from '../../lib/trackFunnel';
 import { GlassScreen } from '../../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../../navigation/useTabBarSpace';
 
 type Step = 'upload' | 'review' | 'summary';
 type AccountChoice = 'existing' | 'new';
+
+/** Sends an import-funnel moment unless this visit already sent it (Gate 2a spec §3: at most once per
+ *  screen visit; the server collapses the rest to one row a day anyway). */
+function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
+  if (sent.has(event)) return;
+  sent.add(event);
+  trackFunnel(event);
+}
 
 // How long the "Completed" checkmark stays on screen before the step actually advances -- same
 // value and same reasoning as the web app's Import.tsx (UPLOAD_COMPLETE_DWELL_MS): long enough to
@@ -86,6 +95,36 @@ export function ImportScreen() {
 
   const [step, setStep] = useState<Step>('upload');
   const [error, setError] = useState<string | null>(null);
+
+  // The import-funnel moments this visit has already sent. One visit is one stretch of the Import tab
+  // being focused. A blur ends it there and then, so anything that happens before the next focus
+  // event -- a file shared in while the tab was in the background, say -- already counts towards the
+  // new visit. The tab mounts focused, and a listener added after mount can miss that first focus
+  // event, so the mount itself opens the first visit; that focus event, if it does arrive, is then a
+  // repeat the set absorbs.
+  const funnelSent = useRef<Set<FunnelEvent>>(new Set());
+  const funnelStep = useRef<Step>(step);
+  useEffect(() => {
+    trackFunnelOnce(funnelSent.current, 'IMPORT_SCREEN_OPENED');
+    const offBlur = navigation.addListener('blur', () => {
+      funnelSent.current = new Set();
+    });
+    const offFocus = navigation.addListener('focus', () => {
+      trackFunnelOnce(funnelSent.current, 'IMPORT_SCREEN_OPENED');
+      // Coming back to a review still on screen shows that review again.
+      if (funnelStep.current === 'review') trackFunnelOnce(funnelSent.current, 'REVIEW_OPENED');
+    });
+    return () => {
+      offBlur();
+      offFocus();
+    };
+  }, [navigation]);
+  // Every path into the review (a fresh upload, a watched queued job, a resumed import) ends in
+  // setStep('review'), so watching the step covers them all.
+  useEffect(() => {
+    funnelStep.current = step;
+    if (step === 'review') trackFunnelOnce(funnelSent.current, 'REVIEW_OPENED');
+  }, [step]);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   // True for a brief dwell after a stage call succeeds, before the step actually advances to
   // 'review' -- see celebrateThenAdvance below. Deliberately not derived from uploadProgress: it
@@ -361,6 +400,8 @@ export function ImportScreen() {
       void applyPicked({ file: sharedFileParam.file, format: sharedFileParam.format });
     } else if (sharedFileErrorParam && sharedFileErrorParam.nonce !== consumedSharedFileNonceRef.current) {
       consumedSharedFileNonceRef.current = sharedFileErrorParam.nonce;
+      // The share sheet refuses only a file of the wrong type, so a file was chosen (spec §3).
+      trackFunnelOnce(funnelSent.current, 'FILE_CHOSEN');
       resetToUpload();
       setError(sharedFileErrorParam.message);
     }
@@ -424,6 +465,8 @@ export function ImportScreen() {
    * upload rather than an upload, a rejection, and a second upload.
    */
   async function applyPicked(picked: PickedStatement) {
+    // Both the picker and the share sheet arrive here (spec §3: a file chosen, before any upload).
+    trackFunnelOnce(funnelSent.current, 'FILE_CHOSEN');
     setFileFormat(picked.format);
     if (picked.format === 'PDF') {
       setPendingPdf(picked.file);
@@ -441,6 +484,9 @@ export function ImportScreen() {
     try {
       picked = await pickStatement();
     } catch (e) {
+      // A file of the wrong type was still chosen, and the funnel counts it (spec §3); a picker
+      // that failed on its own was not.
+      if (isUnsupportedStatementFile(e)) trackFunnelOnce(funnelSent.current, 'FILE_CHOSEN');
       setError(e instanceof Error ? e.message : 'Could not read that file.');
       return;
     }

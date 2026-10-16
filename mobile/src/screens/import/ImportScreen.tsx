@@ -17,7 +17,7 @@ import { UploadProgressPanel, type UploadPanelState } from '../../components/Upl
 import { StagedRowCard } from './StagedRowCard';
 import {
   accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi,
-  type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
+  type ActivationMoment, type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import {
   ACCOUNT_LIMIT_REACHED, PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED, STATEMENT_PERIOD_TOO_LONG,
@@ -61,6 +61,7 @@ import { VerificationPanel } from '../../components/VerificationPanel';
 import { flaggedRows } from '../../components/verificationFlags';
 import { trackNavigation } from '../../lib/trackNavigation';
 import { trackFunnel, type FunnelEvent } from '../../lib/trackFunnel';
+import { WhatStoppedYou } from '../../components/activation/WhatStoppedYou';
 import { GlassScreen } from '../../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../../navigation/useTabBarSpace';
 
@@ -95,6 +96,10 @@ export function ImportScreen() {
 
   const [step, setStep] = useState<Step>('upload');
   const [error, setError] = useState<string | null>(null);
+  // Gate 2a spec §4.1: the "What stopped you?" question this screen is showing, if any -- REFUSED
+  // beside a server refusal, NOT_CONFIRMED after a cancelled review. Cleared whenever a new attempt
+  // starts (resetToUpload, a pick, a share), the same moments that clear the error.
+  const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
 
   // The import-funnel moments this visit has already sent. One visit is one stretch of the Import tab
   // being focused. A blur ends it there and then, so anything that happens before the next focus
@@ -414,6 +419,7 @@ export function ImportScreen() {
   function resetToUpload() {
     setStep('upload');
     setError(null);
+    setAskMoment(null);
     // A new import is a new attempt, never a retry of the last one.
     attemptKey.current = null;
     ownershipAcknowledged.current = false;
@@ -467,6 +473,7 @@ export function ImportScreen() {
   async function applyPicked(picked: PickedStatement) {
     // Both the picker and the share sheet arrive here (spec §3: a file chosen, before any upload).
     trackFunnelOnce(funnelSent.current, 'FILE_CHOSEN');
+    setAskMoment(null);
     setFileFormat(picked.format);
     if (picked.format === 'PDF') {
       setPendingPdf(picked.file);
@@ -480,6 +487,7 @@ export function ImportScreen() {
 
   async function handlePick() {
     setError(null);
+    setAskMoment(null);
     let picked;
     try {
       picked = await pickStatement();
@@ -695,6 +703,8 @@ export function ImportScreen() {
             setPendingPdf(file);
           } else {
             setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
+            // A refusal only when the server named an import error, never a network failure.
+            if (apiErrorCode(e)) setAskMoment('REFUSED');
           }
         }
       } finally {
@@ -781,9 +791,13 @@ export function ImportScreen() {
         // and send it through the queue, which holds it for review. Where that cannot be offered,
         // still say what happened rather than "double-check this is your statement".
         if (isPdf && password && savePasswordOffered) setReviewOfferFor(file);
-        else setError(UNREAD_LAYOUT_MESSAGE);
+        else {
+          setError(UNREAD_LAYOUT_MESSAGE);
+          setAskMoment('REFUSED');
+        }
       } else {
         setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
+        if (apiErrorCode(e)) setAskMoment('REFUSED');
       }
     } finally {
       uploadAbort.current = null;
@@ -965,6 +979,12 @@ export function ImportScreen() {
           {error === upgradeErrorMessage ? (
             <Button label="See plans" variant="link" onPress={openPlans} />
           ) : null}
+        </Card>
+      ) : null}
+      {/* Never during an action: only on the upload step with nothing uploading (spec §4.3). */}
+      {askMoment && step === 'upload' && uploadProgress === null && !uploadCompleted ? (
+        <Card>
+          <WhatStoppedYou key={askMoment} moment={askMoment} />
         </Card>
       ) : null}
     </View>
@@ -1642,7 +1662,16 @@ export function ImportScreen() {
                 }
               />
               <View style={styles.cancel}>
-                <Button label="Cancel" variant="link" onPress={resetToUpload} disabled={confirming} />
+                <Button
+                  label="Cancel"
+                  variant="link"
+                  onPress={() => {
+                    resetToUpload();
+                    // After resetToUpload, which clears it.
+                    setAskMoment('NOT_CONFIRMED');
+                  }}
+                  disabled={confirming}
+                />
               </View>
             </View>
           </View>

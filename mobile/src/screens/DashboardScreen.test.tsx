@@ -102,6 +102,7 @@ jest.mock('../api/endpoints', () => ({
   // cares about onboarding, keeps seeing exactly the Dashboard content it did before this widget
   // existed.
   onboardingApi: { getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 6, totalCount: 6 }) },
+  activationApi: { question: jest.fn().mockResolvedValue(null), answer: jest.fn().mockResolvedValue(undefined) },
   // The plan badge in the new brand-mark header row (design spec at docs/superpowers/specs/
   // 2026-09-14-referral-milestone-rewards-design.md, section 6.2) fetches this on every render.
   entitlementsApi: { mine: jest.fn() },

@@ -5,6 +5,7 @@ import { ThemeProvider } from '../theme';
 
 jest.mock('../api/endpoints', () => ({
   importJobsApi: { progress: jest.fn(), timeline: jest.fn(), cancel: jest.fn() },
+  activationApi: { answer: jest.fn() },
 }));
 
 const api = importJobsApi as jest.Mocked<typeof importJobsApi>;
@@ -111,6 +112,25 @@ describe('ImportProgressCard', () => {
     // job.error is raw, untranslated text -- never fit to show a user directly (see
     // ErrorCode's own doc comment on the backend); only the curated reason reaches the screen.
     expect(screen.queryByText('raw internal text')).toBeNull();
+  });
+
+  it('failedCardAsksWhatNow below the reason', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'FAILED', userStatus: 'FAILED' }));
+    api.timeline.mockResolvedValue({
+      jobId: 'job-1', status: 'FAILED', userStatus: 'FAILED', failureCode: 'IMPORT_001', stages: [],
+    });
+    renderCard();
+
+    expect(await screen.findByText(/couldn't find a transaction table/i)).toBeTruthy();
+    expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
+  });
+
+  it('does not ask while the job is still running', async () => {
+    api.progress.mockResolvedValue(jobProgress({ status: 'PARSING', userStatus: 'PROCESSING' } as never));
+    renderCard();
+
+    await waitFor(() => expect(api.progress).toHaveBeenCalled());
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
   });
 
   it('shows no curated reason when the failure code has none in the table, without crashing', async () => {

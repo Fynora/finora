@@ -7711,6 +7711,36 @@
                 }
             }
         },
+        "/api/v1/activation/answers": {
+            "post": {
+                "tags": [
+                    "activation-controller"
+                ],
+                "operationId": "answer_1",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AnswerRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/accounts": {
             "get": {
                 "tags": [
@@ -12739,6 +12769,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseAdminMfaStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/activation/question": {
+            "get": {
+                "tags": [
+                    "activation-controller"
+                ],
+                "operationId": "question",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseQuestionResponse"
                                 }
                             }
                         }
@@ -30595,6 +30645,47 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseQuestionResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/QuestionResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "QuestionResponse": {
+                "type": "object",
+                "properties": {
+                    "moment": {
+                        "type": "string",
+                        "enum": [
+                            "NO_FILE",
+                            "REFUSED",
+                            "NOT_CONFIRMED"
+                        ]
                     }
                 }
             },

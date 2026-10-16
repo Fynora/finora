@@ -222,6 +222,9 @@ public final class DataExportDto {
     /** Gate 2a (V275). One import-funnel moment and its date -- ISO date string, no time. */
     public record ImportFunnelDayExportDto(String event, String date) {}
 
+    /** Gate 2a (V276). One "What stopped you?" answer or skip, and its date -- ISO date, no time. */
+    public record ActivationAnswerExportDto(String moment, String answer, String date) {}
+
     /** F-03. One onboarding financial-focus selection. */
     public record UserFinancialFocusExportDto(UUID id, String focusKey, Instant createdAt) {
         public static UserFinancialFocusExportDto from(UserFinancialFocus f) {

@@ -286,6 +286,7 @@ public class DataExportService {
     private final StatementRefreshRunRepository statementRefreshRunRepository;
     private final com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
+    private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
 
@@ -333,6 +334,7 @@ public class DataExportService {
                               StatementRefreshRunRepository statementRefreshRunRepository,
                               com.finora.repository.UserActivityDayRepository userActivityDayRepository,
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
+                              com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
@@ -351,6 +353,7 @@ public class DataExportService {
         this.statementRefreshRunRepository = statementRefreshRunRepository;
         this.userActivityDayRepository = userActivityDayRepository;
         this.importFunnelDayRepository = importFunnelDayRepository;
+        this.activationAnswerRepository = activationAnswerRepository;
         this.statementContentService = statementContentService;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
@@ -496,6 +499,13 @@ public class DataExportService {
                 importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(userId).stream()
                         .map(d -> new com.finora.dto.DataExportDto.ImportFunnelDayExportDto(
                                 d.getEvent().name(), d.getFunnelDate().toString()))
+                        .toList();
+        // Gate 2a (V276): the "What stopped you?" answers, also in the purge scope. Moment, answer and
+        // ISO date only.
+        List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers =
+                activationAnswerRepository.findByUserIdOrderByAnswerDateAsc(userId).stream()
+                        .map(a -> new com.finora.dto.DataExportDto.ActivationAnswerExportDto(
+                                a.getMoment().name(), a.getAnswer().name(), a.getAnswerDate().toString()))
                         .toList();
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
@@ -782,7 +792,8 @@ public class DataExportService {
                 inflowKinds, senderInflowRules, paymentInflowChoices, savedStatementPasswords, featureViews,
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
-                merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays);
+                merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
+                activationAnswers);
     }
 
     /**
@@ -852,6 +863,7 @@ public class DataExportService {
             writeJsonEntry(zos, "activity_days.json", bundle.activityDays());
             writeJsonEntry(zos, "spending_tracking.json", bundle.spendingTracking());
             writeJsonEntry(zos, "import_funnel_days.json", bundle.importFunnelDays());
+            writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
 
             for (Summary statement : bundle.statementSummaries()) {
                 writeStoredFile(zos, "statements/" + statement.id() + "-" + sanitize(statement.fileName()),
@@ -997,7 +1009,8 @@ public class DataExportService {
                 new ManifestEntry("statement_refresh_runs.json", "Every time Finora re-read one of your statements, and exactly what that changed -- including transactions it removed.", bundle.statementRefreshRuns().size()),
                 new ManifestEntry("activity_days.json", "The dates you used Fynora -- the date only, never the time or what you did.", bundle.activityDays().size()),
                 new ManifestEntry("spending_tracking.json", "How you told us you kept track of your spending before Fynora, and when.", bundle.spendingTracking().size()),
-                new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size())
+                new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
+                new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -1102,7 +1115,8 @@ public class DataExportService {
             List<RefreshRunDetail> statementRefreshRuns,
             List<String> activityDays,
             List<com.finora.dto.DataExportDto.SpendingTrackingExportDto> spendingTracking,
-            List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays
+            List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
+            List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

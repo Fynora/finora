@@ -1422,20 +1422,64 @@ public class ReconciliationService {
             // From every live statement, not only the ones with something owed: a paid-off statement
             // still closes the window of the bill before it.
             Map<UUID, CcWindow> ccWindows = ccPaymentWindows(ccStatements);
+            // What the payments linked to each bill add up to, for a bill paid in parts (third pass).
+            Map<UUID, BigDecimal> paidTowards = new java.util.HashMap<>();
             ccEdgesRejected = seedCcClaims(userId, all, validStatements, paymentAccountIds,
-                    cardLast4ByAccountId, ccWindows, order, claimedPaymentIds, settledStatementIds, rejectedPairs);
+                    cardLast4ByAccountId, ccWindows, order, claimedPaymentIds, settledStatementIds, rejectedPairs,
+                    paidTowards);
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
-                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
-                        cardLast4ByAccountId, ccWindows, true, order, pendingEdges)) {
+                Transaction payment = matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
+                        rejectedPairs, cardLast4ByAccountId, ccWindows, true, null, order, pendingEdges);
+                if (payment != null) {
                     settledStatementIds.add(statement.getId());
+                    paidTowards.put(statement.getId(), payment.getAmount());
                     ccMatchesThisRun[0]++;
+                }
+            }
+            // Then parts that add up to exactly a bill, before any single part payment is taken.
+            for (StatementImport statement : validStatements) {
+                if (settledStatementIds.contains(statement.getId())) continue;
+                String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
+                List<Transaction> parts = partsMakingTheTotal(ccCandidates(statement, all, paymentAccountIds,
+                        claimedPaymentIds, rejectedPairs, cardLast4ByAccountId, ccWindows, false,
+                        statement.getTotalAmountDue()), statement, thisCardLast4, order);
+                if (parts.isEmpty()) continue;
+                BigDecimal paid = BigDecimal.ZERO;
+                for (Transaction part : parts) {
+                    if (!linkCcPayment(userId, statement, part, thisCardLast4, claimedPaymentIds, pendingEdges)) break;
+                    paid = paid.add(part.getAmount());
+                    ccMatchesThisRun[0]++;
+                }
+                if (paid.signum() > 0) {
+                    settledStatementIds.add(statement.getId());
+                    paidTowards.put(statement.getId(), paid);
                 }
             }
             for (StatementImport statement : validStatements) {
                 if (settledStatementIds.contains(statement.getId())) continue;
-                if (matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds, rejectedPairs,
-                        cardLast4ByAccountId, ccWindows, false, order, pendingEdges)) {
+                Transaction payment = matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
+                        rejectedPairs, cardLast4ByAccountId, ccWindows, false, null, order, pendingEdges);
+                if (payment != null) {
+                    settledStatementIds.add(statement.getId());
+                    paidTowards.put(statement.getId(), payment.getAmount());
+                    ccMatchesThisRun[0]++;
+                }
+            }
+            // Third, a bill paid in parts. Only after every bill has had its first pick, so a part is
+            // never a payment some other bill could have taken whole or as its first part. Each part
+            // needs the same evidence as any part payment, and the parts never add up to more than
+            // the bill: a part that would overpay what is still owed is not this bill's and stays
+            // counted as spending.
+            for (StatementImport statement : validStatements) {
+                BigDecimal paid = paidTowards.get(statement.getId());
+                while (paid != null && paid.compareTo(statement.getTotalAmountDue()) < 0) {
+                    Transaction part = matchCcStatement(userId, statement, all, paymentAccountIds, claimedPaymentIds,
+                            rejectedPairs, cardLast4ByAccountId, ccWindows, false,
+                            statement.getTotalAmountDue().subtract(paid), order, pendingEdges);
+                    if (part == null) break;
+                    paid = paid.add(part.getAmount());
+                    paidTowards.put(statement.getId(), paid);
                     ccMatchesThisRun[0]++;
                 }
             }
@@ -1700,10 +1744,11 @@ public class ReconciliationService {
     }
 
     /**
-     * Finds and links a single CC_PAYMENT match for one statement, returning whether it found
-     * one. Extracted out of {@code reconcile()}'s CC_PAYMENT pass so that pass can run this
+     * Finds and links a single CC_PAYMENT match for one statement, returning the payment it linked,
+     * or null. Extracted out of {@code reconcile()}'s CC_PAYMENT pass so that pass can run this
      * twice -- {@code requireExactAmount=true} for every statement first, then {@code false}
-     * (partial payment/overpayment, roadmap Part 4) only for what's still unsettled.
+     * (partial payment/overpayment, roadmap Part 4) only for what's still unsettled -- and again
+     * for each further part of a bill paid in parts, with {@code stillOwed} capping that part.
      *
      * <p><b>Why two phases, not one.</b> The widened ratio window partial/overpayment matching
      * needs (roadmap Part 4) means a single payment amount can now be a PLAUSIBLE candidate for
@@ -1718,14 +1763,38 @@ public class ReconciliationService {
      * EXACT match globally first, across every statement, guarantees a partial/overpayment
      * search can only ever consume a payment no statement could exactly claim.
      */
-    private boolean matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
+    private Transaction matchCcStatement(UUID userId, StatementImport statement, List<Transaction> all,
                                       Set<UUID> paymentAccountIds, Set<UUID> claimedPaymentIds,
                                       Set<String> rejectedPairs,
                                       Map<UUID, String> cardLast4ByAccountId, Map<UUID, CcWindow> ccWindows,
-                                      boolean requireExactAmount, Comparator<Transaction> order,
+                                      boolean requireExactAmount, BigDecimal stillOwed, Comparator<Transaction> order,
                                       List<TransactionGraphService.PendingEdge> pendingEdges) {
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
-        List<Transaction> paymentCandidates = all.stream()
+        List<Transaction> paymentCandidates = ccCandidates(statement, all, paymentAccountIds, claimedPaymentIds,
+                rejectedPairs, cardLast4ByAccountId, ccWindows, requireExactAmount, stillOwed);
+        if (paymentCandidates.isEmpty()) return null;
+
+        // See ccPaymentPreference for the order and why each step is there. For a further part, the
+        // one that clears exactly what is still owed comes right after a payment naming this card:
+        // taking a nearer but smaller part first could leave less owed than the exact part, shutting
+        // it out.
+        Comparator<Transaction> preference = stillOwed == null
+                ? ccPaymentPreference(statement, thisCardLast4, order)
+                : Comparator.comparing((Transaction t) -> !namesCard(t, thisCardLast4))
+                        .thenComparing(t -> t.getAmount().compareTo(stillOwed) != 0)
+                        .thenComparing(ccPaymentPreference(statement, thisCardLast4, order));
+        Transaction payment = paymentCandidates.stream().min(preference).orElseThrow();
+        return linkCcPayment(userId, statement, payment, thisCardLast4, claimedPaymentIds, pendingEdges) ? payment : null;
+    }
+
+    /** The payments that could pay {@code statement} now: unclaimed, never rejected for it, and
+     *  qualifying under {@link #isCcPaymentCandidate}; with {@code stillOwed}, none larger than that. */
+    private static List<Transaction> ccCandidates(StatementImport statement, List<Transaction> all,
+                                                  Set<UUID> paymentAccountIds, Set<UUID> claimedPaymentIds,
+                                                  Set<String> rejectedPairs, Map<UUID, String> cardLast4ByAccountId,
+                                                  Map<UUID, CcWindow> ccWindows, boolean requireExactAmount,
+                                                  BigDecimal stillOwed) {
+        return all.stream()
                 .filter(t -> !claimedPaymentIds.contains(t.getId()))
                 // A pair whose edge was rejected stays rejected: linkAll never rewrites a pair that
                 // already has an edge in any status, so picking it would claim the payment and
@@ -1734,13 +1803,17 @@ public class ReconciliationService {
                 .filter(t -> !rejectedPairs.contains(ccPairKey(t.getId(), statement.getId())))
                 .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId,
                         ccWindows))
+                // A further part of a bill already part-paid: never more than is still owed on it.
+                .filter(t -> stillOwed == null || t.getAmount().compareTo(stillOwed) <= 0)
                 .toList();
-        if (paymentCandidates.isEmpty()) return false;
+    }
 
-        // See ccPaymentPreference for the order and why each step is there.
-        Transaction payment = paymentCandidates.stream()
-                .min(ccPaymentPreference(statement, thisCardLast4, order))
-                .orElseThrow();
+    /**
+     * Writes the CC_PAYMENT edges from {@code payment} to every charge {@code statement} billed, and
+     * claims the payment. False, writing nothing, when the statement has no charge to point at.
+     */
+    private boolean linkCcPayment(UUID userId, StatementImport statement, Transaction payment, String thisCardLast4,
+                                  Set<UUID> claimedPaymentIds, List<TransactionGraphService.PendingEdge> pendingEdges) {
         boolean matchedByLast4 = namesCard(payment, thisCardLast4);
 
         // EXPENSE only -- findByStatementImportId returns every transaction this statement's
@@ -1803,6 +1876,45 @@ public class ReconciliationService {
                     TransactionRelationship.DetectionMethod.RULE_ENGINE, explanation));
         }
         return true;
+    }
+
+    /**
+     * Two or more payments that together are exactly what {@code statement} says is due -- a bill
+     * paid in parts that add up to it -- or empty. The exact total is evidence in the way one exact
+     * payment is, so these are found before any single part payment is taken (see reconcile()).
+     * Every part must qualify on its own (window and narration evidence, as for any part payment).
+     * Fewest parts first, then the earliest combination in preference order, so the choice is the
+     * same on every run. Gives up past {@link ReconciliationPolicy#CC_PAYMENT_PARTS_MAX_CANDIDATES}
+     * candidates rather than search every combination of them.
+     */
+    private static List<Transaction> partsMakingTheTotal(List<Transaction> candidates, StatementImport statement,
+                                                         String thisCardLast4, Comparator<Transaction> order) {
+        if (candidates.size() < 2 || candidates.size() > ReconciliationPolicy.CC_PAYMENT_PARTS_MAX_CANDIDATES) {
+            return List.of();
+        }
+        List<Transaction> sorted = candidates.stream().sorted(ccPaymentPreference(statement, thisCardLast4, order)).toList();
+        BigDecimal due = statement.getTotalAmountDue();
+        int n = sorted.size();
+        for (int size = 2; size <= n; size++) {
+            List<Transaction> found = combinationSummingTo(sorted, size, 0, due, new java.util.ArrayList<>());
+            if (found != null) return found;
+        }
+        return List.of();
+    }
+
+    /** The first {@code size}-payment combination from {@code from} on, in list order, adding up to {@code target}. */
+    private static List<Transaction> combinationSummingTo(List<Transaction> payments, int size, int from,
+                                                          BigDecimal target, List<Transaction> chosen) {
+        if (chosen.size() == size) return target.signum() == 0 ? List.copyOf(chosen) : null;
+        for (int i = from; i <= payments.size() - (size - chosen.size()); i++) {
+            Transaction p = payments.get(i);
+            if (p.getAmount().compareTo(target) > 0) continue;
+            chosen.add(p);
+            List<Transaction> found = combinationSummingTo(payments, size, i + 1, target.subtract(p.getAmount()), chosen);
+            chosen.remove(chosen.size() - 1);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static boolean amountRatioInRange(BigDecimal paymentAmount, BigDecimal totalAmountDue) {
@@ -2012,7 +2124,8 @@ public class ReconciliationService {
     private int seedCcClaims(UUID userId, List<Transaction> all, List<StatementImport> validStatements,
                              Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId,
                              Map<UUID, CcWindow> ccWindows, Comparator<Transaction> order,
-                             Set<UUID> claimedPaymentIds, Set<UUID> settledStatementIds, Set<String> rejectedPairs) {
+                             Set<UUID> claimedPaymentIds, Set<UUID> settledStatementIds, Set<String> rejectedPairs,
+                             Map<UUID, BigDecimal> paidTowards) {
         List<TransactionRelationship> edges =
                 transactionGraphService.edgesOfType(userId, TransactionRelationship.RelationshipType.CC_PAYMENT);
         if (edges.isEmpty()) return 0;
@@ -2078,12 +2191,28 @@ public class ReconciliationService {
                             .compare(paymentsById.get(a.paymentId()), paymentsById.get(b.paymentId()));
                 }));
         for (CcLink link : valid) {
-            if (claimedPaymentIds.contains(link.paymentId()) || settledStatementIds.contains(link.statementId())) {
+            if (claimedPaymentIds.contains(link.paymentId())) {
                 toReject.addAll(link.edges());
                 continue;
             }
-            claimedPaymentIds.add(link.paymentId());
-            settledStatementIds.add(link.statementId());
+            BigDecimal amount = paymentsById.get(link.paymentId()).getAmount();
+            if (!settledStatementIds.contains(link.statementId())) {
+                claimedPaymentIds.add(link.paymentId());
+                settledStatementIds.add(link.statementId());
+                paidTowards.put(link.statementId(), amount);
+                continue;
+            }
+            // A further part of a bill paid in parts, kept while the parts still add up to no more
+            // than the bill -- the same rule the third pass in reconcile() writes them under. A bill
+            // a person linked has no running total here and takes no part from this pass.
+            BigDecimal paid = paidTowards.get(link.statementId());
+            BigDecimal due = statementsById.get(link.statementId()).getTotalAmountDue();
+            if (paid != null && paid.compareTo(due) < 0 && paid.add(amount).compareTo(due) <= 0) {
+                claimedPaymentIds.add(link.paymentId());
+                paidTowards.put(link.statementId(), paid.add(amount));
+                continue;
+            }
+            toReject.addAll(link.edges());
         }
         for (TransactionRelationship edge : toReject) {
             rejectedPairs.add(ccPairKey(edge.getFromTransactionId(), ccEdgeStatementId(edge)));

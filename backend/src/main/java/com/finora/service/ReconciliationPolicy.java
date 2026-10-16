@@ -128,6 +128,14 @@ public final class ReconciliationPolicy {
     public static final BigDecimal CC_PAYMENT_MAX_OVERPAYMENT_RATIO = new BigDecimal("2.5");
 
     /**
+     * The most candidate payments the search for parts adding up to exactly a card bill will look
+     * through (ReconciliationService.partsMakingTheTotal). It tries combinations, which double with
+     * each candidate; 12 is 4,095 at most per bill. A bill with more candidates than this in its
+     * window still gets its parts one at a time, up to what is owed, just not the exact-sum search.
+     */
+    public static final int CC_PAYMENT_PARTS_MAX_CANDIDATES = 12;
+
+    /**
      * How far either side of an import's own date range the candidate set has to reach for a
      * windowed reconciliation to find everything an unbounded one would.
      *

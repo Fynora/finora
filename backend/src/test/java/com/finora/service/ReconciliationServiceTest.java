@@ -3433,6 +3433,106 @@ class ReconciliationServiceTest {
                 "UPI-GROCER-GROCER@YBL-YESB0XXXXXX-100000000001-PAID VIA CRED")).isEmpty();
     }
 
+    /**
+     * One 2500.00 bill (generated 22 Sep, due 12 Oct) and part payments sent to the bill-payment app,
+     * each given as {date, amount}. Returns the amounts of the payments linked to the bill, sorted.
+     */
+    private List<String> partsLinkedToA2500Bill(String[]... parts) {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        List<Transaction> rows = new java.util.ArrayList<>(List.of(charge));
+        int n = 0;
+        for (String[] part : parts) {
+            n++;
+            rows.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(part[0]), new BigDecimal(part[1]),
+                    Transaction.Type.EXPENSE, "UPI/DR/10000000000" + n + "/CRED Clu/UTIB/cred.club@axisb/",
+                    Instant.parse(part[0] + "T10:00:0" + n + "Z")));
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, Transaction> byId = rows.stream().collect(java.util.stream.Collectors.toMap(Transaction::getId, t -> t));
+        return ccPendingEdgesIfAny().stream().map(e -> byId.get(e.fromTransactionId()).getAmount().toPlainString())
+                .distinct().sorted().toList();
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInTwoParts_linksBothParts() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInParts_neverLinksMoreThanIsDue() {
+        // 1500 + 1000 settle the 2500 bill exactly; a third payment would take the linked total past
+        // what was owed, so it is not this bill's and stays counted as spending.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"},
+                new String[]{"2026-10-06", "400.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInParts_prefersThePartThatClearsWhatIsStillOwed() {
+        // After the 1500 nearest the due date, 1000 is still owed. The 300 is nearer the due date, but
+        // taking it first would leave 700 owed and shut the exact 1000 out.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"},
+                new String[]{"2026-09-28", "300.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aPartThatWouldOverpayTheRest_staysCountedAsSpending() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "1500.00"}, new String[]{"2026-09-25", "1100.00"}))
+                .containsExactly("1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInFull_takesNoFurtherPart() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "2500.00"}, new String[]{"2026-09-25", "500.00"}))
+                .containsExactly("2500.00");
+    }
+
+    @Test
+    void reconcileForUser_aPaymentThatIsExactlyAnotherBill_isNotTakenAsAPartOfThisOne() {
+        UUID cardA = UUID.randomUUID();
+        UUID cardB = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport billA =
+                ccStatement(UUID.randomUUID(), cardA, new BigDecimal("3000.00"), LocalDate.of(2026, 10, 12));
+        billA.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        com.finora.entity.StatementImport billB =
+                ccStatement(UUID.randomUUID(), cardB, new BigDecimal("2000.00"), LocalDate.of(2026, 10, 15));
+        billB.setStatementPeriodEnd(LocalDate.of(2026, 9, 25));
+        Transaction chargeA = txn(UUID.randomUUID(), cardA, LocalDate.of(2026, 9, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        Transaction chargeB = txn(UUID.randomUUID(), cardB, LocalDate.of(2026, 9, 12),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-09-12T10:00:00Z"));
+        Transaction partOfA = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 1), new BigDecimal("1000.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-01T10:00:00Z"));
+        Transaction exactlyB = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 2), new BigDecimal("2000.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-02T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(chargeA, chargeB, partOfA, exactlyB));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(billA, billB));
+        when(transactionRepository.findByStatementImportId(billA.getId())).thenReturn(List.of(chargeA));
+        when(transactionRepository.findByStatementImportId(billB.getId())).thenReturn(List.of(chargeB));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, UUID> chargeByPayment = new java.util.HashMap<>();
+        ccPendingEdgesIfAny().forEach(e -> chargeByPayment.put(e.fromTransactionId(), e.toTransactionId()));
+        assertThat(chargeByPayment).containsEntry(partOfA.getId(), chargeA.getId())
+                .containsEntry(exactlyB.getId(), chargeB.getId()).hasSize(2);
+    }
+
     @Test
     void reconcileForUser_aPaymentOnTheNextStatementsDate_stillPaysTheEarlierBill() {
         // Inside the next statement's own period, so printed there as a payment of the earlier bill.
@@ -3938,13 +4038,15 @@ class ReconciliationServiceTest {
         assertSameOutcomeEitherIdOrder(swap -> {
             org.mockito.Mockito.clearInvocations(transactionGraphService);
             com.finora.entity.StatementImport statement =
-                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("55584.00"), due);
+                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("25584.00"), due);
+            // Together they are more than is due, so only one of them can be this bill's: a bill
+            // paid in parts never takes more than it says is owed.
             Transaction smaller = txn(swap ? HIGHEST_ID : LOWEST_ID, otherAccountId, due.plusDays(10),
                     new BigDecimal("10980.00"), Transaction.Type.EXPENSE, "CC PAYMENT ONE", Instant.now());
             Transaction closer = txn(swap ? LOWEST_ID : HIGHEST_ID, otherAccountId, due.plusDays(10),
                     new BigDecimal("20010.00"), Transaction.Type.EXPENSE, "CC PAYMENT TWO", Instant.now());
             Transaction charge = txn(UUID.randomUUID(), cardAccountId, due.minusDays(30),
-                    new BigDecimal("55584.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+                    new BigDecimal("25584.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
             when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
                     .thenReturn(swap ? List.of(closer, smaller, charge) : List.of(smaller, closer, charge));
             when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));

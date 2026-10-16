@@ -176,6 +176,52 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aBillPaidInParts_staysLinkedPartByPart_acrossRuns() {
+        // Two payments to the bill-payment app that add up to the bill. The second run re-reads the
+        // links the first wrote, and must keep both rather than reject the second as a duplicate.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(15), "1000.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+        Transaction second = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1500.00",
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), second.getId());
+
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), second.getId());
+        assertThat(transactionGraphService.ccPaymentFromTransactionIds(List.of(first, second)))
+                .containsExactlyInAnyOrder(first.getId(), second.getId());
+    }
+
+    @Test
+    void aPaymentLinkedToOneCardsBill_movesToTheCardWhoseStatementShowsItReceived() {
+        // Linked by amount and window to the only bill imported. Then another card's statement is
+        // imported, and it prints this very payment as received: that is proof of which card it paid,
+        // so the payment becomes a transfer to that card and the guessed link is withdrawn.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction payment = save(txn(f.userId(), f.savings(), DUE.minusDays(10), "1500.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactly(payment.getId());
+
+        Account otherCard = account(f.userId(), Account.Type.CREDIT_CARD, "XXXXXXXXXXXX9876");
+        Transaction received = txn(f.userId(), otherCard, DUE.minusDays(10), "1500.00", "BBPS PAYMENT RECEIVED - DP100000000001");
+        received.setTxnType(Transaction.Type.INCOME);
+        received = save(received);
+        reconciliationService.reconcileForUser(f.userId());
+
+        Transaction after = transactionRepository.findById(payment.getId()).orElseThrow();
+        assertThat(after.isTransfer()).isTrue();
+        assertThat(after.getTransferPairId()).isEqualTo(received.getId());
+        assertThat(livePaymentsFor(f)).as("the guessed link to the other card's bill is withdrawn").isEmpty();
+    }
+
+    @Test
     void deletingTheOnlyCardStatement_releasesItsPayment_fromBeingExcludedFromSpending() {
         Fixture f = fixture("2500.00");
         Transaction payment = save(txn(f.userId(), f.savings(), DUE, "2500.00", "NEFT CC PAYMENT"));

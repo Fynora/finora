@@ -4111,14 +4111,13 @@ public class PdfTableLocator {
                 found = new WrappedHeader(candidate, span, admittedInteriorTierColumns);
                 int lines = span + 1;
                 explainWrap(first, () -> "MERGED across " + lines + " lines: every lower cell joined a"
-                        + " column above, and the joined row scores as a header -> "
-                        + candidate.stream().map(t -> t.text().trim()).toList());
+                        + " column above, and the joined row scores as a header (" + candidate.size()
+                        + " cells)");
             } else {
                 int lines = span + 1;
                 explainWrap(first, () -> "NO_MERGE across " + lines + " lines: the joined row still does"
                         + " not score as a header (needs a date column, >= 2 recognized names, and"
-                        + " >= 1/3 of cells recognized) -> "
-                        + candidate.stream().map(t -> t.text().trim()).toList());
+                        + " >= 1/3 of cells recognized); the joined row has " + candidate.size() + " cells");
             }
         }
         return found;
@@ -4261,8 +4260,8 @@ public class PdfTableLocator {
                 if (nearest > HEADER_WRAP_STRICT_COLUMN_JOIN) {
                     float distance = nearest;
                     explainWrap(upper, () -> "NO_MERGE (strict): the upper line already scores as a"
-                            + " header on its own, and lower cell \"" + t.text().trim() + "\" at x="
-                            + t.x() + " is " + distance + "pt from the nearest column above it (limit "
+                            + " header on its own, and lower cell (" + t.text().trim().length()
+                            + " chars) at x=" + t.x() + " is " + distance + "pt from the nearest column above it (limit "
                             + HEADER_WRAP_STRICT_COLUMN_JOIN + "pt) -- not a printed second band");
                     return false;
                 }
@@ -4337,8 +4336,10 @@ public class PdfTableLocator {
     private void explainWrap(List<PositionedText> upperLine, Supplier<String> outcome) {
         if (!log.isDebugEnabled() || upperLine.isEmpty()) return;
         PositionedText anchor = upperLine.get(0);
-        log.debug("WRAPPED_HEADER page={} y={} first={} -- {}",
-                anchor.pageIndex(), anchor.y(), anchor.text().trim(), outcome.get());
+        // The cell's length, never its text: this is a line of a customer's statement, and a log
+        // outlives the request. Page and y find the line in the PDF; the outcome says why.
+        log.debug("WRAPPED_HEADER page={} y={} firstCellChars={} -- {}",
+                anchor.pageIndex(), anchor.y(), anchor.text().trim().length(), outcome.get());
     }
 
     /** True when {@code next} can be the continuation of a header label begun on {@code line}:
@@ -5074,8 +5075,8 @@ public class PdfTableLocator {
                 if (t.text().isBlank()) continue;
                 int target = columnFor(t, columns);
                 if (target < 0) {
-                    explainWrap(block.get(0), () -> "NO_MERGE: lower cell \"" + t.text().trim() + "\" at x="
-                            + t.x() + " joins no column above it (nearest is more than "
+                    explainWrap(block.get(0), () -> "NO_MERGE: lower cell (" + t.text().trim().length()
+                            + " chars) at x=" + t.x() + " joins no column above it (nearest is more than "
                             + HEADER_WRAP_MAX_COLUMN_JOIN + "pt away), so these lines are not one"
                             + " heading -- a caption, or a second heading tier");
                     return null;
@@ -5159,8 +5160,8 @@ public class PdfTableLocator {
             if (!unresolved.isEmpty()) {
                 if (!isPureVocabularyTier(currentLine)) {
                     PositionedText first = unresolved.get(0);
-                    explainWrap(block.get(0), () -> "NO_MERGE: lower cell \"" + first.text().trim() + "\" at x="
-                            + first.x() + " joins no column above it (nearest is more than "
+                    explainWrap(block.get(0), () -> "NO_MERGE: lower cell (" + first.text().trim().length()
+                            + " chars) at x=" + first.x() + " joins no column above it (nearest is more than "
                             + HEADER_WRAP_MAX_COLUMN_JOIN + "pt away), and its own line is not"
                             + " entirely recognized column-name vocabulary, so it is not admitted as"
                             + " a new interior-tier column");

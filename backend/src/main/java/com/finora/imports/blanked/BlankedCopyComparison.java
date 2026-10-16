@@ -171,7 +171,7 @@ public final class BlankedCopyComparison {
     /** {@link #sameDescription(String, String)} with the given bank sentences in place of the
      *  production list. */
     static boolean sameDescription(String real, String copy, Set<String> sentences) {
-        if (real == null || copy == null) return real == copy;
+        if (real == null || copy == null) return real == null && copy == null;
         String joined = PdfTraceRedactor.redactLine(real);
         if (copy.equals(joined)) return true;
 

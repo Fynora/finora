@@ -147,7 +147,15 @@ public final class TraceFormat {
      *  inside a run. Older files are read exactly as they always were. */
     private static boolean encodesLineBreaks(String content) {
         Matcher magic = MAGIC_VERSION.matcher(content);
-        return magic.find() && Integer.parseInt(magic.group(1)) >= 4;
+        if (!magic.find()) return false;
+        try {
+            return Integer.parseInt(magic.group(1)) >= 4;
+        } catch (NumberFormatException e) {
+            // The pattern accepts any run of digits, so a version too long for an int reaches here.
+            // That is a malformed file, said as one, not an uncaught NumberFormatException.
+            throw new IllegalArgumentException("Malformed trace header: the format version is not a number "
+                    + "this reader can hold", e);
+        }
     }
 
     private static String text(String field, boolean encoded) {

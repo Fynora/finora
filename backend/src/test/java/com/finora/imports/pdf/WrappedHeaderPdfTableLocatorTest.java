@@ -51,6 +51,44 @@ class WrappedHeaderPdfTableLocatorTest {
         assertThat(ctx.capabilities()).extracting("capability").contains("WRAPPED_HEADER");
     }
 
+    /**
+     * The decision log for a wrapped heading says where a line is and why it was or was not merged.
+     * It must never carry the statement's own words: DEBUG is off by default, but a log outlives the
+     * request, and these cells are lines of a customer's statement (CodeQL java/sensitive-log). The
+     * length of a cell is enough to find it; the page and y say where.
+     */
+    @Test
+    void theWrappedHeaderDecisionLogCarriesNoStatementText() throws Exception {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PdfTableLocator.class);
+        ch.qos.logback.classic.Level before = logger.getLevel();
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        try {
+            locate(new DocumentContext("PDF", "WrappedHeaderPdfTableLocatorTest"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(before);
+        }
+
+        List<String> lines = appender.list.stream()
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .filter(m -> m.startsWith("WRAPPED_HEADER"))
+                .toList();
+
+        assertThat(lines).as("the decision was logged at all, or this test proves nothing").isNotEmpty();
+        for (String words : List.of("FD Number", "Currency Code", "Deposit Principal", "Maturity Amount",
+                "Nomination Registered", "Rate Of Interest", "FD0000001", "50,000.00")) {
+            assertThat(lines).as("no log line contains \"" + words + "\"")
+                    .noneMatch(m -> m.contains(words));
+        }
+        assertThat(lines).as("each line locates the heading by page, y and the first cell's length")
+                .allMatch(m -> m.contains("page=") && m.contains("y=") && m.contains("firstCellChars="));
+    }
+
     @Test
     void everyColumnIsNamedFromBothLinesOfItsHeading() throws Exception {
         Map<String, String> first = locate(null).sections().get(0).rows().get(0);

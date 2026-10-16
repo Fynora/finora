@@ -53,6 +53,12 @@ describe('softenCapitals', () => {
 });
 
 describe('rowTitle', () => {
+  // A title built from the server's lower-case merchant label, when its words are not found in
+  // the description, is capitalised word by word; the banking terms keep their capitals there too.
+  it('keeps banking terms in capitals in a title built from the merchant label', () => {
+    expect(rowTitle(txn({ description: 'PAYMENT RECEIVED', merchant: 'upi collect' }))).toBe('UPI Collect');
+  });
+
   it('uses the description when there is no merchant', () => {
     expect(rowTitle(txn({ description: 'NEFT INWARD 0042', merchant: '' }))).toBe('NEFT Inward 0042');
   });

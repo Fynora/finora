@@ -1097,15 +1097,44 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
-  it('leaves a keyword the user typed over the seeded one alone when the drill-through is cleared', async () => {
+  // A search that arrived from another screen is what its chip names. Once the person types over
+  // it the chip no longer describes the list, so it goes, and what they typed stays.
+  it('drops the arrived chip, and keeps what was typed, when the person types over the arrived search', async () => {
     mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
     renderScreen();
     await screen.findByDisplayValue('Myntra');
     fireEvent.changeText(screen.getByLabelText('Search transactions'), 'Amazon');
 
-    fireEvent.press(screen.getByLabelText('Clear filter: Myntra'));
-
+    expect(screen.queryByLabelText('Clear filter: Myntra')).toBeNull();
     expect(screen.getByDisplayValue('Amazon')).toBeTruthy();
+  });
+
+  // Reports' biggest spend arrives as a word and a day under one chip ("Swiggy · 12 Oct"). Clearing
+  // the search with its × used to leave that chip on screen over a list no longer narrowed by the
+  // word: the chip said one thing and the list showed another.
+  it('drops an arrived search-and-dates chip when its search is cleared, so the chip never names a filter that is off', async () => {
+    mockRouteParams = {
+      filters: filters({ keyword: 'Swiggy', dateFrom: '2026-10-12', dateTo: '2026-10-12', label: 'Swiggy · 12 Oct' }),
+    };
+    renderScreen();
+    await screen.findByDisplayValue('Swiggy');
+    expect(screen.getByLabelText('Clear filter: Swiggy · 12 Oct')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Clear search'));
+
+    expect(screen.queryByLabelText('Clear filter: Swiggy · 12 Oct')).toBeNull();
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({
+      keyword: undefined, dateFrom: undefined, dateTo: undefined,
+    })));
+  });
+
+  it('keeps an arrived chip that carried no search when the person searches within it', async () => {
+    mockRouteParams = { filters: filters({ categoryId: 'c-1', label: 'Food' }) };
+    renderScreen();
+    await screen.findByLabelText('Clear filter: Food');
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'Amazon');
+
+    expect(screen.getByLabelText('Clear filter: Food')).toBeTruthy();
   });
 
   // The tab stays mounted (React Navigation's default), so its local state survives a visit to

@@ -131,7 +131,9 @@ function plain(text: string): string {
 
 function capitaliseIfLower(text: string): string {
   if (text !== text.toLowerCase()) return text;
-  return text.replace(/(^|\s)([a-z])/g, (_, gap: string, letter: string) => gap + letter.toUpperCase());
+  return text.replace(/(^|\s)([a-z])/g, (_, gap: string, letter: string) => gap + letter.toUpperCase())
+    // The casing here is made up, so a banking term gets its capitals back (KEPT_IN_CAPITALS).
+    .replace(WORD, (word) => (KEPT_IN_CAPITALS.has(word.toUpperCase()) ? word.toUpperCase() : word));
 }
 
 function printedTitle(description: string, merchant: string): string {

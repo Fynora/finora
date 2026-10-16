@@ -593,6 +593,10 @@ export function LedgerScreen() {
                 // Real typing supersedes a keyword that arrived from another screen the moment it
                 // happens -- same "wins until superseded" shape as the manual date range.
                 setDrillThroughKeyword(null);
+                // An arrived filter that carried a search ("Swiggy · 12 Oct") is named by its chip;
+                // once the search is changed or cleared the chip no longer describes the list, so
+                // it goes too. One that carried none (a category, a month) still holds and stays.
+                if (activeDrillThrough?.keyword) setActiveDrillThrough(null);
               }}
               searchRef={searchRef}
               typeFilter={typeFilter}

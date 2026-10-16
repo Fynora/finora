@@ -1,34 +1,25 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDownCircle, ArrowUpCircle, PiggyBank, PieChart, UploadCloud, Loader2 } from 'lucide-react';
+import { PieChart, UploadCloud, Loader2 } from 'lucide-react';
 import { reportsApi, type ReportData } from '../api/endpoints';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { downloadBlob, toCsv } from '../lib/download';
-import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
+import { Button, FinoraCard, EmptyState, SectionHeader, Skeleton } from '../design-system';
 import { trackNavigation } from '../lib/trackNavigation';
-
-/** YYYY-MM-DD of a YYYY-MM month's last day. */
-function lastDayOf(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-}
-
-function fmt(n: number) {
-  // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
-  // not "₹-500" -- string concatenation put the currency symbol before the sign.
-  return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
-}
-
-// "2026-08" -> "August 2026", for naming a month inside a sentence (loading/empty-state copy
-// below). Explicit y/m/1 construction, not `new Date(monthStr)` -- a bare "YYYY-MM" parses as UTC
-// midnight, which renders as the prior month in any timezone behind UTC. Long form rather than
-// Dashboard's short `monthLabel` ("Jul 26"), which reads fine on a chart axis but is ambiguous
-// with a day-of-month inside prose.
-function monthLabelLong(monthStr: string) {
-  const [y, m] = monthStr.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
+import { fmt, monthLabelLong } from './reportSections/reportFormat';
+import { ReportHero } from './reportSections/ReportHero';
+import { ReportStatCards } from './reportSections/ReportStatCards';
+import { ReviewNotice } from './reportSections/ReviewNotice';
+import { BiggestSpends } from './reportSections/BiggestSpends';
+import { CategoryBreakdown } from './reportSections/CategoryBreakdown';
+import { MerchantsCard } from './reportSections/MerchantsCard';
+import { SpendingCalendar } from './reportSections/SpendingCalendar';
+import { MonthSwitcher } from './reportSections/MonthSwitcher';
+import { Observations } from './reportSections/Observations';
+import { buildObservations } from './reportSections/observationText';
+import { TrendPanel } from './reportSections/TrendPanel';
+import { useReportExtras } from './reportSections/useReportExtras';
 
 function downloadCsv(report: ReportData) {
   // Category names are user-controlled and end up in the first column, so cells are escaped
@@ -57,7 +48,7 @@ function ToolbarSkeleton() {
 }
 
 /**
- * The KPI grid and Category Breakdown, shared by both loading windows (the months fetch and the
+ * The hero, stat cards and category list, shared by both loading windows (the months fetch and the
  * first forMonth fetch) so the page can't grow two subtly different skeletons for the same content.
  * Rows mirror the real `grid-cols-[120px_1fr_90px]` layout -- label, bar, amount -- so the switch
  * to real data doesn't reflow the column structure.
@@ -65,11 +56,12 @@ function ToolbarSkeleton() {
 function ReportBodySkeleton() {
   return (
     <>
-      <div className="grid grid-cols-3 gap-4">
-        {[0, 1, 2].map((i) => <Skeleton.Card key={i} />)}
+      <Skeleton.Card />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {[0, 1].map((i) => <Skeleton.Card key={i} />)}
       </div>
       <FinoraCard>
-        <SectionHeader title="Category Breakdown" />
+        <SectionHeader title="Where your money went" />
         <div className="space-y-2">
           {Array.from({ length: 5 }, (_, i) => (
             <div key={i} className="grid grid-cols-[120px_1fr_90px] items-center gap-3">
@@ -98,6 +90,7 @@ export default function Reports() {
   const [reportLoading, setReportLoading] = useState(true);
   const [error, setError] = useState(false);
   const { beginRequest } = useAsyncGuard();
+  const extras = useReportExtras(month);
 
   useEffect(() => {
     reportsApi.availableMonths().then((m) => {
@@ -126,6 +119,14 @@ export default function Reports() {
       if (isCurrent()) { setError(true); setReportLoading(false); }
     });
   }, [month, beginRequest]);
+
+  // The page keeps showing the previous month's report while a new one loads, but the extras are
+  // fetched for the NEW month. Only extras that belong to the report on screen are shown with it.
+  const extrasForReport = report && report.month === month ? extras : null;
+  const observations = report && extrasForReport
+    ? buildObservations(extrasForReport.insights, monthLabelLong(report.month).split(' ')[0], fmt)
+    : [];
+  const hasSide = observations.length > 0 || (report?.incomeByKind?.length ?? 0) > 1;
 
   const showMonthsSkeleton = useDelayedLoading(loading);
   // First load only -- `report === null` is what separates "nothing to show yet" from "showing last
@@ -179,7 +180,10 @@ export default function Reports() {
   }
 
   return (
-    <div className="space-y-6">
+    // Print / PDF: browsers drop background colours when printing unless asked not to. The calendar's
+    // shaded days carry white text on a dark fill and the kept/spent bar is only fills, so without
+    // this they print as blanks. The calendar and bars are the point of this page.
+    <div className="space-y-6 [-webkit-print-color-adjust:exact] [print-color-adjust:exact]">
       {/* `relative` is new, and required: the Refreshing indicator below positions against it.
           Ledger's equivalent indicator works the same way (its container already carried it). */}
       <FinoraCard padding="sm" className="relative flex flex-wrap items-end gap-3 justify-between">
@@ -191,12 +195,7 @@ export default function Reports() {
             <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
           </div>
         )}
-        <div>
-          <label htmlFor="reports-month" className="block text-xs uppercase text-muted mb-1">Month</label>
-          <select id="reports-month" value={month} onChange={(e) => setMonth(e.target.value)} className="bg-card text-ink border rounded px-2 py-1.5 text-sm">
-            {months.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
+        <MonthSwitcher months={months} month={month} onChange={setMonth} />
         <div className="flex gap-2">
           {/* `uppercase` per call site: Button applies no text-transform of its own, and every
               button on this page had it. Same preservation the earlier phases used. */}
@@ -219,69 +218,44 @@ export default function Reports() {
         </Skeleton.Region>
       ) : report && (
         <>
-          <div className="grid grid-cols-3 gap-4">
-            {/* Money in that is not counted as income (see FlowClassifier on the backend) -- said here
-                so a month's income dropping because a transfer from a person stopped counting is
-                explained where the number is, not only on the Dashboard. */}
-            <MetricCard
-              label="Income" value={fmt(report.income)} icon={ArrowDownCircle} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success"
-              caption={report.unresolvedInflow && report.unresolvedInflow > 0 ? `${fmt(report.unresolvedInflow)} not counted as income` : undefined}
-            />
-            <MetricCard label="Expense" value={fmt(report.expense)} icon={ArrowUpCircle} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
-            <MetricCard label="Net" value={fmt(report.income - report.expense)} icon={PiggyBank} iconBg="bg-primary-light" iconColor="text-primary" />
-          </div>
+          <ReportHero report={report} />
+          <ReviewNotice report={report} />
+          <ReportStatCards report={report} />
 
-          {/* Plan 2: income split by what it was -- Family support and the user's own kinds get
-              their own lines -- and a way to sort out what is not counted yet. */}
-          {report.incomeByKind && report.incomeByKind.length > 1 && (
-            <FinoraCard>
-              <SectionHeader title="Income by kind" size="sm" />
-              <ul className="divide-y divide-border">
-                {report.incomeByKind.map((line) => (
-                  <li key={line.label} className="flex justify-between py-2 text-sm">
-                    <span className="text-ink">{line.label}</span>
-                    <span className="text-ink">{fmt(line.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-            </FinoraCard>
-          )}
-          {report.unresolvedInflow != null && report.unresolvedInflow > 0 && (
-            <Link
-              to={`/app/money-review?start=${report.month}-01&end=${lastDayOf(report.month)}`}
-              className="text-xs text-primary font-medium inline-block"
-            >
-              Review money not counted yet
-            </Link>
-          )}
-
-          <FinoraCard>
-            <SectionHeader title="Category Breakdown" />
-            {report.categories.length === 0 ? (
-              <EmptyState
-                icon={PieChart}
-                iconBg="bg-accent-purple-bg"
-                iconColor="text-accent-purple"
-                title="No expenses recorded"
-                desc={`Nothing was spent in ${monthLabelLong(month)} in any category.`}
-              />
-            ) : (
-              <div className="space-y-2">
-                {report.categories.map((c) => {
-                  const pct = report.expense > 0 ? (c.amount / report.expense) * 100 : 0;
-                  return (
-                    <div key={c.category} className="grid grid-cols-[120px_1fr_90px] items-center gap-3 text-sm">
-                      <span>{c.category}</span>
-                      <div className="h-2 bg-black/10 rounded overflow-hidden">
-                        <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-right">{fmt(c.amount)}</span>
-                    </div>
-                  );
-                })}
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className={hasSide ? 'lg:col-span-3' : 'lg:col-span-5'}>
+              <CategoryBreakdown report={report} categories={extras.categories} movers={extrasForReport?.insights?.movers ?? null} />
+            </div>
+            {hasSide && (
+              <div className="space-y-6 lg:col-span-2">
+                <Observations items={observations} />
+                {/* Plan 2: income split by what it was -- Family support and the user's own kinds
+                    get their own lines. */}
+                {report.incomeByKind && report.incomeByKind.length > 1 && (
+                  <FinoraCard>
+                    <SectionHeader title="Income by kind" size="sm" />
+                    <ul className="divide-y divide-border">
+                      {report.incomeByKind.map((line) => (
+                        <li key={line.label} className="flex justify-between py-2 text-sm">
+                          <span className="text-ink">{line.label}</span>
+                          <span className="text-ink">{fmt(line.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </FinoraCard>
+                )}
               </div>
             )}
-          </FinoraCard>
+          </div>
+          <TrendPanel points={extrasForReport?.trend ?? null} selectedMonth={report.month} />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <SpendingCalendar month={report.month} days={report.dailySpend} complete={report.complete !== false} />
+            {/* Without a calendar (nothing spent, or an older server) the column takes the full row. */}
+            <div className={`space-y-6 ${report.dailySpend && report.dailySpend.length > 0 ? '' : 'lg:col-span-2'}`}>
+              <BiggestSpends items={report.biggestSpends} />
+              <MerchantsCard month={report.month} />
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Reports from './Reports';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { analyticsApi, categoriesApi, entitlementsApi, insightsApi, reportsApi, type InsightsData, type ReportData } from '../api/endpoints';
+import { downloadBlob } from '../lib/download';
 
 vi.mock('../api/endpoints', () => ({
   reportsApi: { availableMonths: vi.fn(), forMonth: vi.fn(), trend: vi.fn() },
@@ -12,6 +13,12 @@ vi.mock('../api/endpoints', () => ({
   insightsApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
   analyticsApi: { topMerchants: vi.fn() },
+}));
+
+// The real download needs a browser to hand a file to; what matters here is the file's content.
+vi.mock('../lib/download', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/download')>()),
+  downloadBlob: vi.fn(),
 }));
 
 // The extras (categories, insights, trend) are optional on the page, so every test starts with
@@ -899,5 +906,39 @@ describe('Reports — top merchants', () => {
     await screen.findByTestId('category-rows');
     expect(screen.queryByTestId('locked-merchants-bars')).not.toBeInTheDocument();
     expect(screen.queryByTestId('top-merchants')).not.toBeInTheDocument();
+  });
+});
+
+describe('Reports — Export CSV', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it('writes the month the way the page shows it: totals, caveats and sections, not just categories', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      savingsRatePct: 60, complete: false, unresolvedInflow: 3000,
+      biggestSpends: [{ id: 'a', date: '2026-08-14', label: 'Big Mart', category: 'Food', amount: 9000 }],
+    }));
+    renderPage();
+    await screen.findByTestId('category-rows');
+
+    await userEvent.click(screen.getByRole('button', { name: /export csv/i }));
+
+    expect(downloadBlob).toHaveBeenCalledTimes(1);
+    const [blob, name] = vi.mocked(downloadBlob).mock.calls[0];
+    expect(name).toBe('fynora-report-2026-08.csv');
+    // jsdom's Blob is not Node's, so Response/blob.text() cannot read it; FileReader can.
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(blob);
+    });
+    expect(text).toContain('"Net","60000"');
+    expect(text).toContain('"Savings rate (%)","60"');
+    expect(text).toContain('"Received, not counted as income yet","3000"');
+    expect(text).toContain(`"Part of this month isn't in yet, so these figures may change."`);
+    expect(text).toContain('"Big Mart","Food","9000"');
   });
 });

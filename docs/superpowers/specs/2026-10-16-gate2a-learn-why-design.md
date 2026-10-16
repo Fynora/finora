@@ -1,6 +1,6 @@
 # Gate 2a: learn why people don't get a statement in
 
-Date: 2026-10-16. Status: **draft for Sid's approval.**
+Date: 2026-10-16. Status: **approved by Sid, 16 Oct, including all copy.**
 
 Part of the activation plan v3 (approved 2026-10-09), Gate 2. Gate 2 is now two specs:
 
@@ -146,9 +146,16 @@ share it. A new answer needs a server change, never a client-only one.
 
 ### 4.3 Limits
 
-- **Per moment:** asked at most once per user every 14 days.
-- **Per user:** at most one question per user per day, of any moment.
-- **Answered or skipped:** once a user answers or skips a moment, it is not asked again for 30 days.
+"Asked" means answered or skipped: the apps cannot tell whether someone read a card they did not
+touch. *(Clarified while planning, 16 Oct.)*
+
+- **Per moment:** once a user answers or skips a moment, it is not asked again for 30 days. A
+  question left untouched may show again the next time its moment happens; a dashboard card stays
+  until it is answered, skipped (its close button counts as Skip) or no longer applies.
+- **Per user:** at most one answer or skip per user per day, of any moment. After one, no other
+  question shows that day.
+- **The `NOT_CONFIRMED` dashboard card** is about a read that expired in the last 7 days, so an old
+  expiry never brings it back.
 - **The `NO_FILE` card** is never shown to a user who has data in. The `NOT_CONFIRMED` card can be,
   since a user with data can still lose a later statement to expiry.
 - **Never during an action:** a question never appears while an upload, read or confirm is in
@@ -258,7 +265,7 @@ It holds no one's personal data. Filled notes never go in the repository.
 **Output:** a ranked list of barriers, each with what was seen, what was said, how often the §4
 answers name it, and a confidence (High, Medium, Low).
 
-## 8. Privacy page lines (for Sid to approve before release)
+## 8. Privacy page lines (approved 16 Oct)
 
 Added to the paragraph that already covers activity dates:
 
@@ -296,7 +303,7 @@ Small pieces, each its own PR:
 **Decision at the gate:** which 2b items to do first, and whether the bigger bets that were set aside
 (email forwarding, bank guides, Account Aggregator) are now justified by the answers.
 
-## 11. Calls made in this spec (for Sid to check)
+## 11. Calls made in this spec (approved 16 Oct)
 
 - The answer lists in §4.1 and §5.
 - The limits in §4.3: 14 days per moment, one question a day, 30 days after an answer.

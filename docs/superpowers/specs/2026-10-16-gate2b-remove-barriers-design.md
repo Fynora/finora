@@ -1,6 +1,6 @@
 # Gate 2b: remove the barriers to a first statement
 
-Date: 2026-10-16. Status: **draft for Sid's approval.**
+Date: 2026-10-16. Status: **approved by Sid, 16 Oct, including all copy.** Decisions: §5.1 (a), §6 (b), §7 no unprotected-copy advice.
 
 Part of the activation plan v3, Gate 2. Its partner, `2026-10-16-gate2a-learn-why-design.md`, finds
 out why people stop. This spec removes the barriers we can already see, for every user:
@@ -136,12 +136,21 @@ The dashboard checklist's import item uses the same first line.
 The panel must state how long a deleted statement's file stays in storage. Today the Privacy page
 says nothing about it. Before §5.2 ships:
 
-- **Sid decides:**
-  - (a) the Privacy page gains a sentence saying a deleted statement's file is removed from storage
-    within 90 days; or
-  - (b) a deleted statement's file is removed sooner, which is a code change to the sweep.
-- *My recommendation: (a).* The 90 days was Sid's product decision, and only the text is missing.
-- **Confirm with Sid** that R2 is configured in production.
+**Sid's decision (16 Oct): (a).** The Privacy page's "Data Retention" section gains this paragraph,
+each clause traced to code:
+
+> When you delete a statement, its original file stays in our storage for 90 days and is then
+> deleted. The file from an import that could not be completed is kept, so it can be retried without
+> uploading it again, until you delete your account. When you delete your Fynora account, your
+> statement files are deleted with it.
+
+- 90 days: `StatementStorageSweepService`, `retention-days: 90`, counted from the statement's
+  `deleted_at`.
+- Failed imports: a FAILED `import_jobs` row protects its object until the account is purged (the
+  sweep's "Accepted trade-off" doc).
+- Account deletion: `AccountPurgeSweepService` reclaims the user's objects at purge
+  (`reclaimImportJobObjectsOf`, `reclaimIfUnreferenced`), with the sweep as the backstop.
+- **Still to confirm with Sid:** that R2 is configured in production.
 
 ### 5.2 The panel
 
@@ -153,7 +162,8 @@ apps. Closed by default, one tap to open. My draft, every line traced to §1:
 - **You check every row before anything is saved.** If you cancel, nothing is added.
 - **If it can't be read automatically,** our team may open it to fix the problem. Every opening needs
   a written reason, is logged, and you are told.
-- **You can delete a statement any time** from Statement History. *(Then the line settled in §5.1.)*
+- **You can delete a statement any time** from Statement History. Its file is deleted from our
+  storage 90 days later.
 - **A PDF password is saved only if you choose,** and is stored encrypted.
 - A link to the Privacy page's "Uploaded Statements" section.
 
@@ -169,7 +179,7 @@ held paths (held imports and held statements) write the customer notice.
 
 **Two cases:**
 
-| Case | When | Message (push and in-app) |
+| Case | When | Message (push) |
 |---|---|---|
 | No data in yet | The 3rd of each month, 10:00 IST | "Your [Month] statement is out. It's a good one to start with, and takes a couple of minutes." |
 | Has data in | The first day a user has an account whose latest imported statement period ended more than 33 days ago with nothing newer | "A new statement has probably arrived for one of your accounts. Add it to keep your months complete." |
@@ -181,16 +191,14 @@ held paths (held imports and held statements) write the customer notice.
 - **No bank name, account or amount in the text** *(my call: it shows on lock screens)*.
 - **Tapping it opens the import screen:** web `/app/import`; mobile adds the type to `TYPE_ROUTE` as
   `'Import'`. A 1.0.0 build opens the app without routing, which is acceptable.
-- **Push and in-app only,** no email *(my call)*.
+- **Push only,** no email *(my call)*. The apps have no in-app notification list to add it to
+  (checked while planning, 16 Oct).
 - **Sent through the notification outbox** with a dedupe key per user per month, so a rerun never
   sends twice.
 - **Its own type,** `STATEMENT_MONTH_START` (my name).
 
-**Sid decides which switch turns it off:**
-- (a) the existing FINANCIAL switch, which also silences import results; or
-- (b) a new REMINDERS category, opt-out, with its own switch in both apps' notification settings.
-
-*My recommendation: (b).* Someone tired of reminders should not lose "your statement is ready".
+**Sid's decision (16 Oct): (b).** A new REMINDERS category, opt-out, with its own switch in both
+apps' notification settings, so someone tired of reminders does not lose "your statement is ready".
 
 The activation page (2a §6) adds a count of nudges sent each month, and of users who imported
 within 3 days of one.
@@ -215,11 +223,11 @@ permission.
    - The phone screen showing the code updates to "Received" when the import job exists.
 4. **A PDF that needs a password:**
    - The password is never typed on the public page.
-   - Whether the queued path can wait for a password the user enters on the phone is **not
-     established**. The builder checks first. If it cannot, the computer page refuses protected PDFs
-     with "This file has a password. Share it to your phone instead, or open it on the computer and
-     save a copy without the password."
-   - *(That second option needs Sid's OK, since it asks users to make an unprotected copy.)*
+   - The queued path cannot wait for a password entered later: `ImportJobController` refuses a
+     locked PDF unless the password comes with the upload (checked while planning, 16 Oct). So the
+     computer page refuses protected PDFs with "This file has a password. Send it to your phone and
+     share it into Fynora instead."
+   - Sid (16 Oct): never suggest saving a copy without the password.
 
 **Security requirements:**
 - The code is 6 characters from an alphabet without look-alike characters, valid 10 minutes, used
@@ -278,14 +286,12 @@ Mobile copy goes by OTA, never to 1.0.0 builds.
    five times, and a second code cancelling the first.
 6. Every change is verified per CLAUDE.md: tests, lint, typecheck, full backend `verify`, CI.
 
-## 11. Calls made in this spec (for Sid to check)
+## 11. Calls made in this spec (approved 16 Oct)
 
-- **For Sid to decide:**
-  - The 90 days, (a) or (b), in §5.1.
-  - The nudge's switch, (a) or (b), in §6.
-  - Whether to suggest saving an unprotected copy, in §7.
+- **Sid decided (16 Oct):** §5.1 (a), the Privacy page sentence; §6 (b), a REMINDERS category;
+  §7, never suggest an unprotected copy.
 - **My calls:**
   - An upload code instead of a QR sign-in (§7).
-  - No bank name in nudges; push and in-app only; stopping after two months with no import (§6).
+  - No bank name in nudges; push only; stopping after two months with no import (§6).
   - All copy drafts in §3, §4, §5 and §8.
   - The card line waits for a corpus check (§4).

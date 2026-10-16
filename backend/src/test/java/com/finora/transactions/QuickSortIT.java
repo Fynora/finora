@@ -282,6 +282,45 @@ class QuickSortIT extends AbstractIntegrationTest {
         assertThat(batch.get("waitingTotal").decimalValue()).isEqualByComparingTo("100");
     }
 
+    // The progress a person sees: what Quick sort already filed, beside what still waits. Each visit
+    // used to start at 0% because only the waiting money came back.
+    @Test
+    void theBatchCarriesTheMoneyAlreadyQuickSorted() throws Exception {
+        UUID a = seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        seed(user.getId(), accountId, "vpa:sampleb", 50);
+        assertThat(batch(0).get("sortedTotal").decimalValue()).isEqualByComparingTo("0");
+
+        data(post("/api/v1/transactions/quick-sort/answer",
+                "{\"anchorTransactionId\":\"" + a + "\",\"category\":\"Groceries\",\"kind\":\"SHOP\"}", user));
+
+        JsonNode after = batch(0);
+        assertThat(after.get("sortedTotal").decimalValue()).isEqualByComparingTo("200");
+        assertThat(after.get("waitingTotal").decimalValue()).isEqualByComparingTo("50");
+    }
+
+    // Counted the way waitingTotal is: the user's own rows, on accounts they still have, duplicates
+    // left out, money in and out both as a positive amount. A sorted row that is waiting again is
+    // counted as waiting only, so no money is counted twice.
+    @Test
+    void theSortedMoneyIsTheUsersOwnLiveRowsWithoutDuplicates() throws Exception {
+        seed(user.getId(), accountId, "vpa:stillwaiting", 10);
+        quickSorted(seed(user.getId(), accountId, "vpa:samplea", 100), t -> { });
+        quickSorted(seed(user.getId(), accountId, "vpa:samplec", 30), t -> t.setTxnType(Transaction.Type.INCOME));
+        quickSorted(seed(user.getId(), accountId, "vpa:sampled", 400),
+                t -> t.setReconciliationStatus(Transaction.ReconciliationStatus.DUPLICATE));
+        quickSorted(seed(user.getId(), accountId, "vpa:samplef", 600), t -> t.setNeedsCategoryReview(true));
+        UUID goneAccount = newAccount(user.getId());
+        quickSorted(seed(user.getId(), goneAccount, "vpa:samplee", 800), t -> { });
+        accountRepository.deleteById(goneAccount);
+        User other = newUser();
+        quickSorted(seed(other.getId(), newAccount(other.getId()), "vpa:theirs", 900), t -> { });
+
+        JsonNode batch = batch(0);
+        assertThat(batch.get("sortedTotal").decimalValue()).isEqualByComparingTo("130");
+        assertThat(batch.get("waitingTotal").decimalValue()).isEqualByComparingTo("610");
+    }
+
     // --- helpers ---
 
     private JsonNode batch(int skip) throws Exception {
@@ -365,5 +404,15 @@ class QuickSortIT extends AbstractIntegrationTest {
 
     private Transaction reload(UUID id) {
         return transactionRepository.findById(id).orElseThrow();
+    }
+
+    /** A row as a Quick sort answer leaves it: chosen, no longer waiting, stamped; then {@code change}. */
+    private void quickSorted(UUID id, java.util.function.Consumer<Transaction> change) {
+        Transaction t = reload(id);
+        t.setNeedsCategoryReview(false);
+        t.setCategoryManuallySet(true);
+        t.setQuickSortedAt(java.time.Instant.now());
+        change.accept(t);
+        transactionRepository.save(t);
     }
 }

@@ -156,8 +156,10 @@ describe('QuickSortCard', () => {
       .mockResolvedValueOnce(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SKIPPED' })], {
         rest: { questions: 1, payments: 1, amount: 50, transactionIds: ['r1'] },
       }))
+      // The server's figures after the 1240 answer and a skip: what it filed is sorted, not waiting.
       .mockResolvedValueOnce(batch([question({ id: 'c', anchorTransactionId: 'txn-3', payee: 'NEXT SHOP' })], {
         waitingTotal: 8000,
+        sortedTotal: 2000,
       }));
     renderCard();
     await userEvent.click(await screen.findByRole('button', { name: 'Groceries' }));
@@ -166,8 +168,22 @@ describe('QuickSortCard', () => {
     expect(transactionsApi.quickSortMore).toHaveBeenCalled();
     expect(transactionsApi.quickSort).toHaveBeenLastCalledWith(1);
     expect(await screen.findByText('NEXT SHOP')).toBeInTheDocument();
-    // Progress is measured against the first batch's waiting money: 10,000 -> 8,000 is 20%.
+    // Sorted out of everything that waited: 2,000 of 10,000 is 20%.
     expect(screen.getByText(/You've sorted 20% of your waiting money/)).toBeInTheDocument();
+  });
+
+  // A tester left Quick sort part-way and came back to 0%: progress counted only this visit. It
+  // now counts what earlier visits sorted too.
+  it('picks up where the last visit ended', async () => {
+    vi.mocked(transactionsApi.quickSort).mockResolvedValue(batch([
+      question(),
+      question({ id: 'vpa:second|EXPENSE', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' }),
+    ], { waitingTotal: 6000, sortedTotal: 4000 }));
+    renderCard();
+    expect(await screen.findByText(/You've sorted 40% of your waiting money/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Groceries' }));
+    // (4,000 + 1,240) / 10,000, floored.
+    expect(await screen.findByText(/You've sorted 52% of your waiting money/)).toBeInTheDocument();
   });
 
   it('never says all sorted while skipped questions are still waiting', async () => {

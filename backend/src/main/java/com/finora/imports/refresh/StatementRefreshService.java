@@ -18,6 +18,7 @@ import com.finora.imports.refresh.StatementRefreshDiff.FieldChange;
 import com.finora.imports.refresh.StatementRefreshDiff.FreshRow;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
 import com.finora.imports.storage.StatementContentService;
+import com.finora.imports.trust.HoldDecision;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementImportExcludedRowRepository;
@@ -40,6 +41,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -66,7 +68,8 @@ import java.util.UUID;
  * detection then run once for the user, and the outcome is recorded as a {@link StatementRefreshRun}.
  *
  * <p>Nothing is applied when the re-read cannot be trusted: the checks are the dry run's
- * ({@link StatementRefreshInputs#refusal}, {@link StatementRefreshInputs#removesTooMuch}).
+ * ({@link StatementRefreshInputs#refusal}, {@link StatementRefreshInputs#trustHold} -- the upload
+ * path's own hold -- and {@link StatementRefreshInputs#removesTooMuch}).
  *
  * <p>Three phases, as in the dry run: the stored file is read in a short read-only transaction;
  * parsing runs outside any transaction; then one write transaction locks the statement, compares
@@ -233,14 +236,24 @@ public class StatementRefreshService {
         StatementRefreshDiff.Result diff = StatementRefreshDiff.compute(known, fresh.rows());
         List<StatementRefreshInputs.FactChange> facts =
                 StatementRefreshInputs.factChanges(statement, staging.detectedAccount());
+        if (!diff.hasChanges() && facts.isEmpty()) {
+            stamp(statement, version);
+            return save(new RunBuilder(statement, version, StatementRefreshRun.Status.NO_CHANGES));
+        }
+        // Only once there is something to apply: a re-read that changes nothing writes nothing,
+        // whatever its checks say, and the statement's rows stay as they were imported.
+        HoldDecision trust = StatementRefreshInputs.trustHold(staging, LocalDate.now(ZoneOffset.UTC));
+        if (trust.hold()) {
+            RunBuilder held = new RunBuilder(statement, version, StatementRefreshRun.Status.NEEDS_REVIEW)
+                    .reason(StatementRefreshInputs.TRUST_HOLD)
+                    .holdCategories(StatementRefreshInputs.holdCategories(trust));
+            held.counts(diff, facts);
+            return save(held);
+        }
         if (StatementRefreshInputs.removesTooMuch(diff, StatementRefreshInputs.liveRows(known))) {
             RunBuilder held = new RunBuilder(statement, version, StatementRefreshRun.Status.NEEDS_REVIEW);
             held.counts(diff, facts);
             return save(held);
-        }
-        if (!diff.hasChanges() && facts.isEmpty()) {
-            stamp(statement, version);
-            return save(new RunBuilder(statement, version, StatementRefreshRun.Status.NO_CHANGES));
         }
 
         BigDecimal balanceBefore = accountBalance(statement.getAccountId());
@@ -528,12 +541,15 @@ public class StatementRefreshService {
         private final List<Map<String, Object>> facts = new ArrayList<>();
         private final List<Map<String, Object>> skipped = new ArrayList<>();
         private String reason;
+        private List<String> holdCategories = List.of();
 
         RunBuilder(StatementImport statement, String version, StatementRefreshRun.Status status) {
             this.run = new StatementRefreshRun(statement.getId(), statement.getUserId(), version, status);
         }
 
         RunBuilder reason(String reason) { this.reason = reason; return this; }
+
+        RunBuilder holdCategories(List<String> categories) { this.holdCategories = categories; return this; }
 
         void counts(StatementRefreshDiff.Result diff, List<StatementRefreshInputs.FactChange> factChanges) {
             run.setCounts(diff.changed().size(), diff.added().size(),
@@ -595,6 +611,7 @@ public class StatementRefreshService {
         StatementRefreshRun build() {
             Map<String, Object> detail = new LinkedHashMap<>();
             if (reason != null) detail.put("reason", reason);
+            if (!holdCategories.isEmpty()) detail.put("holdCategories", holdCategories);
             if (!changed.isEmpty()) detail.put("changed", changed);
             if (!added.isEmpty()) detail.put("added", added);
             if (!removed.isEmpty()) detail.put("removed", removed);

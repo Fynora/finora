@@ -36,6 +36,12 @@ describe('categoryChanges', () => {
     expect(out).toEqual([{ category: 'Food & Dining', now: 500, before: 300, delta: 200, kind: 'up' }]);
   });
 
+  it('adds up two rows that differ only by case, instead of the later one replacing the earlier', () => {
+    const out = categoryChanges([row('Food', 100), row('food', 200)], [row('Food', 150)]);
+    // Named as the larger of the rows is (categoryRows orders them largest first).
+    expect(out).toEqual([{ category: 'food', now: 300, before: 150, delta: 150, kind: 'up' }]);
+  });
+
   it('ignores a refund-netted row that is not a positive amount, as the category list does', () => {
     const out = categoryChanges([row('Shopping', -50)], [row('Shopping', 400)]);
     expect(out).toEqual([{ category: 'Shopping', now: 0, before: 400, delta: -400, kind: 'gone' }]);

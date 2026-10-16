@@ -17,6 +17,18 @@ export const MAX_CHANGES = 5;
 
 const keyOf = (name: string) => name.trim().toLowerCase();
 
+/** The month's category rows keyed by name. Two rows that differ only by case or spacing are one
+ *  category here, so their amounts add up rather than the later row replacing the earlier. */
+function byName(categories: { category: string; amount: number }[]): Map<string, { category: string; amount: number }> {
+  const out = new Map<string, { category: string; amount: number }>();
+  for (const r of categoryRows(categories).rows) {
+    const key = keyOf(r.category);
+    const seen = out.get(key);
+    out.set(key, seen ? { category: seen.category, amount: seen.amount + r.amount } : { category: r.category, amount: r.amount });
+  }
+  return out;
+}
+
 /**
  * The categories whose spend moved most between the earlier month and this one, largest rupee move
  * first. Both lists are the reports' own category rows (same rules for both months, refunds netted,
@@ -35,8 +47,8 @@ export function categoryChanges(
   prior: { category: string; amount: number }[],
   max: number = MAX_CHANGES,
 ): CategoryChange[] {
-  const now = new Map(categoryRows(current).rows.map((r) => [keyOf(r.category), r]));
-  const before = new Map(categoryRows(prior).rows.map((r) => [keyOf(r.category), r]));
+  const now = byName(current);
+  const before = byName(prior);
   const keys = new Set([...now.keys(), ...before.keys()]);
   const changes: CategoryChange[] = [];
   for (const key of keys) {

@@ -51,6 +51,7 @@ import com.finora.repository.PasswordHistoryRepository;
 import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.PhoneChangeSessionRepository;
+import com.finora.repository.InsightAcknowledgementRepository;
 import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
@@ -250,6 +251,7 @@ public class AccountPurgeSweepService {
     private final FeatureViewCountRepository featureViewCountRepository;
     private final UserActivityDayRepository userActivityDayRepository;
     private final ImportFunnelDayRepository importFunnelDayRepository;
+    private final InsightAcknowledgementRepository insightAcknowledgementRepository;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
@@ -322,6 +324,7 @@ public class AccountPurgeSweepService {
                                      FeatureViewCountRepository featureViewCountRepository,
                                      UserActivityDayRepository userActivityDayRepository,
                                      ImportFunnelDayRepository importFunnelDayRepository,
+                                     InsightAcknowledgementRepository insightAcknowledgementRepository,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
@@ -393,6 +396,7 @@ public class AccountPurgeSweepService {
         this.featureViewCountRepository = featureViewCountRepository;
         this.userActivityDayRepository = userActivityDayRepository;
         this.importFunnelDayRepository = importFunnelDayRepository;
+        this.insightAcknowledgementRepository = insightAcknowledgementRepository;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
@@ -812,6 +816,8 @@ public class AccountPurgeSweepService {
             userActivityDayRepository.deleteByUserId(userId);
             // V275 (Gate 2a): the import-funnel record, same anonymize-not-delete trap.
             importFunnelDayRepository.deleteByUserId(userId);
+            // V276: the Insights "Got it" record, same anonymize-not-delete trap.
+            insightAcknowledgementRepository.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);

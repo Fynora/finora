@@ -3367,6 +3367,54 @@
                 }
             }
         },
+        "/api/v1/insights/acknowledgements": {
+            "get": {
+                "tags": [
+                    "insights-controller"
+                ],
+                "operationId": "acknowledgements",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListInsightAcknowledgementDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "insights-controller"
+                ],
+                "operationId": "acknowledge",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InsightAcknowledgementDto"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/inflow-kinds": {
             "get": {
                 "tags": [
@@ -17389,6 +17437,24 @@
                     }
                 }
             },
+            "InsightAcknowledgementDto": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING"
+                    },
+                    "itemKey": {
+                        "type": "string",
+                        "maxLength": 300,
+                        "minLength": 0
+                    }
+                },
+                "required": [
+                    "itemKey",
+                    "kind"
+                ]
+            },
             "CreateKindRequest": {
                 "type": "object",
                 "properties": {
@@ -23741,6 +23807,9 @@
                     },
                     "reportingMonthIsCurrent": {
                         "type": "boolean"
+                    },
+                    "unlinkedCardBills": {
+                        "$ref": "#/components/schemas/UnlinkedCardBills"
                     }
                 }
             },
@@ -23752,6 +23821,21 @@
                     },
                     "amount": {
                         "type": "number"
+                    }
+                }
+            },
+            "UnlinkedCardBills": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "number"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -23788,6 +23872,37 @@
                 "properties": {
                     "narration": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseListInsightAcknowledgementDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/InsightAcknowledgementDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

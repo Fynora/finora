@@ -110,11 +110,14 @@ A new table and two endpoints:
 ## Constraints
 
 - **Card bills.** A card bill payment is moving money to the card, and its size is a whole month of
-  card purchases paid at once, so it must not appear as "running high". How a card bill row is
-  identified when reconciliation has not linked it is **not established**: the server only knows a
-  linked card payment, and "Credit Card bill" in the observed account is a category name, not a
-  system category. Planning must find, with evidence, what marks these rows (a category flag, a
-  transfer type, the graph). If nothing does short of matching a name, stop and ask Sid.
+  card purchases paid at once, so it must not appear as "running high". The marker is the server's
+  existing card-payment link (`ReconciliationService`'s `CC_PAYMENT` pass, which matches a bank
+  payment to an imported card statement's total amount due and payment due date). A linked payment
+  is already left out of the insights pipeline, so it can never be a mover. No matching on category
+  names. In the observed account the Axis card's statements are imported (38 transactions, last
+  import 30 Sep 2026), yet September's card bill payments were not linked; why is not established
+  and is investigated separately (Sid suggested using the statement generation date). That fix
+  corrects Dashboard, Reports and Budgets too, so it does not belong in this screen's work.
 - Amounts in Indian grouping via the app's own formatter; months as "September 2026" / "Sep 2026",
   through `withSep` (#2251) wherever a short month is written.
 - Every figure on screen comes from one source per concept: spending totals from `InsightsData`

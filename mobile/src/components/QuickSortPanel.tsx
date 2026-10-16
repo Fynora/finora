@@ -37,7 +37,9 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [allSorted, setAllSorted] = useState(false);
+  // "Stop asking about these" taken for this batch's rest: that money left the queue unsorted, and
+  // the rest is no longer offered. Questions skipped earlier are still waiting.
+  const [restStopped, setRestStopped] = useState(false);
   // The answer just saved, named above the next question: without it the question swaps with
   // nothing on screen saying the last one landed. Cleared by anything that is not a saved answer.
   const [lastSaved, setLastSaved] = useState<{ category: string; payee: string } | null>(null);
@@ -48,6 +50,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
         setBatch(b);
         setIndex(0);
         setAnsweredInBatch(0);
+        setRestStopped(false);
         setStartTotal((prev) => prev ?? b.waitingTotal);
         if (first) onLoaded?.(b.questions.length);
       })
@@ -70,11 +73,16 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
+  const restOffered = batch.rest.questions > 0 && !restStopped;
+  // Nothing left to ask, offer or come back to.
+  const allSorted = !current && !restOffered && skipped === 0;
   // Out of everything that waited, earlier visits included: the server's sorted money, this
-  // batch's answers moved across from waiting. A server without sortedTotal counts this batch only.
+  // batch's answers moved across from waiting, and a stopped rest out of the count altogether.
+  // A server without sortedTotal counts this batch only. Exactly 100 once all is sorted: amounts
+  // carry paise, and summed in another order than the server's total they can land a hair under.
   const sortedBefore = batch.sortedTotal ?? 0;
-  const everWaiting = sortedBefore + batch.waitingTotal;
-  const sortedPct = everWaiting > 0
+  const everWaiting = sortedBefore + batch.waitingTotal - (restStopped ? batch.rest.amount : 0);
+  const sortedPct = allSorted ? 100 : everWaiting > 0
     ? Math.max(0, Math.min(100, Math.floor(((sortedBefore + answeredInBatch) / everWaiting) * 100)))
     : 0;
 
@@ -129,7 +137,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
     try {
       await transactionsApi.quickSortKeepRest(batch.rest.transactionIds);
       hapticSuccess();
-      setAllSorted(true);
+      setRestStopped(true);
       invalidateFinancialData(queryClient);
     } catch {
       hapticError();
@@ -154,19 +162,22 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
     </Pressable>
   );
 
-  const pct = allSorted ? 100 : sortedPct;
-
   return (
     <Card style={styles.card}>
       <SectionHeading
         title="Quick sort"
-        action={current && !allSorted ? (
-          <Text style={[styles.counter, { color: c.mutedInk }]}>{index + 1} of {batch.questions.length}</Text>
+        action={current ? (
+          <Text
+            style={[styles.counter, { color: c.mutedInk }]}
+            accessibilityLabel={`Question ${index + 1} of ${batch.questions.length}`}
+          >
+            {index + 1} of {batch.questions.length}
+          </Text>
         ) : undefined}
       />
-      <ProgressBar percent={pct} color={c.primary} testID="quick-sort-progress" />
+      <ProgressBar percent={sortedPct} color={c.primary} testID="quick-sort-progress" />
       <Text style={[styles.progress, { color: c.mutedInk }]}>
-        You've sorted {pct}% of your waiting money
+        You've sorted {sortedPct}% of your waiting money
       </Text>
 
       {lastSaved && !allSorted ? (
@@ -203,7 +214,7 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
             <Text style={[styles.skipText, { color: c.mutedInk }]}>Skip for now</Text>
           </Pressable>
         </View>
-      ) : batch.rest.questions > 0 ? (
+      ) : restOffered ? (
         <View>
           <View style={styles.chips}>
             {chip('Sort 10 more', () => void sortMore(), true)}
@@ -213,15 +224,14 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
             {batch.rest.payments} {batch.rest.payments === 1 ? 'payment' : 'payments'} ({fmtCurrency(batch.rest.amount)}) stay as Personal Transfer or Other. You can change any of them later from the Ledger.
           </Text>
         </View>
-      ) : skipped > 0 ? (
+      ) : (
+        // Not all sorted, nothing to ask or offer: only skipped questions are left.
         <View>
           <Text style={[styles.body, { color: c.ink }]}>
             You skipped {skipped} {skipped === 1 ? "question. It's" : "questions. They're"} still waiting.
           </Text>
           <View style={styles.chips}>{chip('Ask the skipped ones again', askSkippedAgain)}</View>
         </View>
-      ) : (
-        <Text style={[styles.body, { color: c.ink }]}>All sorted. You can change any category later from the Ledger.</Text>
       )}
 
       {error ? <Text style={[styles.body, { color: c.dangerInk }]}>{error}</Text> : null}

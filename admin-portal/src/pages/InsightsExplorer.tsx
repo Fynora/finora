@@ -5,6 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminInsightsExplorerApi } from '../api/endpoints';
 import type { InsightsExplorerTracedTransaction, InsightsExplorerTrace } from '../types';
+import { withSep } from '../lib/withSep';
 
 /**
  * One user's dashboard insights, traced back to the transaction set and formula that produced
@@ -61,7 +62,7 @@ function rupees(n: number): string {
 }
 
 function timestamp(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return withSep(new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
 }
 
 function TransactionsTable({ transactions }: { transactions: InsightsExplorerTracedTransaction[] }) {

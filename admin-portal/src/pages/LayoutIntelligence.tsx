@@ -8,6 +8,7 @@ import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminLayoutsApi, adminLayoutRegistryApi } from '../api/endpoints';
 import { ReviewQueuePanel, ProfilesPanel } from './LayoutRegistryPanels';
 import type { LayoutSummary, LayoutEvidenceReport, UnknownHeaderSummary } from '../types';
+import { withSep } from '../lib/withSep';
 
 /**
  * Layout Intelligence — the read side of the layout fingerprint every import has recorded since
@@ -52,7 +53,7 @@ function average(value: number | null): string {
 }
 
 function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return withSep(new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
 }
 
 /**

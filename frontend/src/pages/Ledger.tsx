@@ -34,6 +34,7 @@ import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import { formatForeignAmount } from '../lib/foreignAmount';
 import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { CountsAsSection } from '../components/inflow/CountsAsSection';
+import { withSep } from '../utils/date';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -226,7 +227,7 @@ function splitDate(dateStr: string): { day: string; monthYear: string } {
   if (Number.isNaN(d.getTime())) return { day: dateStr, monthYear: '' };
   return {
     day: String(d.getDate()).padStart(2, '0'),
-    monthYear: d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+    monthYear: withSep(d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })),
   };
 }
 

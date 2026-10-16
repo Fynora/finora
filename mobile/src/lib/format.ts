@@ -51,18 +51,28 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
  * wrong is silent, so this decides rather than asking each caller to remember. Mirrors
  * frontend/src/utils/date.ts, which fixed the same bug across the web app.
  */
+/**
+ * "Sep", never "Sept". Intl's en-IN and en-GB write September as "Sept" (Node, and Hermes on
+ * Android: "30 Sept 2026" on the Pixel 10 emulator, 2026-10-16), where the day headings, the
+ * server's emails and every other month in the app use three letters. Every en-IN or en-GB date
+ * that names its month goes through this.
+ */
+export function withSep(text: string): string {
+  return text.replace(/\bSept\b/g, 'Sep');
+}
+
 export function fmtDate(d: string | null | undefined): string | null {
   if (!d) return null;
   const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
 
   if (DATE_ONLY.test(d)) {
     // Explicit y/m/d construction is local by definition -- no UTC round trip to shift it.
-    return fromLocalDateString(d).toLocaleDateString('en-IN', options);
+    return withSep(fromLocalDateString(d).toLocaleDateString('en-IN', options));
   }
 
   const parsed = new Date(d);
   // An unparseable string would otherwise render as the literal "Invalid Date".
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString('en-IN', options);
+  return Number.isNaN(parsed.getTime()) ? null : withSep(parsed.toLocaleDateString('en-IN', options));
 }
 
 /**

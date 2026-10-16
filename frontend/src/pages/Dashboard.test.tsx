@@ -855,6 +855,19 @@ describe('Dashboard — Detected Issues', () => {
     expect(screen.getByRole('button', { name: 'Not a duplicate' })).toBeInTheDocument();
   });
 
+  it('writes a September duplicate date as Sep', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      duplicateTransactionCount: 1,
+      detectedDuplicates: [
+        { transactionId: 'txn-1', date: '2026-09-02', merchant: 'Swiggy', amount: 500 },
+      ],
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText(/2 Sep\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sept/)).not.toBeInTheDocument();
+  });
+
   it('uses plural wording for more than one detected duplicate', async () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
       duplicateTransactionCount: 2,

@@ -6,6 +6,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { adminImportTraceApi, adminStatementAnalysisApi } from '../api/endpoints';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import type { ImportTrace, ImportTraceFinding, ImportTraceStage } from '../types';
+import { withSep } from '../lib/withSep';
 
 /**
  * One import, end to end — Milestone 2's sixth success criterion.
@@ -41,9 +42,9 @@ function duration(ms: number | null | undefined): string {
 
 function timestamp(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', {
+  return withSep(new Date(iso).toLocaleString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
+  }));
 }
 
 /** The panel wrapper, so an empty block states its own absence rather than rendering nothing. */

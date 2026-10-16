@@ -5,6 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminImportRowTraceApi } from '../api/endpoints';
 import type { ImportRowTrace as ImportRowTraceType } from '../types';
+import { withSep } from '../lib/withSep';
 
 /**
  * One import, row by row -- Founder Operations Dashboard, Import Row Trace (docs/proposals/
@@ -31,7 +32,7 @@ function rupees(n: number): string {
 }
 
 function timestamp(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return withSep(new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
 }
 
 function TraceView({ trace }: { trace: ImportRowTraceType }) {

@@ -1,7 +1,7 @@
 import {
   currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtStatementBalance, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
   fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
-  toLocalDateString,
+  toLocalDateString, withSep,
 } from './format';
 
 describe('fmtStatementBalance', () => {
@@ -77,7 +77,31 @@ describe('local calendar dates', () => {
   });
 });
 
+// Intl's en-IN and en-GB write September as "Sept" (Node, and Hermes on Android: seen as
+// "30 Sept 2026" on the Pixel 10 emulator, 2026-10-16), where the day headings, the server's
+// emails and every other month in the app use three letters.
+describe('withSep', () => {
+  it.each([
+    ['30 Sept 2026', '30 Sep 2026'],
+    ['Wednesday, 30 Sept 2026', 'Wednesday, 30 Sep 2026'],
+    ['Sept 26', 'Sep 26'],
+    ['30 Sep 2026', '30 Sep 2026'],
+    ['14 Jul 2026', '14 Jul 2026'],
+  ])('%s reads %s', (input, expected) => {
+    expect(withSep(input)).toBe(expected);
+  });
+
+  it('leaves the word September whole', () => {
+    expect(withSep('30 September 2026')).toBe('30 September 2026');
+  });
+});
+
 describe('fmtDate', () => {
+  it('writes September as Sep, for a date and for a timestamp', () => {
+    expect(fmtDate('2026-09-30')).toBe('30 Sep 2026');
+    expect(fmtDate(new Date(2026, 8, 30, 12).toISOString())).toBe('30 Sep 2026');
+  });
+
   it('renders a date-only value as the day it names', () => {
     // Not "11 Mar" -- see fmtDate's own comment. Asserted on the day number alone so the test
     // doesn't depend on the platform's locale formatting.

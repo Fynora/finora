@@ -5,6 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminReconciliationExplorerApi } from '../api/endpoints';
 import type { ReconciliationExplorerEdge, ReconciliationExplorerTrace } from '../types';
+import { withSep } from '../lib/withSep';
 
 /**
  * One transaction, traced from raw to final classification -- Phase 2's Founder Operations
@@ -56,7 +57,7 @@ function Field({ label, value, mono }: { label: string; value: React.ReactNode; 
 }
 
 function timestamp(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return withSep(new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
 }
 
 const STATUS_TONE: Record<ReconciliationExplorerEdge['status'], string> = {

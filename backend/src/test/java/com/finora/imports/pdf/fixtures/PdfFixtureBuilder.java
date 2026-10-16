@@ -255,6 +255,33 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * {@link #buildReverseChronologicalRunningBalanceSample} with balances that chain link by link,
+     * as a complete real export's do. That sample leaves a 419.00 gap between 19/07 and 25/07 -- a
+     * row lost when it was cut down -- and other tests rely on it failing the statement totals; but
+     * a statement whose transactions miss its closing balance is held for review (TrustPredicate),
+     * so a test that needs one to import cleanly uses this one.
+     */
+    public static byte[] buildChainedReverseChronologicalRunningBalanceSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 230f, 320f, 400f, 480f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Branch Name: SAMPLETOWN,MAIN BAZAR")
+                .line("IFSC: PUNB0999999")
+                .blankLine()
+                .row(col, "Date", "Instrument ID", "Amount(INR)", "Type (DR/CR)", "Balance", "Remarks")
+                .row(col, "26/07/2026", "", "377.71", "DR", "10494.86", "UPI/DR/Lonkar P")
+                .row(col, "25/07/2026", "", "120.0", "DR", "10872.57", "UPI/DR/Mr Aman")
+                .row(col, "25/07/2026", "", "145.0", "DR", "10992.57", "UPI/DR/Mohd Ali")
+                .row(col, "25/07/2026", "", "9.7", "DR", "11137.57", "UPI/DR/Indian R")
+                .row(col, "19/07/2026", "", "1600.0", "DR", "11147.27", "UPI/DR/Devarshi")
+                .row(col, "18/07/2026", "", "1057.0", "CR", "12747.27", "UPI/CR/Aman Kum")
+                .blankLine()
+                .line("***Generated through PNB ONE***");
+
+        return render(List.of(page));
+    }
+
+    /**
      * A savings-account statement layout with both a running balance AND a populated reference
      * number column on every row -- Phase 1 "capture facts"
      * (docs/engineering/financial-document-intelligence-principles.md), modeled on a real Canara

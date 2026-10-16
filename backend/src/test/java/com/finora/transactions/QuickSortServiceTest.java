@@ -248,8 +248,22 @@ class QuickSortServiceTest {
 
         assertThat(batch.questions()).isEmpty();
         assertThat(batch.waitingTotal()).isEqualByComparingTo("0");
+        assertThat(batch.sortedTotal()).isEqualByComparingTo("0");
         assertThat(batch.rest().questions()).isZero();
         assertThat(batch.rest().transactionIds()).isEmpty();
+    }
+
+    // What Quick sort already filed, over the same live accounts the waiting rows are read from, so
+    // a visit's progress starts where the last one ended. The sum itself is QuickSortIT's.
+    @Test
+    void carriesTheMoneyAlreadySortedOnTheLiveAccounts() {
+        shop("vpa:samplea", 100);
+        when(transactionRepository.sumQuickSortedAmount(userId, List.of(accountId))).thenReturn(new BigDecimal("750"));
+
+        QuickSortDto.Batch batch = service.batch(userId, 0);
+
+        assertThat(batch.sortedTotal()).isEqualByComparingTo("750");
+        assertThat(batch.waitingTotal()).isEqualByComparingTo("100");
     }
 
     @Test

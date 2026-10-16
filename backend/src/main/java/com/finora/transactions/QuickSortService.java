@@ -155,7 +155,8 @@ public class QuickSortService {
             restPayments += g.rows.size();
             g.rows.forEach(t -> restIds.add(t.getId()));
         }
-        return new QuickSortDto.Batch(questions, waitingTotal,
+        BigDecimal sortedTotal = transactionRepository.sumQuickSortedAmount(userId, liveAccountIds);
+        return new QuickSortDto.Batch(questions, waitingTotal, sortedTotal == null ? BigDecimal.ZERO : sortedTotal,
                 new QuickSortDto.Rest(groups.size() - end, restPayments, sum(groups, end, groups.size()), restIds));
     }
 
@@ -225,7 +226,9 @@ public class QuickSortService {
     }
 
     private static QuickSortDto.Batch empty() {
-        return new QuickSortDto.Batch(List.of(), BigDecimal.ZERO, new QuickSortDto.Rest(0, 0, BigDecimal.ZERO, List.of()));
+        // Nothing waiting hides Quick sort on every client, so its progress is never shown.
+        return new QuickSortDto.Batch(List.of(), BigDecimal.ZERO, BigDecimal.ZERO,
+                new QuickSortDto.Rest(0, 0, BigDecimal.ZERO, List.of()));
     }
 
     private static final class Group {

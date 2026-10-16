@@ -21723,6 +21723,9 @@
                     "waitingTotal": {
                         "type": "number"
                     },
+                    "sortedTotal": {
+                        "type": "number"
+                    },
                     "rest": {
                         "$ref": "#/components/schemas/Rest"
                     }

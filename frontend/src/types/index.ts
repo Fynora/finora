@@ -880,5 +880,8 @@ export interface QuickSortRest {
 export interface QuickSortBatch {
   questions: QuickSortQuestion[];
   waitingTotal: number;
+  /** Money Quick sort already filed, on the same accounts; progress is sorted / (sorted + waiting).
+   *  Optional: a server from before it was added does not send it. */
+  sortedTotal?: number;
   rest: QuickSortRest;
 }

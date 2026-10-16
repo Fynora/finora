@@ -183,7 +183,9 @@ describe('QuickSortPanel', () => {
       .mockResolvedValueOnce(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SKIPPED' })], {
         rest: { questions: 1, payments: 1, amount: 50, transactionIds: ['r1'] },
       }))
-      .mockResolvedValueOnce(batch([question({ id: 'c', anchorTransactionId: 'txn-3', payee: 'NEXT SHOP' })], { waitingTotal: 8000 }));
+      // The server's figures after the 1240 answer and a skip: what it filed is sorted, not waiting.
+      .mockResolvedValueOnce(batch([question({ id: 'c', anchorTransactionId: 'txn-3', payee: 'NEXT SHOP' })],
+        { waitingTotal: 8000, sortedTotal: 2000 }));
     renderPanel();
     fireEvent.press(await screen.findByText('Groceries'));
     fireEvent.press(await screen.findByText('Skip for now'));
@@ -253,6 +255,23 @@ describe('QuickSortPanel', () => {
     // 1240 of 10000 waiting, floored, as the caption already counts it.
     expect(fill().width).toBe('12%');
     expect(screen.getByText("You've sorted 12% of your waiting money")).toBeTruthy();
+  });
+
+  // A tester left Quick sort part-way and came back to 0%: progress counted only this visit. It
+  // now counts what earlier visits sorted too.
+  it('picks up where the last visit ended', async () => {
+    tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2' })],
+      { waitingTotal: 6000, sortedTotal: 4000 }));
+    renderPanel();
+    expect(await screen.findByText("You've sorted 40% of your waiting money")).toBeTruthy();
+    const fill = () => StyleSheet.flatten(
+      screen.getByTestId('quick-sort-progress-fill', { includeHiddenElements: true }).props.style,
+    );
+    expect(fill().width).toBe('40%');
+    fireEvent.press(screen.getByText('Groceries'));
+    // (4000 + 1240) / 10000, floored.
+    expect(await screen.findByText("You've sorted 52% of your waiting money")).toBeTruthy();
+    expect(fill().width).toBe('52%');
   });
 
   // Skip moves on without an answer; sat among the categories it read as one of them.

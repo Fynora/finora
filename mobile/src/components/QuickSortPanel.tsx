@@ -70,8 +70,12 @@ export function QuickSortPanel({ onLoaded }: { onLoaded?: (questions: number) =>
   if (!batch || !startTotal) return null;
 
   const current: QuickSortQuestion | undefined = batch.questions[index];
-  const sortedPct = startTotal > 0
-    ? Math.max(0, Math.min(100, Math.floor(((startTotal - batch.waitingTotal + answeredInBatch) / startTotal) * 100)))
+  // Out of everything that waited, earlier visits included: the server's sorted money, this
+  // batch's answers moved across from waiting. A server without sortedTotal counts this batch only.
+  const sortedBefore = batch.sortedTotal ?? 0;
+  const everWaiting = sortedBefore + batch.waitingTotal;
+  const sortedPct = everWaiting > 0
+    ? Math.max(0, Math.min(100, Math.floor(((sortedBefore + answeredInBatch) / everWaiting) * 100)))
     : 0;
 
   async function answer(q: QuickSortQuestion, category: string) {

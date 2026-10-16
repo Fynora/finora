@@ -633,6 +633,30 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 .isEqualTo("true");
     }
 
+    /** The 429 body is written outside Spring MVC, so the charset is this filter's to set; left to
+     *  the servlet default (ISO-8859-1) any non-ASCII text in it reaches the apps as "?". The mock
+     *  response quietly encodes bare application/json as UTF-8 where Tomcat does not, so the header's
+     *  charset is the check that bites here; RestAuthenticationEntryPointIT reads the bytes off a
+     *  real server. */
+    @Test
+    void writesTheRateLimitedBodyAsUtf8() throws Exception {
+        RateLimitFilter filter = newFilter(false);
+        FilterChain chain = mock(FilterChain.class);
+        HttpServletRequest request = requestFor("/api/v1/auth/login", "10.0.8.1", null);
+
+        assertThat(tripsRateLimitAfterManyRequests(filter, request)).isTrue();
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(org.springframework.http.MediaType.parseMediaType(response.getContentType()).getCharset())
+                .isEqualTo(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(new String(response.getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("Too many requests. Please wait before trying again.")
+                .contains("RATE_LIMITED");
+    }
+
     /** The other half of the same fix: echoing every Origin unconditionally (rather than only an
      *  actually-allowed one) would itself be a CORS hole, so a disallowed origin must still get
      *  nothing back -- proving this isn't a blind echo of whatever the caller sent. */

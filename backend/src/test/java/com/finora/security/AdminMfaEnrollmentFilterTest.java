@@ -12,11 +12,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -188,5 +191,26 @@ class AdminMfaEnrollmentFilterTest {
         when(adminMfaService.isEnrolled(adminId)).thenReturn(false);
 
         assertBlocked(method, path);
+    }
+
+    /** The 403 body is written outside Spring MVC, so the charset is this filter's to set; left to
+     *  the servlet default (ISO-8859-1) any non-ASCII text in it reaches the apps as "?". The mock
+     *  response quietly encodes bare application/json as UTF-8 where Tomcat does not, so the header's
+     *  charset is the check that bites here; RestAuthenticationEntryPointIT reads the bytes off a
+     *  real server. */
+    @Test
+    void writesTheBlockedBodyAsUtf8() throws Exception {
+        authenticateAdmin();
+        when(adminMfaService.isEnrolled(adminId)).thenReturn(false);
+        MockHttpServletResponse realResponse = new MockHttpServletResponse();
+
+        filter.doFilter(request("GET", "/api/v1/admin/users"), realResponse, filterChain);
+
+        assertThat(realResponse.getStatus()).isEqualTo(HttpServletResponse.SC_FORBIDDEN);
+        assertThat(MediaType.parseMediaType(realResponse.getContentType()).getCharset())
+                .isEqualTo(StandardCharsets.UTF_8);
+        assertThat(new String(realResponse.getContentAsByteArray(), StandardCharsets.UTF_8))
+                .contains("Set up two-factor authentication to continue.")
+                .contains("MFA_ENROLLMENT_REQUIRED");
     }
 }

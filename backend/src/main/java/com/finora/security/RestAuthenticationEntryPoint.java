@@ -10,6 +10,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Without this, Spring Security's default entry point (Http403ForbiddenEntryPoint) answers every
@@ -43,6 +44,9 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
                           AuthenticationException authException) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // Written outside Spring MVC: without this the servlet default, ISO-8859-1, turns any
+        // non-ASCII character into "?". Must come before getWriter().
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.getWriter().write(objectMapper.writeValueAsString(
                 ApiResponse.error("Authentication required — please sign in again.", "UNAUTHORIZED")));
     }

@@ -413,6 +413,25 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     Optional<StatementImport> findFirstByUserIdAndContentHashOrderByImportedAtDesc(UUID userId, String contentHash);
 
     /**
+     * When each of these files was imported by this user, as {@code [content_hash,
+     * imported_at in epoch milliseconds]} rows -- whether a completed queued import's statement was
+     * ever imported ({@code ImportJobReviewStates}). Epoch milliseconds because a native query's
+     * {@code timestamptz} otherwise comes back as {@code java.sql.Timestamp}, which this codebase
+     * keeps out of production code ({@code ProductionCodeHygieneTest}).
+     *
+     * <p>Native, and so deliberately past the entity's {@code @SQLRestriction("deleted_at IS
+     * NULL")}: a statement the user imported and later deleted WAS imported, and the import that
+     * staged it must not then say nothing was. (The recent-imports list's own rule,
+     * {@code ImportJobRepository#findRecentForOwner}, asks a different question -- whether the
+     * statement is in the accounts now -- and rightly leaves deleted ones out.)
+     */
+    @Query(value = "SELECT content_hash, CAST(FLOOR(EXTRACT(EPOCH FROM imported_at) * 1000) AS BIGINT) "
+            + "FROM statement_imports WHERE user_id = :userId AND content_hash IN (:contentHashes)",
+            nativeQuery = true)
+    List<Object[]> findImportTimesOfFiles(@Param("userId") UUID userId,
+                                          @Param("contentHashes") java.util.Collection<String> contentHashes);
+
+    /**
      * BH-017 sweep candidates: every {@code (content_hash, object_key)} pair whose most recent
      * removal from this table -- a user deleting that statement, i.e. the soft-delete's
      * {@code deleted_at} -- was more than {@code cutoff} ago.

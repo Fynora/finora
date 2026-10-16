@@ -88,9 +88,19 @@ public final class ImportJobDto {
             // Appended for the same reason. Whether a held job has passed the 48-hour promise its
             // copy makes (Gate 1 spec §4). Decided here, on the server's clock, so a client with a
             // wrong clock can't show the apology early or never; false for any job not held.
-            boolean holdOverdue
+            boolean holdOverdue,
+            // Appended for the same reason. Where a COMPLETED job's review stands -- see
+            // ReviewState. Null for any other status, and wherever it was not looked up (the data
+            // export, which records the job and not the screen's state).
+            ReviewState reviewState
     ) {
+        /** Without the review state: for callers that have no use for it (the data export) and for
+         *  a job that is not COMPLETED, where it is always null. */
         public static Progress of(ImportJob job) {
+            return of(job, null);
+        }
+
+        public static Progress of(ImportJob job, ReviewState reviewState) {
             return new Progress(
                     job.getId(),
                     job.getFileName(),
@@ -108,7 +118,8 @@ public final class ImportJobDto {
                     // together the worker's logs, its audit rows and any Sentry event.
                     job.getCorrelationId(),
                     UserFacingImportStatus.of(job.getStatus(), job.getFailureCode()),
-                    job.isHoldOverdue(Instant.now()));
+                    job.isHoldOverdue(Instant.now()),
+                    job.getStatus() == ImportJob.Status.COMPLETED ? reviewState : null);
         }
 
         /**
@@ -129,6 +140,20 @@ public final class ImportJobDto {
             return curated != null ? curated : FAILED_WITHOUT_CURATED_REASON;
         }
     }
+
+    /**
+     * Where a COMPLETED import's review stands (Gate 1: every import ends somewhere the user can
+     * see). Decided by {@link ImportJobReviewStates}.
+     *
+     * <ul>
+     *   <li>{@code OPEN} -- the staged rows are waiting: the review opens.</li>
+     *   <li>{@code IMPORTED} -- the rows were confirmed, or the same file has been imported since.</li>
+     *   <li>{@code EXPIRED} -- the rows are gone and nothing was imported: they expired before anyone
+     *       confirmed them, or the user cancelled the review, which deletes them too. Opening the
+     *       review would only fail; the way on is a new upload.</li>
+     * </ul>
+     */
+    public enum ReviewState { OPEN, IMPORTED, EXPIRED }
 
     /**
      * The reason given for a FAILED job no curated message covers. Word for word the fallback both

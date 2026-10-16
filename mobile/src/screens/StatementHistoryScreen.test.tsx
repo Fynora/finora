@@ -538,6 +538,25 @@ describe('StatementHistoryScreen — recent imports', () => {
     expect(screen.queryByText('done.pdf')).toBeNull();
   });
 
+  /** Gate 1: read, never confirmed, past its expiry -- it used to vanish from every list. */
+  it('lists a completed import whose review expired, with why, and lets it be dismissed', async () => {
+    jobs.recent.mockResolvedValue([
+      job({ jobId: 'job-expired', status: 'COMPLETED', userStatus: 'COMPLETED', fileName: 'expired.pdf',
+        importSessionId: 'session-1', reviewState: 'EXPIRED' }),
+      job({ jobId: 'job-open', status: 'COMPLETED', userStatus: 'COMPLETED', fileName: 'open.pdf',
+        importSessionId: 'session-2', reviewState: 'OPEN' }),
+    ]);
+    renderScreen();
+
+    expect(await screen.findByText('expired.pdf')).toBeOnTheScreen();
+    expect(screen.getByText(/Not imported/)).toBeOnTheScreen();
+    expect(screen.getByText(/nothing was imported/)).toBeOnTheScreen();
+    expect(screen.getByLabelText('Dismiss expired.pdf')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('Upload expired.pdf again'));
+    expect(mockNavigateToImport).toHaveBeenCalledWith('Import');
+    expect(screen.queryByText('open.pdf')).toBeNull();
+  });
+
   it('keeps the statement list when the recent imports cannot load', async () => {
     jobs.recent.mockRejectedValue(new Error('offline'));
     api.listGroupedByAccount.mockResolvedValue(groups);

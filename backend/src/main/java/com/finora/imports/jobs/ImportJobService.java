@@ -78,6 +78,7 @@ public class ImportJobService {
     private final EncryptionService encryptionService;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
     private final StatementOriginalViewRepository originalViews;
+    private final ImportJobReviewStates reviewStates;
 
     @org.springframework.beans.factory.annotation.Value("${app.import.queue.enabled:false}")
     private boolean queueEnabled;
@@ -90,7 +91,9 @@ public class ImportJobService {
                              org.springframework.transaction.support.TransactionTemplate transactionTemplate,
                              EncryptionService encryptionService,
                              com.finora.imports.passwords.StatementPasswordService statementPasswordService,
-                             StatementOriginalViewRepository originalViews) {
+                             StatementOriginalViewRepository originalViews,
+                             ImportJobReviewStates reviewStates) {
+        this.reviewStates = reviewStates;
         this.jobStore = jobStore;
         this.repository = repository;
         this.stageRepository = stageRepository;
@@ -377,7 +380,7 @@ public class ImportJobService {
      */
     public ImportJobDto.Progress progress(UUID userId, UUID jobId) {
         return repository.findByIdAndUserId(jobId, userId)
-                .map(ImportJobDto.Progress::of)
+                .map(job -> ImportJobDto.Progress.of(job, reviewStates.of(job, Instant.now())))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
     }
 
@@ -428,8 +431,9 @@ public class ImportJobService {
      */
     public List<ImportJobDto.Progress> recent(UUID userId, int limit) {
         int size = com.finora.util.PageBounds.safeSize(limit, 50);
-        return repository.findRecentForOwner(userId, PageRequest.of(0, size))
-                .stream().map(ImportJobDto.Progress::of).toList();
+        List<ImportJob> jobs = repository.findRecentForOwner(userId, PageRequest.of(0, size));
+        java.util.Map<UUID, ImportJobDto.ReviewState> states = reviewStates.of(jobs, Instant.now());
+        return jobs.stream().map(job -> ImportJobDto.Progress.of(job, states.get(job.getId()))).toList();
     }
 
     /**
@@ -440,14 +444,25 @@ public class ImportJobService {
      * them clear it once read. 404 for someone else's job, exactly as {@link #cancel}; 409 for any
      * job that is not failed or cancelled -- a running or held import is not over. Idempotent,
      * like {@link #cancel}.
+     *
+     * <p>Also a completed import whose review expired unconfirmed ({@link ImportJobReviewStates}):
+     * it ended without importing anything, exactly as a failure does, and the list now shows it as
+     * such. One whose review is still open, or whose rows were imported, is not over or not a
+     * failure, and stays.
      */
     @Transactional
     public void dismiss(UUID userId, UUID jobId) {
         ImportJob job = repository.findByIdAndUserId(jobId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
+        if (job.getStatus() == ImportJob.Status.COMPLETED
+                && reviewStates.of(job, Instant.now()) == ImportJobDto.ReviewState.EXPIRED) {
+            job.dismissExpiredReview(Instant.now());
+            repository.save(job);
+            return;
+        }
         if (!ImportJob.DISMISSABLE.contains(job.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT,
-                    "Only a failed or cancelled import can be dismissed.");
+                    "Only a failed or cancelled import, or one whose review expired, can be dismissed.");
         }
         job.dismiss(Instant.now());
         repository.save(job);

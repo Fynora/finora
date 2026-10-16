@@ -17770,6 +17770,14 @@
                     },
                     "holdOverdue": {
                         "type": "boolean"
+                    },
+                    "reviewState": {
+                        "type": "string",
+                        "enum": [
+                            "OPEN",
+                            "IMPORTED",
+                            "EXPIRED"
+                        ]
                     }
                 }
             },

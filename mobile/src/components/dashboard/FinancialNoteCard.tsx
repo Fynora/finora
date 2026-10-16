@@ -1,4 +1,4 @@
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { GlassSurface } from '../GlassSurface';
 import { IconWell } from './IconWell';
 import { useLargeFontScale } from '../../lib/useLargeFontScale';
@@ -48,9 +48,9 @@ export function FinancialNoteCard({
   return (
     <GlassSurface
       testID="financial-note"
-      // The card shadow, iOS only like DashboardCard's (read at render so a test can drive both).
+      // The card shadow, on both platforms like DashboardCard's.
       style={[
-        styles.card, largeText && styles.cardStacked, Platform.OS === 'ios' && styles.shadow,
+        styles.card, largeText && styles.cardStacked, styles.shadow,
         { backgroundColor: wash, borderColor: c.brass },
       ]}
     >

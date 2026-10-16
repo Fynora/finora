@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, Text } from 'react-native';
+import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native';
+import { light } from '../theme/palette';
+import { useReduceTransparency } from '../lib/useReduceTransparency';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppBannerOverlay, SWIPE_DISMISS_DISTANCE } from './AppBannerOverlay';
 import { AppCoveredProvider, AppModal } from './AppModal';
@@ -25,6 +27,9 @@ function Root({ hidden = false, sheet = false, covered = false }: { hidden?: boo
   );
 }
 
+// Unknown by default, as on a first render, which draws the solid card; one test turns it off.
+jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
+
 beforeEach(() => {
   jest.useFakeTimers();
   __resetAppAlertForTests();
@@ -38,6 +43,27 @@ afterEach(() => {
 });
 
 describe('AppBannerOverlay', () => {
+  // The banner is a see-through glass card: Android's elevation shadow showed through it as a grey
+  // rim round a white box (Pixel 10 emulator, 2026-10-16), so Android casts a box shadow instead.
+  it('casts a box shadow on Android, with no elevation', () => {
+    const original = Platform.OS;
+    (Platform as { OS: string }).OS = 'android';
+    (useReduceTransparency as jest.Mock).mockReturnValue(false);
+    try {
+      render(<Root />);
+      act(() => { AppBanner.show('Welcome to Fynora', 'Welcome to Fynora body.'); });
+      const card = StyleSheet.flatten(screen.getByTestId('app-banner').props.style);
+      expect(card.elevation).toBeUndefined();
+      expect(card.boxShadow).toBeDefined();
+      // Solid there: with no blur, a see-through banner let the screen show through its words.
+      // With transparency on, which is when the glass fill would be used.
+      expect(card.backgroundColor).toBe(light.card);
+    } finally {
+      (Platform as { OS: string }).OS = original;
+      (useReduceTransparency as jest.Mock).mockReturnValue(null);
+    }
+  });
+
   it('shows nothing until something raises a banner', () => {
     render(<Root />);
     expect(screen.queryByTestId('app-banner')).toBeNull();

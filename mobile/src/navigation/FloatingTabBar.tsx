@@ -49,7 +49,7 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
       style={[
         styles.wrap,
         { left: frame.left, width: frame.width, bottom: frame.bottom, height: frame.height },
-        Platform.OS === 'ios' && styles.shadowIos,
+        styles.shadow,
         slide,
       ]}
     >
@@ -58,6 +58,8 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
       <GlassSurface
         testID="tab-pill-glass"
         accessibilityRole="tablist"
+        // Solid on Android, as every panel is there (GlassSurface): no blur, so see-through, the
+        // page read through the labels.
         style={[styles.pill, Platform.OS === 'android' && styles.android]}
       >
         {state.routes.map((route, index) => {
@@ -141,9 +143,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   // Same shadow as the Transactions day card (LedgerDayCard): a shadow on the clipped native glass
-  // never draws on iOS, so it goes on the unclipped wrapper; Android draws elevation on the fill.
-  shadowIos: { boxShadow: shadows.card },
-  android: { elevation: 2, overflow: 'hidden' },
+  // never draws on iOS, so it goes on the unclipped wrapper. Android casts the same one there: its
+  // elevation shadow on the fill showed through as a grey rim round a white box (2026-10-16).
+  shadow: { boxShadow: shadows.card },
+  android: { overflow: 'hidden' },
   item: { flex: 1, minWidth: 44, height: '100%', alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 10, lineHeight: 13, marginTop: 2 },
 });

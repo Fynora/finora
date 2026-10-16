@@ -134,8 +134,11 @@ export const LedgerDayCard = memo(function LedgerDayCard({
           glass,
           piece.first ? styles.top : styles.joinAbove,
           piece.last ? styles.bottom : styles.joinBelow,
+          // The same box shadow on both platforms: Android's elevation shadow showed through the
+          // see-through card as a grey rim round a white box (Pixel 10 emulator, 2026-10-16). The
+          // ripple clip below does not cut it off (measured on the same emulator).
+          piece.last && styles.shadow,
           // Read at render, like GlassSurface's own platform check, so a test can drive both.
-          piece.last && (Platform.OS === 'ios' ? styles.shadowIos : styles.shadowAndroid),
           Platform.OS === 'android' && styles.clipRipple,
         ]}
       >
@@ -168,8 +171,7 @@ const styles = StyleSheet.create({
   bottom: { borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl },
   joinAbove: { borderTopWidth: 0, paddingTop: 0 },
   joinBelow: { borderBottomWidth: 0, paddingBottom: 0 },
-  shadowIos: { boxShadow: shadows.card },
-  shadowAndroid: { elevation: 2 },
+  shadow: { boxShadow: shadows.card },
   // Keeps a row's ripple inside the card's corners. Not on iOS, where clipping a view is what
   // removed the dashboard cards' shadows.
   clipRipple: { overflow: 'hidden' },

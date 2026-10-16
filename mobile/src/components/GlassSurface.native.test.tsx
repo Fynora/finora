@@ -75,11 +75,26 @@ describe('panel paths', () => {
     expect(screen.getByTestId('glass-tint')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)' });
   });
 
-  it('Android panel is the Phase 1 tinted View', () => {
+  // Android has no blur. A see-through panel let whatever it floats over read through it: the tab
+  // bar's labels through a sheet's rows (Pixel 10 emulator, 2026-10-16). So a panel there is
+  // solid, with the glass edge kept; a row, which sits inside a panel or on the page, stays tinted.
+  it('Android panel is solid, with the glass edge', () => {
     on('android');
     render(<ThemeProvider><GlassSurface testID="s" /></ThemeProvider>);
     expect(hintOf('s')).toBeUndefined();
+    expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: '#ffffff', borderColor: 'rgba(255,255,255,0.85)' });
+  });
+
+  it('Android row stays the tinted View', () => {
+    on('android');
+    render(<ThemeProvider><GlassSurface testID="s" variant="row" /></ThemeProvider>);
     expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: 'rgba(255,255,255,0.72)', borderColor: 'rgba(255,255,255,0.85)' });
+  });
+
+  it('Android panel keeps a fill its caller asks for', () => {
+    on('android');
+    render(<ThemeProvider><GlassSurface testID="s" style={{ backgroundColor: '#fef3c7' }} /></ThemeProvider>);
+    expect(screen.getByTestId('s')).toHaveStyle({ backgroundColor: '#fef3c7' });
   });
 });
 
@@ -152,12 +167,14 @@ describe('DashboardCard', () => {
     expect(screen.getByTestId('glass-layer', { includeHiddenElements: true })).toHaveStyle({ borderRadius: 20 });
   });
 
-  it('Android: keeps its elevation and declares no box shadow', () => {
+  // Android's elevation shadow shows through the see-through fill as a grey rim round a white box
+  // (Pixel 10 emulator, 2026-10-16); the box shadow is cut from the card's own rounded box.
+  it('Android: casts the box shadow, with no elevation', () => {
     on('android');
     render(<ThemeProvider><DashboardCard testID="d">{null}</DashboardCard></ThemeProvider>);
     const style = StyleSheet.flatten(screen.getByTestId('d').props.style);
-    expect(style.elevation).toBe(2);
-    expect(style.boxShadow).toBeUndefined();
+    expect(style.elevation).toBeUndefined();
+    expect(style.boxShadow).toEqual(shadows.card);
   });
 });
 

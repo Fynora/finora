@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 import Animated, { Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 import { AnimatedHealthScoreNumber } from '../AnimatedHealthScoreNumber';
@@ -48,12 +48,12 @@ function Glow({ color }: { color: string }) {
 /**
  * The hero's surface and its shadow. The card clips (the glow runs past its corner), and on iOS
  * a view that clips also clips its own shadow, so the shadow is cast by a wrapper that has the
- * card's radius and nothing else. iOS only, like the cards' own shadow: Android has never drawn
- * one under the hero and this change was not checked there.
+ * card's radius and nothing else. Android casts it too since the cards do (2026-10-16): a box
+ * shadow is cut from the wrapper's rounded box, so it does not show through the card.
  */
 function HeroSurface({ surface, children }: { surface: ViewStyle; children: ReactNode }) {
   return (
-    <View testID="health-hero-shadow" style={Platform.OS === 'ios' ? styles.shadow : styles.shadowless}>
+    <View testID="health-hero-shadow" style={styles.shadow}>
       <GlassSurface testID="health-hero" style={[styles.card, surface]}>
         {children}
       </GlassSurface>
@@ -221,7 +221,6 @@ export function HealthHero({
 
 const styles = StyleSheet.create({
   shadow: { borderRadius: radius.hero, boxShadow: shadows.hero },
-  shadowless: { borderRadius: radius.hero },
   card: { borderRadius: radius.hero, padding: spacing.lg, overflow: 'hidden', gap: spacing.ml },
   glow: { position: 'absolute', top: -GLOW / 2, right: -GLOW / 3 },
   scoreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },

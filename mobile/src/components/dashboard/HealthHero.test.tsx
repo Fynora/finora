@@ -149,12 +149,12 @@ describe('HealthHero', () => {
     expect(hero.boxShadow).toBeUndefined();
   });
 
-  it('Android keeps the hero without a shadow, as it has always been', () => {
+  it('casts the hero shadow on Android too, as the cards now do', () => {
     const originalOS = Platform.OS;
     (Platform as { OS: string }).OS = 'android';
     try {
       renderHero();
-      expect(StyleSheet.flatten(screen.getByTestId('health-hero-shadow').props.style).boxShadow).toBeUndefined();
+      expect(StyleSheet.flatten(screen.getByTestId('health-hero-shadow').props.style).boxShadow).toEqual(shadows.hero);
     } finally {
       (Platform as { OS: string }).OS = originalOS;
     }

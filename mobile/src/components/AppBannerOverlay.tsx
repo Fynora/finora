@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { getTopAlertContainer, subscribeAppAlerts } from '../lib/appAlert';
 import { AppBanner, getCurrentAppBanner, subscribeAppBanner, type AppBannerEntry } from '../lib/appBanner';
@@ -94,7 +94,10 @@ function BannerCard({ entry }: { entry: AppBannerEntry }) {
           accessibilityActions={[{ name: 'dismiss', label: 'Dismiss' }]}
           onAccessibilityAction={() => AppBanner.dismiss()}
           onPress={() => AppBanner.dismiss()}
-          style={[styles.card, glass]}
+          // Read at render, so a test can drive both platforms.
+          // Android has no blur, so there the banner is solid: see-through, the screen read
+          // through its words.
+          style={[styles.card, glass, Platform.OS === 'android' && [styles.shadowAndroid, { backgroundColor: c.card /* glass-exempt: Android has no blur; see-through, the screen read through the banner */ }]]}
         >
           <Text style={[styles.title, { color: c.ink }]} numberOfLines={1}>
             {entry.title}
@@ -121,8 +124,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
+  // The same shadow as a box shadow on Android: the card's glass fill is see-through, and Android's
+  // elevation shadow showed through it as a grey rim round a white box (Pixel 10, 2026-10-16).
+  shadowAndroid: { boxShadow: [{ offsetX: 0, offsetY: 4, blurRadius: 12, color: 'rgba(0,0,0,0.12)' }] },
   title: { fontSize: 15, fontWeight: '700' },
   message: { fontSize: 14, marginTop: 2 },
 });

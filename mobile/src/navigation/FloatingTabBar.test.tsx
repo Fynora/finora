@@ -1,9 +1,10 @@
-import { Dimensions, Text, View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, Text, View } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs';
 import { FloatingTabBar } from './FloatingTabBar';
 import { pillFrame } from './tabBarLayout';
 import { light } from '../theme/palette';
+import { shadows } from '../theme';
 import { useKeyboardVisible } from '../lib/useKeyboardVisible';
 import { useReduceTransparency } from '../lib/useReduceTransparency';
 import { __setHapticsStateForTests } from '../lib/haptics';
@@ -186,4 +187,35 @@ describe('FloatingTabBar', () => {
     setup();
     expect(screen.getByTestId('tab-pill-glass')).toHaveStyle({ backgroundColor: light.card });
   });
+});
+
+// Android's elevation shadow shows through the see-through pill as a grey rim round a white box
+// (Pixel 10 emulator, 2026-10-16). The box shadow sits on the unclipped wrapper on both platforms.
+describe.each(['ios', 'android'])('the pill shadow on %s', (os) => {
+  const original = Platform.OS;
+  beforeEach(() => { (Platform as { OS: string }).OS = os; });
+  afterEach(() => { (Platform as { OS: string }).OS = original; });
+
+  it('is the card box shadow on the wrapper, with no elevation anywhere', () => {
+    setup();
+    const wrap = StyleSheet.flatten(screen.getByTestId('tab-pill').props.style);
+    const glass = StyleSheet.flatten(screen.getByTestId('tab-pill-glass').props.style);
+    expect(wrap.boxShadow).toEqual(shadows.card);
+    expect(wrap.elevation).toBeUndefined();
+    expect(glass.elevation).toBeUndefined();
+  });
+});
+
+// Android has no blur, so a see-through pill let the page show through its labels: a card's
+// figures and bank logos read through "Insights" (Pixel 10 emulator, 2026-10-16). The elevation it
+// had before painted the pill's middle white by accident; it now has the solid card fill instead.
+it('fills the pill solid on Android, where nothing blurs what is behind it', () => {
+  const original = Platform.OS;
+  (Platform as { OS: string }).OS = 'android';
+  try {
+    setup();
+    expect(StyleSheet.flatten(screen.getByTestId('tab-pill-glass').props.style).backgroundColor).toBe(light.card);
+  } finally {
+    (Platform as { OS: string }).OS = original;
+  }
 });

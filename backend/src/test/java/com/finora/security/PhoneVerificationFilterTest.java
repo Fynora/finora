@@ -315,8 +315,8 @@ class PhoneVerificationFilterTest {
     /** The 403 body is written outside Spring MVC, so the charset is this filter's to set; left to
      *  the servlet default (ISO-8859-1) any non-ASCII text in it reaches the apps as "?". The mock
      *  response quietly encodes bare application/json as UTF-8 where Tomcat does not, so the header's
-     *  charset is the check that bites here; RestAuthenticationEntryPointIT reads the bytes off a
-     *  real server. */
+     *  charset is the check that bites here; AdminMfaEnforcementIT checks the same header on
+     *  the real server. */
     @Test
     void writesTheBlockedBodyAsUtf8() throws Exception {
         authenticateAs("unverified@example.com");

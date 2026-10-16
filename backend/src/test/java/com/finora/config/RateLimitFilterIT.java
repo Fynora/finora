@@ -636,7 +636,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
     /** The 429 body is written outside Spring MVC, so the charset is this filter's to set; left to
      *  the servlet default (ISO-8859-1) any non-ASCII text in it reaches the apps as "?". The mock
      *  response quietly encodes bare application/json as UTF-8 where Tomcat does not, so the header's
-     *  charset is the check that bites here; RestAuthenticationEntryPointIT reads the bytes off a
+     *  charset is the check that bites here; ServletWrittenJsonBodiesIT reads the bytes off a
      *  real server. */
     @Test
     void writesTheRateLimitedBodyAsUtf8() throws Exception {

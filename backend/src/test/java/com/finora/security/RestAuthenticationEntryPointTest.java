@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * (ISO-8859-1) the em dash in the message reached the apps as "?".
  *
  * The mock response encodes bare application/json as UTF-8 on its own, which Tomcat does not, so
- * the header's charset is the check that bites here. RestAuthenticationEntryPointIT reads the
+ * the header's charset is the check that bites here. ServletWrittenJsonBodiesIT reads the
  * bytes off the real embedded server.
  */
 class RestAuthenticationEntryPointTest {

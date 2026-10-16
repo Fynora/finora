@@ -1152,6 +1152,58 @@ export interface ReportData {
    *  chart marks the month instead of plotting it as an ordinary point. Optional: an older server
    *  does not send it, and absent means "complete". */
   complete?: boolean;
+  /** Transactions the income and expense totals were built from. Optional: an older server omits it. */
+  transactionCount?: number;
+  /** How many credits make up `unresolvedInflow`. Optional: an older server omits it. */
+  unresolvedInflowCount?: number;
+  /** This month against the one before. Null when the user has no live account; absent on an older
+   *  server. When `reliable` is false the figures are null and `gateReason` says why: render the
+   *  absence, never compute a comparison on the device. */
+  comparison?: MonthComparison | null;
+  /** Share of this month's income kept, as a percent: the Dashboard's own rule (SavingsRate). Null
+   *  when `savingsRateGateReason` says why it is withheld; absent on an older server. */
+  savingsRatePct?: number | null;
+  /** NO_INCOME or UNRESOLVED_EXCEEDS_INCOME when the rate is withheld, null when it is not. */
+  savingsRateGateReason?: string | null;
+  /** The month's three largest purchases, biggest first, from the same rows and refund netting as
+   *  `categories`. Optional: an older server omits it. */
+  biggestSpends?: BiggestSpend[];
+  /** Spend per day (days with spend only, oldest first), from the same rows as `categories`.
+   *  Optional: an older server omits it. */
+  dailySpend?: DailySpend[];
+}
+export interface MonthComparison {
+  previousMonth: string;
+  reliable: boolean;
+  gateReason: string | null;
+  previousIncome: number | null;
+  previousExpense: number | null;
+  incomeDeltaPct: number | null;
+  expenseDeltaPct: number | null;
+  /** (income - expense) this month minus the same for the prior month, as an amount. */
+  netDelta: number | null;
+}
+export interface BiggestSpend {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** The merchant, or the description when there is none. */
+  label: string;
+  category: string;
+  amount: number;
+}
+export interface DailySpend {
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
+}
+export interface ReportTrendPoint {
+  month: string;
+  income: number;
+  expense: number;
+  transactionCount: number;
+  /** False when only part of the month is in: see ReportData.complete. */
+  complete: boolean;
 }
 export interface IncomeTrendPoint {
   month: string;
@@ -1161,6 +1213,10 @@ export const reportsApi = {
   availableMonths: () => api.get<string[]>('/reports/months').then((r) => r.data),
   forMonth: (month: string) => api.get<ReportData>('/reports', { params: { month } }).then((r) => r.data),
   incomeTrend: () => api.get<IncomeTrendPoint[]>('/reports/income-trend').then((r) => r.data),
+  /** Up to `months` months ending at `month` (default: the newest), oldest first; months with no
+   *  history are omitted rather than zero-padded. */
+  trend: (month?: string, months = 6) =>
+    api.get<ReportTrendPoint[]>('/reports/trend', { params: month ? { month, months } : { months } }).then((r) => r.data),
 };
 
 export interface UserSettings {

@@ -259,7 +259,7 @@ export function LedgerScreen() {
   }
 
   // Loaded lazily: only fetched once, cheap, and the picker needs it the instant a row is tapped.
-  const { data: categories = [] } = useQuery({
+  const { data: categories = [], isPending: categoriesPending } = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
     staleTime: 5 * 60_000, // the category list barely changes within a session
@@ -281,6 +281,11 @@ export function LedgerScreen() {
   // than a search that can never match anything -- the date range, if any, still narrows the list.
   const resolvedCategoryId = activeDrillThrough?.categoryId
     ?? categories.find((cat) => cat.name === activeDrillThrough?.categoryName)?.id;
+  // A category named in the link but not yet resolvable (the list has not arrived): searching now
+  // would be the month without its category, a wrong list on screen until the right one replaced
+  // it. The list waits instead and shows its loading state. A failed category list is not pending,
+  // so it falls through to the degrade above rather than a list that never loads.
+  const waitingForCategory = !!activeDrillThrough?.categoryName && !activeDrillThrough.categoryId && categoriesPending;
 
   const filters: TransactionFilters = useMemo(
     () => ({
@@ -308,10 +313,11 @@ export function LedgerScreen() {
    * current page to strand -- an invalidation just refetches from page 0 forward.
    */
   const {
-    data, isLoading, isError, isFetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
+    data, isLoading: searchLoading, isError, isFetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
   } = useInfiniteQuery({
     queryKey: ['transactions', filters],
     queryFn: ({ pageParam }) => transactionsApi.search({ ...filters, ...ledgerPageRequest(pageParam) }),
+    enabled: !waitingForCategory,
     initialPageParam: 0 as LedgerPageParam,
     // The backend's PagedResponse carries a real totalPages, so "is there more" is answered by
     // the server rather than inferred from whether a page came back full.
@@ -321,9 +327,12 @@ export function LedgerScreen() {
   // Each transaction once: the server has returned the same row on two pages (see mergePagesById).
   // Memoized on `data` itself, which is stable across renders where the query result has not
   // changed, so `pieces` below is not rebuilt by an unrelated render either.
-  const txns = useMemo(() => mergePagesById(data?.pages ?? []), [data]);
+  // While the list waits for a linked category it shows nothing, even if the month without that
+  // category happens to be cached from an earlier visit: that is the list this wait keeps off screen.
+  const isLoading = searchLoading || waitingForCategory;
+  const txns = useMemo(() => mergePagesById(waitingForCategory ? [] : data?.pages ?? []), [data, waitingForCategory]);
   // The first page's count is the whole list's: a page continued from a row counts only what is left.
-  const totalElements = data?.pages[0]?.totalElements ?? 0;
+  const totalElements = waitingForCategory ? 0 : data?.pages[0]?.totalElements ?? 0;
   // Computed fresh every render (cheap: one Date construction) and listed below as a dependency in
   // its own right. Without it, a mount that goes idle overnight -- this tab stays mounted, and a
   // foreground refetch that returns unchanged data does not change txns either -- would keep

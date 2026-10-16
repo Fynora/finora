@@ -1037,8 +1037,8 @@ git commit -m "feat(imports): both held queues hand a statement to the blanked-c
 - Consumes: Task 4 and Task 5 methods.
 - Produces (HTTP):
   - `GET /api/v1/admin/blanked-copy/status` → `{ "enabled": boolean }`; any of the two permissions.
-  - `GET /api/v1/admin/held-imports/{jobId}/blanked-copy` → `BlankedCopyDto.Response`; `IMPORT_TRIAGE_MANAGE`.
-  - `GET /api/v1/admin/held-statements/{heldId}/blanked-copy` → `BlankedCopyDto.Response`; `TRUST_REVIEW_MANAGE`.
+  - `POST /api/v1/admin/held-imports/{jobId}/blanked-copy` → `BlankedCopyDto.Response`; `IMPORT_TRIAGE_MANAGE`. (POST, not GET, since the first revision: it writes audit entries and takes an import slot.)
+  - `POST /api/v1/admin/held-statements/{heldId}/blanked-copy` → `BlankedCopyDto.Response`; `TRUST_REVIEW_MANAGE`. (POST for the same reason.)
   - `BlankedCopyDto.Response(String fileName, String trace, String check, String notCheckedReason, List<Difference> differences)`, `BlankedCopyDto.Difference(int section, Integer row, String field, List<String> maskedTokens)`, `BlankedCopyDto.Status(boolean enabled)`.
 
 - [ ] **Step 1: Write the failing ITs**

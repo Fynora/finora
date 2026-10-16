@@ -1252,6 +1252,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/acknowledgements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["acknowledgements"];
+        put?: never;
+        post: operations["acknowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inflow-kinds": {
         parameters: {
             query?: never;
@@ -7385,6 +7401,10 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        InsightAcknowledgementDto: {
+            kind: string;
+            itemKey: string;
+        };
         CreateKindRequest: {
             name: string;
             countsAsIncome: boolean;
@@ -9789,10 +9809,17 @@ export interface components {
             topMerchant?: components["schemas"]["MerchantHighlight"];
             reportingMonth?: string;
             reportingMonthIsCurrent?: boolean;
+            unlinkedCardBills?: components["schemas"]["UnlinkedCardBills"];
         };
         MerchantHighlight: {
             name?: string;
             amount?: number;
+        };
+        UnlinkedCardBills: {
+            month?: string;
+            total?: number;
+            /** Format: int32 */
+            count?: number;
         };
         ApiResponseFynInsightsNarrationDto: {
             success?: boolean;
@@ -9808,6 +9835,18 @@ export interface components {
         };
         FynInsightsNarrationDto: {
             narration?: string;
+        };
+        ApiResponseListInsightAcknowledgementDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InsightAcknowledgementDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseListInflowKindDto: {
             success?: boolean;
@@ -14968,6 +15007,50 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMapStringString"];
+                };
+            };
+        };
+    };
+    acknowledgements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListInsightAcknowledgementDto"];
+                };
+            };
+        };
+    };
+    acknowledge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InsightAcknowledgementDto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
                 };
             };
         };

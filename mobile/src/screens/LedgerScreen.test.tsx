@@ -963,6 +963,57 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
+  // A category named in the link is resolved to an id from the category list. If the list has not
+  // arrived, a search now would be the month WITHOUT its category: a wrong list on screen until the
+  // right one replaced it. (The plain, date-less search a first mount makes before the link is read
+  // is never shown, and is not what this is about.)
+  const monthWithoutCategory = () => transactions.search.mock.calls
+    .map(([f]) => f as { categoryId?: string; dateFrom?: string })
+    .filter((f) => f.dateFrom && !f.categoryId);
+
+  it('never searches the month without its category when the category list is already known', async () => {
+    mockRouteParams = { filters: filters({ categoryName: 'Travel', dateFrom: '2026-08-01', dateTo: '2026-08-31' }) };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    queryClient.setQueryData(['categories'], [{ id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' }]);
+    const result = render(<QueryClientProvider client={queryClient}><LedgerScreen /></QueryClientProvider>);
+    activeScreens.push(result);
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ categoryId: 'c-2' })));
+    expect(monthWithoutCategory()).toHaveLength(0);
+  });
+
+  it('holds the list, showing none of the month, until the category list arrives', async () => {
+    mockRouteParams = { filters: filters({ categoryName: 'Travel', dateFrom: '2026-08-01', dateTo: '2026-08-31' }) };
+    transactions.search.mockImplementation((async (f: { categoryId?: string }) => page([
+      txn({ id: f.categoryId ? 't-cat' : 't-month', description: f.categoryId ? 'Flight to Goa' : 'Month wide row' }),
+    ])) as never);
+    let resolveList!: (v: unknown) => void;
+    categories.list.mockReturnValue(new Promise((res) => { resolveList = res; }) as never);
+
+    renderScreen();
+    await act(async () => {});
+    expect(monthWithoutCategory()).toHaveLength(0);
+    expect(screen.queryByText('Month wide row')).toBeNull();
+
+    await act(async () => {
+      resolveList([{ id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' }]);
+    });
+    expect(await screen.findByText('Flight to Goa')).toBeTruthy();
+    expect(monthWithoutCategory()).toHaveLength(0);
+    expect(screen.queryByText('Month wide row')).toBeNull();
+  });
+
+  it('searches the month anyway when the category list cannot be had', async () => {
+    mockRouteParams = { filters: filters({ categoryName: 'Travel', dateFrom: '2026-08-01', dateTo: '2026-08-31' }) };
+    categories.list.mockRejectedValue(new Error('down'));
+
+    renderScreen();
+
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: undefined, dateFrom: '2026-08-01', dateTo: '2026-08-31' })
+    ));
+  });
+
   // Track C/C6: ImportScreen's "View in Ledger" is the one caller that sets this.
   it('applies an incoming accountId, alongside a category or on its own', async () => {
     mockRouteParams = { filters: filters({ accountId: 'acct-1', categoryId: undefined, label: 'HDFC Savings' }) };

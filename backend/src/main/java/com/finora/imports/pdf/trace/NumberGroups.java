@@ -75,13 +75,25 @@ final class NumberGroups {
         Matcher m = NUMERIC_DATE.matcher(text);
         if (!m.matches()) return false;
         if (m.group(1) != null) {
-            int a = Integer.parseInt(m.group(1));
-            int b = Integer.parseInt(m.group(2));
+            int a = smallNumber(m.group(1));
+            int b = smallNumber(m.group(2));
             return a >= 1 && b >= 1 && ((a <= 31 && b <= 12) || (a <= 12 && b <= 31));
         }
-        int month = Integer.parseInt(m.group(4));
-        int day = Integer.parseInt(m.group(5));
+        int month = smallNumber(m.group(4));
+        int day = smallNumber(m.group(5));
         return month >= 1 && month <= 12 && day >= 1 && day <= 31;
+    }
+
+    /** The value of a one- or two-digit group the numeric-date pattern captured. The pattern's
+     *  {@code \d} is ASCII 0-9 only and every such group is at most two digits, so this cannot
+     *  overflow or meet a character that is not a digit; it is spelled out here rather than parsed
+     *  so that is visible at the call, with no exception to catch. */
+    private static int smallNumber(String twoDigits) {
+        int value = 0;
+        for (int i = 0; i < twoDigits.length(); i++) {
+            value = value * 10 + (twoDigits.charAt(i) - '0');
+        }
+        return value;
     }
 
     /** A letter, digit, mark, private-use or format character: anything that can belong to a word.

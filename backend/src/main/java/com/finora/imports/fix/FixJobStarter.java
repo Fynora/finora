@@ -229,10 +229,14 @@ public class FixJobStarter {
         if (job.getStatus() == ImportJob.Status.HELD_FOR_REVIEW) {
             AdminHeldImportService service = importQueue.getObject();
             return new Queue() {
+                @Override
                 public StaffStatementContent content() { return service.contentForSystemBlankedCopy(job.getId()); }
+                @Override
                 public void recordResult(BlankedCopyOutcome o) { service.recordBlankedCopyResult(null, job.getId(), o); }
                 // An import hold never learns its bank: the parse that would have named it failed.
+                @Override
                 public String bank() { return null; }
+                @Override
                 public List<String> reasonCodes() {
                     return job.getFailureCode() == null ? List.of() : List.of(job.getFailureCode());
                 }
@@ -242,9 +246,13 @@ public class FixJobStarter {
                 .orElseThrow(() -> new IllegalStateException("trust hold has no review record"));
         HeldStatementService service = trustQueue.getObject();
         return new Queue() {
+            @Override
             public StaffStatementContent content() { return service.contentForSystemBlankedCopy(held.getHeldId()); }
+            @Override
             public void recordResult(BlankedCopyOutcome o) { service.recordBlankedCopyResult(null, held.getHeldId(), o); }
+            @Override
             public String bank() { return held.getBankName(); }
+            @Override
             public List<String> reasonCodes() {
                 return held.getHoldReasonCategories() == null ? List.of() : List.copyOf(held.getHoldReasonCategories());
             }

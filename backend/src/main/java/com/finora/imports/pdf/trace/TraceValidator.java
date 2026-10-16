@@ -203,7 +203,8 @@ public final class TraceValidator {
             String o = original.get(r).text();
             String c = copy.get(r).text();
             if (o == null || c == null) {
-                if (o != c) found.add(COPY_DOES_NOT_LINE_UP);
+                // Both missing lines up; only one missing does not.
+                if (o != null || c != null) found.add(COPY_DOES_NOT_LINE_UP);
                 continue;
             }
             int[] copyCps = c.codePoints().toArray();

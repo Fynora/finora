@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { StyleSheet } from 'react-native';
 import { ResetPasswordScreen } from './ResetPasswordScreen';
 import { authApi } from '../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation } from '../lib/phoneAuth';
@@ -196,6 +197,18 @@ describe('ResetPasswordScreen', () => {
 
       expect(screen.getByText('Confirm your phone number')).toBeTruthy();
     });
+
+    // The card has no gap and Button no margin, so these links sat flush under "Verify code",
+    // with their 8pt hit area reaching into the button's bottom edge.
+    it('keeps the links a gap below "Verify code"', async () => {
+      renderScreen();
+      await submitPhone();
+
+      const links = screen.getByTestId('reset-code-links');
+      expect(within(links).getByText('Resend code')).toBeTruthy();
+      expect(within(links).getByText('Start over')).toBeTruthy();
+      expect(StyleSheet.flatten(links.props.style)).toMatchObject({ marginTop: 8, gap: 8 });
+    });
   });
 
   describe('password step', () => {
@@ -270,6 +283,15 @@ describe('ResetPasswordScreen', () => {
       await act(async () => { resolve({ message: 'ok' }); });
 
       expect(api.resetPassword).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps "Start over" a gap below "Reset password"', async () => {
+      renderScreen();
+      await reachPasswordStep();
+
+      const links = screen.getByTestId('reset-password-links');
+      expect(within(links).getByText('Start over')).toBeTruthy();
+      expect(StyleSheet.flatten(links.props.style)).toMatchObject({ marginTop: 8, gap: 8 });
     });
   });
 

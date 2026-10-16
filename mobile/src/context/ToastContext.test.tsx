@@ -78,4 +78,51 @@ describe('ToastProvider/useToast', () => {
     expect(screen.queryByText(/Goal Created/)).toBeNull();
     jest.useRealTimers();
   });
+
+  describe('an error', () => {
+    function TwoTriggers() {
+      const { showToast } = useToast();
+      return (
+        <>
+          <Pressable accessibilityRole="button" onPress={() => showToast('Could not save that category.', undefined, 'error')}>
+            <Text>fail</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => showToast('Saved Food for Swiggy')}>
+            <Text>succeed</Text>
+          </Pressable>
+        </>
+      );
+    }
+    const renderTwo = () => render(<ThemeProvider><ToastProvider><TwoTriggers /></ToastProvider></ThemeProvider>);
+
+    it('shows without the tick a success carries', () => {
+      renderTwo();
+      fireEvent.press(screen.getByText('fail'));
+      expect(screen.getByText('Could not save that category.')).toBeTruthy();
+      expect(screen.queryByText(/✓/)).toBeNull();
+    });
+
+    // Two saves in flight: the first fails, the second succeeds a moment later. The success must
+    // not wipe the failure off the screen before it can be read.
+    it('is not replaced by a success while it shows, and its 3 seconds run on', () => {
+      jest.useFakeTimers();
+      renderTwo();
+      fireEvent.press(screen.getByText('fail'));
+      act(() => { jest.advanceTimersByTime(1000); });
+      fireEvent.press(screen.getByText('succeed'));
+      expect(screen.getByText('Could not save that category.')).toBeTruthy();
+      expect(screen.queryByText(/Saved Food/)).toBeNull();
+      act(() => { jest.advanceTimersByTime(2000); });
+      expect(screen.queryByText('Could not save that category.')).toBeNull();
+      jest.useRealTimers();
+    });
+
+    it('replaces a success still showing', () => {
+      renderTwo();
+      fireEvent.press(screen.getByText('succeed'));
+      fireEvent.press(screen.getByText('fail'));
+      expect(screen.getByText('Could not save that category.')).toBeTruthy();
+      expect(screen.queryByText(/Saved Food/)).toBeNull();
+    });
+  });
 });

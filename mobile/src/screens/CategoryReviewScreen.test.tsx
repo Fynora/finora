@@ -1,8 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Dimensions, StyleSheet } from 'react-native';
 import { CategoryReviewScreen } from './CategoryReviewScreen';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
+import { MerchantLogo } from '../components/MerchantLogo';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
+import { ToastProvider } from '../context/ToastContext';
+import { fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 
@@ -54,8 +58,8 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     categoryId: 'c-0',
     categoryName: 'Other',
     date: '2026-08-02',
-    description: 'IMPS transfer to a person',
-    merchant: 'Unknown',
+    description: 'Bank transfer to a person',
+    merchant: '',
     paymentMethod: 'UPI',
     amount: -900,
     type: 'EXPENSE',
@@ -94,9 +98,12 @@ function counterpartyGroup(over: Partial<CounterpartyGroup> = {}): CounterpartyG
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  // ToastProvider as App.tsx mounts it: the screen confirms a save, and reports a failed one, there.
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <CategoryReviewScreen />
+      <ToastProvider>
+        <CategoryReviewScreen />
+      </ToastProvider>
     </QueryClientProvider>
   );
   // Returned so a test can trigger the refetch that invalidateFinancialData performs in
@@ -125,10 +132,10 @@ describe('Quick sort first', () => {
     renderScreen();
 
     expect(await screen.findByText('Quick sort stub')).toBeTruthy();
-    expect(await screen.findByText('See all waiting payments')).toBeTruthy();
+    expect(await screen.findByText('See all 3 waiting payments')).toBeTruthy();
     expect(screen.queryByText('Swiggy')).toBeNull();
 
-    fireEvent.press(screen.getByText('See all waiting payments'));
+    fireEvent.press(screen.getByText('See all 3 waiting payments'));
     expect(await screen.findByText('Swiggy')).toBeTruthy();
   });
 
@@ -138,7 +145,24 @@ describe('Quick sort first', () => {
     renderScreen();
 
     expect(await screen.findByText('Swiggy')).toBeTruthy();
-    expect(screen.queryByText('See all waiting payments')).toBeNull();
+    expect(screen.queryByText(/waiting payment/)).toBeNull();
+  });
+
+  // Counted across all three lists: 3 in the merchant group, 2 with the person, 1 one-off.
+  it('says how many payments wait behind the link', async () => {
+    mockQuickSortQuestions = 3;
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    transactions.needsReview.mockResolvedValue([txn()]);
+    renderScreen();
+    expect(await screen.findByText('See all 6 waiting payments')).toBeTruthy();
+  });
+
+  it('names a single waiting payment in the singular', async () => {
+    mockQuickSortQuestions = 1;
+    transactions.needsReview.mockResolvedValue([txn()]);
+    renderScreen();
+    expect(await screen.findByText('See the 1 waiting payment')).toBeTruthy();
   });
 });
 
@@ -156,7 +180,7 @@ describe('rendering both halves of the backlog', () => {
 
     expect(await screen.findByText('Swiggy')).toBeTruthy();
     expect(screen.getByText('3 transactions')).toBeTruthy();
-    expect(screen.getByText('IMPS transfer to a person')).toBeTruthy();
+    expect(screen.getByText('Bank transfer to a person')).toBeTruthy();
   });
 
   it('says the queue is clear rather than rendering an empty screen', async () => {
@@ -184,7 +208,7 @@ describe('rendering both halves of the backlog', () => {
 
     renderScreen();
 
-    expect(await screen.findByText('IMPS transfer to a person')).toBeTruthy();
+    expect(await screen.findByText('Bank transfer to a person')).toBeTruthy();
     expect(screen.getByText(/Part of your review queue couldn’t be loaded/i)).toBeTruthy();
   });
 
@@ -196,7 +220,7 @@ describe('rendering both halves of the backlog', () => {
 
     renderScreen();
 
-    expect(await screen.findByText('IMPS transfer to a person')).toBeTruthy();
+    expect(await screen.findByText('Bank transfer to a person')).toBeTruthy();
     expect(screen.queryByText(/Couldn’t load your review queue/i)).toBeNull();
   });
 
@@ -219,11 +243,11 @@ describe('resolving a one-off transaction', () => {
     transactions.updateCategory.mockResolvedValue({} as never);
 
     renderScreen();
-    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
     fireEvent.press(await screen.findByText('Food'));
 
     await waitFor(() => expect(transactions.updateCategory).toHaveBeenCalledWith('t-1', 'Food', 'SIMILAR'));
-    await waitFor(() => expect(screen.queryByText('IMPS transfer to a person')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Bank transfer to a person')).toBeNull());
     expect(invalidateFinancialData).toHaveBeenCalled();
   });
 
@@ -231,7 +255,7 @@ describe('resolving a one-off transaction', () => {
   it('asks the picker for no tick of its own', async () => {
     transactions.needsReview.mockResolvedValue([txn()]);
     renderScreen();
-    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
     expect(screen.UNSAFE_getByType(CategoryPickerModal).props.silent).toBe(true);
   });
 
@@ -243,11 +267,11 @@ describe('resolving a one-off transaction', () => {
     transactions.updateCategory.mockRejectedValue(new Error('nope'));
 
     renderScreen();
-    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
     fireEvent.press(await screen.findByText('Food'));
 
     expect(await screen.findByText(/Could not save that category/i)).toBeTruthy();
-    expect(screen.getByText('IMPS transfer to a person')).toBeTruthy();
+    expect(screen.getByText('Bank transfer to a person')).toBeTruthy();
     expect(invalidateFinancialData).not.toHaveBeenCalled();
   });
 });
@@ -557,7 +581,7 @@ describe('creating a category from the review queue', () => {
     transactions.needsReview.mockResolvedValue([txn()]);
 
     renderScreen();
-    fireEvent.press(await screen.findByText('IMPS transfer to a person'));
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
 
     expect(await screen.findByText('New category')).toBeTruthy();
   });
@@ -586,5 +610,161 @@ describe('recovering from a failed category list', () => {
     fireEvent.press(await screen.findByText(/Try again/i));
 
     await waitFor(() => expect(categories.list).toHaveBeenCalledTimes(2));
+  });
+});
+
+// The lists read like the Ledger: the same row title, a written date, and money in or out at a
+// glance -- before this, a one-off showed the bank's raw narration and an ISO date, and a salary
+// credit looked exactly like a purchase.
+describe('rows written the way the Ledger writes them', () => {
+  it('titles a one-off as the Ledger does and writes its date', async () => {
+    transactions.needsReview.mockResolvedValue([txn({
+      description: 'UPI/DR/100000000001/SAMPLE STORE/YBL/sample@ybl/Pay', // synthetic-ok
+      merchant: 'sample store', date: '2026-06-14', amount: -1240,
+    })]);
+    renderScreen();
+    expect(await screen.findByText('Sample Store')).toBeTruthy();
+    expect(screen.getByText(`${fmtDate('2026-06-14')} · Now: Other`)).toBeTruthy();
+  });
+
+  it('shows money out with a minus and money in with a plus', async () => {
+    transactions.needsReview.mockResolvedValue([
+      txn({ id: 't-1', description: 'Card purchase', amount: -1240, type: 'EXPENSE' }),
+      txn({ id: 't-2', description: 'Salary credit', amount: 52000, type: 'INCOME' }),
+    ]);
+    renderScreen();
+    expect(await screen.findByText('-₹1,240')).toBeTruthy();
+    expect(screen.getByText('+₹52,000')).toBeTruthy();
+  });
+
+  it('counts each list in its title', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    transactions.needsReview.mockResolvedValue([txn(), txn({ id: 't-2', description: 'Second one-off' })]);
+    renderScreen();
+    expect(await screen.findByText('Categorize a whole merchant · 1')).toBeTruthy();
+    expect(screen.getByText('Categorize by who you paid · 1')).toBeTruthy();
+    expect(screen.getByText('One-off transactions · 2')).toBeTruthy();
+  });
+
+  it('gives every row a 44pt touch target', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.needsReview.mockResolvedValue([txn()]);
+    renderScreen();
+    await screen.findByText('Swiggy');
+    for (const row of screen.getAllByRole('button', { name: /Swiggy|Bank transfer to a person/ })) {
+      expect(StyleSheet.flatten(row.props.style).minHeight).toBe(44);
+    }
+  });
+
+  // jest reports a font scale of 2, which is large text: the rest of this file sees the large-text
+  // layout. At the default size a row has its logo and the amount beside it, as the Ledger's do.
+  it('gives each row a logo and the amount beside it at the default text size', async () => {
+    const spy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+    try {
+      transactions.needsReviewGroups.mockResolvedValue([group()]);
+      transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+      transactions.needsReview.mockResolvedValue([txn()]);
+      renderScreen();
+      await screen.findByText('Swiggy');
+      expect(screen.UNSAFE_getAllByType(MerchantLogo)).toHaveLength(3);
+      expect(screen.getByText('-₹900')).toBeTruthy();
+      expect(screen.queryByTestId('review-amount-below-t-1')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('moves the amount below the title and drops the logo at large text', async () => {
+    transactions.needsReview.mockResolvedValue([txn()]);
+    renderScreen();
+    const below = await screen.findByTestId('review-amount-below-t-1');
+    expect(within(below).getByText('-₹900')).toBeTruthy();
+    expect(screen.UNSAFE_queryAllByType(MerchantLogo)).toHaveLength(0);
+  });
+
+  // 9pt was below what the app sets as its smallest readable size.
+  it('writes the person and probable badges at a readable size', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup({ identityIsStrong: false })]);
+    renderScreen();
+    for (const badge of [await screen.findByText('Person'), screen.getByText('Probable')]) {
+      expect(StyleSheet.flatten(badge.props.style).fontSize).toBe(11);
+    }
+  });
+});
+
+// A one-off already carries a guess; the row says what it is, and the picker opens on it, so
+// confirming a right guess is one tap.
+describe("a one-off's current category", () => {
+  it('opens the picker on the category it is filed as now', async () => {
+    transactions.needsReview.mockResolvedValue([txn({ categoryName: 'Travel' })]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.selectedName).toBe('Travel');
+  });
+
+  it('opens a group picker on nothing: its rows may be filed under different categories', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Swiggy'));
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.selectedName).toBeNull();
+  });
+});
+
+// A saved row used to vanish with nothing said, and a failed save explained itself only at the top
+// of the list, out of sight once you had scrolled down. Both now show above the tab bar.
+describe('what a save says', () => {
+  it('confirms a merchant group with the category and how many payments it covered', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.bulkRecategorize.mockResolvedValue({} as never);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Swiggy'));
+    fireEvent.press(await screen.findByText('Food'));
+    expect(await screen.findByText('✓ Saved Food for Swiggy')).toBeTruthy();
+    expect(screen.getByText('3 transactions')).toBeTruthy();
+  });
+
+  it('confirms a one-off by the title its row showed', async () => {
+    transactions.needsReview.mockResolvedValue([txn()]);
+    transactions.updateCategory.mockResolvedValue({} as never);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Bank transfer to a person'));
+    fireEvent.press(await screen.findByText('Food'));
+    expect(await screen.findByText('✓ Saved Food for Bank transfer to a person')).toBeTruthy();
+  });
+
+  it('reports a failed save where it can be seen, and without a tick', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    transactions.bulkRecategorize.mockRejectedValue(new Error('nope'));
+    renderScreen();
+    fireEvent.press(await screen.findByText('Swiggy'));
+    fireEvent.press(await screen.findByText('Food'));
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Could not apply that category/i)).toBeTruthy();
+    expect(within(toast).queryByText(/✓/)).toBeNull();
+  });
+});
+
+// "Ravi Kumar · 2 payments" names no payment. The group already carries them, so they can be seen
+// before a category is chosen for all of them.
+describe("a person's payments", () => {
+  it('shows and hides the payments without opening the picker', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Show 2 payments'));
+    expect(screen.getByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeTruthy();
+    expect(screen.getByText(`${fmtDate('2026-08-05')} · -₹1,500`)).toBeTruthy();
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(false);
+    fireEvent.press(screen.getByText('Hide payments'));
+    expect(screen.queryByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeNull();
+  });
+
+  it('says when the group holds more payments than it brought', async () => {
+    transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup({
+      transactionIds: ['t-21', 't-22', 't-23', 't-24'],
+    })]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Show 2 payments'));
+    expect(screen.getByText('and 2 more')).toBeTruthy();
   });
 });

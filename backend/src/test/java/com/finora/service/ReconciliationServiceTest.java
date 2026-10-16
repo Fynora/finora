@@ -3380,6 +3380,60 @@ class ReconciliationServiceTest {
     }
 
     @Test
+    void reconcileForUser_aBillPaidEarlyInTheWindow_isScoredAsConfidentlyAsOnePaidOnTheDueDate() {
+        // 19 days before the due date is an ordinary time to pay a bill, not a weaker match: only
+        // lateness decays the score. MERCHANT_AND_AMOUNT(0.90) * amount 1.0 * dateDecay(0,10) 1.0 = 90.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 23)))
+                .singleElement().satisfies(e -> assertThat(e.confidence()).isEqualTo(90));
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidLate_isScoredByHowLateItIs() {
+        // 5 days late: dateDecay(5,10) = 0.85 -> round(90 * 0.85) = 77.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 16)))
+                .singleElement().satisfies(e -> assertThat(e.confidence()).isEqualTo(77));
+    }
+
+    /** A part payment of a 2500.00 bill (generated 22 Sep, due 12 Oct) made on 29 Sep with this narration. */
+    private List<TransactionGraphService.PendingEdge> ccEdgesForPartPaymentNarrated(String narration) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 29), new BigDecimal("1500.00"),
+                Transaction.Type.EXPENSE, narration, Instant.parse("2026-09-29T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream().filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+    }
+
+    @Test
+    void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsUpiHandle() {
+        // Money sent TO the bill-payment app is a card bill: every such savings debit in production
+        // that a person categorised was put under "Credit Card bill".
+        assertThat(ccEdgesForPartPaymentNarrated("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"))
+                .singleElement().satisfies(e -> assertThat(e.explanation()).containsEntry("paymentStatus", "PARTIAL"));
+    }
+
+    @Test
+    void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsName() {
+        assertThat(ccEdgesForPartPaymentNarrated("CRED Club UPI20260929000000001 100000000001")).hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPurchasePaidThroughTheBillPaymentApp() {
+        // "Paid via" names the app the person paid a shop WITH, not who was paid: a purchase.
+        assertThat(ccEdgesForPartPaymentNarrated(
+                "UPI-GROCER-GROCER@YBL-YESB0XXXXXX-100000000001-PAID VIA CRED")).isEmpty();
+    }
+
+    @Test
     void reconcileForUser_aPaymentOnTheNextStatementsDate_stillPaysTheEarlierBill() {
         // Inside the next statement's own period, so printed there as a payment of the earlier bill.
         assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 19))).containsExactly("earlier");
@@ -3456,8 +3510,9 @@ class ReconciliationServiceTest {
         assertThat(ccEdges.get(0).fromTransactionId()).isEqualTo(minimumDuePayment.getId());
         assertThat(ccEdges.get(0).explanation()).containsEntry("paymentStatus", "PARTIAL");
         // amountFactor = 1 - (2375/2500) = 0.05, floored at 0.5 per ConfidenceScorer's own comment
-        // -- MERCHANT_AND_AMOUNT(0.90) * 0.5 * dateDecay(1,10)=0.97 -> round(90*0.5*0.97) = 44.
-        assertThat(ccEdges.get(0).confidence()).isEqualTo(44);
+        // -- MERCHANT_AND_AMOUNT(0.90) * 0.5 * dateDecay(0,10)=1.0 (paid before the due date, so not
+        // late at all) -> round(90*0.5*1.0) = 45.
+        assertThat(ccEdges.get(0).confidence()).isEqualTo(45);
     }
 
     @Test
@@ -4633,8 +4688,19 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void reconcileForUser_aBillPaymentApp_isNotEvidenceForAPartialAmount() {
-        assertThat(ccEdgesForSinglePayment("1000.00", "UPI CRED CLUB", null)).isEmpty();
+    void reconcileForUser_aBillPaymentRail_isNotEvidenceForAPartialAmount() {
+        // A rail word alone also covers utility and mandate payments.
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI BBPS ELECTRICITY", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_payingAShopThroughTheBillPaymentApp_isNotEvidenceForAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI-GROCER-GROCER@YBL-PAID VIA CRED", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_payingTheBillPaymentAppItself_isEvidenceForAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI CRED CLUB", null)).hasSize(1);
     }
 
     @Test

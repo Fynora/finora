@@ -1771,8 +1771,13 @@ public class ReconciliationService {
         // same reasoning a partial refund's delta is measured against the original expense, not
         // the smaller amount refunded.
         BigDecimal amountDelta = payment.getAmount().subtract(statement.getTotalAmountDue()).abs();
+        // Only lateness weakens the date evidence. Anywhere from the day after the statement date
+        // to the due date is an ordinary time to pay a bill (see ccPaymentWindows), so a bill paid
+        // the week it arrived scores like one paid on the due date; one paid after it decays across
+        // the days the window allows past it.
+        long daysLate = Math.max(0, ChronoUnit.DAYS.between(statement.getPaymentDueDate(), payment.getTxnDate()));
         int ccConfidence = ConfidenceScorer.score(matchType,
-                statement.getTotalAmountDue(), amountDelta, daysFromDue, ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
+                statement.getTotalAmountDue(), amountDelta, daysLate, ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
         // FULL / PARTIAL / OVERPAID for the explainability trail (roadmap Part 4) -- this pass
         // doesn't attempt per-charge pro-rated netting the roadmap's original design sketched
         // (the shipped v1 slice nets by excluding the PAYMENT transaction from cash flow
@@ -1907,9 +1912,16 @@ public class ReconciliationService {
      * word "payment" (an autopay narration reading "...CARD BILL", or "CC BILL PAY"). CategoryRules'
      * other Transfer phrases ("neft to", "autopay", "billdesk", ...) also cover payments to people,
      * mandates and utilities, so they are not evidence of a card payment.
+     *
+     * <p>"cred club" is the bill-payment app as the one being PAID: its name, or its UPI handle
+     * (cred.club@...) once normalized. Every savings debit to it in production that a person
+     * categorised was put under "Credit Card bill", and on the real corpus such debits pair with a
+     * card's "payment received" credit. "Paid via CRED" is different -- the app used to pay a shop --
+     * and does not contain the phrase; those debits are purchases (groceries, food, a person), so the
+     * bare word "cred" stays evidence only at the exact amount due (see BILL_PAYMENT_RAILS).
      */
     private static final List<String> CARD_PAYMENT_PHRASES =
-            List.of("credit card payment", "card bill", "cc payment", "cc bill");
+            List.of("credit card payment", "card bill", "cc payment", "cc bill", "cred club");
 
     /**
      * Bill-payment apps and rails. On the real corpus, both savings-side card payments the transfer

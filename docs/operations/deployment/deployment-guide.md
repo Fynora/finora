@@ -64,6 +64,7 @@ to leave at its default: local dev defaults, or must be explicitly set.
 | `MALWARE_SCAN_PROVIDER` | **Yes, in prod** | `none` | Which scanner every upload (statement import, admin analysis, support attachments, Fyn screenshots) goes through before a parser sees it: `none` or `clamav`. See "Malware scanning" under the Railway section. | **No** — at `none` uploads are unscanned and `ProductionConfigValidator` warns at boot. |
 | `CLAMAV_HOST` / `CLAMAV_PORT` | With `clamav` | `localhost` / `3310` | Where clamd listens. On Railway: the ClamAV service's private-network hostname. | Only when the provider is `clamav`. |
 | `MALWARE_SCAN_ON_UNAVAILABLE` | No | `reject` | What an upload gets when the scanner is configured but cannot answer: `reject` (503, error-level log) or `allow` (passes unscanned, warning). | Yes — `reject` is the safe default. |
+| `MALWARE_SCAN_UNAVAILABLE_RETRY_WINDOW_MS` | No | `25000` | How long an unanswered scan is retried (backing off 0.5 s to 4 s) before `MALWARE_SCAN_ON_UNAVAILABLE` applies, so a scanner woken from App Sleeping is waited for. `0` is one attempt. | Yes — keep it under mobile's 30 s timeout for Fyn screenshots and support attachments. |
 | `CLAMAV_CONNECT_TIMEOUT_MS` / `CLAMAV_READ_TIMEOUT_MS` | No | `2000` / `30000` | Socket timeouts for one scan. | Yes |
 | `IMPORT_QUEUE_ENABLED` (`app.import.queue.enabled`) | No | `false` | Whether statement uploads go through the async `ImportJobWorker` (claim locking, retries, dead-letter alerts) or are parsed on the request thread. | The async path is built and tested but not yet rolled out; leave `false` until the queue-activation rollout in the import reliability plan is done. |
 | `RATE_LIMIT_AUTH_GLOBAL_MAX` / `_WINDOW_SECONDS` | No | `600` / `60` | Shared ceiling across ALL clients for the bcrypt-cost auth routes (login, register, email OTP request/login, MFA verify) — the per-IP limits bound one client, this bounds the instance's password-hashing budget against many. | Yes for one instance; scale it with instance size, not with user count. |
@@ -185,6 +186,20 @@ While the scanner is down, uploads answer 503 "Uploads are paused while the malw
 unreachable" and the backend logs at error level -- that is the default `reject` policy. Set
 `MALWARE_SCAN_ON_UNAVAILABLE=allow` only for a deliberate decision to keep imports running
 unscanned through a scanner incident; put it back afterwards.
+
+**Letting the scanner sleep when idle.** clamd holds its whole signature database in memory
+(about 0.8 GB on average, measured over 2026-09-16 to 2026-10-16), whether or not anything is
+being uploaded. Uploads are rare -- 35 over 22.5 days to 2026-10-16, in 15 bursts -- so the
+service can use Railway's **App Sleeping** (service Settings, "Enable Serverless"): Railway stops
+it after about 5 minutes without outbound traffic and starts it again when the backend connects.
+clamd's start-to-ready time in Railway's deploy logs was about 9 s, and on start the image runs
+`freshclam` before clamd, so a woken scanner has current signatures. The backend waits for it:
+an unanswered scan is retried for `MALWARE_SCAN_UNAVAILABLE_RETRY_WINDOW_MS` (25 s) before the
+`reject` policy applies, so the first upload after a quiet spell is slower rather than refused.
+Turn sleeping on only once a backend with that retry window is live, then prove it once: wait for
+the service to show as sleeping, upload a statement, and confirm the backend logs `Malware
+scanner ... answered on attempt N after M ms`. The client-side ceiling is mobile's 30 s timeout
+on Fyn screenshots and support attachments; statement uploads have none.
 
 Locally, `docker compose --profile scan up` starts the same image beside Postgres and Redis;
 point a locally run backend at it with `MALWARE_SCAN_PROVIDER=clamav CLAMAV_HOST=localhost`.

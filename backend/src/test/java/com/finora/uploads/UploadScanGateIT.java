@@ -27,6 +27,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -117,5 +119,20 @@ class UploadScanGateIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getBody()).contains("malware scanner is unreachable");
+    }
+
+    /** A scanner asleep when the upload arrives: the first attempt is refused while it wakes, the
+     *  next one answers, and the customer sees an ordinary successful upload. */
+    @Test
+    void aScannerThatWakesDuringTheUpload_isWaitedFor_andTheUploadProceeds() {
+        when(scanner.scan(any()))
+                .thenReturn(ScanResult.unavailable("connection refused"))
+                .thenReturn(ScanResult.clean());
+        when(scanner.describe()).thenReturn("mock scanner");
+
+        ResponseEntity<String> response = stage(createUser(), "july.csv");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(scanner, times(2)).scan(any());
     }
 }

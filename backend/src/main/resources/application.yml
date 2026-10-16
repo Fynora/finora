@@ -373,6 +373,11 @@ app:
     # lets it through unscanned with a warning. Reject by default: for statements and tax
     # documents, "not right now" is the honest answer while the scanner is out.
     on-unavailable: ${MALWARE_SCAN_ON_UNAVAILABLE:reject}
+    # How long an unanswered scan keeps being retried before on-unavailable applies, for a scanner
+    # that sleeps when idle and is woken by the first connection (Railway App Sleeping on the clamd
+    # service; clamd measured about 9 s from start to ready). Kept under the 30 s timeout of mobile's
+    # non-upload calls (Fyn screenshot, support attachment). 0 means one attempt. See UploadScanGate.
+    unavailable-retry-window-ms: ${MALWARE_SCAN_UNAVAILABLE_RETRY_WINDOW_MS:25000}
     clamav:
       host: ${CLAMAV_HOST:localhost}
       port: ${CLAMAV_PORT:3310}

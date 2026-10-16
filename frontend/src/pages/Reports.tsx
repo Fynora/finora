@@ -14,6 +14,9 @@ import { ReportStatCards } from './reportSections/ReportStatCards';
 import { ReviewNotice } from './reportSections/ReviewNotice';
 import { BiggestSpends } from './reportSections/BiggestSpends';
 import { CategoryBreakdown } from './reportSections/CategoryBreakdown';
+import { CategoryChanges } from './reportSections/CategoryChanges';
+import { categoryChanges } from './reportSections/changeVsMonth';
+import { comparisonMonthName } from '../lib/reportComparison';
 import { MerchantsCard } from './reportSections/MerchantsCard';
 import { SpendingCalendar } from './reportSections/SpendingCalendar';
 import { MonthSwitcher } from './reportSections/MonthSwitcher';
@@ -91,7 +94,11 @@ export default function Reports() {
   const [reportLoading, setReportLoading] = useState(true);
   const [error, setError] = useState(false);
   const { beginRequest } = useAsyncGuard();
-  const extras = useReportExtras(month);
+  // The month before is fetched only for a report whose comparison with it the server trusted: with
+  // a partial month or a missing statement on either side, a category list would show the gap as
+  // spending that "fell to nothing".
+  const previousMonth = report && report.month === month && report.comparison?.reliable ? report.comparison.previousMonth : null;
+  const extras = useReportExtras(month, previousMonth);
 
   useEffect(() => {
     reportsApi.availableMonths().then((m) => {
@@ -127,7 +134,11 @@ export default function Reports() {
   const observations = report && extrasForReport
     ? buildObservations(extrasForReport.insights, monthLabelLong(report.month).split(' ')[0], fmt)
     : [];
-  const hasSide = observations.length > 0 || (report?.incomeByKind?.length ?? 0) > 1;
+  const changes = report && extrasForReport?.previous
+    ? categoryChanges(report.categories, extrasForReport.previous.categories)
+    : [];
+  const priorName = report?.comparison ? comparisonMonthName(report.comparison.previousMonth, report.month) : '';
+  const hasSide = observations.length > 0 || changes.length > 0 || (report?.incomeByKind?.length ?? 0) > 1;
 
   const showMonthsSkeleton = useDelayedLoading(loading);
   // First load only -- `report === null` is what separates "nothing to show yet" from "showing last
@@ -230,6 +241,7 @@ export default function Reports() {
             {hasSide && (
               <div className="space-y-6 lg:col-span-2">
                 <Observations items={observations} />
+                <CategoryChanges changes={changes} priorName={priorName} />
                 {/* Plan 2: income split by what it was -- Family support and the user's own kinds
                     get their own lines. */}
                 {report.incomeByKind && report.incomeByKind.length > 1 && (

@@ -13,7 +13,7 @@ const FIVE_MINUTES = 5 * 60_000;
  * Keyed by month, so an answer for a month the reader has left lands in its own cache entry and is
  * never shown against another month's report.
  */
-export function useReportExtras(month: string | null) {
+export function useReportExtras(month: string | null, previousMonth: string | null = null) {
   const categories = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
@@ -33,8 +33,20 @@ export function useReportExtras(month: string | null) {
     staleTime: FIVE_MINUTES,
     retry: false,
   });
+  // The month before, for the category changes. Under the report's own key, so a month the Dashboard
+  // or this screen already loaded costs nothing. Asked for only once the report on screen says its
+  // comparison with that month can be trusted (the caller passes null until then).
+  const previous = useQuery({
+    queryKey: ['report', previousMonth],
+    queryFn: () => reportsApi.forMonth(previousMonth as string),
+    enabled: previousMonth !== null,
+    staleTime: FIVE_MINUTES,
+    retry: false,
+  });
   return {
     categories: categories.data ?? [],
+    // Only ever the month asked for: if the server described another one, it is not that month's.
+    previous: previousMonth !== null && previous.data?.month === previousMonth ? previous.data : null,
     // The server also echoes the month it described; if it answered for a different one (no
     // spending in the requested month), it is not this month's.
     insights: insights.data && insights.data.reportingMonth === month ? insights.data : null,

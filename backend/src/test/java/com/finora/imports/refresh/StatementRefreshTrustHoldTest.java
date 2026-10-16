@@ -42,6 +42,16 @@ class StatementRefreshTrustHoldTest {
     }
 
     @Test
+    void transactionsThatMissTheClosingBalance_hold() {
+        // The scanned-statement case: rows read short of the statement's own closing balance.
+        HoldDecision decision = StatementRefreshInputs.trustHold(staging(null, new ImportDto.VerificationReport(
+                List.of(new ImportDto.VerificationFinding("STATEMENT_TOTALS", "FAILED",
+                        Map.of("suspectedCause", "TRANSACTIONS"))))), TODAY);
+
+        assertThat(StatementRefreshInputs.holdCategories(decision)).containsExactly("STATEMENT_TOTALS_DISAGREE");
+    }
+
+    @Test
     void aPeriodInTheFuture_holds_readFromTheSectionsOwnAccountDetails() {
         HoldDecision decision = StatementRefreshInputs.trustHold(
                 staging(detected(LocalDate.of(2030, 1, 1), LocalDate.of(2030, 1, 31)), null), TODAY);

@@ -695,7 +695,8 @@ class StatementRefreshIT extends AbstractIntegrationTest {
 
     /**
      * The same four purchases, with a running balance the rows contradict twice out of three
-     * pairs: a systematic break, which holds an upload ({@code TrustPredicate}).
+     * pairs (a systematic break) and a closing balance the rows do not reach: both hold an upload
+     * ({@code TrustPredicate}).
      */
     private static final byte[] CHAIN_BROKEN_FILE = ("Date,Description,Amount,Type,Balance\n"
             + "2026-07-01,SAMPLE GROCER,450.00,DEBIT,550.00\n"
@@ -710,7 +711,8 @@ class StatementRefreshIT extends AbstractIntegrationTest {
                 new ByteArrayInputStream(CHAIN_BROKEN_FILE));
         assertThat(com.finora.imports.trust.TrustPredicate.evaluate(List.of(asUploaded.verification()),
                 List.<java.time.LocalDate[]>of(), java.time.LocalDate.now(java.time.ZoneOffset.UTC)).categories())
-                .containsExactly(com.finora.imports.trust.TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY);
+                .containsExactly(com.finora.imports.trust.TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY,
+                        com.finora.imports.trust.TrustPredicate.Category.STATEMENT_TOTALS_DISAGREE);
 
         // Imported before the gate existed (or approved by a reviewer), then misread by an older
         // parser. With the file's own balances, so the misread row is the only change.
@@ -730,7 +732,7 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         var preview = previewRepository.findByStatementImportIdAndParserVersion(i.id(), build).orElseThrow();
         assertThat(preview.getStatus()).isEqualTo(com.finora.entity.StatementRefreshPreview.Status.NEEDS_REVIEW);
         assertThat(preview.getDetail()).containsEntry("reason", "TRUST_HOLD")
-                .containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY"));
+                .containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY", "STATEMENT_TOTALS_DISAGREE"));
         assertThat(preview.getRowsChanged()).as("what it found is still recorded").isEqualTo(1);
         assertThat(userService.overview(i.userId()).updatable()).isEmpty();
 
@@ -739,7 +741,7 @@ class StatementRefreshIT extends AbstractIntegrationTest {
 
         assertThat(outcome.status()).isEqualTo(StatementRefreshRun.Status.NEEDS_REVIEW);
         assertThat(outcome.reason()).isEqualTo("TRUST_HOLD");
-        assertThat(lastRun(i).getDetail()).containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY"));
+        assertThat(lastRun(i).getDetail()).containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY", "STATEMENT_TOTALS_DISAGREE"));
         assertThat(lastRun(i).getRowsChanged()).isEqualTo(1);
         assertThat(lastRun(i).getFactsChanged()).isZero();
         assertThat(row(i, "SAMPLE GROCER").getAmount()).as("the misread amount stays").isEqualByComparingTo("45.00");

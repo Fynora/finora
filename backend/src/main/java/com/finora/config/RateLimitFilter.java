@@ -23,6 +23,7 @@ import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -613,6 +614,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         applyCorsHeadersForShortCircuitedResponse(request, response);
         response.setStatus(429); // Too Many Requests
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // Written outside Spring MVC: without this the servlet default, ISO-8859-1, turns any
+        // non-ASCII character into "?". Must come before getWriter().
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         ApiResponse<Void> body = ApiResponse.error(
                 "Too many requests. Please wait before trying again.", "RATE_LIMITED");
         response.getWriter().write(objectMapper.writeValueAsString(body));

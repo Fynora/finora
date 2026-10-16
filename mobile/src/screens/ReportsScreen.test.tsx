@@ -729,6 +729,78 @@ describe('the spending tab', () => {
   });
 });
 
+describe('biggest changes since the month before', () => {
+  const cmp = (over: Record<string, unknown> = {}) => ({
+    previousMonth: '2026-06', reliable: true, gateReason: null, previousIncome: 70000, previousExpense: 60000,
+    incomeDeltaPct: 17.1, expenseDeltaPct: -14.2, netDelta: 40500, ...over,
+  });
+  const julyCats = [{ category: 'Rent', amount: 25000 }, { category: 'Food', amount: 9000 }, { category: 'Gifts', amount: 380 }];
+  const juneCats = [{ category: 'Rent', amount: 23000 }, { category: 'Food', amount: 12000 }, { category: 'Gym', amount: 1200 }];
+
+  const serve = (current: Record<string, unknown>, prior: ReportData | Error) =>
+    api.forMonth.mockImplementation(async (m: string) => {
+      if (m === '2026-07') return reportFor(m, { categories: julyCats, ...current });
+      if (prior instanceof Error) throw prior;
+      return prior;
+    });
+
+  it('lists the categories that moved most, in rupees, with their direction', async () => {
+    serve({ comparison: cmp() as never }, reportFor('2026-06', { categories: juneCats }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+
+    const card = await screen.findByTestId('category-changes');
+    expect(within(card).getByText('Biggest changes since June')).toBeTruthy();
+    expect(within(card).getByLabelText('Food, -₹3,000. ₹9,000 now, ₹12,000 in June')).toBeTruthy();
+    expect(within(card).getByLabelText('Rent, +₹2,000. ₹25,000 now, ₹23,000 in June')).toBeTruthy();
+    expect(within(card).getByLabelText('Gym, -₹1,200. Nothing this month, ₹1,200 in June')).toBeTruthy();
+    expect(within(card).getByLabelText('Gifts, +₹380. New this month, nothing in June')).toBeTruthy();
+    expect(api.forMonth).toHaveBeenCalledWith('2026-06');
+  });
+
+  it('does not ask for the month before, or draw the list, when the server did not trust the comparison', async () => {
+    serve({ comparison: cmp({ reliable: false, gateReason: 'PARTIAL_PRIOR_MONTH', incomeDeltaPct: null, expenseDeltaPct: null, netDelta: null }) as never }, reportFor('2026-06', { categories: juneCats }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+
+    expect(api.forMonth).not.toHaveBeenCalledWith('2026-06');
+    expect(screen.queryByTestId('category-changes')).toBeNull();
+  });
+
+  it('leaves the list out, and the screen alone, when the month before cannot be loaded', async () => {
+    serve({ comparison: cmp() as never }, new Error('down'));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+
+    await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-06'));
+    expect(screen.queryByTestId('category-changes')).toBeNull();
+  });
+
+  it('draws nothing when no category moved, or when the answer is for some other month', async () => {
+    serve({ comparison: cmp() as never }, reportFor('2026-06', { categories: julyCats }));
+    const { unmount } = renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-06'));
+    expect(screen.queryByTestId('category-changes')).toBeNull();
+    unmount();
+
+    serve({ comparison: cmp() as never }, reportFor('2026-04', { categories: juneCats }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    await settle();
+    expect(screen.queryByTestId('category-changes')).toBeNull();
+  });
+});
+
 describe('top merchants', () => {
   it('shows a locked preview with no real data, and never asks the paid endpoint, without Advanced Reports', async () => {
     mockAnalytics.topMerchants.mockResolvedValue([{ merchantId: 'm1', merchantName: 'Secret Merchant', totalSpend: 99999, transactionCount: 3 }]);

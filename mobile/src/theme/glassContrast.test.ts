@@ -17,7 +17,9 @@ const mesh = JSON.parse(readFileSync(join(ASSETS, 'mesh.json'), 'utf8'));
 const ch = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const lum = ([r, g, b]: number[]) => 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
 const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-const ratio = (a: number[], b: number[]) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+// From two luminances, not two colours: the scans below compute each token's luminance once and
+// each surface pixel's once, rather than both for every token at every pixel.
+const ratio = (la: number, lb: number) => (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 const over = (top: number[], a: number, bot: number[]) => top.map((v, i) => v * a + bot[i] * (1 - a));
 
 // Text tokens that can render on glass, and the subset that can render straight on the backdrop
@@ -45,13 +47,14 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
   // EXHAUSTIVE: every pixel. `layer(px)` maps a backdrop pixel to the surface the text sits on.
   const worst = (tokens: (keyof Palette)[], layer: (px: number[]) => number[]) => {
     const res: Record<string, Hit> = {};
+    const tokenLum = tokens.map((t) => lum(rgb(p[t] as string)));
     for (let y = 0; y < png.height; y++) for (let x = 0; x < png.width; x++) {
       const i = (y * png.width + x) * 4;
-      const surface = layer([png.data[i], png.data[i + 1], png.data[i + 2]]);
-      for (const t of tokens) {
-        const r = ratio(rgb(p[t] as string), surface);
+      const surfaceLum = lum(layer([png.data[i], png.data[i + 1], png.data[i + 2]]));
+      tokens.forEach((t, k) => {
+        const r = ratio(tokenLum[k], surfaceLum);
         if (!(t in res) || r < res[t].r) res[t] = { r, x, y };
-      }
+      });
     }
     return res;
   };
@@ -61,7 +64,8 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
       .map(([t, h]) => `${theme} / ${where} / ${t} / x=${h.x}, y=${h.y} / ${h.r.toFixed(2)}:1 < 4.50:1`);
     expect(fails).toEqual([]);
   };
-  const glass = (px: number[]) => over(rgb(p.glassTint), p.glassAlpha, px);
+  const tint = rgb(p.glassTint);
+  const glass = (px: number[]) => over(tint, p.glassAlpha, px);
   const SCRIM = [0, 0, 0];
 
   it('PNG matches mesh.json dimensions', () => {
@@ -75,7 +79,8 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
   // Financial Note: the brass wash at glass alpha instead of the neutral tint. Measured when
   // added: light 14.45 / 6.14 / 5.14, dark 14.36 / 8.03 / 7.04 at the worst pixel.
   it('the Financial Note text clears AA on brass glass, at every pixel', () => {
-    const brassGlass = (px: number[]) => over(rgb(p.brassBg), p.glassAlpha, px);
+    const brass = rgb(p.brassBg);
+    const brassGlass = (px: number[]) => over(brass, p.glassAlpha, px);
     expectAA(worst(['ink', 'mutedInk', 'brassInk'], brassGlass), 'brass glass');
   });
 
@@ -94,11 +99,20 @@ describe.each([['light', light], ['dark', dark]] as const)('%s mesh', (theme, p)
   it('edge band is flat base colour, so differently-sized crops meet without a seam', () => {
     const base = rgb(mesh.themes[theme].base);
     const band = Math.ceil(mesh.edgeBand * png.width);
+    // One assertion over the misses, not one `expect` per channel of ~143k band pixels. A failure
+    // reports how many channels are off and the first five.
+    let count = 0;
+    const first: string[] = [];
     for (let y = 0; y < png.height; y++) for (let x = 0; x < png.width; x++) {
       if (x >= band && x < png.width - band && y >= band && y < png.height - band) continue;
       const i = (y * png.width + x) * 4;
-      for (let k = 0; k < 3; k++) expect(Math.abs(png.data[i + k] - base[k])).toBeLessThanOrEqual(2);
+      for (let k = 0; k < 3; k++) {
+        if (Math.abs(png.data[i + k] - base[k]) <= 2) continue;
+        count++;
+        if (first.length < 5) first.push(`x=${x}, y=${y}, channel ${k}: ${png.data[i + k]} vs ${base[k]}`);
+      }
     }
+    expect({ count, first }).toEqual({ count: 0, first: [] });
   });
 
   it('PNG base colour equals the palette bg it is drawn over', () => {

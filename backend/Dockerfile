@@ -111,12 +111,8 @@ EXPOSE 8080
 # into production deploys in exchange for a line that only documents. So it documents here, where
 # the cost is zero. If the port ever needs declaring, set PORT explicitly first.
 
-# -XX:MaxRAMPercentage (rather than a fixed -Xmx) lets the JVM heap scale with whatever container
-# memory limit the deployment actually has (Railway plan size, a Docker --memory flag, etc.)
-# instead of a number picked for one specific environment. 75% leaves headroom for
-# non-heap JVM overhead (metaspace, thread stacks, direct buffers -- PDFBox/PdfPreviewGenerator's
-# PDF parsing uses some of this) without wasting most of a small container's memory the way the
-# JVM's own default (25%) would on a single-application container like this one.
+# The heap is capped at a fixed -Xmx, set in docker-entrypoint.sh -- see the comment there for why
+# a fixed cap replaced -XX:MaxRAMPercentage, and how much memory the container needs around it.
 #
 # Shell-form entrypoint script now (not exec-form `java -jar` directly) -- see
 # docker-entrypoint.sh's own doc comment: it needs to run BEFORE the JVM starts, to decode

@@ -17,4 +17,17 @@ if [ -n "$GOOGLE_APPLICATION_CREDENTIALS_BASE64" ] && [ -z "$GOOGLE_APPLICATION_
   export GOOGLE_APPLICATION_CREDENTIALS=/app/firebase-service-account.json
 fi
 
-exec java -XX:MaxRAMPercentage=75.0 -jar app.jar
+# A fixed heap cap, not a share of the container. This used to be -XX:MaxRAMPercentage=75.0, which
+# sizes the heap from the container's memory limit -- and Railway gives the service the plan's whole
+# limit (24 GB on Pro), so the heap ceiling was about 17 GB. Prometheus over 22 days to 2026-10-16
+# put the production heap's peak use under 0.9 GB, with live data after GC never above about
+# 0.35 GB. A ceiling that far above real use is not headroom: it lets one runaway import grow the
+# heap, and Railway bills committed memory by the minute. 1536m is about 1.7x the observed peak.
+#
+# A fixed -Xmx ignores the container limit, so the container needs room beyond it: non-heap
+# (metaspace, code cache, thread stacks -- about 0.26 GB at peak), other native memory, and the
+# tesseract processes TesseractEngine starts for scanned statements, which live outside the JVM and
+# whose peak has not been measured. Before giving this service a memory limit, measure an OCR
+# import: under the heap cap plus that overhead, the kernel kills the container instead of the JVM
+# raising OutOfMemoryError.
+exec java -Xmx1536m -jar app.jar

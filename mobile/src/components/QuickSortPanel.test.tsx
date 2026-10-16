@@ -1,9 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { useEffect } from 'react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { StyleSheet } from 'react-native';
 import { QuickSortPanel } from './QuickSortPanel';
 import { CategoryPickerModal } from './CategoryPickerModal';
 import { transactionsApi } from '../api/endpoints';
+import { fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { ThemeProvider, useThemeSetting } from '../theme';
+import { dark } from '../theme/palette';
 import type { QuickSortBatch, QuickSortQuestion } from '../types';
 
 jest.mock('../api/endpoints', () => ({
@@ -56,6 +61,30 @@ function renderPanel(onLoaded = jest.fn()) {
   );
   return onLoaded;
 }
+
+// Same helper as dashboard/primitives.test.tsx: the switch a person taps is the only way to force
+// a theme, and setup.ts clears the stored choice before every test.
+function ForceDarkTheme({ children }: { children: React.ReactNode }) {
+  const { setSetting } = useThemeSetting();
+  useEffect(() => { setSetting('dark'); }, [setSetting]);
+  return <>{children}</>;
+}
+
+function renderPanelDark() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  render(
+    <ThemeProvider>
+      <ForceDarkTheme>
+        <QueryClientProvider client={queryClient}>
+          <QuickSortPanel />
+        </QueryClientProvider>
+      </ForceDarkTheme>
+    </ThemeProvider>
+  );
+}
+
+// A chip by its label: the Pressable carrying the button role.
+const chipOf = (label: string) => screen.getByRole('button', { name: label });
 
 describe('QuickSortPanel', () => {
   beforeEach(() => {
@@ -128,7 +157,7 @@ describe('QuickSortPanel', () => {
   it('skip moves on without answering', async () => {
     tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })]));
     renderPanel();
-    fireEvent.press(await screen.findByText('Skip'));
+    fireEvent.press(await screen.findByText('Skip for now'));
     expect(await screen.findByText('SECOND SHOP')).toBeTruthy();
     expect(tx.quickSortAnswer).not.toHaveBeenCalled();
   });
@@ -157,7 +186,7 @@ describe('QuickSortPanel', () => {
       .mockResolvedValueOnce(batch([question({ id: 'c', anchorTransactionId: 'txn-3', payee: 'NEXT SHOP' })], { waitingTotal: 8000 }));
     renderPanel();
     fireEvent.press(await screen.findByText('Groceries'));
-    fireEvent.press(await screen.findByText('Skip'));
+    fireEvent.press(await screen.findByText('Skip for now'));
     fireEvent.press(await screen.findByText('Sort 10 more'));
     expect(await screen.findByText('NEXT SHOP')).toBeTruthy();
     expect(tx.quickSortMore).toHaveBeenCalled();
@@ -170,7 +199,7 @@ describe('QuickSortPanel', () => {
       .mockResolvedValueOnce(batch([question()]))
       .mockResolvedValueOnce(batch([question({ payee: 'ASKED AGAIN' })]));
     renderPanel();
-    fireEvent.press(await screen.findByText('Skip'));
+    fireEvent.press(await screen.findByText('Skip for now'));
     expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeTruthy();
     expect(screen.queryByText(/All sorted/)).toBeNull();
     fireEvent.press(screen.getByText('Ask the skipped ones again'));
@@ -183,7 +212,7 @@ describe('QuickSortPanel', () => {
       .mockResolvedValueOnce(batch([question()], { rest: { questions: 1, payments: 1, amount: 5, transactionIds: ['r1'] } }))
       .mockResolvedValueOnce(batch([], { waitingTotal: 5 }));
     renderPanel();
-    fireEvent.press(await screen.findByText('Skip'));
+    fireEvent.press(await screen.findByText('Skip for now'));
     fireEvent.press(await screen.findByText('Sort 10 more'));
     expect(await screen.findByText("You skipped 1 question. It's still waiting.")).toBeTruthy();
   });
@@ -195,5 +224,88 @@ describe('QuickSortPanel', () => {
     fireEvent.press(await screen.findByText('Groceries'));
     expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeTruthy();
     expect(screen.getByText('SAMPLE STORE')).toBeTruthy();
+  });
+
+  // Dark primary is near-white (#F4F1EC); the filled chips drew '#fff' on it and could not be read.
+  it('draws a filled chip label in the theme on-primary colour, readable in dark mode', async () => {
+    tx.quickSort.mockResolvedValue(batch([question({ kind: 'GUESS', currentCategory: 'Groceries', answers: ['Groceries'] })]));
+    renderPanelDark();
+    const label = await screen.findByText('Correct');
+    await waitFor(() => expect(StyleSheet.flatten(label.props.style).color).toBe(dark.onPrimary));
+  });
+
+  it('writes the latest payment date the way the rest of the app does', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    expect(await screen.findByText(`3 payments · ₹1,240 · latest ${fmtDate('2026-09-12')}`)).toBeTruthy();
+  });
+
+  it('shows the place in the batch beside the title, and the money sorted as a bar', async () => {
+    tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2' })], { waitingTotal: 10000 }));
+    renderPanel();
+    expect(await screen.findByText('1 of 2')).toBeTruthy();
+    const fill = () => StyleSheet.flatten(
+      screen.getByTestId('quick-sort-progress-fill', { includeHiddenElements: true }).props.style,
+    );
+    expect(fill().width).toBe('0%');
+    fireEvent.press(screen.getByText('Groceries'));
+    expect(await screen.findByText('2 of 2')).toBeTruthy();
+    // 1240 of 10000 waiting, floored, as the caption already counts it.
+    expect(fill().width).toBe('12%');
+    expect(screen.getByText("You've sorted 12% of your waiting money")).toBeTruthy();
+  });
+
+  // Skip moves on without an answer; sat among the categories it read as one of them.
+  it('keeps Skip apart from the answers', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    const answers = await screen.findByTestId('quick-sort-answers');
+    expect(within(answers).getByText('Groceries')).toBeTruthy();
+    expect(within(answers).queryByText('Skip for now')).toBeNull();
+    expect(screen.getByText('Skip for now')).toBeTruthy();
+  });
+
+  it('gives every answer chip a 44pt touch target', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    renderPanel();
+    await screen.findByText('Groceries');
+    for (const label of ['Groceries', 'Dining', 'More…']) {
+      expect(StyleSheet.flatten(chipOf(label).props.style).minHeight).toBe(44);
+    }
+  });
+
+  it('dims the answers while one is saving', async () => {
+    let finish: (v: { filed: number }) => void = () => {};
+    tx.quickSortAnswer.mockReturnValue(new Promise((r) => { finish = r; }));
+    tx.quickSort.mockResolvedValue(batch([question(), question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' })]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    await waitFor(() => expect(StyleSheet.flatten(chipOf('Dining').props.style).opacity).toBe(0.5));
+    await act(async () => { finish({ filed: 1 }); });
+    expect(await screen.findByText('SECOND SHOP')).toBeTruthy();
+    expect(StyleSheet.flatten(chipOf('Dining').props.style).opacity).toBeUndefined();
+  });
+
+  it('says what was saved once the next question is up, and drops it on a skip', async () => {
+    tx.quickSort.mockResolvedValue(batch([
+      question(),
+      question({ id: 'b', anchorTransactionId: 'txn-2', payee: 'SECOND SHOP' }),
+      question({ id: 'c', anchorTransactionId: 'txn-3', payee: 'THIRD SHOP' }),
+    ]));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Dining'));
+    expect(await screen.findByText('Saved Dining for SAMPLE STORE')).toBeTruthy();
+    fireEvent.press(screen.getByText('Skip for now'));
+    expect(await screen.findByText('THIRD SHOP')).toBeTruthy();
+    expect(screen.queryByText(/^Saved /)).toBeNull();
+  });
+
+  it('does not say anything was saved when the answer fails', async () => {
+    tx.quickSort.mockResolvedValue(batch([question()]));
+    tx.quickSortAnswer.mockRejectedValue(new Error('boom'));
+    renderPanel();
+    fireEvent.press(await screen.findByText('Groceries'));
+    expect(await screen.findByText("Couldn't save that answer — please try again.")).toBeTruthy();
+    expect(screen.queryByText(/^Saved /)).toBeNull();
   });
 });

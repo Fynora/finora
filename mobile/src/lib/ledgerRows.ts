@@ -1,5 +1,5 @@
 import { counterpartyLabel } from './counterpartyLabel';
-import { fmtCurrency, fromLocalDateString, toLocalDateString } from './format';
+import { fmtCurrency, fmtDate, fromLocalDateString, toLocalDateString } from './format';
 import { reconciliationBadge } from './reconciliationBadge';
 import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from './cardInstalment';
 import type { ReconciliationStatus, Transaction } from '../types';
@@ -101,16 +101,24 @@ export function groupTransactionsByDay(txns: Transaction[], today: Date = new Da
 // plain capitals, and a pattern that names other alphabets is one more thing to get wrong.
 const WORD = /[A-Za-z]+(?:'[A-Za-z]+)*/g;
 
+// Payment rails and banking terms that stay in capitals (the owner, 2026-10-16): "Upi" and "Neft"
+// read as typos. A fixed list, not a guess at what is an abbreviation; a whole word only, so
+// "POSTAL" is still softened.
+const KEPT_IN_CAPITALS: ReadonlySet<string> = new Set([
+  'UPI', 'NEFT', 'IMPS', 'RTGS', 'ATM', 'POS', 'EMI', 'ECS', 'NACH', 'GST', 'TDS', 'SIP',
+]);
+
 /**
  * The owner's choice for row titles (design, 2026-10-12): a word printed entirely in capitals is
  * shown with only its first letter capital. A word that already has a small letter, a single
  * letter, digits and punctuation are left exactly as printed. An abbreviation therefore reads as a
- * word ("IRCTC" as "Irctc"); that cost was accepted with the choice.
+ * word ("IRCTC" as "Irctc"); that cost was accepted with the choice, except for the banking terms
+ * in KEPT_IN_CAPITALS above.
  */
 export function softenCapitals(text: string): string {
   return text.replace(WORD, (word) => {
     const letters = word.replace(/'/g, '');
-    if (letters.length < 2 || word !== word.toUpperCase()) return word;
+    if (letters.length < 2 || word !== word.toUpperCase() || KEPT_IN_CAPITALS.has(word)) return word;
     return word[0] + word.slice(1).toLowerCase();
   });
 }
@@ -217,7 +225,8 @@ export function rowSpokenLabel(t: Transaction): string {
     rowTitle(t),
     `${t.type === 'INCOME' ? 'income' : 'expense'} ${fmtCurrency(Math.abs(t.amount))}`,
     t.categoryName,
-    t.date,
+    // Read out as a date ("14 Jul 2026"), not as the digits and dashes of "2026-07-14".
+    fmtDate(t.date) ?? t.date,
     cp?.full,
     match?.hint,
     ...rowTags(t).filter((tag) => tag.key !== 'match').map(spokenTag),

@@ -1091,9 +1091,15 @@ jobs:
       # files ran one after another. The same 1,889 tests went from 114s of wall-clock (about 2.8x
       # parallel, 3 workers) to 433s (about 1.0x). This uses both CPUs. Set here, not in
       # vitest.config.ts, so a developer's machine keeps its own default.
+      #
+      # Only on a 2-CPU runner. On a public repository's 4-CPU runner the default is 3 workers, and a
+      # flat --maxWorkers=2 held it to 2: 218s for the same 204 files against 185s without it
+      # (2026-10-16).
       - name: Test
         working-directory: frontend
-        run: npm test -- --maxWorkers=2
+        run: |
+          echo "CPUs: $(nproc)"
+          if [ "$(nproc)" -le 2 ]; then npm test -- --maxWorkers=2; else npm test; fi
 
       # `npm run build` is `tsc -b && vite build && node scripts/prerender.mjs && node
       # scripts/crawlPolicy.mjs`, so this type-checks and bundles, then bakes real content into
@@ -1148,10 +1154,13 @@ jobs:
       - name: Dependency advisories
         run: python3 scripts/check-dependency-advisories.py admin-portal
 
-      # --maxWorkers=2: see the user frontend's Test step. Same Vitest default, same 2-CPU runner.
+      # --maxWorkers=2 on a 2-CPU runner only: see the user frontend's Test step. Same Vitest
+      # default, same runners.
       - name: Test
         working-directory: admin-portal
-        run: npm test -- --maxWorkers=2
+        run: |
+          echo "CPUs: $(nproc)"
+          if [ "$(nproc)" -le 2 ]; then npm test -- --maxWorkers=2; else npm test; fi
 
       - name: Build
         working-directory: admin-portal
@@ -1247,6 +1256,10 @@ jobs:
         # (what 2 CPUs gives) and --max-old-space-size=2048 standing in for the smaller runner's
         # memory gave exit 134 with the same error. The same conditions with this flag passed:
         # 213 suites, 2,398 tests, 128s.
+        #
+        # Kept on the 4-CPU public runners too: dropping it there was measured (2026-10-16, same
+        # 3,383 tests) at 209/313/313/314s of Jest time against 301/301s with it -- no gain. The
+        # 209s run was the one where glassContrast.test.ts, the slowest file, happened to run fast.
         run: npm test -- --forceExit --workerIdleMemoryLimit=1G
 
       # The bundle catches a different class of problem than the tests do: broken imports, bad

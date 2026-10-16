@@ -1,6 +1,6 @@
-import { FlatList, Platform, RefreshControl, StyleSheet } from 'react-native';
+import { FlatList, Keyboard, Platform, RefreshControl, StyleSheet } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -12,6 +12,8 @@ import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../
 import { expectHaptics } from '../test/haptics';
 import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { ToastProvider } from '../context/ToastContext';
+import { trackNavigation } from '../lib/trackNavigation';
 import type { LedgerDrillThroughFilters } from '../navigation/types';
 import type { Transaction } from '../types';
 import { useScrollToTop } from '@react-navigation/native';
@@ -20,9 +22,11 @@ import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 // Controllable stand-in for useRoute, same pattern ImportScreen.test.tsx uses for its own
 // reimport-arrival params (Track C/C4).
 let mockRouteParams: { filters?: LedgerDrillThroughFilters } | undefined;
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
   useRoute: () => ({ params: mockRouteParams }),
   useScrollToTop: jest.fn(),
+  useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 /**
@@ -65,6 +69,7 @@ jest.mock('../api/endpoints', () => ({
 jest.mock('../lib/invalidateFinancialData', () => ({
   invalidateFinancialData: jest.fn(),
 }));
+jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
 
 // React Native's jest setup reports a font scale of 2, which is "large text" to this screen: rows
 // lose their avatar and the controls stack. These tests describe the ordinary layout; the one that
@@ -123,9 +128,12 @@ function renderScreen() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
+  // ToastProvider as App.tsx mounts it: the screen confirms a change, and reports a failed one, there.
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <LedgerScreen />
+      <ToastProvider>
+        <LedgerScreen />
+      </ToastProvider>
     </QueryClientProvider>
   );
   activeScreens.push(result);
@@ -975,7 +983,7 @@ describe('drill-through filters (Track C/C4)', () => {
     mockRouteParams = { filters: filters({ categoryName: 'Travel', dateFrom: '2026-08-01', dateTo: '2026-08-31' }) };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     queryClient.setQueryData(['categories'], [{ id: 'c-2', name: 'Travel', isSystem: true, icon: 'plane', color: 'blue' }]);
-    const result = render(<QueryClientProvider client={queryClient}><LedgerScreen /></QueryClientProvider>);
+    const result = render(<QueryClientProvider client={queryClient}><ToastProvider><LedgerScreen /></ToastProvider></QueryClientProvider>);
     activeScreens.push(result);
 
     await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ categoryId: 'c-2' })));
@@ -1089,15 +1097,44 @@ describe('drill-through filters (Track C/C4)', () => {
     ));
   });
 
-  it('leaves a keyword the user typed over the seeded one alone when the drill-through is cleared', async () => {
+  // A search that arrived from another screen is what its chip names. Once the person types over
+  // it the chip no longer describes the list, so it goes, and what they typed stays.
+  it('drops the arrived chip, and keeps what was typed, when the person types over the arrived search', async () => {
     mockRouteParams = { filters: filters({ keyword: 'Myntra', label: 'Myntra' }) };
     renderScreen();
     await screen.findByDisplayValue('Myntra');
     fireEvent.changeText(screen.getByLabelText('Search transactions'), 'Amazon');
 
-    fireEvent.press(screen.getByLabelText('Clear filter: Myntra'));
-
+    expect(screen.queryByLabelText('Clear filter: Myntra')).toBeNull();
     expect(screen.getByDisplayValue('Amazon')).toBeTruthy();
+  });
+
+  // Reports' biggest spend arrives as a word and a day under one chip ("Swiggy · 12 Oct"). Clearing
+  // the search with its × used to leave that chip on screen over a list no longer narrowed by the
+  // word: the chip said one thing and the list showed another.
+  it('drops an arrived search-and-dates chip when its search is cleared, so the chip never names a filter that is off', async () => {
+    mockRouteParams = {
+      filters: filters({ keyword: 'Swiggy', dateFrom: '2026-10-12', dateTo: '2026-10-12', label: 'Swiggy · 12 Oct' }),
+    };
+    renderScreen();
+    await screen.findByDisplayValue('Swiggy');
+    expect(screen.getByLabelText('Clear filter: Swiggy · 12 Oct')).toBeTruthy();
+
+    fireEvent.press(screen.getByLabelText('Clear search'));
+
+    expect(screen.queryByLabelText('Clear filter: Swiggy · 12 Oct')).toBeNull();
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({
+      keyword: undefined, dateFrom: undefined, dateTo: undefined,
+    })));
+  });
+
+  it('keeps an arrived chip that carried no search when the person searches within it', async () => {
+    mockRouteParams = { filters: filters({ categoryId: 'c-1', label: 'Food' }) };
+    renderScreen();
+    await screen.findByLabelText('Clear filter: Food');
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'Amazon');
+
+    expect(screen.getByLabelText('Clear filter: Food')).toBeTruthy();
   });
 
   // The tab stays mounted (React Navigation's default), so its local state survives a visit to
@@ -1111,7 +1148,9 @@ describe('drill-through filters (Track C/C4)', () => {
     mockRouteParams = { filters: filters({ categoryId: 'c-2', label: 'Travel', nonce: 2 }) };
     view.rerender(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
-        <LedgerScreen />
+        <ToastProvider>
+          <LedgerScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -1162,7 +1201,9 @@ describe('drill-through filters (Track C/C4)', () => {
     mockRouteParams = { filters: filters({ categoryId: 'c-1', label: 'Food', nonce: 2 }) };
     view.rerender(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
-        <LedgerScreen />
+        <ToastProvider>
+          <LedgerScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -1269,7 +1310,9 @@ describe('manual date-range filter (Phase 5)', () => {
     };
     view.rerender(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
-        <LedgerScreen />
+        <ToastProvider>
+          <LedgerScreen />
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -2181,5 +2224,184 @@ describe('LedgerScreen first load', () => {
     transactions.search.mockReturnValue(never());
     renderScreen();
     expectSkeletonNotSpinner();
+  });
+});
+
+// What a change says. The error used to be a line in the list's header, scrolled out of sight by
+// the time a row far down the list was changed, and a change that worked said nothing at all.
+describe('what a change says', () => {
+  it('confirms a category change with the category and the payment', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.updateCategory.mockResolvedValue(undefined as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
+    fireEvent.press(await screen.findByText('Travel'));
+
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Saved Travel for Grocery run/)).toBeTruthy();
+  });
+
+  it('reports a failed category change in an error toast, where it can be seen', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.updateCategory.mockRejectedValue(new Error('nope'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(await screen.findByTestId('category-button-t-1'));
+    fireEvent.press(await screen.findByText('Travel'));
+
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Could not change this category/i)).toBeTruthy();
+    expect(within(toast).queryByText(/✓/)).toBeNull();
+  });
+
+  it('confirms a delete', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockResolvedValue(undefined as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+    expect(within(await screen.findByTestId('toast')).getByText(/Deleted Grocery run/)).toBeTruthy();
+    alertSpy.mockRestore();
+  });
+
+  it('reports a failed delete in an error toast', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    transactions.remove.mockRejectedValue(new Error('network'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    await confirmLastAlert(alertSpy, 'Delete');
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Could not delete this transaction/i)).toBeTruthy();
+    alertSpy.mockRestore();
+  });
+
+  it('confirms a transfer unmark', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockResolvedValue(undefined as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Grocery run is no longer a transfer/)).toBeTruthy();
+  });
+
+  it('reports a failed transfer unmark in an error toast', async () => {
+    transactions.search.mockResolvedValue(page([txn({ reconciliationStatus: 'TRANSFER' })]) as never);
+    transactions.unmarkTransfer.mockRejectedValue(new Error('network'));
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    fireEvent.press(screen.getByTestId('unmark-transfer-button-t-1'));
+    const toast = await screen.findByTestId('toast');
+    expect(within(toast).getByText(/Could not unmark this transfer/i)).toBeTruthy();
+  });
+});
+
+describe('the delete confirmation', () => {
+  it('names the payment as its row does, with its signed amount', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    transactions.search.mockResolvedValue(page([txn({
+      description: 'UPI/CR/100000000001/SAMPLE EMPLOYER/YBL', merchant: 'sample employer', // synthetic-ok
+      amount: 500, type: 'INCOME',
+    })]) as never);
+
+    renderScreen();
+    fireEvent.press(await screen.findByText('Sample Employer'));
+    fireEvent.press(screen.getByTestId('delete-button-t-1'));
+    expect(alertSpy.mock.calls.at(-1)?.[1]).toBe('"Sample Employer" (+₹500) can\'t be recovered.');
+    alertSpy.mockRestore();
+  });
+});
+
+describe('searching', () => {
+  // With the keyboard up, the list's default swallowed the first tap on a result to close the
+  // keyboard (seen on the iOS simulator): finding a payment took two taps.
+  it('lets the first tap on a result open it while the keyboard is up, and closes the keyboard on scroll', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    const list = screen.UNSAFE_getByType(FlatList);
+    expect(list.props.keyboardShouldPersistTaps).toBe('handled');
+    expect(list.props.keyboardDismissMode).toBe('on-drag');
+  });
+
+  // With the tap now reaching the row, the search box kept its focus behind the details sheet, and
+  // the keyboard came back over half the list when the sheet closed (iOS simulator).
+  it('puts the keyboard away when a result is opened', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss');
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Grocery run'));
+    expect(dismiss).toHaveBeenCalled();
+    dismiss.mockRestore();
+  });
+
+  it('labels the keyboard key Search', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    expect((await screen.findByLabelText('Search transactions')).props.returnKeyType).toBe('search');
+  });
+
+  it('offers a clear button once something is typed, which empties the search', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    expect(screen.queryByLabelText('Clear search')).toBeNull();
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'swiggy');
+    fireEvent.press(screen.getByLabelText('Clear search'));
+
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+    expect(screen.queryByLabelText('Clear search')).toBeNull();
+  });
+});
+
+describe('empty states that offer the next step', () => {
+  it('offers Clear filters when the filters match nothing, and it clears every one of them', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'swiggy');
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    openFilters();
+    fireEvent.press(screen.getByLabelText('Show only international transactions'));
+    fireEvent.press(screen.getByLabelText('Filter by status: OK'));
+    // The sheet closes on its own Done/close; the empty state sits behind it either way.
+    fireEvent.press(await screen.findByRole('button', { name: 'Clear filters' }));
+
+    await waitFor(() => expect(transactions.search).toHaveBeenLastCalledWith(expect.objectContaining({
+      keyword: undefined, type: undefined, status: undefined, international: undefined,
+      dateFrom: undefined, dateTo: undefined,
+    })));
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+  });
+
+  it('offers Import a statement on an empty ledger, which opens the Import tab', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    mockNavigate.mockClear();
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Import a statement' }));
+    expect(mockNavigate).toHaveBeenCalledWith('Import');
+    // Recorded as every chosen route to Import is (scripts/check-nav-tracking-coverage.py).
+    expect(trackNavigation).toHaveBeenCalledWith('import-statement', 'contextual');
+  });
+
+  it('does not offer Import when the list is empty only because of filters', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await waitFor(() => expect(transactions.search).toHaveBeenCalled());
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    await screen.findByText('No transactions match these filters.');
+    expect(screen.queryByRole('button', { name: 'Import a statement' })).toBeNull();
   });
 });

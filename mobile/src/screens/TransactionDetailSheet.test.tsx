@@ -54,13 +54,51 @@ function renderSheet(transaction: Transaction = TXN, overrides: Partial<{ unmark
 }
 
 describe('TransactionDetailSheet', () => {
+  // The list titles a row with rowTitle; the sheet it opens used to lead with the bank's raw
+  // narration instead, so the same payment had two different names a tap apart.
+  it('is titled as its list row is, with the bank text under the title', () => {
+    renderSheet({
+      ...TXN, description: 'UPI/DR/100000000001/SAMPLE STORE/YBL/sample@ybl/Pay', merchant: 'sample store', // synthetic-ok
+    } as Transaction);
+
+    expect(screen.getByText('Sample Store')).toBeTruthy();
+    expect(screen.getByTestId('detail-bank-text-t-1').props.children)
+      .toBe('UPI/DR/100000000001/SAMPLE STORE/YBL/sample@ybl/Pay'); // synthetic-ok
+  });
+
+  it('does not repeat the bank text when it is the title already', () => {
+    renderSheet({ ...TXN, description: 'Grocery run', merchant: '' } as Transaction);
+
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+    expect(screen.queryByTestId('detail-bank-text-t-1')).toBeNull();
+  });
+
+  it('does not repeat bank text that differs from the title only in its capitals', () => {
+    renderSheet({ ...TXN, description: 'NEFT INWARD 0042', merchant: '' } as Transaction);
+
+    expect(screen.getByText('NEFT Inward 0042')).toBeTruthy();
+    expect(screen.queryByTestId('detail-bank-text-t-1')).toBeNull();
+  });
+
+  // The owner, 2026-10-16: the list rounds to the rupee to be quick to read; the sheet is where an
+  // amount is checked against the statement, so it shows the paise, as "Balance after" does.
+  it('shows the exact amount, to the paisa, signed as the list signs it', () => {
+    renderSheet({ ...TXN, amount: -1240.5 } as Transaction);
+    expect(screen.getByText('-₹1,240.50')).toBeTruthy();
+  });
+
+  it('shows money in with a plus', () => {
+    renderSheet({ ...TXN, amount: 52000, type: 'INCOME' } as Transaction);
+    expect(screen.getByText('+₹52,000.00')).toBeTruthy();
+  });
+
   it('shows the transaction summary and category/date info', () => {
     renderSheet();
 
     expect(screen.getByText('Grocery run')).toBeTruthy();
-    expect(screen.getByText('-₹1,250')).toBeTruthy();
+    expect(screen.getByText('-₹1,250.00')).toBeTruthy();
     expect(screen.getByText('Food')).toBeTruthy();
-    expect(screen.getByText('2026-07-14')).toBeTruthy();
+    expect(screen.getByText('14 Jul 2026')).toBeTruthy();
     expect(screen.getByText('HDFC Credit Card')).toBeTruthy();
   });
 

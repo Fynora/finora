@@ -49,6 +49,7 @@ export function LedgerControls({
           autoCapitalize="none"
           autoCorrect={false}
           accessibilityLabel="Search transactions"
+          returnKeyType="search"
           // The type ramp's font and size without its line height: a fixed line height on an
           // iOS text field pushes the text to the bottom of the field, and at large text sizes
           // cut it off.
@@ -57,6 +58,20 @@ export function LedgerControls({
             { fontFamily: bodyM.fontFamily, fontWeight: bodyM.fontWeight, fontSize: bodyM.fontSize, color: c.ink },
           ]}
         />
+        {/* Clearing a long search otherwise meant holding backspace. Its own button, on both
+            platforms: iOS's built-in clear button has no Android counterpart. */}
+        {keyword ? (
+          <Pressable
+            onPress={() => onKeywordChange('')}
+            // A 28 by 28 box plus 8 on every side is a 44 by 44 target.
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            style={styles.searchClear}
+          >
+            <Ionicons name="close-circle" size={18} color={c.muted} />
+          </Pressable>
+        ) : null}
       </GlassSurface>
 
       <View testID="ledger-controls-row" style={stacked ? styles.controlsStacked : styles.controls}>
@@ -133,6 +148,7 @@ const styles = StyleSheet.create({
     minHeight: 48, borderRadius: 999, paddingHorizontal: spacing.md,
   },
   searchInput: { flex: 1, paddingVertical: spacing.ms },
+  searchClear: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   controls: { flexDirection: 'row', alignItems: 'center', gap: spacing.ms },
   controlsStacked: { flexDirection: 'column', alignItems: 'stretch', gap: spacing.ms },
   grow: { flex: 1 },

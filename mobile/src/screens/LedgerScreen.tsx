@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View,
+  ActivityIndicator, FlatList, Keyboard, Pressable, StyleSheet, Text, View,
   type NativeScrollEvent, type NativeSyntheticEvent, type TextInput,
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
 import { askCategoryScope } from '../lib/askCategoryScope';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { GlassScreen } from '../components/GlassScreen';
@@ -36,7 +37,9 @@ import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
-import { buildDayPieces, mergePagesById, type DayPiece } from '../lib/ledgerRows';
+import { buildDayPieces, mergePagesById, rowTitle, type DayPiece } from '../lib/ledgerRows';
+import { useToast } from '../context/ToastContext';
+import { trackNavigation } from '../lib/trackNavigation';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { radius, spacing, useTheme } from '../theme';
 import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/types';
@@ -139,6 +142,11 @@ export function LedgerScreen() {
   const largeText = useLargeFontScale();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Transactions'>>();
+  const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  // A change is confirmed, and a failed one reported, in a toast: it shows wherever the list is
+  // scrolled. The error used to be a line in the list's header, out of sight by the time a row far
+  // down the list was changed, and a change that worked said nothing.
+  const { showToast } = useToast();
   const [keywordInput, setKeywordInput] = useState('');
   const debouncedKeyword = useDebouncedValue(keywordInput, 300);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
@@ -160,7 +168,6 @@ export function LedgerScreen() {
   const [recategorizing, setRecategorizing] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [addingTransaction, setAddingTransaction] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // Track C/C7's "Where did this number come from?" panel -- the id of the row it's open for,
   // null when closed. A plain id rather than the whole Transaction: the panel fetches its own
   // data keyed by id, same lazy pattern as StatementHistoryScreen's StatementDetailModal.
@@ -361,7 +368,6 @@ export function LedgerScreen() {
   async function applyCategory(t: Transaction, categoryName: string) {
     setRecategorizing(null);
     if (categoryName === t.categoryName) return;
-    setError(null);
     // Deliberately NOT wrapped in useSingleFlight, unlike the write paths on Goals/Budgets. That
     // guard serializes every call through one ref, which is right for a screen with a single
     // submit button where a second press means "the same save, twice". Here each row is its own
@@ -376,13 +382,14 @@ export function LedgerScreen() {
     try {
       await transactionsApi.updateCategory(t.id, categoryName, scope);
       hapticSuccess();
+      showToast(`Saved ${categoryName} for ${rowTitle(t)}`);
       // Not an optimistic edit: the row stays put and only its label changes, so there is no
       // felt latency to hide -- and a category move shifts spend-by-category, budget progress
       // and insights, none of which this screen can guess correctly on its own.
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'ledger:apply-category', startedAt);
-      setError(toUserMessage(e, 'Could not change this category.'));
+      showToast(toUserMessage(e, 'Could not change this category.'), undefined, 'error');
       hapticError();
     }
   }
@@ -391,22 +398,22 @@ export function LedgerScreen() {
   // render; handleDelete is declared first because confirmDelete depends on it.
   const handleDelete = useCallback(async (t: Transaction) => {
     setDeletingId(t.id);
-    setError(null);
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.remove(t.id);
       hapticSuccess();
+      showToast(`Deleted ${rowTitle(t)}`);
       // Editing/deleting shifts category totals, the account balance, budget progress, goals, and
       // any insight built from spend patterns -- see invalidateFinancialData's own comment.
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'ledger:delete-transaction', startedAt);
-      setError(toUserMessage(e, 'Could not delete this transaction.'));
+      showToast(toUserMessage(e, 'Could not delete this transaction.'), undefined, 'error');
       hapticError();
     } finally {
       setDeletingId(null);
     }
-  }, [queryClient]);
+  }, [queryClient, showToast]);
 
   const confirmDelete = useCallback((t: Transaction) => {
     // Before the alert, not after a choice is made -- the same convention iOS's own system apps
@@ -416,7 +423,8 @@ export function LedgerScreen() {
     // Alert.alert replaces the web's window.confirm(), which doesn't exist in React Native.
     AppAlert.alert(
       'Delete transaction?',
-      `"${t.description || t.merchant}" (${fmtCurrency(t.amount)}) can't be recovered.`,
+      // Named and signed as its row is: the bank's raw narration read as noise here.
+      `"${rowTitle(t)}" (${t.type === 'INCOME' ? '+' : '-'}${fmtCurrency(Math.abs(t.amount))}) can't be recovered.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -437,17 +445,25 @@ export function LedgerScreen() {
     );
   }, [handleDelete]);
 
+  // A row's tap reaches it with the search keyboard up (keyboardShouldPersistTaps below), so the
+  // keyboard is put away here: left up, it came back over half the list when the sheet closed.
+  // A useCallback for the memoised rows, as handleDelete is.
+  const openDetail = useCallback((t: Transaction) => {
+    Keyboard.dismiss();
+    setViewingDetail(t);
+  }, []);
+
   async function handleUnmarkTransfer(t: Transaction) {
     setUnmarkingId(t.id);
-    setError(null);
     const startedAt = requestStartedAt();
     try {
       await transactionsApi.unmarkTransfer(t.id);
       hapticSuccess();
+      showToast(`${rowTitle(t)} is no longer a transfer`);
       invalidateFinancialData(queryClient);
     } catch (e) {
       reportTransportFailure(e, 'ledger:unmark-transfer', startedAt);
-      setError(toUserMessage(e, 'Could not unmark this transfer.'));
+      showToast(toUserMessage(e, 'Could not unmark this transfer.'), undefined, 'error');
       hapticError();
     } finally {
       setUnmarkingId(null);
@@ -455,6 +471,21 @@ export function LedgerScreen() {
   }
 
   const dateRangeOn = manualDateFrom !== null || manualDateTo !== null;
+  // Anything narrowing the list, typed or picked or arrived from another screen.
+  const anyFilterOn = !!debouncedKeyword || !!drillThroughKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL'
+    || internationalOnly || !!activeDrillThrough || dateRangeOn;
+
+  /** The empty state's "Clear filters": every filter off, the arrived one and the search included. */
+  function clearAllFilters() {
+    setKeywordInput('');
+    setDrillThroughKeyword(null);
+    setTypeFilter('ALL');
+    setStatusFilter('ALL');
+    setManualDateFrom(null);
+    setManualDateTo(null);
+    setInternationalOnly(false);
+    setActiveDrillThrough(null);
+  }
   const filtersOn = (statusFilter !== 'ALL' ? 1 : 0) + (dateRangeOn ? 1 : 0) + (internationalOnly ? 1 : 0);
   // Blank while the first load runs and when it failed with nothing on screen. totalElements falls
   // back to 0 when there are no pages, so a cold failure would otherwise print a confident zero
@@ -531,6 +562,11 @@ export function LedgerScreen() {
         removeClippedSubviews
         onScroll={onListScroll}
         scrollEventThrottle={16}
+        // With the search keyboard up, the list's default spent the first tap on a result closing
+        // the keyboard, so opening a found payment took two taps (iOS simulator, 2026-10-16).
+        // "handled" lets the row take that tap; a scroll puts the keyboard away instead.
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
         }}
@@ -557,6 +593,10 @@ export function LedgerScreen() {
                 // Real typing supersedes a keyword that arrived from another screen the moment it
                 // happens -- same "wins until superseded" shape as the manual date range.
                 setDrillThroughKeyword(null);
+                // An arrived filter that carried a search ("Swiggy · 12 Oct") is named by its chip;
+                // once the search is changed or cleared the chip no longer describes the list, so
+                // it goes too. One that carried none (a category, a month) still holds and stays.
+                if (activeDrillThrough?.keyword) setActiveDrillThrough(null);
               }}
               searchRef={searchRef}
               typeFilter={typeFilter}
@@ -566,7 +606,6 @@ export function LedgerScreen() {
               chips={chips}
               stacked={largeText}
             />
-            {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           </View>
         }
         ListEmptyComponent={
@@ -594,12 +633,27 @@ export function LedgerScreen() {
                 </Pressable>
               </View>
             ) : (
-              <Text style={[styles.empty, { color: c.muted }]}>
-                {debouncedKeyword || typeFilter !== 'ALL' || statusFilter !== 'ALL' || internationalOnly || activeDrillThrough
-                  || manualDateFrom || manualDateTo
-                  ? 'No transactions match these filters.'
-                  : 'No transactions yet. Import a statement to get started.'}
-              </Text>
+              // Each empty state offers its next step: a narrowed list can be widened again in one
+              // tap, and an empty ledger leads to the one thing that fills it.
+              <View style={styles.state}>
+                <Text style={[styles.empty, { color: c.muted }]}>
+                  {anyFilterOn
+                    ? 'No transactions match these filters.'
+                    : 'No transactions yet. Import a statement to get started.'}
+                </Text>
+                <Pressable
+                  onPress={anyFilterOn ? clearAllFilters : () => {
+                    trackNavigation('import-statement', 'contextual');
+                    navigation.navigate('Import');
+                  }}
+                  style={styles.retryButton}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.retry, { color: c.primary }]}>
+                    {anyFilterOn ? 'Clear filters' : 'Import a statement'}
+                  </Text>
+                </Pressable>
+              </View>
             )}
           </View>
         }
@@ -625,7 +679,7 @@ export function LedgerScreen() {
             piece={item}
             deletingId={deletingId}
             largeText={largeText}
-            onOpen={setViewingDetail}
+            onOpen={openDetail}
             onDelete={confirmDelete}
           />
         )}
@@ -757,14 +811,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   listContent: { paddingHorizontal: spacing.ml, paddingBottom: spacing.xl },
   header: { gap: spacing.ms },
-  error: { fontSize: 13 },
   // The loading, failed and empty states sit in one card, where a day's card would be.
   stateCard: {
     borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.xxl,
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: spacing.md,
   },
   state: { alignItems: 'center', paddingVertical: spacing.lg },
-  empty: { fontSize: 13, textAlign: 'center', paddingVertical: spacing.xl },
+  empty: { fontSize: 13, textAlign: 'center' },
   footer: { paddingVertical: spacing.md, alignItems: 'center', gap: spacing.xs },
   errorText: { fontSize: 14 },
   retry: { fontSize: 14, fontWeight: '600' },

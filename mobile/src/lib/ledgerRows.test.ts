@@ -21,7 +21,6 @@ describe('softenCapitals', () => {
     ['CITY POWER DISTRIBUTION L', 'City Power Distribution L'],
     ["DOMINO'S PIZZA", "Domino's Pizza"],
     ['NORTHWIND.CLEARING-CORP', 'Northwind.Clearing-Corp'],
-    ['UPI123 PAY', 'Upi123 Pay'],
   ])('rewrites all-capital words: %s', (input, expected) => {
     expect(softenCapitals(input)).toBe(expected);
   });
@@ -34,11 +33,34 @@ describe('softenCapitals', () => {
   it('leaves letters outside A to Z untouched', () => {
     expect(softenCapitals('किराना STORE')).toBe('किराना Store');
   });
+
+  // The owner's follow-up (2026-10-16): payment-rail and banking abbreviations stay in capitals.
+  // "Upi to Sample Person" and "Neft Cr" read as typos; every other word keeps the 12 Oct rule.
+  it.each([
+    ['UPI TO SAMPLE PERSON', 'UPI To Sample Person'],
+    ['NEFT CR SAMPLE EMPLOYER', 'NEFT Cr Sample Employer'],
+    ['IMPS transfer to own account', 'IMPS transfer to own account'],
+    ['RTGS ATM POS EMI ECS NACH GST TDS SIP', 'RTGS ATM POS EMI ECS NACH GST TDS SIP'],
+    ['UPI123 PAY', 'UPI123 Pay'],
+  ])('keeps banking abbreviations in capitals: %s', (input, expected) => {
+    expect(softenCapitals(input)).toBe(expected);
+  });
+
+  it('keeps an abbreviation only as a whole word, not inside a longer one', () => {
+    expect(softenCapitals('POSTAL ORDER')).toBe('Postal Order');
+    expect(softenCapitals('ATMOSPHERE CAFE')).toBe('Atmosphere Cafe');
+  });
 });
 
 describe('rowTitle', () => {
+  // A title built from the server's lower-case merchant label, when its words are not found in
+  // the description, is capitalised word by word; the banking terms keep their capitals there too.
+  it('keeps banking terms in capitals in a title built from the merchant label', () => {
+    expect(rowTitle(txn({ description: 'PAYMENT RECEIVED', merchant: 'upi collect' }))).toBe('UPI Collect');
+  });
+
   it('uses the description when there is no merchant', () => {
-    expect(rowTitle(txn({ description: 'NEFT INWARD 0042', merchant: '' }))).toBe('Neft Inward 0042');
+    expect(rowTitle(txn({ description: 'NEFT INWARD 0042', merchant: '' }))).toBe('NEFT Inward 0042');
   });
 
   it('says "Transaction" when there is neither', () => {
@@ -141,18 +163,18 @@ describe('rowTags', () => {
 describe('rowSpokenLabel', () => {
   it('starts with the title a sighted person sees and keeps the date', () => {
     const label = rowSpokenLabel(txn({ description: 'UPI/DR/600000000001/RAHUL SH/YESB', merchant: 'rahul sh', counterpartyType: 'PERSON' }));
-    expect(label).toBe('Rahul Sh, expense ₹1,250, Food, 2026-07-14, Sent to a person');
+    expect(label).toBe('Rahul Sh, expense ₹1,250, Food, 14 Jul 2026, Sent to a person');
   });
 
   it('adds the match explanation and the tags shown, with international last', () => {
     const label = rowSpokenLabel(txn({ reconciliationStatus: 'DUPLICATE', recurring: true, international: true }));
-    expect(label).toBe('Grocery run, expense ₹1,250, Food, 2026-07-14, Matched as a repeat of another transaction, Recurring, international');
+    expect(label).toBe('Grocery run, expense ₹1,250, Food, 14 Jul 2026, Matched as a repeat of another transaction, Recurring, international');
   });
 
   it('speaks the instalment mark as its full note, not its two words', () => {
     const label = rowSpokenLabel(txn({ cardInstalment: true }));
     expect(label).toBe(
-      'Grocery run, expense ₹1,250, Food, 2026-07-14, A monthly instalment on an earlier card purchase. '
+      'Grocery run, expense ₹1,250, Food, 14 Jul 2026, A monthly instalment on an earlier card purchase. '
         + 'If that purchase is also in Fynora, your spending totals count both the purchase and its instalments.'
     );
   });

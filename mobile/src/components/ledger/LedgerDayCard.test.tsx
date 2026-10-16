@@ -75,7 +75,7 @@ describe('LedgerDayCard', () => {
   it('is one button per row that opens details on press and asks to delete on long press', () => {
     const t = txn();
     show(piece({ rows: [t] }));
-    const row = screen.getByRole('button', { name: /^Rahul Sh, expense ₹1,250, Food, 2026-07-14, Sent to a person$/ });
+    const row = screen.getByRole('button', { name: /^Rahul Sh, expense ₹1,250, Food, 14 Jul 2026, Sent to a person$/ });
     fireEvent.press(row);
     expect(onOpen).toHaveBeenCalledWith(t);
     fireEvent(row, 'longPress');

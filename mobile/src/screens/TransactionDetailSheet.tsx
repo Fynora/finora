@@ -5,7 +5,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from '../components/Button';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
-import { fmtCurrency, fmtForeignAmount, fmtStatementBalance } from '../lib/format';
+import { fmtDate, fmtForeignAmount, fmtStatementBalance } from '../lib/format';
+import { rowTitle } from '../lib/ledgerRows';
 import { reconciliationBadge } from '../lib/reconciliationBadge';
 import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { radius, spacing, useTheme } from '../theme';
@@ -73,6 +74,8 @@ export function TransactionDetailSheet({
     muted: { bg: c.border, fg: c.mutedInk },
   }[badge.tone] : null;
   const badges = statusBadges(t);
+  const title = rowTitle(t);
+  const bankText = (t.description ?? '').trim();
   const badgeToneColors = {
     primary: { bg: c.primaryLight, fg: c.primary },
     success: { bg: c.successBg, fg: c.successInk },
@@ -110,9 +113,20 @@ export function TransactionDetailSheet({
             <View style={styles.summary}>
               <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} person={t.counterpartyType === 'PERSON'} />
               <View style={styles.summaryText}>
-                <Text style={[styles.desc, { color: c.ink }]}>{t.description || t.merchant || 'Transaction'}</Text>
+                {/* Titled as the list row is, so a payment keeps one name a tap apart. The bank's
+                    own text stays under it, in full and selectable, for checking against the
+                    statement -- unless it is the title already. */}
+                <Text style={[styles.desc, { color: c.ink }]}>{title}</Text>
+                {/* Compared without case: the title is the same words with softened capitals. */}
+                {bankText && bankText.toLowerCase() !== title.toLowerCase() ? (
+                  <Text testID={`detail-bank-text-${t.id}`} selectable style={[styles.bankText, { color: c.mutedInk }]}>
+                    {bankText}
+                  </Text>
+                ) : null}
+                {/* To the paisa, as "Balance after" below is: this is where an amount is checked
+                    against the statement. The list rounds to the rupee to be quick to read. */}
                 <Text style={[styles.amount, { color: t.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
-                  {t.type === 'INCOME' ? '+' : '-'}{fmtCurrency(Math.abs(t.amount))}
+                  {t.type === 'INCOME' ? '+' : '-'}{fmtStatementBalance(Math.abs(t.amount))}
                 </Text>
               </View>
             </View>
@@ -148,7 +162,7 @@ export function TransactionDetailSheet({
 
             <View style={[styles.infoCard, { borderColor: c.border }]}>
               <InfoRow label="Category" value={t.categoryName} />
-              <InfoRow label="Date" value={t.date} />
+              <InfoRow label="Date" value={fmtDate(t.date) ?? t.date} />
               {t.paymentMethod ? <InfoRow label="Payment Method" value={t.paymentMethod} /> : null}
               {cp ? <InfoRow label="Counterparty" value={cp.full} /> : null}
               {/* The statement's own domestic/international split, with the original-currency
@@ -328,6 +342,7 @@ const styles = StyleSheet.create({
   summary: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   summaryText: { flex: 1 },
   desc: { fontSize: 16, fontWeight: '600' },
+  bankText: { fontSize: 12, marginTop: 2 },
   amount: { fontSize: 20, fontWeight: '700', marginTop: 2 },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.md },
   pill: {

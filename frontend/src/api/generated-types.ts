@@ -9053,6 +9053,7 @@ export interface components {
         Batch: {
             questions?: components["schemas"]["Question"][];
             waitingTotal?: number;
+            sortedTotal?: number;
             rest?: components["schemas"]["Rest"];
         };
         Question: {

@@ -1,5 +1,8 @@
 import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
+import type { components } from './generated-types';
+
+type GeneratedSchemas = components['schemas'];
 import type {
 
   Account, AccountStatementGroup, BankCorrectionHistoryEntry, BankInfo, Budget, CounterpartyGroup, DashboardRangeSummary, DashboardRangeType,
@@ -863,10 +866,21 @@ export const onboardingApi = {
 /** Gate 2a spec §3: the three import-funnel moments. The server refuses any other name. */
 export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENED';
 
+/** Gate 2a spec §4: the moments Fynora asks "What stopped you?", and the fixed answers. Taken from
+ *  the generated API types, so a server-side change to either list fails the type check here. */
+export type ActivationMoment = NonNullable<GeneratedSchemas['QuestionResponse']['moment']>;
+export type ActivationAnswer = GeneratedSchemas['ActivationAnswerRequest']['answer'];
+
 export const activationApi = {
   /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
   funnelEvent: (event: FunnelEvent) =>
     api.post<void>('/activation/funnel-events', { event }).then(() => undefined),
+  /** The dashboard question to show now, or null for none. */
+  question: () =>
+    api.get<{ moment?: ActivationMoment | null }>('/activation/question').then((r) => r.data.moment ?? null),
+  /** One tap. A 409 means the question is not being asked now; callers hide it silently. */
+  answer: (moment: ActivationMoment, answer: ActivationAnswer) =>
+    api.post<void>('/activation/answers', { moment, answer }).then(() => undefined),
 };
 
 export interface CategoryOption {

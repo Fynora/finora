@@ -3,6 +3,7 @@ import { CheckCircle2, AlertTriangle, Loader2, MinusCircle } from 'lucide-react'
 import { importJobsApi, type ImportJobTimeline as Timeline, type ImportTimelineStage } from '../api/endpoints';
 import { isHeld, isSettled, stageLabel } from '../lib/importJob';
 import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
+import { WhatStoppedYou } from './activation/WhatStoppedYou';
 import { formatTime } from '../utils/date';
 import { POLL_SCHEDULE_MS } from './ImportProgress';
 
@@ -25,8 +26,12 @@ export function ImportTimeline({
   onDismiss,
   autoRefresh = true,
   refreshToken = 0,
+  askWhatNext = false,
 }: {
   jobId: string;
+  /** Gate 2a spec §4.1: ask "What will you do now?" below a failed job's reason. Only the import
+   *  screen sets it; the import detail page, opened later from history, does not ask. */
+  askWhatNext?: boolean;
   /** Offered once the job has FAILED, so reading the curated reason doesn't strand the user --
    *  the dropzone this replaced is only reachable again through this, not through polling settling
    *  on its own the way a completed/cancelled job's screen already resets automatically. */
@@ -201,6 +206,11 @@ export function ImportTimeline({
               >
                 {failureMessage ?? "Fynora couldn't complete this import. Please try again."}
               </p>
+              {askWhatNext && (
+                <div className="mt-3">
+                  <WhatStoppedYou moment="REFUSED" />
+                </div>
+              )}
             </>
           )}
           {onDismiss && (

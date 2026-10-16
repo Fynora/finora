@@ -6,6 +6,7 @@ import { importJobsApi, type ImportJobTimeline as Timeline } from '../api/endpoi
 
 vi.mock('../api/endpoints', () => ({
   importJobsApi: { timeline: vi.fn() },
+  activationApi: { answer: vi.fn() },
 }));
 
 const api = vi.mocked(importJobsApi);
@@ -66,6 +67,36 @@ describe('ImportTimeline', () => {
    * onDismiss) -- so before this test's fix, "no stages" and "no way back" were the same branch,
    * and a customer with a stage-recording gap would be stranded on the failed screen.
    */
+  it('failedTimelineAsksWhatNow on the import screen, below the reason', async () => {
+    api.timeline.mockResolvedValue(timeline({ status: 'FAILED', userStatus: 'FAILED', failureCode: null }));
+    render(<ImportTimeline jobId="job-1" askWhatNext />);
+
+    await advance(100);
+
+    const reason = screen.getByTestId('import-timeline-failure-reason');
+    const question = screen.getByText('What will you do now?');
+    expect(reason.compareDocumentPosition(question) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('does not ask on a page that did not opt in (the import detail page)', async () => {
+    api.timeline.mockResolvedValue(timeline({ status: 'FAILED', userStatus: 'FAILED', failureCode: null }));
+    render(<ImportTimeline jobId="job-1" />);
+
+    await advance(100);
+
+    expect(screen.getByTestId('import-timeline-failure-reason')).toBeInTheDocument();
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  it('does not ask about a held job', async () => {
+    api.timeline.mockResolvedValue(timeline({ status: 'HELD_FOR_REVIEW', userStatus: 'ACTION_REQUIRED' } as never));
+    render(<ImportTimeline jobId="job-1" askWhatNext />);
+
+    await advance(100);
+
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
   it('still offers the curated reason and a way back for a failed job with no recorded stages', async () => {
     api.timeline.mockResolvedValue(
       timeline({ status: 'FAILED', userStatus: 'FAILED', failureCode: null, stages: [] })

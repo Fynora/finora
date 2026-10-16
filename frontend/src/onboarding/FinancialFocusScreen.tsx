@@ -35,7 +35,7 @@ export function FinancialFocusScreen({ onContinue, error }: Props) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center">
       <h1 className="text-2xl font-bold text-ink mb-2">What would you like to achieve with Fynora?</h1>
-      <p className="text-muted mb-6">Select all that apply. We'll personalize your experience.</p>
+      <p className="text-muted mb-6">Select all that apply. It helps us understand what you want from Fynora.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mb-8">
         {OPTIONS.map((opt) => (
           <button

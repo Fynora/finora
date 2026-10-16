@@ -144,6 +144,18 @@ export function ReportsScreen() {
     setExportError(null);
   }
 
+  // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
+  // The extras are keyed by month under different second elements, so ['report', month] does not
+  // reach them: without these a pull would refresh the totals and leave the trend and the
+  // observations on the old figures.
+  function refreshReport() {
+    withBypass(() => {
+      void queryClient.invalidateQueries({ queryKey: ['report', month] });
+      void queryClient.invalidateQueries({ queryKey: ['report', 'trend', month] });
+      void queryClient.invalidateQueries({ queryKey: ['insights', 'reports', month] });
+    });
+  }
+
   async function runExport(kind: 'csv' | 'pdf') {
     if (!report || exporting) return;
     setExportError(null);
@@ -207,15 +219,7 @@ export function ReportsScreen() {
       refreshControl={
         <AppRefreshControl
           refreshing={isFetching && !reportLoading}
-          // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
-          // The extras are keyed by month under different second elements, so ['report', month] does
-          // not reach them: without these a pull would refresh the totals and leave the trend and
-          // the observations on the old figures.
-          onRefresh={() => withBypass(() => {
-            void queryClient.invalidateQueries({ queryKey: ['report', month] });
-            void queryClient.invalidateQueries({ queryKey: ['report', 'trend', month] });
-            void queryClient.invalidateQueries({ queryKey: ['insights', 'reports', month] });
-          })}
+          onRefresh={refreshReport}
           tintColor={c.primary}
         />
       }

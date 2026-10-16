@@ -84,7 +84,8 @@ function KeptSpentBar({ income, expense }: { income: number; expense: number }) 
 
 export function ReportHero({ report }: { report: ReportData }) {
   const c = useTheme();
-  const net = report.income - report.expense;
+  // Rounded first, because it is shown to the rupee: a net of -0.40 would otherwise read "-₹0" in red.
+  const net = Math.round(report.income - report.expense);
   const cmp = report.comparison;
   const priorName = cmp ? comparisonMonthName(cmp.previousMonth, report.month) : null;
   const compare = priorName ? netChangePhrase(cmp, priorName, fmtCurrency) : null;

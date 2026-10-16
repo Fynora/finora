@@ -558,6 +558,20 @@ describe('the hero and the stat cards', () => {
     expect(screen.queryByTestId('hero-bar')).toBeNull();
   });
 
+  it('never shows a signed zero for a net under half a rupee', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, { income: 1000, expense: 1000.4, categories: [], savingsRatePct: -0.04 }));
+    renderScreen();
+    expect(await screen.findByTestId('hero-net')).toHaveTextContent(/^₹0$/);
+  });
+
+  it('keeps a thousands-of-percent rate inside the ring by letting its figure shrink', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, { income: 500, expense: 6000, categories: [], savingsRatePct: -1100 }));
+    renderScreen();
+    const ring = await screen.findByTestId('hero-ring');
+    expect(ring).toHaveProp('accessibilityLabel', 'Savings rate -1100%');
+    expect(within(ring).getByText('-1100%')).toHaveProp('adjustsFontSizeToFit', true);
+  });
+
   it('says nothing about a rate from an older server, and still shows the net', async () => {
     renderScreen();
     expect(await screen.findByTestId('hero-net')).toHaveTextContent('+₹30,500');

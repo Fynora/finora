@@ -60,7 +60,10 @@ export function activationAnsweredToday(): boolean {
   return answeredOn === localDay();
 }
 
-/** Test seam: the memory is module state, which persists across the tests in one file. */
-export function resetActivationAnsweredForTests(): void {
+/** At sign-out: today's answer belongs to the account that gave it, not the next one to sign in. */
+export function forgetActivationAnswered(): void {
   answeredOn = null;
 }
+
+/** Test seam: the memory is module state, which persists across the tests in one file. */
+export const resetActivationAnsweredForTests = forgetActivationAnswered;

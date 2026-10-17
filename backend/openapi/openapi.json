@@ -12830,6 +12830,21 @@
                     "activation-controller"
                 ],
                 "operationId": "question",
+                "parameters": [
+                    {
+                        "name": "moment",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "NO_FILE",
+                                "REFUSED",
+                                "NOT_CONFIRMED"
+                            ]
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

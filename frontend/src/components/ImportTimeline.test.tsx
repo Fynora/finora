@@ -7,7 +7,7 @@ import { resetActivationAnsweredForTests } from '../lib/activationQuestions';
 
 vi.mock('../api/endpoints', () => ({
   importJobsApi: { timeline: vi.fn() },
-  activationApi: { answer: vi.fn() },
+  activationApi: { answer: vi.fn(), question: vi.fn() },
 }));
 
 const api = vi.mocked(importJobsApi);
@@ -29,6 +29,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   api.timeline.mockReset();
   activation.answer.mockReset().mockResolvedValue(undefined);
+  // The server allows the question unless a test says otherwise.
+  activation.question.mockReset().mockImplementation(async (m) => m ?? null);
   resetActivationAnsweredForTests();
 });
 

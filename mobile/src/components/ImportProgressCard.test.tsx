@@ -6,7 +6,7 @@ import { ThemeProvider } from '../theme';
 
 jest.mock('../api/endpoints', () => ({
   importJobsApi: { progress: jest.fn(), timeline: jest.fn(), cancel: jest.fn() },
-  activationApi: { answer: jest.fn() },
+  activationApi: { answer: jest.fn(), question: jest.fn() },
 }));
 
 const api = importJobsApi as jest.Mocked<typeof importJobsApi>;
@@ -38,6 +38,8 @@ beforeEach(() => {
   api.progress.mockReset();
   api.timeline.mockReset();
   api.cancel.mockReset();
+  // The server allows the question unless a test says otherwise.
+  (activationApi.question as jest.Mock).mockReset().mockImplementation(async (m?: string) => m ?? null);
 });
 
 /**

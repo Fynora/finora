@@ -9,6 +9,7 @@ import { markSessionEnded, sessionStorageCleared, setSessionCallbacks } from '..
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
 import { resetChangeSync } from '../lib/changeSync';
+import { forgetActivationAnswered } from '../lib/activationQuestions';
 import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
@@ -219,6 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     // The change-stamp baseline belongs to this account: the next one starts from its own.
     resetChangeSync();
+    // "What stopped you?": today's answer belongs to this account, not the next one.
+    forgetActivationAnswered();
     // An alert belongs to the session that raised it -- see clearAppAlerts.
     clearAppAlerts();
     // Item B: same convergence-point reasoning as pauseQueryPersistence/queryClient.clear() above.

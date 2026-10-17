@@ -14,6 +14,7 @@ import {
 } from '../api/errorCodes';
 import {
   importFailureMessage,
+  isStatementRefusal,
   isUnreadStatementLayout,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
@@ -824,8 +825,8 @@ export default function Import() {
         setAskMoment('REFUSED');
       } else {
         showError(e.response?.data?.message ?? (isPdf ? 'Could not parse this PDF.' : 'Could not parse this CSV.'));
-        // A refusal only when the server named an import error, never a bare failure without one.
-        if (code) setAskMoment('REFUSED');
+        // A refusal only when the server refused the statement, never a crash, a rate limit or sign-in.
+        if (isStatementRefusal(code)) setAskMoment('REFUSED');
       }
     } finally {
       if (!holdForCompletion) setUploadProgress(null);

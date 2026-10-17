@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { importFailureMessage, importFailureTitle } from './importFailureMessages';
-import { PDF_PASSWORD_REQUIRED, PDF_TOO_LARGE, TRUST_REVIEW_REJECTED } from './errorCodes';
+import { importFailureMessage, importFailureTitle, isStatementRefusal } from './importFailureMessages';
+import {
+  IMPORT_SESSION_HELD_FOR_REVIEW, IMPORT_SYSTEM_BUSY, NO_TRANSACTIONS_FOUND, PAYMENT_APP_HISTORY, PDF_PASSWORD_REQUIRED,
+  PDF_TOO_LARGE, TRUST_REVIEW_REJECTED,
+} from './errorCodes';
 
 describe('importFailureMessage', () => {
   it('has a curated message for a trust-review rejection, not the generic fallback', () => {
@@ -45,5 +48,23 @@ describe('importFailureMessage', () => {
   it('has no headline for a code it has no message for', () => {
     expect(importFailureTitle('SOME_UNMAPPED_CODE')).toBeUndefined();
     expect(importFailureTitle(null)).toBeUndefined();
+  });
+});
+
+// Gate 2a: "What will you do now?" is asked about a refused statement only.
+describe('isStatementRefusal', () => {
+  it('is true for an import code that judged the file', () => {
+    expect(isStatementRefusal(NO_TRANSACTIONS_FOUND)).toBe(true);
+    expect(isStatementRefusal(PAYMENT_APP_HISTORY)).toBe(true);
+  });
+
+  it('is false for errors that are not about the statement', () => {
+    expect(isStatementRefusal('INTERNAL_ERROR')).toBe(false);
+    expect(isStatementRefusal('TOO_MANY_REQUESTS')).toBe(false);
+    expect(isStatementRefusal('UNAUTHORIZED')).toBe(false);
+    expect(isStatementRefusal(IMPORT_SYSTEM_BUSY)).toBe(false);
+    expect(isStatementRefusal(IMPORT_SESSION_HELD_FOR_REVIEW)).toBe(false);
+    expect(isStatementRefusal(null)).toBe(false);
+    expect(isStatementRefusal(undefined)).toBe(false);
   });
 });

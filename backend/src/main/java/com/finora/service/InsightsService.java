@@ -242,7 +242,9 @@ public class InsightsService {
         // @NotBlank on it), so a manually-entered transaction with neither field set used to hit
         // the same "element cannot be mapped to a null key" NullPointerException from
         // Collectors.groupingBy as the DashboardService/BudgetService category-grouping bugs.
-        Map<String, BigDecimal> merchantTotals = txns.stream()
+        // moverTxns, not txns: a card bill is paid to the card (or a bill-paying app), not spent at a
+        // merchant, so it never answers "who did you spend the most with".
+        Map<String, BigDecimal> merchantTotals = moverTxns.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
                 .collect(Collectors.groupingBy(
@@ -271,11 +273,21 @@ public class InsightsService {
     }
 
     /**
-     * This month's card bills that reached the spend set: a bill reconciliation linked to a card
-     * statement never does (RefundNetting.reportable drops it), so every one here has no statement
-     * behind it. Null when there are none. The card is named only when every one of them points to
-     * the same card of the user's (see {@link #cardPaidBy}); otherwise both card fields are null and
-     * the app says "a credit card".
+     * How long after a card statement's period ends its bill can still be paid: the bill falls due
+     * 18-20 days after the statement date on every measured card (#2256), and a late payment can
+     * come after that. A statement ending in the 45 days before a payment is the one it paid.
+     */
+    private static final int CARD_BILL_PAYS_STATEMENT_WITHIN_DAYS = 45;
+
+    /**
+     * This month's card bills with no card statement on file to explain them, so the app can ask
+     * for that statement (Sid, 2026-10-16). Every bill here already reached the spend set, so none
+     * is linked to a statement (RefundNetting.reportable drops a linked one); but a statement can be
+     * on file and still not linked to its payment -- paid in parts, or outside the match window --
+     * and asking for a statement the user already uploaded would be untrue, so such a bill is left
+     * out. A bill is covered by a statement of the card it paid when that card is known
+     * ({@link #cardPaidBy}), otherwise by a statement of any of the user's cards. Null when nothing
+     * is left. The card is named only when every bill left points to the same card.
      */
     private InsightsDto.UnlinkedCardBills unlinkedCardBills(UUID userId, List<Transaction> cardBills, String month,
                                                             RefundNetting refunds) {
@@ -283,19 +295,36 @@ public class InsightsService {
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .toList();
         if (inMonth.isEmpty()) return null;
-        BigDecimal total = inMonth.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         List<com.finora.entity.Account> cards = accountRepository.findByUserId(userId).stream()
                 .filter(a -> a.getAccountType() == com.finora.entity.Account.Type.CREDIT_CARD)
                 .toList();
+        Map<UUID, List<LocalDate>> statementEndsByCard = new HashMap<>();
+        for (com.finora.entity.Account card : cards) {
+            statementEndsByCard.put(card.getId(), statementImportRepository
+                    .findMetadataWithPeriodByUserIdAndAccountId(userId, card.getId()).stream()
+                    .map(StatementImportRepository.StatementMetadata::getStatementPeriodEnd)
+                    .filter(Objects::nonNull)
+                    .toList());
+        }
+
+        List<Transaction> missing = new ArrayList<>();
         Set<com.finora.entity.Account> paid = new HashSet<>();
         boolean allKnown = true;
         for (Transaction t : inMonth) {
             com.finora.entity.Account card = cardPaidBy(t, cards);
+            List<com.finora.entity.Account> mayHavePaid = card != null ? List.of(card) : cards;
+            boolean onFile = mayHavePaid.stream().anyMatch(c -> statementEndsByCard.getOrDefault(c.getId(), List.of())
+                    .stream().anyMatch(end -> end.isBefore(t.getTxnDate())
+                            && !end.isBefore(t.getTxnDate().minusDays(CARD_BILL_PAYS_STATEMENT_WITHIN_DAYS))));
+            if (onFile) continue;
+            missing.add(t);
             if (card == null) allKnown = false;
             else paid.add(card);
         }
+        if (missing.isEmpty()) return null;
+        BigDecimal total = missing.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         com.finora.entity.Account card = allKnown && paid.size() == 1 ? paid.iterator().next() : null;
-        return new InsightsDto.UnlinkedCardBills(month, total, inMonth.size(),
+        return new InsightsDto.UnlinkedCardBills(month, total, missing.size(),
                 card == null ? null : card.getName(),
                 card == null ? null : ReconciliationService.last4Of(card.getAccountNumberMasked()));
     }

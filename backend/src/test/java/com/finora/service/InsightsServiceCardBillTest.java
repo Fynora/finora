@@ -42,6 +42,7 @@ class InsightsServiceCardBillTest {
     private TransactionRepository transactionRepository;
     private TransactionGraphService transactionGraphService;
     private AccountRepository accountRepository;
+    private StatementImportRepository statementImportRepository;
     private Account liveAccount;
     private InsightsService insightsService;
     private final UUID userId = UUID.randomUUID();
@@ -55,7 +56,7 @@ class InsightsServiceCardBillTest {
         accountRepository = mock(AccountRepository.class);
         CategoryRepository categoryRepository = mock(CategoryRepository.class);
         BudgetRepository budgetRepository = mock(BudgetRepository.class);
-        StatementImportRepository statementImportRepository = mock(StatementImportRepository.class);
+        statementImportRepository = mock(StatementImportRepository.class);
         when(budgetRepository.findByUserId(userId)).thenReturn(List.of());
         transactionGraphService = mock(TransactionGraphService.class);
         when(transactionGraphService.ccPaymentFromTransactionIds(any())).thenReturn(Set.of());
@@ -250,5 +251,92 @@ class InsightsServiceCardBillTest {
     @Test
     void cardIsUnknown_withNoCardAccount() {
         assertThat(billsFor(CRED_BILL).cardName()).isNull();
+    }
+
+    // --- Missing means missing: a statement on file is not asked for again ---------------------
+
+    /** A statement on {@code card} whose period ends on {@code periodEnd}. Built before any
+     *  when(...) so Mockito never sees a stubbing started inside another. */
+    private void givenStatement(Account card, LocalDate periodEnd) {
+        StatementImportRepository.StatementMetadata m = mock(StatementImportRepository.StatementMetadata.class);
+        when(m.getId()).thenReturn(UUID.randomUUID());
+        when(m.getAccountId()).thenReturn(card.getId());
+        when(m.getStatementPeriodStart()).thenReturn(periodEnd.minusDays(30));
+        when(m.getStatementPeriodEnd()).thenReturn(periodEnd);
+        List<StatementImportRepository.StatementMetadata> rows = List.of(m);
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, card.getId())).thenReturn(rows);
+    }
+
+    @Test
+    void aBillWhoseCardStatementIsOnFile_isNotReportedMissing() {
+        Account card = card("Only Card", "400000XXXXXX0001"); // synthetic-ok
+        givenCards(card);
+        givenStatement(card, LocalDate.of(2026, 7, 25));
+
+        // Paid 10 Aug against the statement ending 25 Jul: on file, just not matched (e.g. paid in parts).
+        assertThat(billsFor(CRED_BILL)).isNull();
+    }
+
+    @Test
+    void aBillWhoseCardHasOnlyAnOldStatement_isReportedMissing() {
+        Account card = card("Only Card", "400000XXXXXX0001"); // synthetic-ok
+        givenCards(card);
+        givenStatement(card, LocalDate.of(2026, 4, 25));
+
+        InsightsDto.UnlinkedCardBills bills = billsFor(CRED_BILL);
+
+        assertThat(bills).isNotNull();
+        assertThat(bills.count()).isEqualTo(1);
+    }
+
+    @Test
+    void aStatementEndingOnThePaymentDay_doesNotCoverIt() {
+        // A payment on the statement date pays the previous bill (#2256's measurement), so this
+        // statement is not the one it paid.
+        Account card = card("Only Card", "400000XXXXXX0001"); // synthetic-ok
+        givenCards(card);
+        givenStatement(card, LocalDate.of(2026, 8, 10));
+
+        assertThat(billsFor(CRED_BILL)).isNotNull();
+    }
+
+    @Test
+    void onlyTheBillsWithNoStatementOnFile_areCounted() {
+        Account first = card("First Card", "400000XXXXXX0001"); // synthetic-ok
+        Account second = card("Second Card", "400000XXXXXX0002"); // synthetic-ok
+        givenCards(first, second);
+        givenStatement(first, LocalDate.of(2026, 7, 25));
+
+        InsightsDto.UnlinkedCardBills bills = billsFor(
+                "IB BILLPAY DR-SAMP92-400000XXXXXX0001", "IB BILLPAY DR-SAMP92-400000XXXXXX0002"); // synthetic-ok
+
+        assertThat(bills.count()).isEqualTo(1);
+        assertThat(bills.total()).isEqualByComparingTo("5000");
+        assertThat(bills.cardName()).isEqualTo("Second Card");
+    }
+
+    @Test
+    void aCardBill_isNeverTheTopMerchant() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 8, 3), 1000, dining, "Cafe"),
+                expense(LocalDate.of(2026, 8, 20), 30000, other, CRED_BILL)));
+
+        InsightsDto result = insightsService.build(userId);
+
+        assertThat(result.topMerchant()).isNotNull();
+        assertThat(result.topMerchant().name()).isEqualTo("Cafe");
+        assertThat(result.sentences()).noneMatch(s -> s.contains("CREDCLUB"));
+    }
+
+    @Test
+    void anUnknownCard_isCoveredByARecentStatementOnAnyOfTheUsersCards() {
+        // Two cards, a CRED payment that names neither: a recent statement on either card may be the
+        // one it paid, so the app does not claim a statement is missing.
+        Account first = card("First Card", "400000XXXXXX0001"); // synthetic-ok
+        Account second = card("Second Card", "400000XXXXXX0002"); // synthetic-ok
+        givenCards(first, second);
+        givenStatement(second, LocalDate.of(2026, 7, 25));
+
+        assertThat(billsFor(CRED_BILL)).isNull();
     }
 }

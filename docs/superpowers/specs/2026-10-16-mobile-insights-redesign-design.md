@@ -130,6 +130,12 @@ A new table and two endpoints:
   month: `unlinkedCardBills: { month, total, count } | null` (card bills by the rule above that have
   no `CC_PAYMENT` link). "To look at" shows it as one row: "You paid ₹X in card bills in September
   with no card statement uploaded for it. Upload it to see what you bought." Tapping opens Import.
+  Only bills with no statement on file are counted (review, 2026-10-17): a statement can be
+  uploaded and still not linked to its payment (paid in parts, early or late), and asking for it
+  again would be untrue. A bill is on file when a statement of the card it paid (any of the user's
+  cards, when that card is unknown) ends in the 45 days before the payment, and not on the payment
+  day itself. A card bill is also never the "top merchant": it is paid to the card, not spent at a
+  shop.
   Sid, 2026-10-16 (decided in the card-bill session, confirmed here): name the card when it is
   known, else say "a credit card". Known means every card bill that month points to the same card
   of the user's: its narration carries exactly that card's last 4 digits (read as reconciliation

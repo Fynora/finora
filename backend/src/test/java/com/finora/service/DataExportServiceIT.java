@@ -94,6 +94,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
     @Autowired private com.finora.repository.StatementRefreshRunRepository statementRefreshRunRepository;
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate activationJdbc;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private DataExportService service;
 
@@ -631,6 +632,25 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(days.get(1).get("event").asText()).isEqualTo("FILE_CHOSEN");
         assertThat(days.get(1).get("date").asText()).isEqualTo("2026-10-16");
         days.forEach(d -> assertThat(d.fieldNames()).toIterable().containsExactlyInAnyOrder("event", "date"));
+    }
+
+    /** Gate 2a (V276): the "What stopped you?" answers leave as moment, answer and date only. */
+    @Test
+    void exportIncludesAnswers() throws Exception {
+        activationJdbc.update("INSERT INTO activation_answers (user_id, moment, answer, answer_date) VALUES (?, 'REFUSED', 'TRY_ANOTHER_FILE', ?)",
+                userId, LocalDate.of(2026, 10, 16));
+        activationJdbc.update("INSERT INTO activation_answers (user_id, moment, answer, answer_date) VALUES (?, 'NO_FILE', 'SKIPPED', ?)",
+                userId, LocalDate.of(2026, 10, 14));
+
+        Map<String, byte[]> entries = export();
+
+        JsonNode rows = new ObjectMapper().readTree(entries.get("activation_answers.json"));
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).get("moment").asText()).isEqualTo("NO_FILE");
+        assertThat(rows.get(0).get("answer").asText()).isEqualTo("SKIPPED");
+        assertThat(rows.get(0).get("date").asText()).isEqualTo("2026-10-14");
+        assertThat(rows.get(1).get("answer").asText()).isEqualTo("TRY_ANOTHER_FILE");
+        rows.forEach(r -> assertThat(r.fieldNames()).toIterable().containsExactlyInAnyOrder("moment", "answer", "date"));
     }
 
     private Map<String, byte[]> export() throws Exception {

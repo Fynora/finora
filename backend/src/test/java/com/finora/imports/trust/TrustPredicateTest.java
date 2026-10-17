@@ -1,6 +1,7 @@
 package com.finora.imports.trust;
 
 import com.finora.dto.ImportDto;
+import com.finora.imports.BalanceChainValidator;
 import com.finora.imports.ImportReliabilityStatus;
 import com.finora.imports.RowAccountingValidator;
 import com.finora.imports.SummaryTotalsValidator;
@@ -269,6 +270,83 @@ class TrustPredicateTest {
         assertThat(decision.hold()).isTrue();
         assertThat(decision.categories()).containsExactly(TrustPredicate.Category.CARD_ROWS_DISAGREE_WITH_SUMMARY);
         assertThat(decision.summary()).contains("purchases");
+    }
+
+    // ---------------------------------------- condition 9: transactions miss the closing balance
+
+    private static ImportDto.VerificationFinding statementTotals(String outcome, Map<String, Object> details) {
+        return new ImportDto.VerificationFinding("STATEMENT_TOTALS", outcome, details);
+    }
+
+    /** The scanned-statement case: rows went missing, the totals fell short, and the chain broke on
+     *  too few pairs to hold on its own. The totals rule alone now holds it. */
+    @Test
+    void holdsWhenTheTransactionsDoNotReachTheClosingBalance() {
+        HoldDecision decision = TrustPredicate.evaluate(List.of(report(
+                statementTotals("FAILED", Map.of("suspectedCause", "TRANSACTIONS")),
+                new ImportDto.VerificationFinding(BalanceChainValidator.RULE, "WARNING", Map.of()))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.STATEMENT_TOTALS_DISAGREE);
+        assertThat(decision.summary()).contains("closing balance");
+    }
+
+    /** No row carried a running balance, so nothing confirms the rows either way. */
+    @Test
+    void holdsWhenTheTotalsFailAndNoCauseCouldBeNamed() {
+        assertThat(TrustPredicate.evaluate(List.of(report(statementTotals("FAILED", Map.of()))),
+                List.of(), TODAY).hold()).isTrue();
+        assertThat(TrustPredicate.evaluate(List.of(report(statementTotals("FAILED", null))),
+                List.of(), TODAY).hold()).isTrue();
+    }
+
+    /** The rows reach the closing balance and chain link by link; only the detected opening figure
+     *  is off. The rows that reach the ledger are confirmed, so this must not quarantine them. */
+    @Test
+    void doesNotHoldWhenOnlyTheOpeningBalanceIsOff() {
+        assertThat(TrustPredicate.evaluate(List.of(report(
+                statementTotals("FAILED", Map.of("suspectedCause", "OPENING_BALANCE")),
+                new ImportDto.VerificationFinding(BalanceChainValidator.RULE, "VERIFIED", Map.of()))),
+                List.of(), TODAY).hold()).isFalse();
+    }
+
+    /** A row lost in the middle with the last row read correctly: the last balance still matches
+     *  the closing one, so the validator blames the opening figure -- but the chain breaks at the
+     *  gap, and without it vouching for the rows the import holds. */
+    @Test
+    void holdsWhenTheOpeningBalanceIsBlamedButTheChainDoesNotVouchForTheRows() {
+        for (String chain : List.of("WARNING", "NOT_APPLICABLE")) {
+            HoldDecision decision = TrustPredicate.evaluate(List.of(report(
+                    statementTotals("FAILED", Map.of("suspectedCause", "OPENING_BALANCE")),
+                    new ImportDto.VerificationFinding(BalanceChainValidator.RULE, chain, Map.of()))),
+                    List.of(), TODAY);
+            assertThat(decision.hold()).as(chain).isTrue();
+            assertThat(decision.categories()).as(chain)
+                    .containsExactly(TrustPredicate.Category.STATEMENT_TOTALS_DISAGREE);
+        }
+        assertThat(TrustPredicate.evaluate(List.of(report(
+                statementTotals("FAILED", Map.of("suspectedCause", "OPENING_BALANCE")))),
+                List.of(), TODAY).hold()).as("no chain finding at all").isTrue();
+    }
+
+    /** One section's verified chain must not clear another section's totals. */
+    @Test
+    void aVerifiedChainInOneSectionDoesNotClearAnotherSectionsTotals() {
+        HoldDecision decision = TrustPredicate.evaluate(List.of(
+                report(new ImportDto.VerificationFinding(BalanceChainValidator.RULE, "VERIFIED", Map.of())),
+                report(statementTotals("FAILED", Map.of("suspectedCause", "OPENING_BALANCE")),
+                        new ImportDto.VerificationFinding(BalanceChainValidator.RULE, "WARNING", Map.of()))),
+                List.of(), TODAY);
+        assertThat(decision.hold()).isTrue();
+    }
+
+    @Test
+    void doesNotHoldWhenTheTotalsVerifyOrCannotBeChecked() {
+        for (String outcome : List.of("VERIFIED", "NOT_APPLICABLE")) {
+            assertThat(TrustPredicate.evaluate(List.of(report(statementTotals(outcome, Map.of()))),
+                    List.of(), TODAY).hold()).as(outcome).isFalse();
+        }
     }
 
     @Test

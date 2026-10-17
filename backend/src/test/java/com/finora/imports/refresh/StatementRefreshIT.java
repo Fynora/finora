@@ -73,6 +73,7 @@ class StatementRefreshIT extends AbstractIntegrationTest {
     @Autowired private StatementRefreshDryRunService dryRunService;
     @Autowired private StatementRefreshUserService userService;
     @Autowired private StatementRefreshNotifier notifier;
+    @Autowired private com.finora.repository.StatementRefreshPreviewRepository previewRepository;
 
     /** Four purchases, 950.00 in all. */
     private static final byte[] FILE = ("Date,Description,Amount,Type\n"
@@ -688,6 +689,102 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         } finally {
             ReflectionTestUtils.setField(notifier, "enabled", false);
         }
+    }
+
+    // ---- the upload path's trust check ---------------------------------------------------------
+
+    /**
+     * The same four purchases, with a running balance the rows contradict twice out of three
+     * pairs (a systematic break) and a closing balance the rows do not reach: both hold an upload
+     * ({@code TrustPredicate}).
+     */
+    private static final byte[] CHAIN_BROKEN_FILE = ("Date,Description,Amount,Type,Balance\n"
+            + "2026-07-01,SAMPLE GROCER,450.00,DEBIT,550.00\n"
+            + "2026-07-02,SAMPLE CAFE,120.00,DEBIT,330.00\n"
+            + "2026-07-03,SAMPLE BOOKSHOP,300.00,DEBIT,30.00\n"
+            + "2026-07-04,SAMPLE PHARMACY,80.00,DEBIT,-150.00\n").getBytes(StandardCharsets.UTF_8);
+
+    @Test
+    void aReReadAnUploadWouldHold_isNotApplied_andTheCheckNeverOffersIt() throws Exception {
+        // The fixture really is one the upload path holds, by the predicate it runs.
+        StagingResponse asUploaded = importService.parseAndStage(UUID.randomUUID(), "statement.csv",
+                new ByteArrayInputStream(CHAIN_BROKEN_FILE));
+        assertThat(com.finora.imports.trust.TrustPredicate.evaluate(List.of(asUploaded.verification()),
+                List.<java.time.LocalDate[]>of(), java.time.LocalDate.now(java.time.ZoneOffset.UTC)).categories())
+                .containsExactly(com.finora.imports.trust.TrustPredicate.Category.BALANCE_CHAIN_DISCREPANCY,
+                        com.finora.imports.trust.TrustPredicate.Category.STATEMENT_TOTALS_DISAGREE);
+
+        // Imported before the gate existed (or approved by a reviewer), then misread by an older
+        // parser. With the file's own balances, so the misread row is the only change.
+        Imported i = importFile(CHAIN_BROKEN_FILE, null, new BigDecimal("1000.00"), new BigDecimal("-150.00"));
+        misreadGrocer(i);
+        BigDecimal before = balance(i);
+        String versionBefore = statementImportRepository.findById(i.id()).orElseThrow().getParserVersion();
+        String build = buildVersionResolver.currentCommit();
+
+        ReflectionTestUtils.setField(notifier, "enabled", true);
+        try {
+            dryRunService.check(i.id(), build);
+            assertThat(refreshNotifications(i)).as("nothing the user can apply").isZero();
+        } finally {
+            ReflectionTestUtils.setField(notifier, "enabled", false);
+        }
+        var preview = previewRepository.findByStatementImportIdAndParserVersion(i.id(), build).orElseThrow();
+        assertThat(preview.getStatus()).isEqualTo(com.finora.entity.StatementRefreshPreview.Status.NEEDS_REVIEW);
+        assertThat(preview.getDetail()).containsEntry("reason", "TRUST_HOLD")
+                .containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY", "STATEMENT_TOTALS_DISAGREE"));
+        assertThat(preview.getRowsChanged()).as("what it found is still recorded").isEqualTo(1);
+        assertThat(userService.overview(i.userId()).updatable()).isEmpty();
+
+        // Asked for directly, the refresh refuses the same way and writes nothing.
+        StatementRefreshOutcome outcome = refreshService.refresh(i.userId(), i.id(), null);
+
+        assertThat(outcome.status()).isEqualTo(StatementRefreshRun.Status.NEEDS_REVIEW);
+        assertThat(outcome.reason()).isEqualTo("TRUST_HOLD");
+        assertThat(lastRun(i).getDetail()).containsEntry("holdCategories", List.of("BALANCE_CHAIN_DISCREPANCY", "STATEMENT_TOTALS_DISAGREE"));
+        assertThat(lastRun(i).getRowsChanged()).isEqualTo(1);
+        assertThat(lastRun(i).getFactsChanged()).isZero();
+        assertThat(row(i, "SAMPLE GROCER").getAmount()).as("the misread amount stays").isEqualByComparingTo("45.00");
+        assertThat(transactionRepository.findByStatementImportId(i.id())).hasSize(4);
+        assertThat(balance(i)).isEqualByComparingTo(before);
+        assertThat(statementImportRepository.findById(i.id()).orElseThrow().getParserVersion())
+                .as("not recorded as read by this build").isEqualTo(versionBefore);
+    }
+
+    @Test
+    void aReReadAnUploadWouldHold_thatChangesNothing_isRecordedAsNoChanges() throws Exception {
+        // Imported with the balances the file's own balance column gives, so the re-read finds no
+        // statement fact to change either.
+        Imported i = importFile(CHAIN_BROKEN_FILE, null, new BigDecimal("1000.00"), new BigDecimal("-150.00"));
+        BigDecimal before = balance(i);
+
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        assertThat(previewRepository.findByStatementImportIdAndParserVersion(i.id(), buildVersionResolver.currentCommit())
+                .orElseThrow().getStatus()).isEqualTo(com.finora.entity.StatementRefreshPreview.Status.NO_CHANGES);
+
+        StatementRefreshOutcome outcome = refreshService.refresh(i.userId(), i.id(), null);
+
+        assertThat(outcome.status()).as("nothing would be written, so nothing to hold")
+                .isEqualTo(StatementRefreshRun.Status.NO_CHANGES);
+        assertThat(balance(i)).isEqualByComparingTo(before);
+    }
+
+    @Test
+    void aReReadAnUploadWouldHold_thatOnlyChangesTheStatementsBalances_isNotAppliedEither() throws Exception {
+        // Imported without the balances: the re-read would now set them, from a balance column the
+        // rows contradict.
+        Imported i = importFile(CHAIN_BROKEN_FILE, null, null, null);
+        BigDecimal before = balance(i);
+
+        StatementRefreshOutcome outcome = refreshService.refresh(i.userId(), i.id(), null);
+
+        assertThat(outcome.status()).isEqualTo(StatementRefreshRun.Status.NEEDS_REVIEW);
+        assertThat(outcome.reason()).isEqualTo("TRUST_HOLD");
+        assertThat(lastRun(i).getFactsChanged()).isEqualTo(2);
+        StatementImport statement = statementImportRepository.findById(i.id()).orElseThrow();
+        assertThat(statement.getOpeningBalance()).isNull();
+        assertThat(statement.getClosingBalance()).isNull();
+        assertThat(balance(i)).isEqualByComparingTo(before);
     }
 
     private static User otherUser() {

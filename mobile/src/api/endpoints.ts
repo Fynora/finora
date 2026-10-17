@@ -1,6 +1,7 @@
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { api, rawApi, type ApiEnvelope } from './client';
+import type { components } from './generated-types';
 import { encodeBase64 } from '../lib/base64';
 import { decodeUtf8 } from '../lib/utf8';
 import { isCanceled, isOffline, networkErrorCode } from '../lib/apiError';
@@ -847,13 +848,26 @@ export interface ChecklistStatus {
   totalCount: number;
 }
 
+type GeneratedSchemas = components['schemas'];
+
 /** Gate 2a spec §3: the three import-funnel moments. The server refuses any other name. */
 export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENED';
+
+/** Gate 2a spec §4: the moments Fynora asks "What stopped you?", and the fixed answers. Taken from
+ *  the generated API types, so a server-side change to either list fails the type check here. */
+export type ActivationMoment = NonNullable<GeneratedSchemas['QuestionResponse']['moment']>;
+export type ActivationAnswer = GeneratedSchemas['ActivationAnswerRequest']['answer'];
 
 export const activationApi = {
   /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
   funnelEvent: (event: FunnelEvent) =>
     api.post<void>('/activation/funnel-events', { event }).then(() => undefined),
+  /** The dashboard question to show now, or null for none. */
+  question: () =>
+    api.get<{ moment?: ActivationMoment | null }>('/activation/question').then((r) => r.data.moment ?? null),
+  /** One tap. A 409 means the question is not being asked now; callers hide it silently. */
+  answer: (moment: ActivationMoment, answer: ActivationAnswer) =>
+    api.post<void>('/activation/answers', { moment, answer }).then(() => undefined),
 };
 
 export const onboardingApi = {

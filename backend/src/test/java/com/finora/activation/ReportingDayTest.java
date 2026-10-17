@@ -21,6 +21,12 @@ class ReportingDayTest {
     }
 
     @Test
+    void nowComesFromTheSameClock() {
+        Instant instant = Instant.parse("2026-10-16T18:31:00Z");
+        assertThat(new ReportingDay(Clock.fixed(instant, ZoneId.of("Asia/Kolkata"))).now()).isEqualTo(instant);
+    }
+
+    @Test
     void configuredZoneIsUsed() {
         ReportingDay utc = new ReportingDay("UTC");
         assertThat(utc.zone()).isEqualTo(ZoneId.of("UTC"));

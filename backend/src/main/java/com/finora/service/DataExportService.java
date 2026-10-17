@@ -286,6 +286,7 @@ public class DataExportService {
     private final StatementRefreshRunRepository statementRefreshRunRepository;
     private final com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
+    private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
@@ -334,6 +335,7 @@ public class DataExportService {
                               StatementRefreshRunRepository statementRefreshRunRepository,
                               com.finora.repository.UserActivityDayRepository userActivityDayRepository,
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
+                              com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
                               StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
@@ -353,6 +355,7 @@ public class DataExportService {
         this.statementRefreshRunRepository = statementRefreshRunRepository;
         this.userActivityDayRepository = userActivityDayRepository;
         this.importFunnelDayRepository = importFunnelDayRepository;
+        this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
         this.statementContentService = statementContentService;
         this.userRepository = userRepository;
@@ -499,6 +502,13 @@ public class DataExportService {
                 importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(userId).stream()
                         .map(d -> new com.finora.dto.DataExportDto.ImportFunnelDayExportDto(
                                 d.getEvent().name(), d.getFunnelDate().toString()))
+                        .toList();
+        // Gate 2a (V276): the "What stopped you?" answers, also in the purge scope. Moment, answer and
+        // ISO date only.
+        List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers =
+                activationAnswerRepository.findByUserIdOrderByAnswerDateAsc(userId).stream()
+                        .map(a -> new com.finora.dto.DataExportDto.ActivationAnswerExportDto(
+                                a.getMoment().name(), a.getAnswer().name(), a.getAnswerDate().toString()))
                         .toList();
         // V277: the Insights "Got it" record, in the purge scope, so exported. Kind, key and date.
         List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements =
@@ -792,7 +802,7 @@ public class DataExportService {
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
-                insightAcknowledgements);
+                activationAnswers, insightAcknowledgements);
     }
 
     /**
@@ -862,6 +872,7 @@ public class DataExportService {
             writeJsonEntry(zos, "activity_days.json", bundle.activityDays());
             writeJsonEntry(zos, "spending_tracking.json", bundle.spendingTracking());
             writeJsonEntry(zos, "import_funnel_days.json", bundle.importFunnelDays());
+            writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
             writeJsonEntry(zos, "insight_acknowledgements.json", bundle.insightAcknowledgements());
 
             for (Summary statement : bundle.statementSummaries()) {
@@ -1009,6 +1020,7 @@ public class DataExportService {
                 new ManifestEntry("activity_days.json", "The dates you used Fynora -- the date only, never the time or what you did.", bundle.activityDays().size()),
                 new ManifestEntry("spending_tracking.json", "How you told us you kept track of your spending before Fynora, and when.", bundle.spendingTracking().size()),
                 new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
+                new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
                 new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size())
         );
         List<ManifestEntry> excluded = List.of(
@@ -1115,6 +1127,7 @@ public class DataExportService {
             List<String> activityDays,
             List<com.finora.dto.DataExportDto.SpendingTrackingExportDto> spendingTracking,
             List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
+            List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
             List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements
     ) {}
 

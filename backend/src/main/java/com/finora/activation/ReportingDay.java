@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -34,6 +35,11 @@ public class ReportingDay {
 
     public LocalDate today() {
         return LocalDate.now(clock);
+    }
+
+    /** The current instant, from the same clock, so a test that pins the day pins the instant too. */
+    public Instant now() {
+        return clock.instant();
     }
 
     public ZoneId zone() {

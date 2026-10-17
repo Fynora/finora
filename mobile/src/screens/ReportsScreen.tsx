@@ -13,6 +13,7 @@ import { SkeletonCard, SkeletonGroup } from '../components/skeletons/Skeletons';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { BiggestSpends } from '../components/reportSections/BiggestSpends';
 import { CategoryBreakdown } from '../components/reportSections/CategoryBreakdown';
+import { CategoryChanges } from '../components/reportSections/CategoryChanges';
 import { MerchantsCard } from '../components/reportSections/MerchantsCard';
 import { Observations } from '../components/reportSections/Observations';
 import { ReportHero } from '../components/reportSections/ReportHero';
@@ -26,6 +27,8 @@ import { toUserMessage } from '../lib/apiError';
 import {
   fmtCurrency, monthDateRange, monthLabel, monthLabelLong,
 } from '../lib/format';
+import { categoryChanges } from '../lib/reportSections/changeVsMonth';
+import { comparisonMonthName } from '../lib/reportSections/comparison';
 import { buildObservations } from '../lib/reportSections/observationText';
 import { shortDate } from '../lib/reportSections/trend';
 import { shareCsv, sharePdf } from '../lib/reportExport';
@@ -131,7 +134,16 @@ export function ReportsScreen() {
     staleTime: 5 * 60_000, // a past month's totals don't change once the month is over
   });
 
-  const extras = useReportExtras(month);
+  // The month before is fetched only for a report whose comparison with it the server trusted: with
+  // a partial month or a missing statement on either side, a category list would show the gap as
+  // spending that "fell to nothing".
+  const previousMonth = report && report.month === month && report.comparison?.reliable ? report.comparison.previousMonth : null;
+  const extras = useReportExtras(month, previousMonth);
+  const changes = useMemo(
+    () => (report && extras.previous ? categoryChanges(report.categories, extras.previous.categories) : []),
+    [report, extras.previous]
+  );
+  const priorName = report?.comparison ? comparisonMonthName(report.comparison.previousMonth, report.month) : '';
   const observations = useMemo(
     () => (report ? buildObservations(extras.insights, monthLabelLong(report.month).split(' ')[0], fmtCurrency) : []),
     [report, extras.insights]
@@ -315,6 +327,7 @@ export function ReportsScreen() {
             }}
           />
           <Observations items={observations} />
+          <CategoryChanges changes={changes} priorName={priorName} />
           {hasCalendar ? (
             <SpendingCalendar
               month={report.month} days={report.dailySpend} complete={report.complete !== false}

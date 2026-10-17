@@ -8,6 +8,10 @@ import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 import { expectHaptics, resetHapticCalls } from '../../test/haptics';
+import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
+
+// "What stopped you?" remembers a same-day answer in module state; every test starts without one.
+beforeEach(() => resetActivationAnsweredForTests());
 
 // The re-import arrival path is exercised by most of this file, so every staging/upload call is a
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
@@ -46,7 +50,7 @@ jest.mock('../../api/endpoints', () => ({
     cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
-  activationApi: { funnelEvent: jest.fn().mockResolvedValue(undefined) },
+  activationApi: { funnelEvent: jest.fn().mockResolvedValue(undefined), answer: jest.fn().mockResolvedValue(undefined) },
 }));
 
 // Unconfigured by default -- most of this file's tests arrive via the reimport path, never
@@ -2272,5 +2276,139 @@ describe('ImportScreen — funnel events', () => {
 
     expect(callsFor('REVIEW_OPENED')).toBe(1);
     expect(screen.queryByText(/network down/i)).not.toBeOnTheScreen();
+  });
+});
+
+/** Gate 2a spec §4.1: "What stopped you?" at a refusal and after a cancelled review. */
+describe('ImportScreen — what stopped you', () => {
+  const answer = activationApi.answer as jest.Mock;
+
+  function rejectWithCode(errorCode: string, message: string) {
+    return Object.assign(new Error('Request failed with status code 422'), {
+      isAxiosError: true,
+      response: { status: 422, data: { success: false, errorCode, message } },
+    });
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    answer.mockReset().mockResolvedValue(undefined);
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1',
+      multiAccount: false,
+      sections: null,
+      staging: { rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('refusalAsksWhatNow', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode('IMPORT_013', 'Too many pages.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(/too many pages/i)).toBeTruthy();
+    expect(screen.getByText('What will you do now?')).toBeOnTheScreen();
+    expect(screen.getByTestId('what-stopped-you-frame')).toBeOnTheScreen();
+  });
+
+  it('networkErrorDoesNotAsk', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(
+      Object.assign(new Error('Network Error'), { isAxiosError: true, code: 'ERR_NETWORK' }));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    await waitFor(() => expect(api.import.stageCsv).toHaveBeenCalled());
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+  });
+
+  it('wrongFileTypeDoesNotAsk', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///notes.txt', name: 'notes.txt' } as never],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+  });
+
+  it('a new file clears the refusal question', async () => {
+    api.import.stageCsv.mockReset()
+      .mockRejectedValueOnce(rejectWithCode('IMPORT_013', 'Too many pages.'))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+  });
+
+  it('cancelImportAsksWhatMadeYouStop', async () => {
+    render(tree());
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    // Real (not faked) timer -- see "flashes a Completed checkmark" above for why not.toBeOnTheScreen().
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+    expect(screen.queryByText('What made you stop?')).not.toBeOnTheScreen();
+
+    fireEvent.press(screen.getByText('Cancel'));
+    await settle();
+
+    expect(await screen.findByText('What made you stop?')).toBeOnTheScreen();
+    fireEvent.press(screen.getByText('The rows looked wrong'));
+    expect(answer).toHaveBeenCalledWith('NOT_CONFIRMED', 'ROWS_LOOKED_WRONG');
+  });
+
+  it('does not ask again today after an answer', async () => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode('IMPORT_013', 'Too many pages.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    fireEvent.press(await screen.findByText('Try another file'));
+    expect(await screen.findByText('Thanks.')).toBeOnTheScreen();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(await screen.findByText(/too many pages/i)).toBeTruthy();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    // Nor an empty frame where the question would have been.
+    expect(screen.queryByTestId('what-stopped-you-frame')).not.toBeOnTheScreen();
+  });
+
+  it('questionHiddenWhileUploading', async () => {
+    api.import.stageCsv.mockReset()
+      .mockRejectedValueOnce(rejectWithCode('IMPORT_013', 'Too many pages.'))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
+
+    // A second upload starts and never finishes: while it runs, no question shows.
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    expect(screen.queryByText('What made you stop?')).not.toBeOnTheScreen();
   });
 });

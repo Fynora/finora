@@ -167,8 +167,9 @@ describe('Privacy policy matches what the product does', () => {
   it('discloses the import-funnel dates: which three moments, the date only, and deletion with the account', () => {
     const t = policyText();
     expect(t).toMatch(/opened the import screen, chose a file to upload and opened\s+an import's review/i);
-    expect(t).toMatch(/the date only, never the time, the file or anything in it/i);
-    expect(t).toMatch(/where adding a statement gets difficult/i);
+    expect(t).toMatch(/any answer you tap when Fynora asks what stopped you/i);
+    expect(t).toMatch(/We record the date\s+only, never the time, the file or anything in it/i);
+    expect(t).toMatch(/where adding a statement gets\s+difficult/i);
   });
 
 });

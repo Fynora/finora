@@ -78,6 +78,48 @@ class StatementTotalsValidatorTest {
         assertThat(finding.details()).containsEntry("difference", new BigDecimal("-50000.00"));
     }
 
+    private StagedRow rowOn(int day, String amount, String type, String balanceAfter) {
+        return new StagedRow(
+                LocalDate.of(2026, 7, day), "UPI PAYMENT", new BigDecimal(amount), type,
+                "Other", "default", null, false, null, new BigDecimal(balanceAfter));
+    }
+
+    /**
+     * A newest-first export (PNB ONE prints this way) arrives here in document order, so its LAST
+     * row is the oldest transaction. The rows are correct and only the opening balance is
+     * misdetected -- the same case as the HDFC one above. Judged by the oldest row's balance, which
+     * is not the closing balance, it was blamed on the transactions; and since a TRANSACTIONS
+     * mismatch holds an import (TrustPredicate), a correctly read statement would have been held.
+     */
+    @Test
+    void blamesTheOpeningBalance_onANewestFirstStatementWhoseRowsReachTheClosingBalance() {
+        var newestFirst = List.of(
+                rowOn(12, "82.00", "EXPENSE", "24462.00"),
+                rowOn(11, "436.00", "EXPENSE", "24544.00"),
+                rowOn(10, "20.00", "EXPENSE", "24980.00"),
+                rowOn(9, "25000.00", "INCOME", "25000.00"));
+
+        var finding = validator.check(newestFirst, new BigDecimal("50000.00"), new BigDecimal("24462.00"));
+
+        assertThat(finding.outcome()).isEqualTo("FAILED");
+        assertThat(finding.details()).containsEntry("lastRowBalance", new BigDecimal("24462.00"));
+        assertThat(finding.details()).containsEntry("suspectedCause", "OPENING_BALANCE");
+    }
+
+    /** The other direction still holds the rows to account on a newest-first statement. */
+    @Test
+    void blamesTheTransactions_onANewestFirstStatementWhoseRowsMissTheClosingBalance() {
+        var newestFirst = List.of(
+                rowOn(12, "82.00", "EXPENSE", "24462.00"),
+                rowOn(10, "20.00", "EXPENSE", "24980.00"),
+                rowOn(9, "25000.00", "INCOME", "25000.00"));
+
+        var finding = validator.check(newestFirst, new BigDecimal("0.00"), new BigDecimal("24000.00"));
+
+        assertThat(finding.outcome()).isEqualTo("FAILED");
+        assertThat(finding.details()).containsEntry("suspectedCause", "TRANSACTIONS");
+    }
+
     @Test
     void blamesTheTransactions_whenTheyDoNotReachTheStatedClosingBalance() {
         // A premium read as zero: the rows no longer arrive at the closing balance the statement

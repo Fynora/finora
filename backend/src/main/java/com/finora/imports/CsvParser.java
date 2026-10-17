@@ -408,8 +408,29 @@ public class CsvParser {
         // leaves "15 Sep 26", which "dd MMM yy" already reads -- and only when the apostrophe sits
         // directly before a final two-digit year, so nothing else in a cell is touched.
         String unabbreviatedYear = APOSTROPHE_TWO_DIGIT_YEAR.matcher(withoutTime).replaceFirst("$1");
-        return unabbreviatedYear.equals(withoutTime) ? null : tryEveryFormat(unabbreviatedYear);
+        if (!unabbreviatedYear.equals(withoutTime)) {
+            parsed = tryEveryFormat(unabbreviatedYear);
+            if (parsed != null) return parsed;
+        }
+
+        // Fourth retry, same discipline: OCR reading a zero as the letter O. Measured on a scanned
+        // HSBC savings statement where a "07MAR2026"-style date came back as "O7MAR2026": the date
+        // failed, the row lost its anchor, and two transactions -- that one and the deposit before
+        // it -- merged into one row that never staged. Only an O standing where a digit must be is touched:
+        // directly followed by a digit and not preceded by a letter (so "OCT", "NOV" and
+        // "29OCT2026" are left alone -- the O there is followed by a letter or preceded by one).
+        // The repaired value then gets the separator retry above too: HSBC prints "07MAR2026",
+        // which only parses once the day, month and year are split apart.
+        String zeroForO = LETTER_O_FOR_ZERO.matcher(withoutTime).replaceAll("0");
+        if (zeroForO.equals(withoutTime)) return null;
+        parsed = tryEveryFormat(zeroForO);
+        if (parsed != null) return parsed;
+        String zeroForOSeparated = MISSING_SEPARATOR.matcher(zeroForO).replaceAll(" ");
+        return zeroForOSeparated.equals(zeroForO) ? null : tryEveryFormat(zeroForOSeparated);
     }
+
+    private static final java.util.regex.Pattern LETTER_O_FOR_ZERO =
+            java.util.regex.Pattern.compile("(?<![A-Za-z])[Oo](?=\\d)");
 
     private static final java.util.regex.Pattern APOSTROPHE_TWO_DIGIT_YEAR =
             java.util.regex.Pattern.compile("(?<=\\s)['\u2018\u2019](\\d{2})\\s*$");

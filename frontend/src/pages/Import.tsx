@@ -57,6 +57,8 @@ import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
 import { formatForeignAmount } from '../lib/foreignAmount';
 import { trackNavigation } from '../lib/trackNavigation';
 import { trackFunnel, type FunnelEvent } from '../lib/trackFunnel';
+import { WhatStoppedYou } from '../components/activation/WhatStoppedYou';
+import type { ActivationMoment } from '../api/endpoints';
 
 type Step = 'upload' | 'review' | 'summary';
 
@@ -236,6 +238,11 @@ export default function Import() {
   // banner doesn't -- same "actionRequired changes the banner" precedent as Sprint 4 item 22 above.
   const [errorUpgradeRequired, setErrorUpgradeRequired] = useState(false);
 
+  // Gate 2a spec §4.1: the "What stopped you?" question this screen is showing, if any -- REFUSED
+  // beside a server refusal, NOT_CONFIRMED after a cancelled review. It goes with the error state:
+  // cleared whenever the banner is, so choosing a new file (which clears the banner) clears it too.
+  const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
+
   function showError(message: string, actionRequired = false, upgradeRequired = false) {
     setError(message);
     setErrorActionRequired(actionRequired);
@@ -245,6 +252,7 @@ export default function Import() {
     setError(null);
     setErrorActionRequired(false);
     setErrorUpgradeRequired(false);
+    setAskMoment(null);
   }
 
   // The queued import currently being watched, if this deployment queues them at all.
@@ -649,7 +657,11 @@ export default function Import() {
   async function discardReviewSessionAndStartOver() {
     if (!sessionId) return;
     const discarded = await discardStagedSession(sessionId);
-    if (discarded) startOver();
+    if (discarded) {
+      startOver();
+      // After startOver, whose clearError would otherwise clear it straight away.
+      setAskMoment('NOT_CONFIRMED');
+    }
   }
 
   // Holds the panel on 'completed' for UPLOAD_COMPLETE_DWELL_MS before running `advance` (a
@@ -795,7 +807,10 @@ export default function Import() {
         // and send it through the queue, which holds it for review. Where that cannot be offered,
         // still say what happened rather than "double-check this is your statement".
         if (isPdf && password && savePasswordOffered) setReviewOfferFor(file);
-        else showError(UNREAD_LAYOUT_MESSAGE);
+        else {
+          showError(UNREAD_LAYOUT_MESSAGE);
+          setAskMoment('REFUSED');
+        }
       } else if (contractMessage) {
         // Premium Import Reliability v1 failure UX contract: for a code we have curated copy for,
         // that copy is what the user reads, not the server's `message` -- the whole point of the
@@ -806,8 +821,11 @@ export default function Import() {
         // backend-side -- see GlobalExceptionHandler), not a second frontend-maintained copy of
         // which codes qualify, so the banner's color can never drift from the backend's own answer.
         showError(contractMessage, !!e.response?.data?.userActionRequired);
+        setAskMoment('REFUSED');
       } else {
         showError(e.response?.data?.message ?? (isPdf ? 'Could not parse this PDF.' : 'Could not parse this CSV.'));
+        // A refusal only when the server named an import error, never a bare failure without one.
+        if (code) setAskMoment('REFUSED');
       }
     } finally {
       if (!holdForCompletion) setUploadProgress(null);
@@ -1098,6 +1116,10 @@ export default function Import() {
           )}
         </p>
       )}
+      {/* Never during an action: hidden while an upload, read or confirm is running (spec §4.3). */}
+      {askMoment && step === 'upload' && !uploading && !confirming && (
+        <WhatStoppedYou key={askMoment} moment={askMoment} />
+      )}
 
       {/* Wizard-step transition (Phase 4b): 'upload' -> 'review' -> 'summary' fade/slide in place
           of the hard cut. mode="wait" lets the leaving step's exit finish before the next one
@@ -1186,6 +1208,7 @@ export default function Import() {
               />
               <ImportTimeline
                 jobId={jobId}
+                askWhatNext
                 onDismiss={() => {
                   setJobId(null);
                   setUploadProgress(null);

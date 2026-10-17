@@ -58,7 +58,10 @@ export function outcomeLabel(r: RefreshRunDetail): string {
     case 'APPLIED': return 'Updated';
     case 'NO_CHANGES': return 'Already up to date';
     case 'NEEDS_REVIEW':
-      return "Not updated — the new reading would remove too many rows, so we left it as it was and we're looking into it";
+      // TRUST_HOLD: the new reading fails the same checks that hold an upload for review.
+      return r.reason === 'TRUST_HOLD'
+        ? "Not updated — the new reading didn't add up against the statement's own figures, so we left it as it was"
+        : "Not updated — the new reading would remove too many rows, so we left it as it was and we're looking into it";
     case 'NEEDS_PASSWORD': return 'Needs the statement password';
     case 'FAILED':
       return r.reason === 'NO_LONGER_AVAILABLE'

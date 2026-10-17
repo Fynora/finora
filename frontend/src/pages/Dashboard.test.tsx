@@ -79,6 +79,7 @@ vi.mock('../api/endpoints', () => ({
   // about onboarding, keeps seeing exactly the Dashboard content it did before this widget
   // existed.
   onboardingApi: { getChecklist: vi.fn().mockResolvedValue({ items: [], completedCount: 6, totalCount: 6 }) },
+  activationApi: { question: vi.fn().mockResolvedValue(null), answer: vi.fn().mockResolvedValue(undefined) },
 }));
 
 // The Financial Health Score card's number counts up on mount (useCountUp in Dashboard.tsx) --

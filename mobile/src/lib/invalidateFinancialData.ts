@@ -58,6 +58,9 @@ export const FINANCIAL_QUERY_KEYS = [
   // ChecklistWidget on the Dashboard would keep showing pre-write state until its cache happened
   // to age out on its own, exactly the bug class this module's comment warns about.
   'onboarding',
+  // Gate 2a "What stopped you?": a first import ends the NO_FILE question, so the dashboard card
+  // (on a tab that stays mounted) must re-ask the server rather than keep showing it.
+  'activation',
   // Mobile Phase 3 (Advanced Reports). Every one of these five is computed directly from the
   // user's transaction history (top merchants/categories by spend, monthly spend trend, per-
   // category confidence, learned-vs-corrected counts) -- exactly the shape every other key in

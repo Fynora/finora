@@ -3044,6 +3044,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/activation/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts": {
         parameters: {
             query?: never;
@@ -5660,6 +5676,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["status_4"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/activation/question": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["question"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8754,6 +8786,12 @@ export interface components {
         FunnelEventRequest: {
             /** @enum {string} */
             event: "IMPORT_SCREEN_OPENED" | "FILE_CHOSEN" | "REVIEW_OPENED";
+        };
+        ActivationAnswerRequest: {
+            /** @enum {string} */
+            moment: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
+            /** @enum {string} */
+            answer: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
         };
         UpdateKindRequest: {
             name?: string;
@@ -12595,6 +12633,22 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseQuestionResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["QuestionResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        QuestionResponse: {
+            /** @enum {string} */
+            moment?: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
         };
         ApiResponseSavedStatementPasswordsRemoved: {
             success?: boolean;
@@ -18184,6 +18238,30 @@ export interface operations {
             };
         };
     };
+    answer_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivationAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     list_14: {
         parameters: {
             query?: never;
@@ -21885,6 +21963,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseAdminMfaStatusResponse"];
+                };
+            };
+        };
+    };
+    question: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseQuestionResponse"];
                 };
             };
         };

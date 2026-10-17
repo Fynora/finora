@@ -40,7 +40,7 @@ export function FinancialFocusScreen({ onContinue, error }: Props) {
     <GlassScreen style={styles.glassRoot}>
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={[styles.title, { color: c.ink }]}>What would you like to achieve with Fynora?</Text>
-      <Text style={[styles.subtitle, { color: c.muted }]}>Select all that apply. We'll personalize your experience.</Text>
+      <Text style={[styles.subtitle, { color: c.muted }]}>Select all that apply. It helps us understand what you want from Fynora.</Text>
       {OPTIONS.map((opt) => {
         const active = selected.includes(opt.key);
         return (

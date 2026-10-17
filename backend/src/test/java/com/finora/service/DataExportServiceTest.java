@@ -131,6 +131,8 @@ class DataExportServiceTest {
             mock(com.finora.repository.UserActivityDayRepository.class);
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository =
             mock(com.finora.activation.ImportFunnelDayRepository.class);
+    private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository =
+            mock(com.finora.activation.ActivationAnswerRepository.class);
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository =
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
 
@@ -319,7 +321,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, insightAcknowledgementRepository,
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository,
                 statementContentService);
     }
 
@@ -1100,7 +1102,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.insightAcknowledgements());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {
@@ -1824,6 +1826,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("counterpartyCategoryObservationRepository.deleteByUserId", "merchant_category_votes.json"),
                 Map.entry("userActivityDayRepository.deleteByUserId", "activity_days.json"),
                 Map.entry("importFunnelDayRepository.deleteByUserId", "import_funnel_days.json"),
+                Map.entry("activationAnswerRepository.deleteByUserId", "activation_answers.json"),
                 Map.entry("insightAcknowledgementRepository.deleteByUserId", "insight_acknowledgements.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 

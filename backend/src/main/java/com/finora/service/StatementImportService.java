@@ -8,6 +8,7 @@ import com.finora.entity.Category;
 import com.finora.entity.StatementImport;
 import com.finora.entity.Transaction;
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.StatementImportRepository;
@@ -18,6 +19,9 @@ import com.finora.accounts.AccountDto;
 import com.finora.imports.ConfirmedRowIntegrity;
 import com.finora.imports.CoverageWarnings;
 import com.finora.imports.ImportService;
+import com.finora.imports.StatementPeriodPolicy;
+import com.finora.imports.trust.HoldDecision;
+import com.finora.imports.trust.TrustPredicate;
 import com.finora.security.OwnershipGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -262,11 +268,38 @@ public class StatementImportService {
         // see ImportService.parseAndStageAnyFormat. The confirm step below re-parses without it.
         var staging = importService.parseAndStageAnyFormat(userId, si.getSourceFormat(), si.getFileName(), content,
                 si.getSourceSectionIndex(), passwordOrSaved(userId, statementImportId, password), true);
+        // Refused here, not only at confirm, so the user is not asked to review rows that cannot be
+        // imported.
+        refuseIfUploadWouldHold(staging);
 
         Account account = accountRepository.findById(si.getAccountId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
                         "The account this statement was imported into no longer exists."));
         return new com.finora.dto.StatementImportDto.ReimportResult(staging, account.getId(), account.getName());
+    }
+
+    /**
+     * The upload path's trust check ({@link TrustPredicate}, as {@code StagingTrustGate} and
+     * {@code ImportJobWorker} run it), on a re-read of a stored statement: the one section being
+     * re-read, with its judged period, as {@code StagedForJob} gives them for a section. A re-import
+     * writes that section's rows as a new statement, so a re-read an upload would hold -- a broken
+     * running balance, transactions that miss the closing balance, counts the summary contradicts,
+     * an ambiguous column -- carries amounts that are unproven.
+     *
+     * <p>Refused rather than routed into the held-statement review, by Sid's decision (2026-10-16):
+     * nothing has been written, the statement's existing transactions stay as they are, and a
+     * re-import has no import session for that review to release. UTC, as the upload path anchors
+     * the future-period rule.
+     */
+    private static void refuseIfUploadWouldHold(com.finora.dto.ImportDto.StagingResponse staging) {
+        HoldDecision decision = TrustPredicate.evaluate(
+                staging.verification() == null ? List.of() : List.of(staging.verification()),
+                List.<LocalDate[]>of(StatementPeriodPolicy.judgedPeriod(staging.detectedAccount())),
+                LocalDate.now(ZoneOffset.UTC));
+        if (!decision.hold()) return;
+        ErrorCode code = ErrorCode.IMPORT_REIMPORT_UNTRUSTED;
+        throw new ApiException(code.defaultStatus(), code, code.defaultMessage(),
+                Map.of("holdCategories", decision.categories().stream().map(Enum::name).toList()));
     }
 
     /**
@@ -376,6 +409,9 @@ public class StatementImportService {
         var freshStaging = importService.parseAndStageAnyFormat(userId, original.getSourceFormat(),
                 original.getFileName(), content, original.getSourceSectionIndex(),
                 passwordOrSaved(userId, statementImportId, request.password()));
+        // The guarantee: whatever the client was shown, these bytes are judged again before anything
+        // is written. Before the row check, so a held re-read gets this answer, not a row mismatch.
+        refuseIfUploadWouldHold(freshStaging);
         ConfirmedRowIntegrity.requireSameRows(freshStaging.rows(), request.rows());
         request = request.withRows(ConfirmedRowIntegrity.withStatementFacts(freshStaging.rows(), request.rows()));
 

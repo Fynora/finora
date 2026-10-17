@@ -216,6 +216,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private FeatureViewCountRepository featureViewCountRepository;
     @Autowired private com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
+    @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private RecurringDismissalRepository recurringDismissalRepository;
     @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
@@ -264,7 +265,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, insightAcknowledgementRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -380,6 +381,20 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(importFunnelDayRepository.findByUserIdOrderByFunnelDateAscEventAsc(userId)).isEmpty();
+    }
+
+    /** Gate 2a (V276): the "What stopped you?" answers, explicitly deleted for the same reason. */
+    @Test
+    @Transactional
+    void purgeDeletesAnswers() {
+        entityManager.createNativeQuery("INSERT INTO activation_answers (user_id, moment, answer, answer_date) "
+                        + "VALUES (?1, 'NO_FILE', 'NOT_NOW', ?2)")
+                .setParameter(1, userId).setParameter(2, LocalDate.of(2026, 10, 16)).executeUpdate();
+        assertThat(activationAnswerRepository.findByUserIdOrderByAnswerDateAsc(userId)).hasSize(1);
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(activationAnswerRepository.findByUserIdOrderByAnswerDateAsc(userId)).isEmpty();
     }
 
     /**

@@ -23,6 +23,7 @@ import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
+import { ActivationQuestionCard } from '../components/activation/ActivationQuestionCard';
 import { JourneyWidget } from '../components/JourneyWidget';
 import { GMAIL_SYNC_UI_ENABLED } from '../lib/features';
 import { longMonthName, statementBehindNote } from '../lib/statementBehind';
@@ -687,6 +688,8 @@ export default function Dashboard() {
           this user's statements, and nothing while refreshing is switched off. Above the
           onboarding widgets, which can fill the first screen. */}
       <div className="mb-8 empty:hidden"><StatementRefreshBanner /></div>
+      {/* Gate 2a spec §4.1: "What stopped you?", only when the server has a question for this user. */}
+      <ActivationQuestionCard />
       <ChecklistWidget />
       <JourneyWidget />
 

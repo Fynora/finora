@@ -30,6 +30,7 @@ import {
   SkeletonCard, SkeletonChart, SkeletonGroup, SkeletonKpiGrid, SkeletonTransactionRow,
 } from '../components/skeletons/Skeletons';
 import { ChecklistWidget } from '../onboarding/ChecklistWidget';
+import { ActivationQuestionCard } from '../components/activation/ActivationQuestionCard';
 import { JourneyWidget } from '../components/dashboard/JourneyWidget';
 import { DonutChart, type Slice } from '../components/charts/DonutChart';
 import { CashFlowChart } from '../components/charts/CashFlowChart';
@@ -1132,6 +1133,8 @@ export function DashboardScreen() {
 
       <JourneyWidget onViewJourney={() => navigation.navigate('More', { screen: 'Journey' })} />
 
+      {/* Gate 2a spec §4.1: "What stopped you?", only when the server has a question for this user. */}
+      <ActivationQuestionCard />
       <ChecklistWidget />
     </ScrollView>
     </GlassScreen>

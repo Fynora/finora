@@ -254,6 +254,49 @@ const comparison = (over: Partial<NonNullable<ReportData['comparison']>> = {}): 
   incomeDeltaPct: 11.1, expenseDeltaPct: -42.9, netDelta: 40000, ...over,
 });
 
+describe('Reports — how you paid', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-08']);
+  });
+
+  it('ranks the methods with their amounts and shares, and says where they come from', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'CARD', amount: 3000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    }));
+    renderPage();
+
+    const list = await screen.findByTestId('payment-methods');
+    expect(screen.getByText('How you paid')).toBeInTheDocument();
+    const rows = within(list).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['UPI₹6,000 60%', 'Card₹3,000 30%', 'Not identified₹1,000 10%']);
+    expect(within(screen.getByTestId('payment-methods-unidentified')).getByText('Not identified')).toBeInTheDocument();
+    expect(screen.getByText(/Worked out from the account and the wording on your statements/)).toBeInTheDocument();
+  });
+
+  it('draws no unidentified row when every rupee has a named method', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({ paymentMethods: [{ method: 'UPI', amount: 900 }] }));
+    renderPage();
+    await screen.findByTestId('payment-methods');
+    expect(screen.queryByTestId('payment-methods-unidentified')).not.toBeInTheDocument();
+  });
+
+  it('is left out when too little of the spending has a named method, or from an older server', async () => {
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report({
+      paymentMethods: [{ method: 'UPI', amount: 300 }, { method: 'UNIDENTIFIED', amount: 700 }],
+    }));
+    const { unmount } = renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('How you paid')).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(reportsApi.forMonth).mockResolvedValue(report());
+    renderPage();
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByText('How you paid')).not.toBeInTheDocument();
+  });
+});
+
 describe('Reports — biggest changes since the month before', () => {
   const august = report({ categories: [{ category: 'Rent', amount: 25000 }, { category: 'Food', amount: 9000 }, { category: 'Gifts', amount: 380 }] });
   const july = report({ month: '2026-07', categories: [{ category: 'Rent', amount: 23000 }, { category: 'Food', amount: 12000 }, { category: 'Gym', amount: 1200 }] });

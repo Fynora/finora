@@ -14,6 +14,7 @@ import { OptionPickerModal } from '../components/OptionPickerModal';
 import { BiggestSpends } from '../components/reportSections/BiggestSpends';
 import { CategoryBreakdown } from '../components/reportSections/CategoryBreakdown';
 import { CategoryChanges } from '../components/reportSections/CategoryChanges';
+import { PaymentMethods } from '../components/reportSections/PaymentMethods';
 import { MerchantsCard } from '../components/reportSections/MerchantsCard';
 import { Observations } from '../components/reportSections/Observations';
 import { ReportHero } from '../components/reportSections/ReportHero';
@@ -28,6 +29,7 @@ import {
   fmtCurrency, monthDateRange, monthLabel, monthLabelLong,
 } from '../lib/format';
 import { categoryChanges } from '../lib/reportSections/changeVsMonth';
+import { methodBreakdown } from '../lib/reportSections/methodBreakdown';
 import { comparisonMonthName } from '../lib/reportSections/comparison';
 import { buildObservations } from '../lib/reportSections/observationText';
 import { shortDate } from '../lib/reportSections/trend';
@@ -328,6 +330,7 @@ export function ReportsScreen() {
           />
           <Observations items={observations} />
           <CategoryChanges changes={changes} priorName={priorName} />
+          <PaymentMethods breakdown={methodBreakdown(report.paymentMethods)} />
           {hasCalendar ? (
             <SpendingCalendar
               month={report.month} days={report.dailySpend} complete={report.complete !== false}

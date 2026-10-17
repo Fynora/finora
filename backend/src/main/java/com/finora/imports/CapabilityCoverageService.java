@@ -274,6 +274,11 @@ public class CapabilityCoverageService {
             // Summary" box). Tried only where no other reading of the summary forms the equation.
             // See CardSummarySignedFigureRowReader.
             "CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
+            // A scanned statement whose first reading skipped an amount (a running balance that moved
+            // with no amount read) was read again in sparse-text mode, and the second reading was
+            // kept because its balance chain and totals verified. Real evidence: a scanned HSBC
+            // savings statement. See PdfPreviewGenerator.secondLook.
+            "OCR_SECOND_LOOK_RECOVERED_AMOUNTS",
             // A credit-card statement's own billing-summary panel read via one of two independent
             // strategies -- see CreditCardSummaryExtractor's own class doc comment for why they are
             // kept separate rather than merged into one extractor. CREDIT_CARD_SUMMARY_TOTALS is the

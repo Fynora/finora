@@ -21884,7 +21884,9 @@ export interface operations {
     };
     question: {
         parameters: {
-            query?: never;
+            query?: {
+                moment?: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
+            };
             header?: never;
             path?: never;
             cookie?: never;

@@ -66,6 +66,18 @@ public class ActivationQuestionService {
     }
 
     /**
+     * Whether {@code moment} may be asked now: nothing answered or skipped today, and this moment not
+     * within its 30 quiet days. For the import-screen questions, whose moment the client knows
+     * (spec §4.2): asking first means nobody taps an answer that {@link #answer} would then refuse.
+     * Exactly the condition {@link #answer} checks, so the two can never disagree.
+     */
+    @Transactional(readOnly = true)
+    public boolean isAskable(UUID userId, ActivationMoment moment) {
+        LocalDate today = reportingDay.today();
+        return !answers.existsByUserIdAndAnswerDate(userId, today) && !blocked(userId, moment, today);
+    }
+
+    /**
      * Records an answer or skip. Refused with 400 for an answer from another moment's list, and with
      * 409 when the limits do not allow one now (the clients then hide the question silently).
      */
@@ -74,10 +86,10 @@ public class ActivationQuestionService {
         if (!answer.allowedFor(moment)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "That answer does not belong to this question.");
         }
-        LocalDate today = reportingDay.today();
-        if (answers.existsByUserIdAndAnswerDate(userId, today) || blocked(userId, moment, today)) {
+        if (!isAskable(userId, moment)) {
             throw new ApiException(HttpStatus.CONFLICT, "This question is not being asked now.");
         }
+        LocalDate today = reportingDay.today();
         try {
             // Flushed here so a concurrent answer for the same day (V276's one-per-day key) surfaces
             // as the 409 it is, not as a 500 at commit.

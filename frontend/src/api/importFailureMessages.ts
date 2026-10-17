@@ -29,6 +29,8 @@ import {
   PAYMENT_APP_HISTORY,
   PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
+  IMPORT_SYSTEM_BUSY,
+  IMPORT_SESSION_HELD_FOR_REVIEW,
 } from './errorCodes';
 
 export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
@@ -130,6 +132,16 @@ export function importFailureTitle(code: string | null | undefined): string | un
 export function isUnreadStatementLayout(code: string | null | undefined, details: unknown): boolean {
   if (code !== NO_TRANSACTIONS_FOUND && code !== NO_HEADER_DETECTED) return false;
   return (details as { looksLikeAStatement?: unknown } | null)?.looksLikeAStatement === true;
+}
+
+/**
+ * Whether a failed upload is the statement being refused or left unread -- the moment "What will
+ * you do now?" asks about (Gate 2a spec §4.1). Every server error carries an `errorCode`, a crash
+ * (INTERNAL_ERROR), a rate limit or an expired sign-in included, so having one is not enough: only
+ * an import code is, and not busy or held, where the file was never judged or is with the team.
+ */
+export function isStatementRefusal(code: string | null | undefined): boolean {
+  return !!code && code.startsWith('IMPORT_') && code !== IMPORT_SYSTEM_BUSY && code !== IMPORT_SESSION_HELD_FOR_REVIEW;
 }
 
 export const UNREAD_LAYOUT_TITLE = "We'd like to take a closer look";

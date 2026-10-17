@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { activationApi } from '../../api/endpoints';
 import { ActivationQuestionCard } from './ActivationQuestionCard';
-import { markActivationAnsweredToday, resetActivationAnsweredForTests } from '../../lib/activationQuestions';
+import {
+  activationAnsweredToday, markActivationAnsweredToday, resetActivationAnsweredForTests,
+} from '../../lib/activationQuestions';
 
 // Hoisted above the imports by babel-jest.
 jest.mock('../../api/endpoints', () => ({
@@ -104,5 +106,52 @@ describe('ActivationQuestionCard', () => {
 
     expect(answer).toHaveBeenCalledWith('NOT_CONFIRMED', 'SKIPPED');
     expect(screen.queryByTestId('activation-question-card')).not.toBeOnTheScreen();
+  });
+
+  // The close is today's one answer: an import-screen question later today would be refused.
+  it('closing counts as today\'s answer', async () => {
+    question.mockResolvedValue('NO_FILE');
+    renderCard();
+
+    fireEvent.press(await screen.findByLabelText('Close'));
+
+    await waitFor(() => expect(activationAnsweredToday()).toBe(true));
+  });
+
+  it('closing after an answer sends nothing more', async () => {
+    question.mockResolvedValue('NO_FILE');
+    renderCard();
+    fireEvent.press(await screen.findByText('Not now'));
+    await screen.findByText('Thanks.');
+
+    fireEvent.press(screen.getByLabelText('Close'));
+
+    expect(answer).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('activation-question-card')).not.toBeOnTheScreen();
+  });
+
+  // The Dashboard tab stays mounted while the Import tab takes today's answer.
+  it('hides on its next render once today is answered elsewhere', async () => {
+    question.mockResolvedValue('NO_FILE');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const view = render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+    await screen.findByText('Last time you looked at adding a statement. What stopped you?');
+
+    markActivationAnsweredToday();
+    view.rerender(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+
+    expect(screen.queryByTestId('activation-question-card')).not.toBeOnTheScreen();
+  });
+
+  it('keeps its Thanks when the dashboard re-renders', async () => {
+    question.mockResolvedValue('NO_FILE');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const view = render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+    fireEvent.press(await screen.findByText('Not now'));
+    await screen.findByText('Thanks.');
+
+    view.rerender(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+
+    expect(screen.getByText('Thanks.')).toBeOnTheScreen();
   });
 });

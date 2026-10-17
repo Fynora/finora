@@ -3567,6 +3567,37 @@ class ReconciliationServiceTest {
     }
 
     @Test
+    void reconcileForUser_aNextStatementWhoseTotalWasNotRead_stillClosesTheEarlierBillsWindow() {
+        // The next statement (generated 19 Aug) has no total due read off it, so it is not one the
+        // pass can pay -- but it was still generated, and a payment after it is paying it, not the
+        // earlier bill.
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport earlier =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 8, 11));
+        earlier.setStatementPeriodEnd(LocalDate.of(2026, 7, 22));
+        com.finora.repository.StatementImportRepository.StatementMetadata nextWithoutTotal =
+                org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.StatementMetadata.class);
+        when(nextWithoutTotal.getStatementPeriodEnd()).thenReturn(LocalDate.of(2026, 8, 19));
+        com.finora.repository.StatementImportRepository.StatementMetadata earlierMeta =
+                org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.StatementMetadata.class);
+        when(earlierMeta.getStatementPeriodEnd()).thenReturn(LocalDate.of(2026, 7, 22));
+        when(earlierMeta.getPaymentDueDate()).thenReturn(LocalDate.of(2026, 8, 11));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, cardAccountId))
+                .thenReturn(List.of(earlierMeta, nextWithoutTotal));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 8, 20), new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-08-20T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-07-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(earlier));
+        when(transactionRepository.findByStatementImportId(earlier.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
+    }
+
+    @Test
     void reconcileForUser_aPaymentOnTheNextStatementsDate_stillPaysTheEarlierBill() {
         // Inside the next statement's own period, so printed there as a payment of the earlier bill.
         assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 19))).containsExactly("earlier");

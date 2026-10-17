@@ -1420,8 +1420,20 @@ public class ReconciliationService {
             // up: one card statement in the real corpus ended with four live payments, each dropped
             // from spending. Edges that no longer qualify are rejected here, not kept as seeds.
             // From every live statement, not only the ones with something owed: a paid-off statement
-            // still closes the window of the bill before it.
-            Map<UUID, CcWindow> ccWindows = ccPaymentWindows(ccStatements);
+            // still closes the window of the bill before it -- and so does one whose total due was
+            // never read (not in ccStatements at all), so each card's other statement dates come
+            // from its full statement list.
+            Map<UUID, List<LocalDate>> cardStatementDates = new java.util.HashMap<>();
+            for (UUID cardAccountId : ccStatements.stream().map(StatementImport::getAccountId).distinct().toList()) {
+                List<LocalDate> dates = new java.util.ArrayList<>();
+                for (com.finora.repository.StatementImportRepository.StatementMetadata m
+                        : statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, cardAccountId)) {
+                    LocalDate date = ccStatementDate(m.getStatementPeriodEnd(), m.getPaymentDueDate());
+                    if (date != null) dates.add(date);
+                }
+                cardStatementDates.put(cardAccountId, dates);
+            }
+            Map<UUID, CcWindow> ccWindows = ccPaymentWindows(ccStatements, cardStatementDates);
             // What the payments linked to each bill add up to, for a bill paid in parts (third pass).
             Map<UUID, BigDecimal> paidTowards = new java.util.HashMap<>();
             ccEdgesRejected = seedCcClaims(userId, all, validStatements, paymentAccountIds,
@@ -2017,7 +2029,8 @@ public class ReconciliationService {
      * windows overlapped and the earlier bill could take the next bill's payment. A payment on the next
      * statement date itself is inside that statement's period, so it still pays this one.
      */
-    private static Map<UUID, CcWindow> ccPaymentWindows(List<StatementImport> statements) {
+    private static Map<UUID, CcWindow> ccPaymentWindows(List<StatementImport> statements,
+                                                        Map<UUID, List<LocalDate>> cardStatementDates) {
         Map<UUID, CcWindow> windows = new java.util.HashMap<>();
         for (StatementImport statement : statements) {
             LocalDate due = statement.getPaymentDueDate();
@@ -2026,10 +2039,17 @@ public class ReconciliationService {
             LocalDate opens = statementDate != null
                     ? statementDate.plusDays(1) : due.minusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
             LocalDate closes = due.plusDays(ReconciliationPolicy.CC_PAYMENT_DUE_DATE_WINDOW_DAYS);
+            List<LocalDate> otherDates = new java.util.ArrayList<>(
+                    cardStatementDates.getOrDefault(statement.getAccountId(), List.of()));
             for (StatementImport other : statements) {
-                if (other == statement || !other.getAccountId().equals(statement.getAccountId())) continue;
-                LocalDate otherDate = ccStatementDate(other);
-                if (otherDate != null && !otherDate.isBefore(opens) && otherDate.isBefore(closes)) closes = otherDate;
+                if (other != statement && other.getAccountId().equals(statement.getAccountId())) {
+                    LocalDate otherDate = ccStatementDate(other);
+                    if (otherDate != null) otherDates.add(otherDate);
+                }
+            }
+            // This statement's own date is before `opens`, so it never closes its own window.
+            for (LocalDate otherDate : otherDates) {
+                if (!otherDate.isBefore(opens) && otherDate.isBefore(closes)) closes = otherDate;
             }
             windows.put(statement.getId(), new CcWindow(opens, closes));
         }
@@ -2042,9 +2062,16 @@ public class ReconciliationService {
      * {@link ReconciliationPolicy#CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE} days before it.
      */
     private static LocalDate ccStatementDate(StatementImport statement) {
-        LocalDate date = statement.getStatementPeriodEnd();
-        LocalDate due = statement.getPaymentDueDate();
-        if (date == null || due == null) return null;
+        if (statement.getPaymentDueDate() == null) return null;
+        return ccStatementDate(statement.getStatementPeriodEnd(), statement.getPaymentDueDate());
+    }
+
+    /** {@link #ccStatementDate(StatementImport)} on bare fields. With no due date read, the printed
+     *  date has nothing to be checked against and is taken as it is -- it only ever closes another
+     *  statement's window, since a statement with no due date has no window of its own. */
+    private static LocalDate ccStatementDate(LocalDate date, LocalDate due) {
+        if (date == null) return null;
+        if (due == null) return date;
         if (!date.isBefore(due) || date.isBefore(due.minusDays(ReconciliationPolicy.CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE))) {
             return null;
         }

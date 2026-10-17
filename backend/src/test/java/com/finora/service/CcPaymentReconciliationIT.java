@@ -275,6 +275,43 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void partsNoLongerAddingUpToTheBill_becauseAPersonMovedOne_areNotKeptAsAnExactTotal() {
+        // Two cards, so neither part names its card. They were linked because together they are
+        // exactly this bill. Then a person links one of them to the other card's bill. The other part
+        // is no longer one of an exact total and, naming no card, cannot stand alone: it must not be
+        // kept on the strength of a total that now includes a payment it no longer shares the bill with.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Account otherCard = account(f.userId(), Account.Type.CREDIT_CARD, "XXXXXXXXXXXX9876");
+        Transaction otherCharge = save(txn(f.userId(), otherCard, DUE.minusDays(25), "900.00", "SHOP"));
+        Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(6), "1000.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+        Transaction second = save(txn(f.userId(), f.savings(), DUE.minusDays(4), "1500.00",
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), second.getId());
+
+        StatementImport other = new StatementImport();
+        other.setUserId(f.userId());
+        other.setAccountId(otherCard.getId());
+        other.setFileName("other-card.pdf");
+        other.setSourceFormat("PDF");
+        other.setFileContent(new byte[]{1});
+        other.setContentHash("cc-payment-it-" + UUID.randomUUID());
+        other = statementImportRepository.save(other);
+        transactionGraphService.linkAll(List.of(new TransactionGraphService.PendingEdge(f.userId(), first.getId(),
+                otherCharge.getId(), TransactionRelationship.RelationshipType.CC_PAYMENT, first.getAmount(), 100,
+                SourceTrust.of(first.getSource()), TransactionRelationship.Status.USER_CONFIRMED,
+                TransactionRelationship.DetectionMethod.MANUAL,
+                java.util.Map.<String, Object>of("type", "CC_PAYMENT_MATCH", "statementImportId", other.getId().toString()))));
+
+        reconciliationService.reconcileForUser(f.userId());
+
+        assertThat(livePaymentsFor(f)).doesNotContain(second.getId());
+    }
+
+    @Test
     void aPaymentLinkedToOneCardsBill_movesToTheCardWhoseStatementShowsItReceived() {
         // Linked by amount and window to the only bill imported. Then another card's statement is
         // imported, and it prints this very payment as received: that is proof of which card it paid,

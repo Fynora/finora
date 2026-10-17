@@ -2285,6 +2285,10 @@ public class ReconciliationService {
         }
         Map<UUID, BigDecimal> linkedTotal = new java.util.HashMap<>();
         for (CcLink link : valid) {
+            // A payment a person already linked elsewhere is no part of this bill's total: its link
+            // here is rejected below, so counting it would let the bill's other links pass as an
+            // exact total they no longer make.
+            if (claimedPaymentIds.contains(link.paymentId())) continue;
             linkedTotal.merge(link.statementId(), paymentsById.get(link.paymentId()).getAmount(), BigDecimal::add);
         }
         Set<UUID> exactTotalBills = new HashSet<>();

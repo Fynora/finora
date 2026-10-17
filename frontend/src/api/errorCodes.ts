@@ -70,3 +70,9 @@ export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
 // this one code (deliberately generic). On the request step, "code invalid or expired" makes no
 // sense -- no code exists yet -- so the UI words that case itself rather than showing the message.
 export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';
+
+// Gate 2a: two import codes that are not the statement being refused. BUSY means the file was never
+// judged (try again shortly); HELD means it went to the team for a look. "What will you do now?"
+// is asked about neither -- see isStatementRefusal in importFailureMessages.ts.
+export const IMPORT_SYSTEM_BUSY = 'IMPORT_006';
+export const IMPORT_SESSION_HELD_FOR_REVIEW = 'IMPORT_016';

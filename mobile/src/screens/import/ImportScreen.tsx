@@ -24,6 +24,7 @@ import {
 } from '../../api/errorCodes';
 import {
   importFailureMessage,
+  isStatementRefusal,
   isUnreadStatementLayout,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
@@ -703,8 +704,9 @@ export function ImportScreen() {
             setPendingPdf(file);
           } else {
             setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
-            // A refusal only when the server named an import error, never a network failure.
-            if (apiErrorCode(e)) setAskMoment('REFUSED');
+            // A refusal only when the server refused the statement, never a crash, a rate limit,
+            // sign-in or a network failure.
+            if (isStatementRefusal(apiErrorCode(e))) setAskMoment('REFUSED');
           }
         }
       } finally {
@@ -797,7 +799,7 @@ export function ImportScreen() {
         }
       } else {
         setError(importFailureMessage(apiErrorCode(e)) ?? toUserMessage(e, 'Could not read that statement.'));
-        if (apiErrorCode(e)) setAskMoment('REFUSED');
+        if (isStatementRefusal(apiErrorCode(e))) setAskMoment('REFUSED');
       }
     } finally {
       uploadAbort.current = null;

@@ -281,6 +281,9 @@ public final class TrustPredicate {
     private static Optional<String> cardRowsDisagreeWithSummary(ImportDto.VerificationFinding finding) {
         if (!CreditCardFlowReconciliationValidator.RULE.equals(finding.rule())) return Optional.empty();
         if (!"WARNING".equals(finding.outcome())) return Optional.empty();
+        if (finding.details() != null && Boolean.FALSE.equals(finding.details().get("rowsCarryOpeningToOutstanding"))) {
+            return Optional.of("The card's transactions do not carry its opening balance to its outstanding balance");
+        }
         return Optional.of("The card's transactions do not add up to the purchases or payments its summary printed");
     }
 

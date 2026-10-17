@@ -74,9 +74,10 @@ function reportRows(report: ReportData): string[][] {
   if (cmp) {
     const prior = comparisonMonthName(cmp.previousMonth, report.month);
     if (cmp.reliable) {
-      if (cmp.incomeDeltaPct != null) rows.push([`Income vs ${prior} (%)`, oneDecimal(cmp.incomeDeltaPct)]);
-      if (cmp.expenseDeltaPct != null) rows.push([`Expense vs ${prior} (%)`, oneDecimal(cmp.expenseDeltaPct)]);
-      if (cmp.netDelta != null) rows.push([`Net vs ${prior}`, String(cmp.netDelta)]);
+      // "change", because the figure is how far it moved, not the earlier month's income or net.
+      if (cmp.incomeDeltaPct != null) rows.push([`Income change vs ${prior} (%)`, oneDecimal(cmp.incomeDeltaPct)]);
+      if (cmp.expenseDeltaPct != null) rows.push([`Expense change vs ${prior} (%)`, oneDecimal(cmp.expenseDeltaPct)]);
+      if (cmp.netDelta != null) rows.push([`Net change vs ${prior}`, String(cmp.netDelta)]);
     } else {
       const note = comparisonGateNote(cmp, monthLabelLong(report.month).split(' ')[0], prior);
       if (note) rows.push(['Comparison', note]);
@@ -116,7 +117,14 @@ function printableNotes(report: ReportData): string[] {
   const notes: string[] = [];
   const monthName = monthLabelLong(report.month).split(' ')[0];
   if (report.savingsRatePct != null) {
-    notes.push(`Savings rate: ${oneDecimal(report.savingsRatePct)}% of income.`);
+    // A negative rate reads as "Savings rate: -50% of income" if printed bare, which says less than
+    // the screen does ("You spent 50% more than you earned").
+    const size = oneDecimal(Math.abs(report.savingsRatePct));
+    notes.push(
+      size === '0' ? 'Spending matched income.'
+        : report.savingsRatePct > 0 ? `Savings rate: ${size}% of income.`
+          : `Spending was ${size}% more than income.`,
+    );
   } else {
     const why = withheldRate(report.savingsRateGateReason);
     if (why) notes.push(`Savings rate. ${why}.`);
@@ -125,11 +133,12 @@ function printableNotes(report: ReportData): string[] {
   if (cmp) {
     const prior = comparisonMonthName(cmp.previousMonth, report.month);
     if (cmp.reliable) {
-      const parts = [
-        deltaPhrase(cmp.incomeDeltaPct, prior) && `Income ${deltaPhrase(cmp.incomeDeltaPct, prior)}`,
-        deltaPhrase(cmp.expenseDeltaPct, prior) && `Expenses ${deltaPhrase(cmp.expenseDeltaPct, prior)}`,
-        netChangePhrase(cmp, prior, fmtCurrency) && `Net: ${netChangePhrase(cmp, prior, fmtCurrency)}`,
-      ].filter(Boolean);
+      // "Income: No change vs August" and "Income: ↑ 11% vs August" both read; without the colon the
+      // first would be "Income No change vs August".
+      const income = deltaPhrase(cmp.incomeDeltaPct, prior);
+      const expense = deltaPhrase(cmp.expenseDeltaPct, prior);
+      const net = netChangePhrase(cmp, prior, fmtCurrency);
+      const parts = [income && `Income: ${income}`, expense && `Expenses: ${expense}`, net && `Net: ${net}`].filter(Boolean);
       if (parts.length > 0) notes.push(`${parts.join('. ')}.`);
     } else {
       const gate = comparisonGateNote(cmp, monthName, prior);

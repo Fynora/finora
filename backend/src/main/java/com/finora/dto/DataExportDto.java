@@ -225,6 +225,9 @@ public final class DataExportDto {
     /** Gate 2a (V276). One "What stopped you?" answer or skip, and its date -- ISO date, no time. */
     public record ActivationAnswerExportDto(String moment, String answer, String date) {}
 
+    /** V277. One Insights row the user marked "Got it": its kind, key and when. */
+    public record InsightAcknowledgementExportDto(String kind, String itemKey, Instant acknowledgedAt) {}
+
     /** F-03. One onboarding financial-focus selection. */
     public record UserFinancialFocusExportDto(UUID id, String focusKey, Instant createdAt) {
         public static UserFinancialFocusExportDto from(UserFinancialFocus f) {

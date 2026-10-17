@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import { authApi, userApi } from '../api/endpoints';
 import { getAccessToken, setAccessToken } from '../api/client';
 import { AUTH_CHANGED_EVENT } from './ThemeContext';
+import { activationAnsweredToday, markActivationAnsweredToday } from '../lib/activationQuestions';
 
 /**
  * AuthContext itself had no direct test -- every other test in this codebase mocks useAuth()
@@ -308,6 +309,17 @@ describe('AuthContext', () => {
     // BH-012: no argument. The session to revoke is identified by the HttpOnly cookie the browser
     // attaches automatically, not by a token this app is able to read.
     expect(authApi.logout).toHaveBeenCalledWith();
+  });
+
+  // Gate 2a: today's "What stopped you?" answer belongs to the account that gave it.
+  it('logout() forgets today\'s activation answer', async () => {
+    markActivationAnsweredToday();
+    const user = userEvent.setup();
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(activationAnsweredToday()).toBe(false);
   });
 
   it('logout() is a safe no-op call when there is no session to revoke', async () => {

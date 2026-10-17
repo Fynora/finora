@@ -110,10 +110,15 @@ public final class CreditCardSummaryExtractor {
      * so a short value ("0.00", gap 212.9pt) sits FURTHER from the label than a longer one in the
      * exact same column on a different HSBC statement of the same layout (a five-digit balance, gap 195.6pt)
      * — a right-aligned column moves a shorter string's START position right as the value shrinks.
-     * 230 covers both real cases with a small margin, without approaching the ~680pt gap the
+     * 230 covered both real cases with a small margin, without approaching the ~680pt gap the
      * Axis fee-schedule case above is rejected at.
+     *
+     * <p>Widened from 230 to 260 on the same two real HSBC statements: their "Opening Balance" row
+     * sits in that same right-aligned column under a shorter label, so its value starts 233.1pt
+     * and 236.9pt from the label's end. A "0.00" there would start about 249pt away, as the
+     * shorter value on "Net Outstanding Balance" does. Still far short of the ~680pt rejection.
      */
-    private static final float SAME_ROW_MAX_X_DISTANCE = 230.0f;
+    private static final float SAME_ROW_MAX_X_DISTANCE = 260.0f;
 
     /** A date, or the first half of a date range ("24/06/2026 - 22/07/2026") -- deliberately a shape
      *  check, not a full parse. Used only to positively identify "this is a date, not an amount" so
@@ -155,6 +160,9 @@ public final class CreditCardSummaryExtractor {
      * is what an account's balance is taken from. Matched only by {@link #tryStackedColumns}.
      */
     private static final List<String> TOTAL_OUTSTANDING_LABELS = List.of("total outstanding");
+    /** A real HSBC card's summary-table headline: its total due's fallback and its outstanding
+     *  total at once -- see {@link #TOTAL_DUE_LABELS} and {@link #joinedLabelsOnSameRow}. */
+    private static final String NET_OUTSTANDING_BALANCE = "net outstanding balance";
     // "total amount due (payable)" is deliberately not listed here: stripDecoration() strips any
     // trailing parenthetical before this list is consulted, so it would always collapse to the
     // plain "total amount due" entry below anyway -- listing both invited exactly the kind of
@@ -173,7 +181,7 @@ public final class CreditCardSummaryExtractor {
             // cycles too, a different concept from this schema's "purchases"/"cashAdvances" (this
             // statement's own new activity), and there is no real evidence yet that the two are
             // interchangeable.
-            "net outstanding balance");
+            NET_OUTSTANDING_BALANCE);
 
     /**
      * What a credit-card statement printed about its own billing equation, every field nullable
@@ -354,6 +362,19 @@ public final class CreditCardSummaryExtractor {
                 }
                 chosen = signedRow;
             }
+        }
+
+        // Still no whole equation from any strategy: keep a labelled opening balance and outstanding
+        // total, read on one page by the same strategy, so the rows can be checked against the two
+        // (CreditCardFlowReconciliationValidator). A real HSBC card prints only those two as text in
+        // its transaction table; its purchases and payments sit in a panel drawn as graphics. Only
+        // the pair, never one alone, and only fields no other reading contests.
+        if (chosen.extractionMethod() == null && sameRow.previousBalance() != null
+                && sameRow.totalOutstanding() != null && !conflicts.contains("previousBalance")) {
+            chosen = new CreditCardSummaryEvidence(sameRow.previousBalance(), null, null, null, null,
+                    chosen.totalAmountDue(), CreditCardSummaryEvidence.ExtractionMethod.INLINE_LABEL_VALUE,
+                    List.of(), sameRow.totalOutstanding());
+            if (ctx != null) ctx.record("CARD_OPENING_AND_OUTSTANDING_BALANCES");
         }
 
         return conflicts.isEmpty() ? chosen : chosen.withConflictingFields(conflicts);
@@ -925,9 +946,17 @@ public final class CreditCardSummaryExtractor {
                 if (end > start && t.x() - endX > LABEL_JOIN_MAX_X_GAP) break;
                 joined.append(joined.isEmpty() ? "" : " ").append(t.text().trim());
                 endX = t.endX();
-                String key = keyFor(StatementSummaryExtractor.normalize(joined.toString()));
+                String normalized = StatementSummaryExtractor.normalize(joined.toString());
+                String key = keyFor(normalized);
                 if (key != null) {
                     found.add(new JoinedLabel(key, first.y(), first.pageIndex(), first.x(), endX));
+                    // "Net Outstanding Balance" is the total due's fallback (TOTAL_DUE_LABELS), and
+                    // it is also, word for word, an outstanding total: read from the same place
+                    // under both keys, so the outstanding figure survives once the payment box's
+                    // total due replaces the fallback (CardStatementBalances.withBoxTotalPaymentDue).
+                    if (NET_OUTSTANDING_BALANCE.equals(stripDecoration(normalized))) {
+                        found.add(new JoinedLabel("totalOutstanding", first.y(), first.pageIndex(), first.x(), endX));
+                    }
                     break;
                 }
             }
@@ -993,7 +1022,7 @@ public final class CreditCardSummaryExtractor {
                 previousBalanceOf(best.get("previousBalance")), amount(best.get("purchases")),
                 amount(best.get("cashAdvances")), amount(best.get("fees")),
                 amount(best.get("paymentsAndCredits")), amount(best.get("totalAmountDue")),
-                method, List.of()), bestPage);
+                method, List.of(), amount(best.get("totalOutstanding"))), bestPage);
     }
 
     /** One strategy's evidence and the page it was read from (-1 when it read nothing). */

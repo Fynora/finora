@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import com.finora.repository.UserRepository;
 import com.finora.util.UserZone;
+import com.finora.util.CardBills;
 import java.util.Locale;
 
 /**
@@ -118,7 +119,7 @@ public class InsightsService {
             boolean requestedIsCurrent = month == null
                     || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
             return new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent);
+                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null);
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -136,13 +137,20 @@ public class InsightsService {
                 .toList();
 
         Map<String, BigDecimal> currentByCat = groupByCategory(txns, currentMonth, categoriesById, refunds);
+        // A card bill is a whole month of card purchases paid at once (CardBills): it stays in the
+        // total and the biggest category above, but is never compared month to month -- its size
+        // follows the card's statement, not a change in habits, so as a mover it read as a spike.
+        List<Transaction> cardBills = txns.stream().filter(t -> CardBills.isCardBill(t, categoriesById)).toList();
+        List<Transaction> moverTxns = cardBills.isEmpty() ? txns
+                : txns.stream().filter(t -> !CardBills.isCardBill(t, categoriesById)).toList();
+        Map<String, BigDecimal> moverCurrentByCat = groupByCategory(moverTxns, currentMonth, categoriesById, refunds);
         Map<String, BigDecimal> priorByCat = new HashMap<>();
         for (String m : priorMonths) {
-            groupByCategory(txns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
+            groupByCategory(moverTxns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
         }
         int priorCount = Math.max(priorMonths.size(), 1);
 
-        List<InsightsDto.CategoryMover> movers = currentByCat.entrySet().stream().map(e -> {
+        List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
             BigDecimal priorTotal = priorByCat.getOrDefault(e.getKey(), BigDecimal.ZERO);
             BigDecimal priorAvg = priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
@@ -234,7 +242,9 @@ public class InsightsService {
         // @NotBlank on it), so a manually-entered transaction with neither field set used to hit
         // the same "element cannot be mapped to a null key" NullPointerException from
         // Collectors.groupingBy as the DashboardService/BudgetService category-grouping bugs.
-        Map<String, BigDecimal> merchantTotals = txns.stream()
+        // moverTxns, not txns: a card bill is paid to the card (or a bill-paying app), not spent at a
+        // merchant, so it never answers "who did you spend the most with".
+        Map<String, BigDecimal> merchantTotals = moverTxns.stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE) // a refund is not a merchant's spend
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
                 .collect(Collectors.groupingBy(
@@ -259,7 +269,84 @@ public class InsightsService {
         }
 
         return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
-                currentMonth, pipeline.reportingMonthIsCurrent());
+                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds));
+    }
+
+    /**
+     * How long after a card statement's period ends its bill can still be paid: the bill falls due
+     * 18-20 days after the statement date on every measured card (#2256), and a late payment can
+     * come after that. A statement ending in the 45 days before a payment is the one it paid.
+     */
+    private static final int CARD_BILL_PAYS_STATEMENT_WITHIN_DAYS = 45;
+
+    /**
+     * This month's card bills with no card statement on file to explain them, so the app can ask
+     * for that statement (Sid, 2026-10-16). Every bill here already reached the spend set, so none
+     * is linked to a statement (RefundNetting.reportable drops a linked one); but a statement can be
+     * on file and still not linked to its payment -- paid in parts, or outside the match window --
+     * and asking for a statement the user already uploaded would be untrue, so such a bill is left
+     * out. A bill is covered by a statement of the card it paid when that card is known
+     * ({@link #cardPaidBy}), otherwise by a statement of any of the user's cards. Null when nothing
+     * is left. The card is named only when every bill left points to the same card.
+     */
+    private InsightsDto.UnlinkedCardBills unlinkedCardBills(UUID userId, List<Transaction> cardBills, String month,
+                                                            RefundNetting refunds) {
+        List<Transaction> inMonth = cardBills.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
+                .toList();
+        if (inMonth.isEmpty()) return null;
+        List<com.finora.entity.Account> cards = accountRepository.findByUserId(userId).stream()
+                .filter(a -> a.getAccountType() == com.finora.entity.Account.Type.CREDIT_CARD)
+                .toList();
+        Map<UUID, List<LocalDate>> statementEndsByCard = new HashMap<>();
+        for (com.finora.entity.Account card : cards) {
+            statementEndsByCard.put(card.getId(), statementImportRepository
+                    .findMetadataWithPeriodByUserIdAndAccountId(userId, card.getId()).stream()
+                    .map(StatementImportRepository.StatementMetadata::getStatementPeriodEnd)
+                    .filter(Objects::nonNull)
+                    .toList());
+        }
+
+        List<Transaction> missing = new ArrayList<>();
+        Set<com.finora.entity.Account> paid = new HashSet<>();
+        boolean allKnown = true;
+        for (Transaction t : inMonth) {
+            com.finora.entity.Account card = cardPaidBy(t, cards);
+            List<com.finora.entity.Account> mayHavePaid = card != null ? List.of(card) : cards;
+            boolean onFile = mayHavePaid.stream().anyMatch(c -> statementEndsByCard.getOrDefault(c.getId(), List.of())
+                    .stream().anyMatch(end -> end.isBefore(t.getTxnDate())
+                            && !end.isBefore(t.getTxnDate().minusDays(CARD_BILL_PAYS_STATEMENT_WITHIN_DAYS))));
+            if (onFile) continue;
+            missing.add(t);
+            if (card == null) allKnown = false;
+            else paid.add(card);
+        }
+        if (missing.isEmpty()) return null;
+        BigDecimal total = missing.stream().map(refunds::spendAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        com.finora.entity.Account card = allKnown && paid.size() == 1 ? paid.iterator().next() : null;
+        return new InsightsDto.UnlinkedCardBills(month, total, missing.size(),
+                card == null ? null : card.getName(),
+                card == null ? null : ReconciliationService.last4Of(card.getAccountNumberMasked()));
+    }
+
+    /**
+     * The user's card a bill payment paid, when that is known (Sid, 2026-10-16): the narration
+     * carries exactly one of their cards' last 4 digits (read as reconciliation reads them,
+     * ReconciliationService#cardFragmentsIn), or it carries no card digits at all and the user has
+     * exactly one card. Digits naming no card of theirs leave it unknown: that bill paid some other
+     * card, so their only card would be the wrong answer.
+     */
+    private static com.finora.entity.Account cardPaidBy(Transaction t, List<com.finora.entity.Account> cards) {
+        Set<String> fragments = ReconciliationService.cardFragmentsIn(t.getDescription());
+        List<com.finora.entity.Account> named = cards.stream()
+                .filter(c -> {
+                    String last4 = ReconciliationService.last4Of(c.getAccountNumberMasked());
+                    return last4 != null && fragments.contains(last4);
+                })
+                .toList();
+        if (named.size() == 1) return named.get(0);
+        if (!named.isEmpty() || !fragments.isEmpty()) return null;
+        return cards.size() == 1 ? cards.get(0) : null;
     }
 
     /** BH-005: the netting is a parameter rather than a field because it is derived per request

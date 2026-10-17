@@ -272,6 +272,20 @@ class TrustPredicateTest {
         assertThat(decision.summary()).contains("purchases");
     }
 
+    /** The rows checked against the opening and outstanding balances instead (a real HSBC card has
+     *  no readable purchases/payments split): held the same way, and the reason names the balances. */
+    @Test
+    void holdsWhenACardStatementsRowsMissItsOutstandingBalance() {
+        HoldDecision decision = TrustPredicate.evaluate(
+                List.of(report(new ImportDto.VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", "WARNING",
+                        Map.of("rowsCarryOpeningToOutstanding", false)))),
+                List.of(), TODAY);
+
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.CARD_ROWS_DISAGREE_WITH_SUMMARY);
+        assertThat(decision.summary()).contains("outstanding balance").doesNotContain("purchases");
+    }
+
     // ---------------------------------------- condition 9: transactions miss the closing balance
 
     private static ImportDto.VerificationFinding statementTotals(String outcome, Map<String, Object> details) {

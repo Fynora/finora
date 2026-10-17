@@ -13,6 +13,7 @@ import {
 } from '../lib/pushRegistration';
 import { configureRevenueCat } from '../lib/revenueCat';
 import { reportHandledError } from '../lib/monitoring';
+import { activationAnsweredToday, markActivationAnsweredToday } from '../lib/activationQuestions';
 
 jest.mock('../api/endpoints', () => ({
   authApi: {
@@ -491,6 +492,17 @@ describe('AuthContext referral prompt after a Google/Apple sign-up', () => {
     await settle(view);
 
     expect(auth.referralPromptPending).toBe(true);
+  });
+
+  // Gate 2a: today's "What stopped you?" answer belongs to the account that gave it.
+  it('logout forgets today\'s activation answer', async () => {
+    const view = renderAuth();
+    await settle(view);
+    markActivationAnsweredToday();
+
+    await act(async () => { auth.logout(); });
+
+    await waitFor(() => expect(activationAnsweredToday()).toBe(false));
   });
 
   it('logout clears it', async () => {

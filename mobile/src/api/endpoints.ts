@@ -862,9 +862,11 @@ export const activationApi = {
   /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
   funnelEvent: (event: FunnelEvent) =>
     api.post<void>('/activation/funnel-events', { event }).then(() => undefined),
-  /** The dashboard question to show now, or null for none. */
-  question: () =>
-    api.get<{ moment?: ActivationMoment | null }>('/activation/question').then((r) => r.data.moment ?? null),
+  /** Without a moment: the dashboard question to show now, or null for none. With one: that moment
+   *  if it may be asked now, or null -- the import screen asks before showing its question. */
+  question: (moment?: ActivationMoment) =>
+    api.get<{ moment?: ActivationMoment | null }>('/activation/question', { params: { moment } })
+      .then((r) => r.data.moment ?? null),
   /** One tap. A 409 means the question is not being asked now; callers hide it silently. */
   answer: (moment: ActivationMoment, answer: ActivationAnswer) =>
     api.post<void>('/activation/answers', { moment, answer }).then(() => undefined),

@@ -514,4 +514,59 @@ class CreditCardFlowReconciliationValidatorTest {
         assertThat(finding.outcome()).isEqualTo("VERIFIED");
         assertThat(finding.details()).doesNotContainKey("instalmentRowsSetAside");
     }
+
+    /** Only an opening balance and an outstanding total, as a real HSBC card prints as text; the
+     *  total due, smaller by a loan's unbilled instalments, is set apart from both. */
+    private static CreditCardSummaryEvidence balancesOnly(String opening, String outstanding, List<String> conflicts) {
+        return new CreditCardSummaryEvidence(new BigDecimal(opening), null, null, null, null,
+                new BigDecimal("900.00"), CreditCardSummaryEvidence.ExtractionMethod.INLINE_LABEL_VALUE,
+                conflicts, new BigDecimal(outstanding));
+    }
+
+    @Test
+    void verifiesRowsThatCarryTheOpeningBalanceToTheOutstandingBalance() {
+        // 1,000.00 + (400.00 + 300.00 + 150.00 instalment) - (500.00 payment + 150.00 instalment
+        // reversal) = 1,200.00, the printed outstanding total -- not the 900.00 total due.
+        var rows = List.of(
+                row("SAMPLE PAYMENT", "500.00", "INCOME"),
+                row("SAMPLE STORE", "400.00", "EXPENSE"),
+                row("SAMPLE TELECOM", "300.00", "EXPENSE"),
+                row("SAMPLE EMI 2ND OF 3 INSTALLMENTS PRINCIPAL", "150.00", "INCOME"),
+                row("SAMPLE EMI 2ND OF 3 INSTALLMENTS PRINCIPAL", "150.00", "EXPENSE"));
+
+        var finding = validator.check(rows, balancesOnly("1000.00", "1200.00", List.of()));
+
+        assertThat(finding.outcome()).isEqualTo("VERIFIED");
+        assertThat(finding.details().get("evidenceLevel")).isEqualTo("OPENING_AND_OUTSTANDING_BALANCES");
+        assertThat(finding.details().get("rowsCarryOpeningToOutstanding")).isEqualTo(true);
+        // The review screens draw a purchases/payments table from these; none exists here.
+        assertThat(finding.details()).doesNotContainKeys("observedExpenseAmount", "expectedExpenseAmount");
+    }
+
+    @Test
+    void warnsWhenARowIsMissingAgainstTheTwoBalances() {
+        // The same statement with the 300.00 charge lost: the rows reach 900.00, not 1,200.00.
+        var rows = List.of(
+                row("SAMPLE PAYMENT", "500.00", "INCOME"),
+                row("SAMPLE STORE", "400.00", "EXPENSE"));
+
+        var finding = validator.check(rows, balancesOnly("1000.00", "1200.00", List.of()));
+
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+        assertThat(finding.details().get("rowsCarryOpeningToOutstanding")).isEqualTo(false);
+        assertThat((BigDecimal) finding.details().get("difference")).isEqualByComparingTo("300.00");
+    }
+
+    @Test
+    void aContestedBalanceOrNoOutstandingTotalLeavesTheCheckNotApplicable() {
+        var rows = List.of(row("SAMPLE STORE", "400.00", "EXPENSE"));
+
+        assertThat(validator.check(rows, balancesOnly("1000.00", "1400.00", List.of("totalAmountDue"))).outcome())
+                .isEqualTo("NOT_APPLICABLE");
+        var noOutstanding = new CreditCardSummaryEvidence(new BigDecimal("1000.00"), null, null, null, null,
+                new BigDecimal("1400.00"), CreditCardSummaryEvidence.ExtractionMethod.INLINE_LABEL_VALUE, List.of());
+        var finding = validator.check(rows, noOutstanding);
+        assertThat(finding.outcome()).isEqualTo("NOT_APPLICABLE");
+        assertThat(finding.details().get("evidenceLevel")).isEqualTo("PARTIAL_SUMMARY_ONLY");
+    }
 }

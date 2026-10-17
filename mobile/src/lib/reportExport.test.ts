@@ -112,13 +112,13 @@ describe('toCsv — what qualifies the figures', () => {
       incomeDeltaPct: 11.11, expenseDeltaPct: -20, netDelta: 20000,
     };
     const ok = rows({ ...plain, comparison: reliable });
-    expect(ok).toContain('Income vs August (%)|11.1');
-    expect(ok).toContain('Expense vs August (%)|-20');
-    expect(ok).toContain('Net vs August|20000');
+    expect(ok).toContain('Income change vs August (%)|11.1');
+    expect(ok).toContain('Expense change vs August (%)|-20');
+    expect(ok).toContain('Net change vs August|20000');
 
     const csv = toCsv({ ...plain, comparison: unreliable('PARTIAL_PRIOR_MONTH') });
     expect(csv).toContain('"Comparison","August is only partly in your history, so it is not compared with September."');
-    expect(csv).not.toContain('Income vs');
+    expect(csv).not.toContain('Income change');
   });
 
   it('carries the caveats a screen would show: money not counted as income, and a part-month', () => {
@@ -165,10 +165,32 @@ describe('toPrintableHtml — what qualifies the figures', () => {
       },
     });
     expect(html).toContain('Savings rate: 60% of income.');
-    expect(html).toContain('Income ↑ 11% vs August');
-    expect(html).toContain('Expenses ↓ 20% vs August');
+    expect(html).toContain('Income: ↑ 11% vs August');
+    expect(html).toContain('Expenses: ↓ 20% vs August');
+    expect(html).toContain('Net: ₹20,000 more than August');
     expect(html).toContain("₹84,500 received isn't counted as income yet.");
     expect(html).toContain("Part of this month isn't in yet, so these figures may change.");
+  });
+
+  it('reads "Income: No change vs August" when a change rounds to nothing', () => {
+    const html = toPrintableHtml({
+      ...plain,
+      comparison: {
+        previousMonth: '2026-08', reliable: true, gateReason: null, previousIncome: 100000, previousExpense: 40000,
+        incomeDeltaPct: 0.2, expenseDeltaPct: -0.1, netDelta: 0,
+      },
+    });
+    expect(html).toContain('Income: No change vs August');
+    expect(html).toContain('Expenses: No change vs August');
+    expect(html).toContain('Net: Same as August');
+  });
+
+  it('says in words when spending outran income or matched it, rather than printing a negative savings rate', () => {
+    expect(toPrintableHtml({ ...plain, savingsRatePct: -50.04 })).toContain('Spending was 50% more than income.');
+    expect(toPrintableHtml({ ...plain, savingsRatePct: -1100 })).toContain('Spending was 1100% more than income.');
+    expect(toPrintableHtml({ ...plain, savingsRatePct: 0.03 })).toContain('Spending matched income.');
+    expect(toPrintableHtml({ ...plain, savingsRatePct: -0.03 })).toContain('Spending matched income.');
+    expect(toPrintableHtml({ ...plain, savingsRatePct: -50 })).not.toContain('Savings rate: -');
   });
 
   it('prints the reason when the savings rate or the comparison is not shown', () => {

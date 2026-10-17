@@ -279,6 +279,11 @@ public class CapabilityCoverageService {
             // kept because its balance chain and totals verified. Real evidence: a scanned HSBC
             // savings statement. See PdfPreviewGenerator.secondLook.
             "OCR_SECOND_LOOK_RECOVERED_AMOUNTS",
+            // No reading formed a billing equation, but one page printed a labelled opening balance
+            // and net outstanding balance (real evidence: two HSBC cards, whose purchases and
+            // payments panel is drawn as graphics). The pair is kept so the rows can be checked
+            // against it. See CreditCardSummaryExtractor.extract.
+            "CARD_OPENING_AND_OUTSTANDING_BALANCES",
             // A credit-card statement's own billing-summary panel read via one of two independent
             // strategies -- see CreditCardSummaryExtractor's own class doc comment for why they are
             // kept separate rather than merged into one extractor. CREDIT_CARD_SUMMARY_TOTALS is the

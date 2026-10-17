@@ -87,6 +87,7 @@ vi.mock('../api/endpoints', () => ({
   activationApi: {
     funnelEvent: vi.fn(),
     answer: vi.fn(),
+    question: vi.fn(),
   },
   importJobsApi: {
     availability: vi.fn(),
@@ -201,6 +202,8 @@ beforeEach(() => {
   vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(activationApi.funnelEvent).mockReset().mockResolvedValue(undefined);
+  // The server allows any import-screen question unless a test says otherwise.
+  vi.mocked(activationApi.question).mockReset().mockImplementation(async (m) => m ?? null);
   resetActivationAnsweredForTests();
 });
 
@@ -544,7 +547,45 @@ describe('Import — what stopped you', () => {
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
     expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[NO_TRANSACTIONS_FOUND])).toBeInTheDocument();
-    expect(screen.getByText('What will you do now?')).toBeInTheDocument();
+    expect(await screen.findByText('What will you do now?')).toBeInTheDocument();
+    expect(activationApi.question).toHaveBeenCalledWith('REFUSED');
+  });
+
+  // Every server error carries an errorCode; only a refused statement is the REFUSED moment.
+  it.each([
+    ['a server crash', 500, 'INTERNAL_ERROR'],
+    ['a rate limit', 429, 'TOO_MANY_REQUESTS'],
+    ['a busy import service', 503, 'IMPORT_006'],
+  ])('%s does not ask', async (_label, status, errorCode) => {
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue({
+      response: { status, data: { errorCode, message: 'Something went wrong on our side.' } },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Something went wrong on our side.')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  // Spec §4.3: within 30 days of answering REFUSED (or after any answer today, from before a
+  // reload) the server would refuse the answer, so the question is not offered at all.
+  it('does not ask when the server says the question is not being asked now', async () => {
+    vi.mocked(activationApi.question).mockResolvedValue(null);
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue({
+      response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND } },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[NO_TRANSACTIONS_FOUND])).toBeInTheDocument();
+    await waitFor(() => expect(activationApi.question).toHaveBeenCalledWith('REFUSED'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('What will you do now?')).toBeNull();
   });
 
   it('networkErrorDoesNotAsk', async () => {

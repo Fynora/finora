@@ -60,3 +60,9 @@ export const AUTH_EMAIL_ALREADY_REGISTERED = 'AUTH_012';
 // See the web copy: the OTP request step reuses this code for an unknown account, so the screen
 // words that case itself instead of showing "code invalid or expired".
 export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';
+
+// Gate 2a: two import codes that are not the statement being refused. BUSY means the file was never
+// judged (try again shortly); HELD means it went to the team for a look. "What will you do now?"
+// is asked about neither -- see isStatementRefusal in importFailureMessages.ts.
+export const IMPORT_SYSTEM_BUSY = 'IMPORT_006';
+export const IMPORT_SESSION_HELD_FOR_REVIEW = 'IMPORT_016';

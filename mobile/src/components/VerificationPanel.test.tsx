@@ -385,6 +385,33 @@ describe('VerificationPanel', () => {
         note: /cannot tell which side is off/,
       },
       {
+        name: 'rows carry the opening balance to the outstanding balance',
+        finding: {
+          rule: FLOW, outcome: 'VERIFIED',
+          details: {
+            evidenceLevel: 'OPENING_AND_OUTSTANDING_BALANCES', openingBalance: 1000, chargesRead: 850,
+            creditsRead: 650, totalOutstanding: 1200, expectedOutstanding: 1200, difference: 0,
+            rowsCarryOpeningToOutstanding: true,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'verified',
+        body: /^The transactions read from this statement take its opening balance exactly to its outstanding balance\.$/,
+      },
+      {
+        name: 'rows miss the outstanding balance',
+        finding: {
+          rule: FLOW, outcome: 'WARNING',
+          details: {
+            evidenceLevel: 'OPENING_AND_OUTSTANDING_BALANCES', openingBalance: 1000, chargesRead: 400,
+            creditsRead: 500, totalOutstanding: 1200, expectedOutstanding: 900, difference: 300,
+            rowsCarryOpeningToOutstanding: false,
+          },
+        },
+        label: 'Card purchases and payments', tag: 'needs review',
+        body: /do not take its opening balance to its outstanding balance\. A transaction may be missing or misread\.$/,
+        note: /cannot tell which side is off/,
+      },
+      {
         name: 'no card summary on the statement',
         finding: {
           rule: FLOW, outcome: 'NOT_APPLICABLE',

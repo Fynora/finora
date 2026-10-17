@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { importJobsApi, type ImportJobProgress } from '../api/endpoints';
 import { importFailureMessage, importFailureTitle } from '../api/importFailureMessages';
+import { WhatStoppedYou } from './activation/WhatStoppedYou';
 import { FAILED_IMPORT_FALLBACK, detail, isCancellable, isHeld, isSettled, label, percent } from '../lib/importJob';
 import { Card } from './Card';
 import { radius, spacing, useTheme } from '../theme';
@@ -177,6 +178,11 @@ export function ImportProgressCard({
             // small muted caption the other details use.
             <Text style={[styles.reason, { color: c.ink }]}>{failureReason}</Text>
           ) : null}
+          {/* Gate 2a spec §4.1: asked below the reason. This card lives only on the Import screen. */}
+          {failed && failureReason ? (
+            // Keyed by job: the card is reused when another upload fails.
+            <WhatStoppedYou key={jobId} moment="REFUSED" style={styles.whatNext} />
+          ) : null}
         </View>
 
         {job && isCancellable(job) ? (
@@ -231,6 +237,7 @@ export function ImportProgressCard({
 }
 
 const styles = StyleSheet.create({
+  whatNext: { marginTop: spacing.md },
   card: { gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   textBlock: { flex: 1 },

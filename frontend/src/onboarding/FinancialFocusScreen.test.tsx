@@ -3,6 +3,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { FinancialFocusScreen } from './FinancialFocusScreen';
 
 describe('FinancialFocusScreen', () => {
+  // Nothing personalises from these answers yet, so the screen no longer promises it does.
+  it('says what the answers are for, without promising personalisation', () => {
+    render(<FinancialFocusScreen onContinue={vi.fn()} />);
+    expect(screen.getByText('Select all that apply. It helps us understand what you want from Fynora.')).toBeInTheDocument();
+    expect(screen.queryByText(/personali[sz]e/i)).toBeNull();
+  });
+
   it('calls onContinue with the selected keys', () => {
     const onContinue = vi.fn();
     render(<FinancialFocusScreen onContinue={onContinue} />);

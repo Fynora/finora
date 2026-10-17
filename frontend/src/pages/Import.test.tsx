@@ -48,6 +48,7 @@ import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsA
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
+import { resetActivationAnsweredForTests } from '../lib/activationQuestions';
 import type { DetectedAccountInfo } from '../types';
 
 // Only the upload step's file-routing logic is under test here (stagePdf vs stageCsv, and the
@@ -85,6 +86,7 @@ vi.mock('../api/endpoints', () => ({
   // turns it on for itself.
   activationApi: {
     funnelEvent: vi.fn(),
+    answer: vi.fn(),
   },
   importJobsApi: {
     availability: vi.fn(),
@@ -199,6 +201,7 @@ beforeEach(() => {
   vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(activationApi.funnelEvent).mockReset().mockResolvedValue(undefined);
+  resetActivationAnsweredForTests();
 });
 
 function renderImport() {
@@ -520,6 +523,125 @@ describe('Import — funnel events', () => {
     expect(await screen.findByText(/which account is this statement for/i)).toBeInTheDocument();
     await waitFor(() => expect(callsFor('REVIEW_OPENED')).toBe(1));
     expect(container.querySelector('p.text-danger, p.text-warning')).toBeNull();
+  });
+});
+
+/** Gate 2a spec §4.1: "What stopped you?" at a refusal and after a cancelled review. */
+describe('Import — what stopped you', () => {
+  beforeEach(() => {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith({ sessionId: 'sess-9' }));
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(activationApi.answer).mockReset().mockResolvedValue(undefined);
+  });
+
+  it('refusalAsksWhatNow', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue({
+      response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND, message: 'No transactions' } },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[NO_TRANSACTIONS_FOUND])).toBeInTheDocument();
+    expect(screen.getByText('What will you do now?')).toBeInTheDocument();
+  });
+
+  it('networkErrorDoesNotAsk', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue(new Error('Network Error'));
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText(/unable to reach the import service/i)).toBeInTheDocument();
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  it('wrongFileTypeDoesNotAsk', async () => {
+    renderImport();
+
+    fireEvent.drop(screen.getByTestId('statement-dropzone'),
+      { dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } });
+
+    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  it('a new file clears the refusal question', async () => {
+    vi.mocked(importApi.stageCsv).mockReset()
+      .mockRejectedValueOnce({ response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND } } })
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    expect(await screen.findByText('What will you do now?')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await waitFor(() => expect(screen.queryByText('What will you do now?')).toBeNull());
+  });
+
+  it('cancelImportAsksWhatMadeYouStop', async () => {
+    vi.mocked(importApi.discardSession).mockReset().mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    expect(screen.queryByText('What made you stop?')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /cancel import/i }));
+    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+
+    expect(await screen.findByText('What made you stop?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'The rows looked wrong' }));
+    expect(activationApi.answer).toHaveBeenCalledWith('NOT_CONFIRMED', 'ROWS_LOOKED_WRONG');
+  });
+
+  it('a failed discard does not ask', async () => {
+    vi.mocked(importApi.discardSession).mockReset().mockRejectedValue(new Error('boom'));
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    await user.click(screen.getByRole('button', { name: /cancel import/i }));
+    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+
+    expect(await screen.findByText('Could not discard this staged import.')).toBeInTheDocument();
+    expect(screen.queryByText('What made you stop?')).toBeNull();
+  });
+
+  it('does not ask again today after an answer', async () => {
+    vi.mocked(importApi.stageCsv).mockReset()
+      .mockRejectedValue({ response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND } } });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await user.click(await screen.findByRole('button', { name: 'Try another file' }));
+    expect(await screen.findByText('Thanks.')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[NO_TRANSACTIONS_FOUND])).toBeInTheDocument();
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  it('questionHiddenWhileUploading', async () => {
+    vi.mocked(importApi.stageCsv).mockReset()
+      .mockRejectedValueOnce({ response: { status: 422, data: { errorCode: NO_TRANSACTIONS_FOUND } } })
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    expect(await screen.findByText('What will you do now?')).toBeInTheDocument();
+
+    // A second upload starts and never finishes: while it runs, no question shows.
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+    expect(screen.queryByText('What made you stop?')).toBeNull();
   });
 });
 

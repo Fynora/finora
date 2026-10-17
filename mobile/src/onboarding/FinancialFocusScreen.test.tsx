@@ -2,6 +2,13 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { FinancialFocusScreen } from './FinancialFocusScreen';
 
 describe('FinancialFocusScreen', () => {
+  // Nothing personalises from these answers yet, so the screen no longer promises it does.
+  it('says what the answers are for, without promising personalisation', () => {
+    render(<FinancialFocusScreen onContinue={jest.fn()} />);
+    expect(screen.getByText('Select all that apply. It helps us understand what you want from Fynora.')).toBeOnTheScreen();
+    expect(screen.queryByText(/personali[sz]e/i)).not.toBeOnTheScreen();
+  });
+
   it('calls onContinue with the selected keys', () => {
     const onContinue = jest.fn();
     render(<FinancialFocusScreen onContinue={onContinue} />);

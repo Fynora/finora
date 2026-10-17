@@ -48,7 +48,8 @@ export type MoreStackParamList = {
   MoneyReview: { start: string; end: string } | undefined;
   Statements: undefined;
   Budgets: undefined;
-  Reports: undefined;
+  // Insights' "Where did my money go?" opens the month it is showing.
+  Reports: { month?: string } | undefined;
   // Mobile Phase 3. Always reachable from the More menu, even for a Free user -- the
   // ADVANCED_REPORTS gate on this screen shows an upgrade prompt rather than hiding the entry
   // point entirely, matching web's identical Sidebar.tsx comment on the same decision.

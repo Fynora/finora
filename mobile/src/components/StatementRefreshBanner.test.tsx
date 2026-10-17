@@ -8,6 +8,10 @@ import { expectHaptics } from '../test/haptics';
 jest.mock('../api/endpoints', () => ({
   statementRefreshApi: { overview: jest.fn(), applyAll: jest.fn(), run: jest.fn(), refreshOne: jest.fn() },
 }));
+// Pinned: the banner and its sheets are glass, which renders a different tree on iOS once the
+// Reduce Transparency answer arrives. That answer comes asynchronously, so it remounted the banner
+// at a moment that depended on timing, and a findBy element could be gone by the next assertion.
+jest.mock('../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
 
 const api = statementRefreshApi as jest.Mocked<typeof statementRefreshApi>;
 

@@ -1801,8 +1801,9 @@ public class ReconciliationService {
                 // settle the statement in this run without writing anything, every run, and the
                 // statement would never reach its next-best payment.
                 .filter(t -> !rejectedPairs.contains(ccPairKey(t.getId(), statement.getId())))
-                .filter(t -> isCcPaymentCandidate(t, statement, requireExactAmount, paymentAccountIds, cardLast4ByAccountId,
-                        ccWindows))
+                .filter(t -> isCcPaymentCandidate(t, statement,
+                        requireExactAmount ? CcAmount.EXACT : stillOwed != null ? CcAmount.PART : CcAmount.PARTIAL,
+                        paymentAccountIds, cardLast4ByAccountId, ccWindows))
                 // A further part of a bill already part-paid: never more than is still owed on it.
                 .filter(t -> stillOwed == null || t.getAmount().compareTo(stillOwed) <= 0)
                 .toList();
@@ -1882,39 +1883,56 @@ public class ReconciliationService {
      * Two or more payments that together are exactly what {@code statement} says is due -- a bill
      * paid in parts that add up to it -- or empty. The exact total is evidence in the way one exact
      * payment is, so these are found before any single part payment is taken (see reconcile()).
-     * Every part must qualify on its own (window and narration evidence, as for any part payment).
-     * Fewest parts first, then the earliest combination in preference order, so the choice is the
-     * same on every run. Gives up past {@link ReconciliationPolicy#CC_PAYMENT_PARTS_MAX_CANDIDATES}
-     * candidates rather than search every combination of them.
+     * Every part must qualify on its own window and narration evidence, as for any part payment.
+     *
+     * <p>A running-sums search in paise: each candidate, in preference order, extends every total
+     * reached so far that it does not take past the amount due, keeping for each total the fewest
+     * payments that reach it (the first found, in preference order, on a tie -- so every run picks
+     * the same set). Gives up, returning empty, once it holds more than
+     * {@link ReconciliationPolicy#CC_PAYMENT_PARTS_MAX_SUMS} distinct totals; the parts are then still
+     * taken one at a time, up to what is owed.
      */
     private static List<Transaction> partsMakingTheTotal(List<Transaction> candidates, StatementImport statement,
                                                          String thisCardLast4, Comparator<Transaction> order) {
-        if (candidates.size() < 2 || candidates.size() > ReconciliationPolicy.CC_PAYMENT_PARTS_MAX_CANDIDATES) {
-            return List.of();
-        }
+        if (candidates.size() < 2) return List.of();
+        Long target = paise(statement.getTotalAmountDue());
+        if (target == null || target <= 0) return List.of();
         List<Transaction> sorted = candidates.stream().sorted(ccPaymentPreference(statement, thisCardLast4, order)).toList();
-        BigDecimal due = statement.getTotalAmountDue();
-        int n = sorted.size();
-        for (int size = 2; size <= n; size++) {
-            List<Transaction> found = combinationSummingTo(sorted, size, 0, due, new java.util.ArrayList<>());
-            if (found != null) return found;
+        Map<Long, PartsReach> reached = new java.util.LinkedHashMap<>();
+        reached.put(0L, new PartsReach(0, -1, null));
+        for (int i = 0; i < sorted.size(); i++) {
+            Long amount = paise(sorted.get(i).getAmount());
+            if (amount == null || amount <= 0) continue;
+            // Extend only the totals reached before this payment, so it is used at most once.
+            for (Map.Entry<Long, PartsReach> before : new java.util.ArrayList<>(reached.entrySet())) {
+                long total = before.getKey() + amount;
+                if (total > target) continue;
+                PartsReach existing = reached.get(total);
+                int count = before.getValue().count() + 1;
+                if (existing == null || count < existing.count()) {
+                    reached.put(total, new PartsReach(count, i, before.getValue()));
+                    if (reached.size() > ReconciliationPolicy.CC_PAYMENT_PARTS_MAX_SUMS) return List.of();
+                }
+            }
         }
-        return List.of();
+        PartsReach hit = reached.get(target);
+        if (hit == null || hit.count() < 2) return List.of();
+        List<Transaction> parts = new java.util.ArrayList<>();
+        for (PartsReach r = hit; r.last() >= 0; r = r.previous()) parts.add(sorted.get(r.last()));
+        java.util.Collections.reverse(parts);
+        return parts;
     }
 
-    /** The first {@code size}-payment combination from {@code from} on, in list order, adding up to {@code target}. */
-    private static List<Transaction> combinationSummingTo(List<Transaction> payments, int size, int from,
-                                                          BigDecimal target, List<Transaction> chosen) {
-        if (chosen.size() == size) return target.signum() == 0 ? List.copyOf(chosen) : null;
-        for (int i = from; i <= payments.size() - (size - chosen.size()); i++) {
-            Transaction p = payments.get(i);
-            if (p.getAmount().compareTo(target) > 0) continue;
-            chosen.add(p);
-            List<Transaction> found = combinationSummingTo(payments, size, i + 1, target.subtract(p.getAmount()), chosen);
-            chosen.remove(chosen.size() - 1);
-            if (found != null) return found;
+    /** One way to reach a running total: how many payments, the last one's index, and the way before it. */
+    private record PartsReach(int count, int last, PartsReach previous) {}
+
+    /** {@code amount} in whole paise, or null when it has a fraction of a paisa. */
+    private static Long paise(BigDecimal amount) {
+        try {
+            return amount.movePointRight(2).longValueExact();
+        } catch (ArithmeticException e) {
+            return null;
         }
-        return null;
     }
 
     private static boolean amountRatioInRange(BigDecimal paymentAmount, BigDecimal totalAmountDue) {
@@ -1928,13 +1946,18 @@ public class ReconciliationService {
      * search and by {@link #seedCcClaims}, so an edge an earlier run wrote is kept only
      * while it would still be written today.
      */
-    private static boolean isCcPaymentCandidate(Transaction t, StatementImport statement, boolean requireExactAmount,
+    private static boolean isCcPaymentCandidate(Transaction t, StatementImport statement, CcAmount amountRule,
                                                 Set<UUID> paymentAccountIds, Map<UUID, String> cardLast4ByAccountId,
                                                 Map<UUID, CcWindow> ccWindows) {
         if (t.getTxnType() != Transaction.Type.EXPENSE || t.isTransfer()) return false;
         if (!paymentAccountIds.contains(t.getAccountId()) || t.getAccountId().equals(statement.getAccountId())) return false;
         boolean exactAmount = t.getAmount().compareTo(statement.getTotalAmountDue()) == 0;
-        if (requireExactAmount ? !exactAmount : !amountRatioInRange(t.getAmount(), statement.getTotalAmountDue())) return false;
+        boolean amountFits = switch (amountRule) {
+            case EXACT -> exactAmount;
+            case PARTIAL -> amountRatioInRange(t.getAmount(), statement.getTotalAmountDue());
+            case PART -> t.getAmount().signum() > 0;
+        };
+        if (!amountFits) return false;
         String thisCardLast4 = cardLast4ByAccountId.get(statement.getAccountId());
         // Every candidate needs the narration to say it is a card payment. The 0.05x-2.5x window
         // alone admits nearly every debit near a due date: on the real corpus, every edge this pass
@@ -1955,6 +1978,16 @@ public class ReconciliationService {
                 .noneMatch(e -> !e.getKey().equals(statement.getAccountId())
                         && descriptionLast4s.contains(e.getValue()));
     }
+
+    /**
+     * How a payment's amount must relate to a bill. {@code EXACT}: the amount due. {@code PARTIAL}: one
+     * payment on its own, from the minimum-due floor to the overpayment ceiling
+     * (ReconciliationPolicy.CC_PAYMENT_MIN_PARTIAL_RATIO..MAX_OVERPAYMENT_RATIO). {@code PART}: one of
+     * several payments of the same bill, any size -- the floor exists to keep a lone small debit from
+     * passing as a bill payment, and a part is not alone: the caller caps it at what is still owed, so
+     * the parts never add up to more than the bill.
+     */
+    private enum CcAmount { EXACT, PARTIAL, PART }
 
     /** The days, both ends included, on which a savings debit could be the payment of one card statement. */
     private record CcWindow(LocalDate opens, LocalDate closes) {
@@ -2171,18 +2204,40 @@ public class ReconciliationService {
         if (!missing.isEmpty()) transactionRepository.findAllById(missing).forEach(t -> paymentsById.put(t.getId(), t));
 
         List<CcLink> valid = new java.util.ArrayList<>();
+        // Links that could each pay their bill alone. A bill's other links are kept only as further
+        // parts of it -- except when a bill's links together are exactly what it says is due: that
+        // is the exact-total evidence the parts were linked on, so they stand together even if none
+        // of them could pay the bill alone.
+        Set<CcLink> qualifiesOnItsOwn = new HashSet<>();
         List<TransactionRelationship> toReject = new java.util.ArrayList<>();
         for (CcLink link : ruleLinks.values()) {
             StatementImport statement = statementsById.get(link.statementId());
             Transaction payment = paymentsById.get(link.paymentId());
-            boolean stillQualifies = statement != null && payment != null
-                    && (isCcPaymentCandidate(payment, statement, true, paymentAccountIds, cardLast4ByAccountId, ccWindows)
-                        || isCcPaymentCandidate(payment, statement, false, paymentAccountIds, cardLast4ByAccountId, ccWindows));
-            if (stillQualifies) valid.add(link);
-            else toReject.addAll(link.edges());
+            boolean onItsOwn = statement != null && payment != null
+                    && (isCcPaymentCandidate(payment, statement, CcAmount.EXACT, paymentAccountIds, cardLast4ByAccountId, ccWindows)
+                        || isCcPaymentCandidate(payment, statement, CcAmount.PARTIAL, paymentAccountIds, cardLast4ByAccountId, ccWindows));
+            boolean asAPart = onItsOwn || (statement != null && payment != null
+                    && isCcPaymentCandidate(payment, statement, CcAmount.PART, paymentAccountIds, cardLast4ByAccountId, ccWindows));
+            if (asAPart) {
+                valid.add(link);
+                if (onItsOwn) qualifiesOnItsOwn.add(link);
+            } else {
+                toReject.addAll(link.edges());
+            }
+        }
+        Map<UUID, BigDecimal> linkedTotal = new java.util.HashMap<>();
+        for (CcLink link : valid) {
+            linkedTotal.merge(link.statementId(), paymentsById.get(link.paymentId()).getAmount(), BigDecimal::add);
+        }
+        for (CcLink link : valid) {
+            if (linkedTotal.get(link.statementId()).compareTo(statementsById.get(link.statementId()).getTotalAmountDue()) == 0) {
+                qualifiesOnItsOwn.add(link);
+            }
         }
         valid.sort(Comparator
-                .comparing((CcLink l) -> paymentsById.get(l.paymentId()).getAmount()
+                // A bill's first link must be one that could pay it on its own; small parts after.
+                .comparing((CcLink l) -> !qualifiesOnItsOwn.contains(l))
+                .thenComparing((CcLink l) -> paymentsById.get(l.paymentId()).getAmount()
                         .compareTo(statementsById.get(l.statementId()).getTotalAmountDue()) != 0)
                 .thenComparing(l -> statementRank.get(l.statementId()))
                 .thenComparing((a, b) -> {
@@ -2196,7 +2251,7 @@ public class ReconciliationService {
                 continue;
             }
             BigDecimal amount = paymentsById.get(link.paymentId()).getAmount();
-            if (!settledStatementIds.contains(link.statementId())) {
+            if (!settledStatementIds.contains(link.statementId()) && qualifiesOnItsOwn.contains(link)) {
                 claimedPaymentIds.add(link.paymentId());
                 settledStatementIds.add(link.statementId());
                 paidTowards.put(link.statementId(), amount);

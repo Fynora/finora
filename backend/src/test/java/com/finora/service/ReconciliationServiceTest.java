@@ -3451,7 +3451,7 @@ class ReconciliationServiceTest {
             n++;
             rows.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(part[0]), new BigDecimal(part[1]),
                     Transaction.Type.EXPENSE, "UPI/DR/10000000000" + n + "/CRED Clu/UTIB/cred.club@axisb/",
-                    Instant.parse(part[0] + "T10:00:0" + n + "Z")));
+                    Instant.parse(part[0] + "T10:00:00Z").plusSeconds(n)));
         }
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
@@ -3498,6 +3498,39 @@ class ReconciliationServiceTest {
     void reconcileForUser_aBillPaidInFull_takesNoFurtherPart() {
         assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "2500.00"}, new String[]{"2026-09-25", "500.00"}))
                 .containsExactly("2500.00");
+    }
+
+    @Test
+    void reconcileForUser_aSmallFurtherPart_ofABillAlreadyPartPaid_isLinked() {
+        // 60 is 2.4% of the bill: under the 5% minimum-due floor a lone payment needs, but this is a
+        // second part of a bill already part-paid, sent to the bill-payment app, and the two stay
+        // under what is due.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "1500.00"}, new String[]{"2026-09-25", "60.00"}))
+                .containsExactly("1500.00", "60.00");
+    }
+
+    @Test
+    void reconcileForUser_aSmallPaymentOnItsOwn_isNotLinked() {
+        // Alone it is no part of anything: a lone payment still needs the minimum-due floor.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "60.00"})).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_smallPartsThatAddUpToTheBill_areAllLinked() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "2440.00"}, new String[]{"2026-09-26", "60.00"}))
+                .containsExactly("2440.00", "60.00");
+    }
+
+    @Test
+    void reconcileForUser_findsThePartsThatAddUpToTheBill_amongMoreThanTwelvePayments() {
+        // Fourteen payments in the window. Only 1100 + 1400 is exactly the 2500 due; without the
+        // exact-total search the nearest-to-due payment (1300) would be taken first, leaving 1200
+        // owed, which no single remaining part clears.
+        String[][] parts = new String[14][];
+        for (int i = 0; i < 12; i++) parts[i] = new String[]{"2026-09-" + (24 + i % 6), String.valueOf(1301 + i * 3) + ".00"};
+        parts[12] = new String[]{"2026-09-25", "1100.00"};
+        parts[13] = new String[]{"2026-09-26", "1400.00"};
+        assertThat(partsLinkedToA2500Bill(parts)).containsExactly("1100.00", "1400.00");
     }
 
     @Test

@@ -197,6 +197,27 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aBillPaidEntirelyInSmallParts_staysLinked_acrossRuns() {
+        // 21 payments, each under the 5% floor a lone payment needs, adding up to exactly the bill.
+        // None could pay it alone, so the second run must keep them as the exact total they are,
+        // not reject them all -- a rejected pair is never linked again.
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        java.util.List<UUID> parts = new java.util.ArrayList<>();
+        for (int i = 0; i < 21; i++) {
+            parts.add(save(txn(f.userId(), f.savings(), DUE.minusDays(1 + i % 15), i < 20 ? "120.00" : "100.00",
+                    "UPI/DR/1000000000" + String.format("%02d", i) + "/CRED Clu/UTIB/cred.club@axisb/")).getId());
+        }
+
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrderElementsOf(parts);
+
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrderElementsOf(parts);
+    }
+
+    @Test
     void aPaymentLinkedToOneCardsBill_movesToTheCardWhoseStatementShowsItReceived() {
         // Linked by amount and window to the only bill imported. Then another card's statement is
         // imported, and it prints this very payment as received: that is proof of which card it paid,

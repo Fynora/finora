@@ -95,6 +95,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.StatementRefreshRunRepository statementRefreshRunRepository;
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate activationJdbc;
+    @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private DataExportService service;
 
     private UUID userId;
@@ -584,6 +585,26 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     private ImportJob upload(String fileName, byte[] bytes, StatementUpload.Format format) throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", fileName, format.contentType(), bytes);
         return importJobRepository.findById(importJobService.accept(userId, file, format).getId()).orElseThrow();
+    }
+
+    /** The Insights "Got it" record (V277) leaves as kind, key and date only, and only this user's rows. */
+    @Test
+    void exportIncludesInsightAcknowledgements() throws Exception {
+        insightAcknowledgementRepository.insertIfAbsent(userId, "CARD_STATEMENT_MISSING", "2026-09");
+        User otherUser = new User();
+        otherUser.setEmail("export-it-ack-" + UUID.randomUUID() + "@example.com");
+        otherUser.setPasswordHash(passwordEncoder.encode(PASSWORD));
+        otherUser.setFullName("Other Export Test User");
+        UUID otherUserId = userRepository.save(otherUser).getId();
+        insightAcknowledgementRepository.insertIfAbsent(otherUserId, "CATEGORY_HIGH", "Dining|2026-09");
+
+        Map<String, byte[]> entries = export();
+
+        JsonNode acks = new ObjectMapper().readTree(entries.get("insight_acknowledgements.json"));
+        assertThat(acks).hasSize(1);
+        assertThat(acks.get(0).get("kind").asText()).isEqualTo("CARD_STATEMENT_MISSING");
+        assertThat(acks.get(0).get("itemKey").asText()).isEqualTo("2026-09");
+        assertThat(acks.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("kind", "itemKey", "acknowledgedAt");
     }
 
     /**

@@ -217,6 +217,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.repository.UserActivityDayRepository userActivityDayRepository;
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
+    @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private RecurringDismissalRepository recurringDismissalRepository;
     @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     @Autowired private AiAuditLogRepository aiAuditLogRepository;
@@ -264,7 +265,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -349,6 +350,21 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(transactionRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /**
+     * The Insights "Got it" record (V277). Its ON DELETE CASCADE never fires here either, since the
+     * purge anonymizes the users row; it needs its own explicit delete.
+     */
+    @Test
+    @Transactional
+    void purgeDeletesInsightAcknowledgements() {
+        insightAcknowledgementRepository.insertIfAbsent(userId, "CATEGORY_HIGH", "Dining|2026-09");
+        assertThat(insightAcknowledgementRepository.findByUserId(userId)).hasSize(1);
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(insightAcknowledgementRepository.findByUserId(userId)).isEmpty();
     }
 
     /**

@@ -110,10 +110,7 @@ public final class BankActivityCategory {
         }
         // Charges first: "SMS CHARGES+GST" is a fee with its tax, and the fee is what was bought.
         if (CHARGED.matcher(text).find()) return Optional.of("Fees/Interest");
-        if (CARD_BILL_PAID.matcher(text).find()
-                || (NET_BANKING_BILL_PAY.matcher(text).find() && MASKED_CARD_NUMBER.matcher(description).find())) {
-            return Optional.of("Transfer");
-        }
+        if (namesCardBillPaid(text, description)) return Optional.of("Transfer");
         if (CARD_INSTALMENT.matcher(text).find() || CARD_INSTALMENT_NTH_OF_M.matcher(text).find()) {
             return Optional.of("Loan EMI");
         }
@@ -160,6 +157,22 @@ public final class BankActivityCategory {
         if (description == null || description.isBlank() || direction != Transaction.Type.EXPENSE) return false;
         if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
         return CARD_INSTALMENT.matcher(CategoryRules.normalize(description)).find();
+    }
+
+    /**
+     * Whether a debit's narration pays a credit card's bill: the same test {@link #of} uses to
+     * call such a row "Transfer", on its own, so Insights can keep a card bill out of its movers
+     * whatever category the row ended up in. A person's own note is never the bank's words.
+     */
+    public static boolean paysCardBill(String description) {
+        if (description == null || description.isBlank()) return false;
+        if (CounterpartyTyping.of(description).type() == CounterpartyType.PERSON) return false;
+        return namesCardBillPaid(CategoryRules.normalize(description), description);
+    }
+
+    private static boolean namesCardBillPaid(String normalized, String description) {
+        return CARD_BILL_PAID.matcher(normalized).find()
+                || (NET_BANKING_BILL_PAY.matcher(normalized).find() && MASKED_CARD_NUMBER.matcher(description).find());
     }
 
     /** Whether {@code text} -- a narration, or a field of one -- reads as one of the bank's interest credits. */

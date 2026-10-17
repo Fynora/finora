@@ -40,9 +40,9 @@ describe('reportCsvRows', () => {
       incomeDeltaPct: 11.11, expenseDeltaPct: -20, netDelta: 20000,
     };
     const rows = flat({ ...base, comparison: reliable });
-    expect(rows).toContain('Income vs August (%)|11.1');
-    expect(rows).toContain('Expense vs August (%)|-20');
-    expect(rows).toContain('Net vs August|20000');
+    expect(rows).toContain('Income change vs August (%)|11.1');
+    expect(rows).toContain('Expense change vs August (%)|-20');
+    expect(rows).toContain('Net change vs August|20000');
   });
 
   it('says why there is no comparison when the server did not trust it, and writes no figures', () => {
@@ -54,7 +54,7 @@ describe('reportCsvRows', () => {
       },
     });
     expect(rows).toContain('Comparison|August is only partly in your history, so it is not compared with September.');
-    expect(rows.some((l) => l.startsWith('Income vs'))).toBe(false);
+    expect(rows.some((l) => l.startsWith('Income change'))).toBe(false);
   });
 
   it('carries the caveats a screen would show: money not counted as income, and a part-month', () => {

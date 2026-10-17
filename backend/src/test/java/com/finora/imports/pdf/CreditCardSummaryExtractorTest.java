@@ -362,19 +362,60 @@ class CreditCardSummaryExtractorTest {
 
     @Test
     void sameRowMaxXDistanceCoversTheRealHsbcGapButStillRejectsTheAxisFeeScheduleGap() {
-        // Pins the exact boundary the widened constant was calibrated against: 220pt (just past the
-        // real HSBC "0.00" gap of 212.9pt) still resolves, 250pt (comfortably short of the Axis
-        // fee-schedule gap of 680pt, but past the widened cap) is refused.
+        // Pins the exact boundary the widened constant was calibrated against: 250pt (past the real
+        // HSBC "Opening Balance" gaps of 233.1pt and 236.9pt) still resolves, 270pt (comfortably short
+        // of the Axis fee-schedule gap of 680pt, but past the widened cap) is refused.
         List<PositionedText> withinNewCap = new ArrayList<>(List.of(
                 run("Net Outstanding Balance", 78f, 102f, 375f),
-                run("500.00", 400f, 40f, 375f)));
+                run("500.00", 430f, 40f, 375f)));
         assertThat(CreditCardSummaryExtractor.extract(withinNewCap).totalAmountDue())
                 .isEqualByComparingTo("500.00");
 
         List<PositionedText> beyondNewCap = new ArrayList<>(List.of(
                 run("Net Outstanding Balance", 78f, 102f, 375f),
-                run("500.00", 430f, 40f, 375f)));
+                run("500.00", 450f, 40f, 375f)));
         assertThat(CreditCardSummaryExtractor.extract(beyondNewCap).totalAmountDue()).isNull();
+    }
+
+    @Test
+    void keepsALabelledOpeningBalanceAndNetOutstandingBalanceTogether() {
+        // Real HSBC shape: the transaction table prints "Opening Balance" and "Net Outstanding
+        // Balance" as text, each beside a value in one right-aligned column; the purchases and
+        // payments split sits in a panel drawn as graphics, so no strategy forms an equation. The
+        // shorter label leaves its value 236.9pt away, as measured on a real statement. Invented
+        // figures.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("OPENING BALANCE", 77.3f, 66.9f, 289.5f),
+                run("1,000.00", 381.1f, 30f, 289.5f),
+                run("23JUL", 31f, 20f, 580.2f),
+                run("NET OUTSTANDING BALANCE", 78.7f, 101.5f, 580.2f),
+                run("1,250.00", 375.8f, 30f, 580.2f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance()).isEqualByComparingTo("1000.00");
+        assertThat(summary.totalOutstanding()).isEqualByComparingTo("1250.00");
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("1250.00");
+        assertThat(summary.hasReconcilableFields()).isFalse();
+        assertThat(summary.hasOutstandingEquation()).isFalse();
+    }
+
+    @Test
+    void anOpeningBalanceWithoutAnOutstandingTotalIsNotKeptAlone() {
+        // The pair or nothing: a total due is not an outstanding total (a loan's unbilled instalments
+        // can sit between them), so an opening balance beside only a total due stays unread, exactly
+        // as before.
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Opening balance", 355f, 70f, 229.6f),
+                run("10,000.00", 518f, 46f, 228.2f),
+                run("Total amount due", 355f, 74f, 363.2f),
+                run("2,000.00", 523f, 41f, 363.5f)));
+
+        var summary = CreditCardSummaryExtractor.extract(runs);
+
+        assertThat(summary.previousBalance()).isNull();
+        assertThat(summary.totalOutstanding()).isNull();
+        assertThat(summary.totalAmountDue()).isEqualByComparingTo("2000.00");
     }
 
     @Test

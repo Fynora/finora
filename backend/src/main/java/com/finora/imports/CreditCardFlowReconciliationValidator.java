@@ -71,9 +71,14 @@ public class CreditCardFlowReconciliationValidator {
      * apart. The review screens word each of the three differently, keyed on these names
      * ({@code verificationCopy.ts} in frontend and mobile), so renaming one changes what a customer
      * reads: an unrecognised name falls back to "This check could not be run on this statement."
+     *
+     * <p>{@link #OPENING_AND_OUTSTANDING_BALANCES}: no purchases/payments split, but a labelled
+     * opening balance and outstanding total, so the rows are checked against those two instead
+     * (a real HSBC card). Its outcome is VERIFIED or WARNING, never NOT_APPLICABLE.
      */
     public enum CreditCardFlowEvidenceLevel {
         FULL_SUMMARY_RECONCILIATION,
+        OPENING_AND_OUTSTANDING_BALANCES,
         PARTIAL_SUMMARY_ONLY,
         NO_CLASSIFIED_TRANSACTIONS,
         NO_SUMMARY
@@ -96,6 +101,11 @@ public class CreditCardFlowReconciliationValidator {
             evidenceLevel = CreditCardFlowEvidenceLevel.NO_CLASSIFIED_TRANSACTIONS;
         } else {
             evidenceLevel = CreditCardFlowEvidenceLevel.FULL_SUMMARY_RECONCILIATION;
+        }
+        if (evidenceLevel == CreditCardFlowEvidenceLevel.PARTIAL_SUMMARY_ONLY && hasClassifiedRows
+                && summary.previousBalance() != null && summary.totalOutstanding() != null
+                && summary.conflictingFields().isEmpty()) {
+            return checkAgainstBalances(rows, summary, details);
         }
         details.put("evidenceLevel", evidenceLevel.name());
 
@@ -225,6 +235,42 @@ public class CreditCardFlowReconciliationValidator {
     /** {@code StagedRow.amount()} is documented as absolute by the time it reaches here; {@code abs()}
      *  applied anyway, matching every other validator's own {@code sumOf} in this package, so a
      *  future change to that guarantee cannot silently flip a sign into this total. */
+    /**
+     * The rows against the statement's two balances, for a summary that printed no purchases or
+     * payments split: the opening balance, plus every charge, less every payment and credit, must
+     * land exactly on the outstanding total. A real HSBC card prints only those two as text (its
+     * split sits in a panel drawn as graphics), and its own printed figures meet that equation to
+     * the paisa. The outstanding total, not the amount due: on that card the two differ by a loan's
+     * unbilled instalments, which the rows already carry. A missed or misread row breaks the
+     * equation, so a gap is a warning, and the import is held for review like any other.
+     *
+     * <p>Detail names are this reading's own: the review screens draw their purchases/payments
+     * table from {@code observedExpenseAmount} and friends, and those figures do not exist here.
+     */
+    private static ImportDto.VerificationFinding checkAgainstBalances(List<StagedRow> rows,
+            CreditCardSummaryEvidence summary, Map<String, Object> details) {
+        BigDecimal charges = sumOf(rows, "EXPENSE");
+        BigDecimal credits = sumOf(rows, "INCOME");
+        BigDecimal expectedOutstanding = summary.previousBalance().add(charges).subtract(credits);
+        BigDecimal difference = summary.totalOutstanding().subtract(expectedOutstanding);
+        boolean carried = difference.signum() == 0;
+
+        details.put("evidenceLevel", CreditCardFlowEvidenceLevel.OPENING_AND_OUTSTANDING_BALANCES.name());
+        details.put("openingBalance", summary.previousBalance());
+        details.put("chargesRead", charges);
+        details.put("creditsRead", credits);
+        details.put("totalOutstanding", summary.totalOutstanding());
+        details.put("expectedOutstanding", expectedOutstanding);
+        details.put("difference", difference);
+        details.put("rowsCarryOpeningToOutstanding", carried);
+        if (carried) return new ImportDto.VerificationFinding(RULE, "VERIFIED", details);
+
+        details.put("explanation", "The opening balance, plus the charges read, less the payments and "
+                + "credits read, does not reach this statement's own printed outstanding balance. A "
+                + "transaction may be missing or misread.");
+        return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
+
     private static BigDecimal sumOf(List<StagedRow> rows, String type) {
         return rows.stream()
                 .filter(r -> r.amount() != null)

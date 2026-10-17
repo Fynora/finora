@@ -50,7 +50,12 @@ jest.mock('../../api/endpoints', () => ({
     cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
-  activationApi: { funnelEvent: jest.fn().mockResolvedValue(undefined), answer: jest.fn().mockResolvedValue(undefined) },
+  activationApi: {
+    funnelEvent: jest.fn().mockResolvedValue(undefined),
+    answer: jest.fn().mockResolvedValue(undefined),
+    // The server allows any import-screen question unless a test says otherwise.
+    question: jest.fn(async (m?: string) => m ?? null),
+  },
 }));
 
 // Unconfigured by default -- most of this file's tests arrive via the reimport path, never
@@ -2282,17 +2287,19 @@ describe('ImportScreen — funnel events', () => {
 /** Gate 2a spec §4.1: "What stopped you?" at a refusal and after a cancelled review. */
 describe('ImportScreen — what stopped you', () => {
   const answer = activationApi.answer as jest.Mock;
+  const question = activationApi.question as jest.Mock;
 
-  function rejectWithCode(errorCode: string, message: string) {
-    return Object.assign(new Error('Request failed with status code 422'), {
+  function rejectWithCode(errorCode: string, message: string, status = 422) {
+    return Object.assign(new Error(`Request failed with status code ${status}`), {
       isAxiosError: true,
-      response: { status: 422, data: { success: false, errorCode, message } },
+      response: { status, data: { success: false, errorCode, message } },
     });
   }
 
   beforeEach(() => {
     mockRouteParams = undefined;
     answer.mockReset().mockResolvedValue(undefined);
+    question.mockReset().mockImplementation(async (m?: string) => m ?? null);
     api.accounts.list.mockReset().mockResolvedValue([]);
     api.categories.list.mockReset().mockResolvedValue([]);
     api.import.listSessions.mockReset().mockResolvedValue([]);
@@ -2316,8 +2323,43 @@ describe('ImportScreen — what stopped you', () => {
     await settle();
 
     expect(await screen.findByText(/too many pages/i)).toBeTruthy();
-    expect(screen.getByText('What will you do now?')).toBeOnTheScreen();
+    expect(await screen.findByText('What will you do now?')).toBeOnTheScreen();
     expect(screen.getByTestId('what-stopped-you-frame')).toBeOnTheScreen();
+    expect(question).toHaveBeenCalledWith('REFUSED');
+  });
+
+  // Every server error carries an errorCode; only a refused statement is the REFUSED moment.
+  it.each([
+    ['a server crash', 500, 'INTERNAL_ERROR'],
+    ['a rate limit', 429, 'TOO_MANY_REQUESTS'],
+    ['a busy import service', 503, 'IMPORT_006'],
+  ])('%s does not ask', async (_label, status, errorCode) => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(errorCode, 'Something went wrong on our side.', status));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText('Something went wrong on our side.')).toBeOnTheScreen();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    expect(question).not.toHaveBeenCalled();
+  });
+
+  // Spec §4.3: within 30 days of answering REFUSED (or after any answer today, from before a
+  // restart) the server would refuse the answer, so the question -- and its frame -- never show.
+  it('does not ask when the server says the question is not being asked now', async () => {
+    question.mockResolvedValue(null);
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode('IMPORT_013', 'Too many pages.'));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(/too many pages/i)).toBeTruthy();
+    await waitFor(() => expect(question).toHaveBeenCalledWith('REFUSED'));
+    await settle();
+    expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
+    expect(screen.queryByTestId('what-stopped-you-frame')).not.toBeOnTheScreen();
   });
 
   it('networkErrorDoesNotAsk', async () => {

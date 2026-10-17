@@ -194,6 +194,48 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
         assertThat(question(user)).isEqualTo("NO_FILE");
     }
 
+    // ---- an import-screen question (the client knows the moment, the server the limits) ------
+
+    @Test
+    void importScreenMomentAskableWhenNothingBlocksIt() throws Exception {
+        User user = user();
+
+        assertThat(question(user, "REFUSED")).isEqualTo("REFUSED");
+        assertThat(question(user, "NOT_CONFIRMED")).isEqualTo("NOT_CONFIRMED");
+    }
+
+    @Test
+    void importScreenMomentNotAskableAfterAnyAnswerToday() throws Exception {
+        User user = user();
+        assertThat(answer(user, "NO_FILE", "SKIPPED").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(question(user, "REFUSED")).as("one answer or skip a day, of any moment").isNull();
+    }
+
+    /** Askable exactly when an answer would be accepted: blocked on day 29, back on day 30. */
+    @Test
+    void importScreenMomentNotAskableWithinThirtyDaysOfItsLastAnswer() throws Exception {
+        User user = user();
+        assertThat(answer(user, "REFUSED", "LEAVE_FOR_NOW").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        pinTo(TODAY.plusDays(29), NOW.plus(29, ChronoUnit.DAYS));
+        assertThat(question(user, "REFUSED")).isNull();
+        assertThat(answer(user, "REFUSED", "TRY_ANOTHER_FILE").getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(question(user, "NOT_CONFIRMED")).as("another moment is not blocked").isEqualTo("NOT_CONFIRMED");
+
+        pinTo(TODAY.plusDays(30), NOW.plus(30, ChronoUnit.DAYS));
+        assertThat(question(user, "REFUSED")).isEqualTo("REFUSED");
+        assertThat(answer(user, "REFUSED", "TRY_ANOTHER_FILE").getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void unknownMomentNameIsRefused() {
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/activation/question?moment=NOPE", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user())), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     // ---- answering ---------------------------------------------------------------------------
 
     @Test
@@ -359,6 +401,15 @@ class ActivationQuestionIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode moment = mapper.readTree(response.getBody()).get("data").get("moment");
         return moment == null || moment.isNull() ? null : moment.asText();
+    }
+
+    /** {@code moment} if the limits allow asking it now, else null. */
+    private String question(User user, String moment) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/activation/question?moment=" + moment,
+                HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode asked = mapper.readTree(response.getBody()).get("data").get("moment");
+        return asked == null || asked.isNull() ? null : asked.asText();
     }
 
     private ResponseEntity<String> answer(User user, String moment, String answer) {

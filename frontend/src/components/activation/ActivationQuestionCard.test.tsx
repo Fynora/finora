@@ -9,7 +9,9 @@ vi.mock('../../api/endpoints', () => ({
 
 import { activationApi } from '../../api/endpoints';
 import { ActivationQuestionCard } from './ActivationQuestionCard';
-import { markActivationAnsweredToday, resetActivationAnsweredForTests } from '../../lib/activationQuestions';
+import {
+  activationAnsweredToday, markActivationAnsweredToday, resetActivationAnsweredForTests,
+} from '../../lib/activationQuestions';
 
 const api = vi.mocked(activationApi);
 
@@ -104,5 +106,51 @@ describe('ActivationQuestionCard', () => {
 
     expect(api.answer).toHaveBeenCalledWith('NOT_CONFIRMED', 'SKIPPED');
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  // The close is today's one answer: an import-screen question later today would be refused.
+  it('closing counts as today\'s answer', async () => {
+    api.question.mockResolvedValue('NO_FILE');
+    renderCard();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(activationAnsweredToday()).toBe(true));
+  });
+
+  it('closing after an answer sends nothing more', async () => {
+    api.question.mockResolvedValue('NO_FILE');
+    const { container } = renderCard();
+    await userEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+    await screen.findByText('Thanks.');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(api.answer).toHaveBeenCalledTimes(1);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('hides on its next render once today is answered elsewhere', async () => {
+    api.question.mockResolvedValue('NO_FILE');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+    await screen.findByText('Last time you looked at adding a statement. What stopped you?');
+
+    markActivationAnsweredToday();
+    view.rerender(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+
+    expect(view.container).toBeEmptyDOMElement();
+  });
+
+  it('keeps its Thanks when the dashboard re-renders', async () => {
+    api.question.mockResolvedValue('NO_FILE');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+    await userEvent.click(await screen.findByRole('button', { name: 'Not now' }));
+    await screen.findByText('Thanks.');
+
+    view.rerender(<QueryClientProvider client={client}><ActivationQuestionCard /></QueryClientProvider>);
+
+    expect(screen.getByText('Thanks.')).toBeInTheDocument();
   });
 });

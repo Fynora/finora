@@ -7,7 +7,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
 
 /**
  * Gate 2a: what the apps report about a user's way to a first statement. The user is always the
@@ -34,11 +37,19 @@ public class ActivationController {
         return ApiResponse.ok(null);
     }
 
-    /** The "What stopped you?" question the dashboard should show now, if any (spec §4.2). */
+    /**
+     * Without {@code moment}: the "What stopped you?" question the dashboard should show now, if any
+     * (spec §4.2). With it: that moment back if the limits allow asking it now, else none -- the
+     * import screen knows its moment but not the limits, and asks before showing the question.
+     */
     @GetMapping("/question")
-    public ApiResponse<ActivationDto.QuestionResponse> question() {
-        return ApiResponse.ok(new ActivationDto.QuestionResponse(
-                questionService.nextDashboardQuestion(currentUser.id()).orElse(null)));
+    public ApiResponse<ActivationDto.QuestionResponse> question(
+            @RequestParam(required = false) ActivationMoment moment) {
+        UUID userId = currentUser.id();
+        ActivationMoment asked = moment == null
+                ? questionService.nextDashboardQuestion(userId).orElse(null)
+                : questionService.isAskable(userId, moment) ? moment : null;
+        return ApiResponse.ok(new ActivationDto.QuestionResponse(asked));
     }
 
     /** One tap: an answer from the moment's fixed list, or SKIPPED. */

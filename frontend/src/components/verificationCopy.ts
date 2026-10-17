@@ -108,6 +108,14 @@ export function cardFlowCopy(finding: VerificationFinding): CheckCopy {
   const d = detailsOf(finding);
 
   if (finding.outcome === 'VERIFIED') {
+    // No purchases and payments totals to compare with: the rows were checked against the opening
+    // and outstanding balances instead (a real HSBC card).
+    if (d.rowsCarryOpeningToOutstanding === true) {
+      return {
+        body: 'The transactions read from this statement take its opening balance exactly to its '
+          + 'outstanding balance.',
+      };
+    }
     // A summary printed as its own equation that leaves a credit out of its payments and credits
     // (a real Axis card): the rows were checked against the two balances instead.
     if ('creditsNotCountedInSummary' in d) {
@@ -168,6 +176,13 @@ export function cardFlowCopy(finding: VerificationFinding): CheckCopy {
   if (finding.outcome === 'WARNING' || finding.outcome === 'FAILED') {
     const note = 'This check cannot tell which side is off. Compare the transactions with your '
       + 'statement before you import.';
+    if (d.rowsCarryOpeningToOutstanding === false) {
+      return {
+        body: 'The transactions read from this statement do not take its opening balance to its '
+          + 'outstanding balance. A transaction may be missing or misread.',
+        note,
+      };
+    }
     // Payments proven, purchases over by an amount instalments do not account for exactly. An
     // unproven side is never passed off as checked: the backend warns, and holds the import for
     // a person to review, the same as any other disagreement.

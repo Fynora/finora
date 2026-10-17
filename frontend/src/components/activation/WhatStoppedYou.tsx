@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { activationApi, type ActivationAnswer, type ActivationMoment } from '../../api/endpoints';
 import {
   ACTIVATION_QUESTIONS, SKIP_LABEL, activationAnsweredToday, markActivationAnsweredToday,
@@ -12,15 +12,36 @@ import {
  * not being asked now) or fails at all, it disappears without an error and still calls `onDone` --
  * a question about why someone stopped must never become one more thing in their way.
  */
-export function WhatStoppedYou({ moment, onDone }: {
+export function WhatStoppedYou({ moment, onDone, chosenByServer = false }: {
   moment: ActivationMoment;
+  /** The dashboard card's question, which the server already chose. Anywhere else (the import
+   *  screen) the server is asked first whether this moment may be asked now (spec §4.2). */
+  chosenByServer?: boolean;
   /** 'answered': it now says "Thanks.". 'refused': it hid itself (409 or any failure). */
   onDone?: (outcome: 'answered' | 'refused') => void;
 }) {
-  // Not shown at all once today is answered: the server would refuse this one (spec §4.3).
-  const [state, setState] = useState<'asking' | 'thanks' | 'gone'>(() => (activationAnsweredToday() ? 'gone' : 'asking'));
+  // Not shown at all once today is answered: the server would refuse this one (spec §4.3). Nor,
+  // unless the server chose it, before the server says it may be asked now: an answer to a moment
+  // within its 30 quiet days, or after a reload that forgot today's answer, would be refused, and the
+  // tap would go nowhere.
+  const [state, setState] = useState<'checking' | 'asking' | 'thanks' | 'gone'>(() => {
+    if (activationAnsweredToday()) return 'gone';
+    return chosenByServer ? 'asking' : 'checking';
+  });
   const sent = useRef(false);
   const { question, answers } = ACTIVATION_QUESTIONS[moment];
+
+  useEffect(() => {
+    if (state !== 'checking') return undefined;
+    let live = true;
+    // Any failure hides it, even one thrown before a request is made: a question about why someone
+    // stopped must never be in their way.
+    Promise.resolve().then(() => activationApi.question(moment)).then(
+      (asked) => { if (live) setState(asked === moment ? 'asking' : 'gone'); },
+      () => { if (live) setState('gone'); },
+    );
+    return () => { live = false; };
+  }, [moment, state]);
 
   function send(answer: ActivationAnswer) {
     // A ref, not state: a second tap in the same tick must not send a second answer.
@@ -41,7 +62,7 @@ export function WhatStoppedYou({ moment, onDone }: {
     );
   }
 
-  if (state === 'gone') return null;
+  if (state === 'gone' || state === 'checking') return null;
   if (state === 'thanks') {
     return <p className="text-sm text-muted" role="status">Thanks.</p>;
   }

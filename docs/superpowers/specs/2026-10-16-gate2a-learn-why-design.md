@@ -131,7 +131,8 @@ With what is already recorded, each user's furthest step reads as one of:
 | `REFUSED` | On the import screen, inside the panel that shows a refusal or a failed read, below the reason and its next action. | "What will you do now?" | "Try another file" · "I don't have another statement" · "I don't understand why it failed" · "Leave it for now" |
 | `NOT_CONFIRMED` | (a) Web and mobile: right after the user confirms "Cancel Import" on a review. (b) On the dashboard, for a user whose statement was read and then expired unconfirmed (Gate 1 records it: `expired_unconfirmed_at` for a direct upload, review state EXPIRED for a queued import). | "What made you stop?" | "The rows looked wrong" · "I uploaded the wrong file" · "I'm not ready to save it" · "I'll come back to it" |
 
-Every question has a visible "Skip" that records nothing.
+Every question has a visible "Skip". *(Corrected 17 Oct: a skip is recorded, only so §4.3 can
+count it -- see §4.4. This line used to say it records nothing.)*
 
 The answer lists are my draft for Sid to approve. Each list is fixed in the server and the clients
 share it. A new answer needs a server change, never a client-only one.
@@ -142,7 +143,9 @@ share it. A new answer needs a server change, never a client-only one.
   user should see now, or none. It works this out from the funnel record, the import records and
   §4.3's limits.
 - **The clients decide the import-screen questions,** since they know the moment, but the server
-  refuses an answer that §4.3 does not allow.
+  refuses an answer that §4.3 does not allow. *(Added 17 Oct:)* so before showing one, the client
+  asks the same endpoint whether that moment may be asked now, and shows nothing if not. Otherwise
+  a moment inside its 30 quiet days would still be offered, and the tap would be refused silently.
 
 ### 4.3 Limits
 
@@ -307,6 +310,8 @@ Small pieces, each its own PR:
 
 - The answer lists in §4.1 and §5.
 - The limits in §4.3: 14 days per moment, one question a day, 30 days after an answer.
+  *(Note 17 Oct: once "asked" was clarified to mean answered or skipped, §4.3 has one per-moment
+  limit, 30 days. No separate 14-day limit is built.)*
 - No free text anywhere.
 - The dashboard card for `NO_FILE` asks the next day, not the moment the user leaves the import
   screen.

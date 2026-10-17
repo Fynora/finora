@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { authApi, userApi } from '../api/endpoints';
 import { AUTH_CHANGED_EVENT } from './ThemeContext';
 import { safeStorage } from '../lib/safeStorage';
+import { forgetActivationAnswered } from '../lib/activationQuestions';
 import { getAccessToken, setAccessToken, refreshAccessToken } from '../api/client';
 
 interface AuthState {
@@ -246,6 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     safeStorage.removeItem('finora_onboarding_completed');
     safeStorage.removeItem(REFERRAL_PROMPT_KEY);
     setReferralPromptPending(false);
+    forgetActivationAnswered();
     setToken(null);
     setEmail(null);
     setFullName(null);

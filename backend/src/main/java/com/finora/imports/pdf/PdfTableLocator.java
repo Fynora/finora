@@ -1372,6 +1372,15 @@ public class PdfTableLocator {
         Float previousRowY = null;
         Integer previousRowPage = null;
         int trailingCountSinceLastAnchor = 0;
+        // AMOUNT_CLOSES_THE_TRANSACTION. Whether this table has shown that it prints a
+        // transaction's figures on its LAST line: a dated row with no figure was later completed by
+        // a dateless row carrying one (AMOUNTLESS_ANCHOR_COMPLETED, or the same completion reached
+        // through an ordinary trailing merge). Evidence about the table, so it lasts until the
+        // next header or section marker. On such a table the narration printed under a completed
+        // transaction is the NEXT transaction's, and openTransactionClosed says the one open now is
+        // complete -- see the trailing branch.
+        boolean amountClosesTransactions = false;
+        boolean openTransactionClosed = false;
         // LEADING_NARRATION_CONTINUATION: dateless rows that arrive once trailingCountSinceLastAnchor
         // has hit its cap -- narration for a transaction whose OWN date row hasn't been seen yet
         // (a real Canara Bank statement's layout; see MAX_TRAILING_CONTINUATION_ROWS's own doc
@@ -1660,6 +1669,8 @@ public class PdfTableLocator {
                 blockSeparation = null;
                 blockNarrationLeftX = null;
                 trailingCountSinceLastAnchor = 0;
+                amountClosesTransactions = false;
+                openTransactionClosed = false;
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
@@ -2046,6 +2057,8 @@ public class PdfTableLocator {
                 blockSeparation = null;
                 blockNarrationLeftX = null;
                 trailingCountSinceLastAnchor = 0;
+                amountClosesTransactions = false;
+                openTransactionClosed = false;
                 pendingLeading = null;
                 pendingLeadingFromProximity = false;
                 leadingCount = 0;
@@ -2372,6 +2385,11 @@ public class PdfTableLocator {
                                                 && alignsWithTheBlocksNarration(row, blockNarrationLeftX)
                                                 && trailingCountSinceLastAnchor < MAX_ALIGNED_CONTINUATION_ROWS)))
                                     : trailingCountSinceLastAnchor < MAX_TRAILING_CONTINUATION_ROWS));
+                // AMOUNT_CLOSES_THE_TRANSACTION: on a table that prints a transaction's figures on
+                // its last line, nothing trails a transaction those figures already completed --
+                // not even the aligned-narration extension above, whose left edge the next
+                // transaction's narration shares exactly.
+                if (openTransactionClosed) trailingShape = false;
 
                 // SAME_DAY_CONTINUATION_TRANSACTION. The date-anchor model above assumes every real
                 // transaction prints its own date value -- true everywhere else in this class, false
@@ -2476,6 +2494,10 @@ public class PdfTableLocator {
                     mergeInto(sameDayRow, bucketed, headerNames);
                     provenance.merge(sameDayRow, bucketed);
                     currentRows.add(sameDayRow);
+                    // A same-day transaction opened ON its figures: on a table that closes a
+                    // transaction with them, its narration was the buffer merged above, and nothing
+                    // below it is its own.
+                    openTransactionClosed = amountClosesTransactions;
                     noteTextStarts(narrationStarts, resolvedRow);
                     if (ctx != null) ctx.record(closesOnBalance ? "SAME_DAY_CONTINUATION_TRANSACTION" : "DATELESS_AMOUNT_ROW_SPLIT");
                     anchorCarriedItsOwnNarration = hasNarrationOfItsOwn(bucketed, headerNames);
@@ -2491,6 +2513,69 @@ public class PdfTableLocator {
                     trailingCountSinceLastAnchor = closesOnBalance ? 0 : trailingCountSinceLastAnchor + 1;
                     pageRepeatSinceLastAnchor = false;
                     lastAnchorPage = rowPageIndex;
+                } else if (!hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
+                        && !currentRows.isEmpty()
+                        && samePage
+                        && !pageRepeatSinceLastAnchor
+                        && hasDateValue(currentRows.get(currentRows.size() - 1),
+                                yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))
+                        && !carriesAFigure(currentRows.get(currentRows.size() - 1), headerNames)
+                        && carriesAFigure(bucketed, headerNames)
+                        && !dateCellHoldsADateToken(bucketed, headerNames)
+                        && !aTextCellBeginsWithATotalsWord(bucketed, headerNames)
+                        && (pendingLeading == null || isNarrationOnly(pendingLeading))
+                        // Only a row the trailing branch below would REFUSE. Within the trailing
+                        // cap the figures already merge into the dated row as an ordinary trailing
+                        // continuation, and more narration may follow them: a real Indian Overseas
+                        // Bank statement prints date + narration, then reference + figures, then
+                        // value date + the narration's tail. Firing here on its second line closed
+                        // every transaction and cut that tail off all fifteen descriptions.
+                        && !trailingShape) {
+                    // AMOUNTLESS_ANCHOR_COMPLETED. The date-anchor model assumes a transaction's
+                    // figures arrive on its date row or within a couple of continuation lines. A real
+                    // scanned HSBC savings statement prints the date on a transaction's FIRST line and
+                    // its amount and balance on its LAST, with the whole narration between -- and a
+                    // bank transfer's narration runs four or five lines (sender reference, "NEFT FROM"
+                    // payer, a wrapped tail, the remitting bank, a dated reference). Past the trailing
+                    // cap those lines were buffered as the NEXT transaction's leading narration, the
+                    // amount line went with them, and the dated row was left with no figure at all: it
+                    // staged as unparseable, its amount landed on the following day's transaction under
+                    // that day's date, and every description after it was shifted by one.
+                    //
+                    // The signal no cap can supply: the open anchor is a dated row that carries no
+                    // amount and no balance, so its transaction is still incomplete, and this dateless
+                    // row carries one. A ledger states a transaction's figures once; the first figures
+                    // printed below an incomplete transaction, before any other date, are its own. The
+                    // lines buffered in between sit between that date and those figures, so they are
+                    // its narration, not the next transaction's.
+                    //
+                    // Guarded like the rules beside it: same page with no page furniture since the
+                    // anchor (a footer total under a page's last transaction is not that transaction's
+                    // amount), no date token in this row's date cell, no totals word, and a buffer of
+                    // text only -- a buffered figure is a transaction of its own, never narration.
+                    Map<String, String> openAnchor = currentRows.get(currentRows.size() - 1);
+                    if (pendingLeading != null) {
+                        if (appendNarrationTo(openAnchor, pendingLeading, headerNames)) {
+                            provenance.merge(openAnchor, pendingLeading);
+                        }
+                        pendingLeading = null;
+                        pendingLeadingFromProximity = false;
+                        pendingLeadingAllBelongAbove = true;
+                        leadingCount = 0;
+                    }
+                    mergeInto(openAnchor, bucketed, headerNames);
+                    provenance.merge(openAnchor, bucketed);
+                    noteTextStarts(narrationStarts, resolvedRow);
+                    if (ctx != null) ctx.record("AMOUNTLESS_ANCHOR_COMPLETED");
+                    lastRowPage = row.get(0).pageIndex();
+                    lastRowY = row.get(0).y();
+                    blockPitch = null;
+                    blockNarrationLeftX = null;
+                    // The transaction is complete: its figures close it. What prints below belongs to
+                    // the next transaction -- see AMOUNT_CLOSES_THE_TRANSACTION.
+                    trailingCountSinceLastAnchor = MAX_TRAILING_CONTINUATION_ROWS;
+                    amountClosesTransactions = true;
+                    openTransactionClosed = true;
                 } else if (hasDateValue(bucketed, yearsByPage.getOrDefault(rowPageIndex, PageDateEvidence.NONE))) {
                     // DITTO_DATE_INHERITED. Before anything else touches this row: a blank posting
                     // Date beside a printed Value Date is the bank's "ditto" for the date of the row
@@ -2524,6 +2609,10 @@ public class PdfTableLocator {
                         pageRepeatSinceLastAnchor = false;
                     }
                     currentRows.add(bucketed);
+                    // A dated row is complete on its own only when it already carries its figures
+                    // AND the table closes transactions with them; otherwise its narration and
+                    // figures are still to come.
+                    openTransactionClosed = amountClosesTransactions && carriesAFigure(bucketed, headerNames);
                     noteTextStarts(narrationStarts, resolvedRow);
                     // How far this anchor sits below whatever preceded it -- the document's own
                     // evidence of how it separates one transaction's block from the next, and the
@@ -2644,9 +2733,21 @@ public class PdfTableLocator {
                         blockPitch = row.get(0).y() - lastRowY;
                         blockNarrationLeftX = leftmostRunX(row);
                     }
+                    boolean anchorHadAFigure = carriesAFigure(currentRows.get(currentRows.size() - 1), headerNames);
                     mergeInto(currentRows.get(currentRows.size() - 1), bucketed, headerNames);
                     provenance.merge(currentRows.get(currentRows.size() - 1), bucketed);
                     noteTextStarts(narrationStarts, resolvedRow);
+                    // The same completion AMOUNTLESS_ANCHOR_COMPLETED makes, reached here because the
+                    // figures arrived within the trailing cap: a dated row with no figure has just
+                    // received its first. On a table that has already SHOWN it closes transactions
+                    // with their figures (AMOUNTLESS_ANCHOR_COMPLETED fired earlier in it), this
+                    // transaction is now closed. Not on its own evidence: a completion within the cap
+                    // is just as true of a table that prints more narration under the figures (see
+                    // AMOUNTLESS_ANCHOR_COMPLETED's own trailingShape guard).
+                    if (amountClosesTransactions && !anchorHadAFigure
+                            && carriesAFigure(currentRows.get(currentRows.size() - 1), headerNames)) {
+                        openTransactionClosed = true;
+                    }
                     if (ctx != null) {
                         ctx.record("WRAPPED_DESCRIPTION");
                         if (isChequeReferenceTrailer(rowLine)) ctx.record("CHEQUE_REFERENCE_TRAILER_RECOVERED");
@@ -2767,7 +2868,7 @@ public class PdfTableLocator {
                     // the previous page's last transaction before the repeated header could send it
                     // to auxiliary text. Rows buffered before this one sit between the last anchor
                     // and this row, so this row being on the anchor's page puts them there too.
-                    if (decisivelyBelongsBelow && pendingLeading != null
+                    if (decisivelyBelongsBelow && pendingLeading != null && !openTransactionClosed
                             && pendingLeadingAllBelongAbove && !pageRepeatSinceLastAnchor && !currentRows.isEmpty()
                             && lastAnchorPage != null && lastAnchorPage == rowPageIndex) {
                         if (appendNarrationTo(currentRows.get(currentRows.size() - 1), pendingLeading,
@@ -3049,6 +3150,11 @@ public class PdfTableLocator {
     private boolean appendNarrationTo(Map<String, String> target, Map<String, String> buffer,
                                       List<String> headerNames) {
         String descriptionColumn = descriptionColumnIn(target, headerNames);
+        // A table whose narration column is not named by DESCRIPTION_COLUMN_HINTS -- a scanned
+        // HSBC savings statement heads it just "Details" -- falls back to the first unstructured
+        // column, exactly as mergeInto does for the same text. Returning false here instead made
+        // every caller discard the buffer: the narration line simply vanished from the row.
+        if (descriptionColumn == null) descriptionColumn = firstUnstructuredColumn(target, headerNames);
         if (descriptionColumn == null) return false;
         StringBuilder text = new StringBuilder();
         for (String value : buffer.values()) {
@@ -6384,6 +6490,19 @@ public class PdfTableLocator {
 
     private boolean looksLikeAGenuineBalanceValue(String value) {
         return value != null && value.contains(".") && CsvParser.parseNumeric(value) != null;
+    }
+
+    /** True when any amount or balance column of {@code bucketed} holds a currency-looking value
+     *  (the same parseable-with-a-decimal-point test as {@link #looksLikeAGenuineBalanceValue}),
+     *  so a stray digit run that lands in an amount column's x-range does not count -- see
+     *  AMOUNTLESS_ANCHOR_COMPLETED and AMOUNT_CLOSES_THE_TRANSACTION. */
+    private boolean carriesAFigure(Map<String, String> bucketed, List<String> headerNames) {
+        if (bucketed == null || headerNames == null) return false;
+        for (String column : headerNames) {
+            if (isDateColumn(column) || !isAmountColumn(column)) continue;
+            if (looksLikeAGenuineBalanceValue(bucketed.get(column))) return true;
+        }
+        return false;
     }
 
     /** True when {@code bucketed} and {@code openAnchor} each carry their own currency-looking

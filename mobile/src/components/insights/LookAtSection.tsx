@@ -149,7 +149,7 @@ export function LookAtSection({ rows, monthLong, onOpenRow, onAck, onUpload }: P
       />
       <Card>
         {rows.length === 0 ? (
-          <Text style={[typography.bodyM, styles.empty, { color: c.mutedInk }]}>{`Nothing new to look at for ${monthLong}.`}</Text>
+          <Text style={[typography.bodyM, styles.empty, { color: c.mutedInk }]}>{monthLong ? `Nothing new to look at for ${monthLong}.` : 'Nothing new to look at.'}</Text>
         ) : (
           rows.map(renderRow)
         )}

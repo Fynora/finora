@@ -112,6 +112,29 @@ describe('InsightsScreen', () => {
     expect(await screen.findByText('You spent ₹48,000 in September 2026.')).toBeTruthy();
   });
 
+  it('invites a person with no statements yet to upload one, instead of empty sections', async () => {
+    insights.get.mockResolvedValue(insightsData({
+      sentences: ['Upload or add transactions to see spending insights.'], movers: [], reportingMonth: null,
+      reportingMonthIsCurrent: true, unlinkedCardBills: null,
+    }));
+    recurring.list.mockResolvedValue([]);
+    reports.availableMonths.mockResolvedValue([]);
+    renderScreen();
+    expect(await screen.findByText('Upload a statement and Insights will show what needs a look, what is coming up and what you pay regularly.')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Import a statement' }));
+    expect(navigate).toHaveBeenCalledWith('Import');
+    expect(screen.queryByText('To look at')).toBeNull();
+    expect(screen.queryByText(/Nothing new to look at for/)).toBeNull();
+  });
+
+  it('says so when insights cannot load, and still shows the repeating payments', async () => {
+    insights.get.mockRejectedValue(new Error('down'));
+    renderScreen();
+    expect(await screen.findByText("Couldn't load what needs a look. Pull down to try again.")).toBeTruthy();
+    expect(screen.getByText('Paid regularly')).toBeTruthy();
+    expect(screen.queryByText(/Nothing new to look at for/)).toBeNull();
+  });
+
   it('works against a server without "Got it" or unlinked card bills', async () => {
     insights.acknowledgements.mockRejectedValue(Object.assign(new Error('Not Found'), { response: { status: 404 } }));
     insights.get.mockResolvedValue(insightsData({ unlinkedCardBills: undefined }));

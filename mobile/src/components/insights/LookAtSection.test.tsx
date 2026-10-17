@@ -93,6 +93,12 @@ describe('LookAtSection', () => {
     expect(screen.getByText('Nothing new to look at for September 2026.')).toBeTruthy();
   });
 
+  it('names no month in the empty line when it has none', () => {
+    const handlers = { onOpenRow: jest.fn(), onAck: jest.fn(), onUpload: jest.fn() };
+    render(<LookAtSection rows={[]} monthLong="" {...handlers} />);
+    expect(screen.getByText('Nothing new to look at.')).toBeTruthy();
+  });
+
   it('heads the section with its count', () => {
     show([card, high]);
     expect(screen.getByText('To look at')).toBeTruthy();

@@ -6,7 +6,7 @@ import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppRefreshControl } from '../components/AppRefreshControl';
-import { Card } from '../components/Card';
+import { Card, EmptyState } from '../components/Card';
 import { GlassScreen } from '../components/GlassScreen';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { SkeletonCard, SkeletonGroup } from '../components/skeletons/Skeletons';
@@ -238,6 +238,10 @@ export function InsightsScreen() {
   const refreshing = deriveRefreshing([insightsQ, recurringQ, acksQ, trendQ], loading);
   const monthLong = reportingMonth ? monthLabelLong(reportingMonth) : '';
   const caveat = insightsQ.data?.coverageCaveat ?? null;
+  // Nothing to say yet: no month with spending and nothing repeating -- a first-run screen, not empty sections.
+  const nothingYet = !loading && insightsQ.data !== undefined && !insightsQ.data.reportingMonth && recurring.length === 0;
+  // The insights call failed with nothing cached: say so rather than an empty "To look at".
+  const insightsFailed = insightsQ.isError && !insightsQ.data;
   const monthOptions = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
 
   function section(key: InsightsSection, child: React.ReactNode) {
@@ -311,6 +315,14 @@ export function InsightsScreen() {
               <SkeletonCard lines={5} />
               <SkeletonCard lines={4} />
             </SkeletonGroup>
+          ) : nothingYet ? (
+            <Card style={styles.section}>
+              <EmptyState
+                message="Upload a statement and Insights will show what needs a look, what is coming up and what you pay regularly."
+                actionLabel="Import a statement"
+                onAction={openImport}
+              />
+            </Card>
           ) : (
             <>
               <View style={styles.section}>
@@ -320,7 +332,11 @@ export function InsightsScreen() {
                   onOpenReports={openReports}
                 />
               </View>
-              {section('lookAt', (
+              {section('lookAt', insightsFailed ? (
+                <Card>
+                  <Text style={[typography.bodyM, { color: c.mutedInk }]}>Couldn't load what needs a look. Pull down to try again.</Text>
+                </Card>
+              ) : (
                 <LookAtSection rows={lookAt} monthLong={monthLong} onOpenRow={openRow} onAck={ack} onUpload={openImport} />
               ))}
               {upcoming.rows.length > 0 ? section('comingUp', (

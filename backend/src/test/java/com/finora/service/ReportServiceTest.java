@@ -620,14 +620,21 @@ class ReportServiceTest {
 
     // ---- how it was paid: the same rows and netting, grouped by the method the wording names ----
 
+    /** A purchase as a statement import produces it: the bank's narration is what a rail is read from. */
+    private Transaction statementRow(String amount, LocalDate date, String merchant, String description) {
+        Transaction t = purchase(amount, date, merchant, description);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
     @Test
     void paymentMethods_groupTheSpendRowsByTheRailTheNarrationNames_largestFirst() {
         ReportDto report = reportOf(
-                purchase("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
-                purchase("200.00", LocalDate.of(2026, 7, 3), "Cafe", "UPI/DR/100000000002/CAFE"),
-                purchase("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
-                purchase("1000.00", LocalDate.of(2026, 7, 5), null, "ATM WDL 100000000003 MUMBAI"),
-                purchase("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
+                statementRow("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
+                statementRow("200.00", LocalDate.of(2026, 7, 3), "Cafe", "UPI/DR/100000000002/CAFE"),
+                statementRow("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
+                statementRow("1000.00", LocalDate.of(2026, 7, 5), null, "ATM WDL 100000000003 MUMBAI"),
+                statementRow("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
 
         assertThat(report.paymentMethods()).extracting(ReportDto.PaymentMethodAmount::method)
                 .containsExactly("CARD", "CASH", "UNIDENTIFIED", "UPI");
@@ -638,9 +645,9 @@ class ReportServiceTest {
     @Test
     void paymentMethods_addUpToTheSameSpendTheCategoryListShows() {
         ReportDto report = reportOf(
-                purchase("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
-                purchase("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
-                purchase("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
+                statementRow("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
+                statementRow("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
+                statementRow("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
 
         BigDecimal byMethod = report.paymentMethods().stream().map(ReportDto.PaymentMethodAmount::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -652,7 +659,7 @@ class ReportServiceTest {
     @Test
     void paymentMethods_everythingOnACreditCardAccountIsACardPayment_whateverTheNarrationSays() {
         liveAccount.setAccountType(Account.Type.CREDIT_CARD);
-        Transaction t = purchase("800.00", LocalDate.of(2026, 7, 2), "Shop", "UPI/DR/100000000001/SHOP");
+        Transaction t = statementRow("800.00", LocalDate.of(2026, 7, 2), "Shop", "UPI/DR/100000000001/SHOP");
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
                 .thenReturn(List.of(t));
 
@@ -663,12 +670,22 @@ class ReportServiceTest {
 
     @Test
     void paymentMethods_neverCountATransferTheCategoryListLeavesOut() {
-        Transaction transfer = purchase("50000.00", LocalDate.of(2026, 7, 3), "Own account", "UPI/DR/100000000001/SELF");
+        Transaction transfer = statementRow("50000.00", LocalDate.of(2026, 7, 3), "Own account", "UPI/DR/100000000001/SELF");
         transfer.setTransfer(true);
         ReportDto report = reportOf(transfer,
-                purchase("250.00", LocalDate.of(2026, 7, 4), "Cafe", "UPI/DR/100000000002/CAFE"));
+                statementRow("250.00", LocalDate.of(2026, 7, 4), "Cafe", "UPI/DR/100000000002/CAFE"));
 
         assertThat(report.paymentMethods()).extracting(m -> m.amount().intValue()).containsExactly(250);
+    }
+
+    @Test
+    void paymentMethods_aRowTypedInByHandIsUnidentified_notReadForARailWord() {
+        Transaction typed = purchase("400.00", LocalDate.of(2026, 7, 5), null, "ATM cafe lunch");
+        typed.setSource(Transaction.Source.MANUAL);
+
+        ReportDto report = reportOf(typed);
+
+        assertThat(report.paymentMethods()).extracting(ReportDto.PaymentMethodAmount::method).containsExactly("UNIDENTIFIED");
     }
 
     @Test

@@ -28,7 +28,9 @@ import java.util.Map;
  *
  * <h2>Account type decides first</h2>
  * Everything spent on a credit-card account is a card payment, whatever the statement says, and a
- * wallet account's spending is wallet spending. Only a savings account's rows are read for a rail.
+ * wallet account's spending is wallet spending. Only a bank account's rows are read for a rail, and
+ * only those that came from a bank: statement imports and Account Aggregator syncs. A row typed in
+ * by hand or built from an e-mail has free-text wording, not a narration.
  */
 public final class PaymentMethodClassifier {
 
@@ -71,10 +73,18 @@ public final class PaymentMethodClassifier {
             Map.entry("autopay", PaymentMethod.AUTO_DEBIT)
     );
 
-    /** @param accountType the type of the account the transaction sits on; null is treated as a bank account */
+    /**
+     * @param accountType the type of the account the transaction sits on; null is treated as a bank account
+     */
     public static PaymentMethod classify(Transaction t, Account.Type accountType) {
         if (accountType == Account.Type.CREDIT_CARD) return PaymentMethod.CARD;
         if (accountType == Account.Type.WALLET) return PaymentMethod.WALLET;
+        // Only a bank's own narration carries a rail. A row the user typed in, or one built from an
+        // e-mail, has a description that is free text ("Lunch at ATM cafe"), where a rail word near
+        // the front is a coincidence, not a statement.
+        if (t.getSource() != Transaction.Source.CSV_IMPORT && t.getSource() != Transaction.Source.ACCOUNT_AGGREGATOR) {
+            return PaymentMethod.UNIDENTIFIED;
+        }
         return fromNarration(t.getDescription());
     }
 

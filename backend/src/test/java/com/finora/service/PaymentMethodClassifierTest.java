@@ -11,6 +11,7 @@ class PaymentMethodClassifierTest {
     private static Transaction txn(String description) {
         Transaction t = new Transaction();
         t.setDescription(description);
+        t.setSource(Transaction.Source.CSV_IMPORT);
         return t;
     }
 
@@ -77,6 +78,30 @@ class PaymentMethodClassifierTest {
         assertThat(bank("")).isEqualTo(PaymentMethod.UNIDENTIFIED);
         assertThat(bank("   ")).isEqualTo(PaymentMethod.UNIDENTIFIED);
         assertThat(bank(null)).isEqualTo(PaymentMethod.UNIDENTIFIED);
+    }
+
+    @Test
+    void onlyABanksOwnNarrationIsReadForARail() {
+        // A statement import and an Account Aggregator sync carry the bank's narration.
+        Transaction aggregator = txn("UPI/DR/100000000001/SHOP");
+        aggregator.setSource(Transaction.Source.ACCOUNT_AGGREGATOR);
+        assertThat(PaymentMethodClassifier.classify(aggregator, Account.Type.SAVINGS)).isEqualTo(PaymentMethod.UPI);
+
+        // Words the user typed, or an e-mail's subject, are free text: "ATM" near the front of
+        // "ATM cafe lunch" is a coincidence, not a cash withdrawal.
+        Transaction typed = txn("ATM cafe lunch");
+        typed.setSource(Transaction.Source.MANUAL);
+        assertThat(PaymentMethodClassifier.classify(typed, Account.Type.SAVINGS)).isEqualTo(PaymentMethod.UNIDENTIFIED);
+        Transaction emailed = txn("UPI payment receipt from Shop");
+        emailed.setSource(Transaction.Source.GMAIL_IMPORT);
+        assertThat(PaymentMethodClassifier.classify(emailed, Account.Type.SAVINGS)).isEqualTo(PaymentMethod.UNIDENTIFIED);
+    }
+
+    @Test
+    void aTypedInRowOnACreditCardAccountIsStillACardPayment() {
+        Transaction typed = txn("Lunch");
+        typed.setSource(Transaction.Source.MANUAL);
+        assertThat(PaymentMethodClassifier.classify(typed, Account.Type.CREDIT_CARD)).isEqualTo(PaymentMethod.CARD);
     }
 
     @Test

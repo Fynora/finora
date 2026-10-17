@@ -46,6 +46,11 @@ describe('LookAtSection', () => {
     expect(onAck).toHaveBeenCalledWith(card);
   });
 
+  it('calls an account named after its bank a card, once', () => {
+    show([{ ...card, cardName: 'Sample Bank' } as LookAtRow]);
+    expect(screen.getByText(/toward your Sample Bank card ending 0001 in September 2026/)).toBeTruthy();
+  });
+
   it('says "a credit card" when the card is not known', () => {
     show([unknownCard]);
     expect(screen.getByText('You paid ₹21,400 toward a credit card in September 2026 with no card statement uploaded for it. Upload it to see what you bought.')).toBeTruthy();

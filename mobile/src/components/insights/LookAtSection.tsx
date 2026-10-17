@@ -17,7 +17,9 @@ interface Props {
 
 function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string {
   if (!row.cardName) return 'a credit card';
-  return row.cardLast4 ? `your ${row.cardName} ending ${row.cardLast4}` : `your ${row.cardName}`;
+  // The account's own name, often just its bank's ("Axis Bank"): say "card" unless it already does.
+  const name = /\bcard\b/i.test(row.cardName) ? row.cardName : `${row.cardName} card`;
+  return row.cardLast4 ? `your ${name} ending ${row.cardLast4}` : `your ${name}`;
 }
 
 /**

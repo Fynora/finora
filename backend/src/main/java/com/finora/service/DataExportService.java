@@ -500,7 +500,7 @@ public class DataExportService {
                         .map(d -> new com.finora.dto.DataExportDto.ImportFunnelDayExportDto(
                                 d.getEvent().name(), d.getFunnelDate().toString()))
                         .toList();
-        // V276: the Insights "Got it" record, in the purge scope, so exported. Kind, key and date.
+        // V277: the Insights "Got it" record, in the purge scope, so exported. Kind, key and date.
         List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements =
                 insightAcknowledgementRepository.findByUserId(userId).stream()
                         .map(a -> new com.finora.dto.DataExportDto.InsightAcknowledgementExportDto(

@@ -352,7 +352,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     }
 
     /**
-     * The Insights "Got it" record (V276). Its ON DELETE CASCADE never fires here either, since the
+     * The Insights "Got it" record (V277). Its ON DELETE CASCADE never fires here either, since the
      * purge anonymizes the users row; it needs its own explicit delete.
      */
     @Test

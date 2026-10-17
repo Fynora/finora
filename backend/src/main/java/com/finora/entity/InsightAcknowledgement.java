@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * An Insights row the user marked "Got it" (V276), named by its kind and key -- a row has no
+ * An Insights row the user marked "Got it" (V277), named by its kind and key -- a row has no
  * persisted identity of its own; see the migration for each kind's key.
  */
 @Entity

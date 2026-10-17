@@ -586,7 +586,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         return importJobRepository.findById(importJobService.accept(userId, file, format).getId()).orElseThrow();
     }
 
-    /** The Insights "Got it" record (V276) leaves as kind, key and date only, and only this user's rows. */
+    /** The Insights "Got it" record (V277) leaves as kind, key and date only, and only this user's rows. */
     @Test
     void exportIncludesInsightAcknowledgements() throws Exception {
         insightAcknowledgementRepository.insertIfAbsent(userId, "CARD_STATEMENT_MISSING", "2026-09");

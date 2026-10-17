@@ -816,7 +816,7 @@ public class AccountPurgeSweepService {
             userActivityDayRepository.deleteByUserId(userId);
             // V275 (Gate 2a): the import-funnel record, same anonymize-not-delete trap.
             importFunnelDayRepository.deleteByUserId(userId);
-            // V276: the Insights "Got it" record, same anonymize-not-delete trap.
+            // V277: the Insights "Got it" record, same anonymize-not-delete trap.
             insightAcknowledgementRepository.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);

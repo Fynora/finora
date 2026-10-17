@@ -48,7 +48,7 @@ public class InsightsController {
         return ApiResponse.ok(insightsService.build(currentUser.id(), month));
     }
 
-    /** The rows this user marked "Got it" (V276); the app hides them. */
+    /** The rows this user marked "Got it" (V277); the app hides them. */
     @GetMapping("/acknowledgements")
     public ApiResponse<List<InsightAcknowledgementDto>> acknowledgements() {
         return ApiResponse.ok(insightAcknowledgementService.list(currentUser.id()));

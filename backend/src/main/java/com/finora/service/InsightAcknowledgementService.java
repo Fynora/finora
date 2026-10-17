@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-/** The Insights rows a user marked "Got it" (V276). The app hides them; nothing else reads them. */
+/** The Insights rows a user marked "Got it" (V277). The app hides them; nothing else reads them. */
 @Service
 public class InsightAcknowledgementService {
 

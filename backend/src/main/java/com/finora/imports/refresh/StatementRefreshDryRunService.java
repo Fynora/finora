@@ -10,6 +10,7 @@ import com.finora.imports.ImportService;
 import com.finora.imports.refresh.StatementRefreshDiff.FreshRow;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
 import com.finora.imports.storage.StatementContentService;
+import com.finora.imports.trust.HoldDecision;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.StatementRefreshPreviewRepository;
 import org.slf4j.Logger;
@@ -21,6 +22,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -231,9 +234,15 @@ public class StatementRefreshDryRunService {
         StatementRefreshDiff.Result diff = StatementRefreshDiff.compute(known, fresh);
         List<StatementRefreshInputs.FactChange> facts = StatementRefreshInputs.factChanges(statement, staging.detectedAccount());
 
-        StatementRefreshPreview.Status status = !diff.hasChanges() && facts.isEmpty()
+        // The refresh's own order (StatementRefreshService.apply), so the preview never offers a
+        // refresh that would refuse: nothing to change first, then the upload path's hold, then
+        // a diff that removes too much.
+        boolean noChanges = !diff.hasChanges() && facts.isEmpty();
+        HoldDecision trust = noChanges ? HoldDecision.RELEASE
+                : StatementRefreshInputs.trustHold(staging, LocalDate.now(ZoneOffset.UTC));
+        StatementRefreshPreview.Status status = noChanges
                 ? StatementRefreshPreview.Status.NO_CHANGES
-                : StatementRefreshInputs.removesTooMuch(diff, StatementRefreshInputs.liveRows(known))
+                : trust.hold() || StatementRefreshInputs.removesTooMuch(diff, StatementRefreshInputs.liveRows(known))
                         ? StatementRefreshPreview.Status.NEEDS_REVIEW
                         : StatementRefreshPreview.Status.CHANGES;
         StatementRefreshPreview preview = new StatementRefreshPreview(statement.getId(), statement.getUserId(),
@@ -241,7 +250,13 @@ public class StatementRefreshDryRunService {
         preview.setCounts(diff.changed().size(), diff.added().size(), diff.removed().size(),
                 diff.conflicts().size(), diff.unchanged(), facts.size());
         if (status != StatementRefreshPreview.Status.NO_CHANGES) {
-            preview.setDetail(detail(diff, facts.stream().map(StatementRefreshInputs::factJson).toList()));
+            Map<String, Object> detail = new LinkedHashMap<>();
+            if (trust.hold()) {
+                detail.put("reason", StatementRefreshInputs.TRUST_HOLD);
+                detail.put("holdCategories", StatementRefreshInputs.holdCategories(trust));
+            }
+            detail.putAll(detail(diff, facts.stream().map(StatementRefreshInputs::factJson).toList()));
+            preview.setDetail(detail);
         }
         return preview;
     }

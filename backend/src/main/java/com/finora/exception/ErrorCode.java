@@ -188,6 +188,15 @@ public enum ErrorCode {
             "This statement is being reviewed for accuracy and can't be confirmed yet. "
                     + "We'll let you know when it's ready.", true),
 
+    // Thrown by StatementImportService.reimport/confirmReimport when TrustPredicate would hold the
+    // re-read, as it holds an upload. Refused rather than routed into the held-statement review, by
+    // Sid's decision (2026-10-16): a re-import has no session for that review to release, and
+    // nothing has been written. Wording follows IMPORT_015's: it names our reading, not the
+    // document. Never on a job, so not userActionRequired; both clients print the message.
+    IMPORT_REIMPORT_UNTRUSTED("IMPORT_019", HttpStatus.UNPROCESSABLE_ENTITY,
+            "We read this statement again and could not read it accurately enough to re-import it. "
+                    + "Your existing transactions are unchanged."),
+
     // Accounts
     ACCOUNT_NOT_FOUND("ACC_001", HttpStatus.NOT_FOUND, "Account not found"),
     // AccountService.create()'s per-user ceiling on INVESTMENT holdings. NOT a plan gate -- every

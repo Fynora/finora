@@ -7,15 +7,19 @@ import com.finora.entity.StatementImport;
 import com.finora.entity.StatementImportExcludedRow;
 import com.finora.entity.Transaction;
 import com.finora.imports.RowKind;
+import com.finora.imports.StatementPeriodPolicy;
 import com.finora.imports.refresh.StatementRefreshDiff.FreshRow;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownKind;
 import com.finora.imports.refresh.StatementRefreshDiff.KnownRow;
+import com.finora.imports.trust.HoldDecision;
+import com.finora.imports.trust.TrustPredicate;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.StatementImportExcludedRowRepository;
 import com.finora.repository.TransactionRepository;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.IdentityHashMap;
@@ -97,6 +101,32 @@ public class StatementRefreshInputs {
             return "PARSED_NO_ROWS";
         }
         return null;
+    }
+
+    /** The run and preview reason when {@link #trustHold} holds a re-read. */
+    public static final String TRUST_HOLD = "TRUST_HOLD";
+
+    /**
+     * The upload path's trust check ({@link TrustPredicate}, as {@code StagingTrustGate} and
+     * {@code ImportJobWorker} run it), on this re-read. A re-read an upload would hold -- counts the
+     * statement's own summary contradicts, a broken running balance, an ambiguous column -- is not
+     * applied either: its amounts are unproven, and a refresh writes them into a ledger the user
+     * already relies on.
+     *
+     * <p>Judged on the one section being refreshed, not the whole file: an upload holds every
+     * section when one fails because it imports them together, but a refresh writes only this
+     * section's rows, and another section's defect says nothing about them.
+     */
+    public static HoldDecision trustHold(StagingResponse staging, LocalDate today) {
+        return TrustPredicate.evaluate(
+                staging.verification() == null ? List.of() : List.of(staging.verification()),
+                List.<LocalDate[]>of(StatementPeriodPolicy.judgedPeriod(staging.detectedAccount())),
+                today);
+    }
+
+    /** A hold's categories as the run and preview record them, beside {@link #TRUST_HOLD}. */
+    static List<String> holdCategories(HoldDecision decision) {
+        return decision.categories().stream().map(Enum::name).toList();
     }
 
     public static long liveRows(List<KnownRow> known) {

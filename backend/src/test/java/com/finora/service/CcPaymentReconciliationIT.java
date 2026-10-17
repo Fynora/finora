@@ -217,6 +217,63 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         assertThat(livePaymentsFor(f)).containsExactlyInAnyOrderElementsOf(parts);
     }
 
+    /** Live CC_PAYMENT edges from this payment, and whether any of its edges is REJECTED. */
+    private boolean hasRejectedEdge(Fixture f, Transaction payment) {
+        return relationshipRepository.findByUserIdAndRelationshipTypeAndSupersededByIsNull(
+                        f.userId(), TransactionRelationship.RelationshipType.CC_PAYMENT).stream()
+                .anyMatch(e -> e.getFromTransactionId().equals(payment.getId())
+                        && e.getStatus() == TransactionRelationship.Status.REJECTED);
+    }
+
+    @Test
+    void aPartWhoseFirstPaymentIsGone_isReleased_andLinksAgainOnceTheBillHasAFirstPaymentAgain() {
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1500.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+        Transaction smallPart = save(txn(f.userId(), f.savings(), DUE.minusDays(15), "60.00",
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), smallPart.getId());
+
+        // The first payment is deleted: the small part cannot pay the bill alone, so it goes back to
+        // spending -- released, not rejected.
+        transactionRepository.delete(transactionRepository.findById(first.getId()).orElseThrow());
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).isEmpty();
+        assertThat(hasRejectedEdge(f, smallPart)).isFalse();
+        assertThat(transactionGraphService.ccPaymentFromTransactionIds(List.of(smallPart))).isEmpty();
+
+        // A new first payment arrives: the small part links again beside it.
+        Transaction newFirst = save(txn(f.userId(), f.savings(), DUE.minusDays(3), "1400.00",
+                "UPI/DR/100000000003/CRED Clu/UTIB/cred.club@axisb/"));
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(newFirst.getId(), smallPart.getId());
+    }
+
+    @Test
+    void aPartNamingNoCard_isReleasedWhenASecondCardAppears_andLinksAgainWhenItGoes() {
+        Fixture f = fixture("2500.00");
+        f.statement().setStatementPeriodEnd(DUE.minusDays(20));
+        statementImportRepository.save(f.statement());
+        Transaction part = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1000.00",
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactly(part.getId());
+
+        // With a second card, a part payment naming neither could be paying either: no longer linked,
+        // and not blocked either.
+        Account second = account(f.userId(), Account.Type.CREDIT_CARD, "XXXXXXXXXXXX9876");
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).isEmpty();
+        assertThat(hasRejectedEdge(f, part)).isFalse();
+
+        accountRepository.delete(accountRepository.findById(second.getId()).orElseThrow());
+        reconciliationService.reconcileForUser(f.userId());
+        assertThat(livePaymentsFor(f)).containsExactly(part.getId());
+    }
+
     @Test
     void aPaymentLinkedToOneCardsBill_movesToTheCardWhoseStatementShowsItReceived() {
         // Linked by amount and window to the only bill imported. Then another card's statement is

@@ -255,6 +255,26 @@ public class TransactionGraphService {
         return userDecided;
     }
 
+    /**
+     * Deletes exactly these edges where a pass wrote them and nobody has decided on them since
+     * (RULE_ENGINE, CANDIDATE or AUTO_CONFIRMED, not superseded), so the same pair can be linked again
+     * later -- a REJECTED edge would block it for good ({@link #linkAll} dedups on it). For a pass that
+     * drops its own link for a reason that is not about the pair itself. Every other edge is left alone.
+     *
+     * @return how many edges this call deleted
+     */
+    public int releaseMachineEdges(Collection<TransactionRelationship> edges) {
+        List<TransactionRelationship> machine = edges.stream()
+                .filter(e -> e.getSupersededBy() == null
+                        && e.getDetectionMethod() == TransactionRelationship.DetectionMethod.RULE_ENGINE
+                        && (e.getStatus() == TransactionRelationship.Status.CANDIDATE
+                            || e.getStatus() == TransactionRelationship.Status.AUTO_CONFIRMED))
+                .toList();
+        if (machine.isEmpty()) return 0;
+        repository.deleteAll(machine);
+        return machine.size();
+    }
+
     /** Every non-superseded edge of {@code type} this user has, REJECTED ones included. */
     public List<TransactionRelationship> edgesOfType(UUID userId, TransactionRelationship.RelationshipType type) {
         return repository.findByUserIdAndRelationshipTypeAndSupersededByIsNull(userId, type);

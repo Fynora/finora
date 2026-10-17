@@ -3533,6 +3533,79 @@ class ReconciliationServiceTest {
         assertThat(partsLinkedToA2500Bill(parts)).containsExactly("1100.00", "1400.00");
     }
 
+    /**
+     * Two cards, each with a bill (A: 3000 due 12 Oct, B: 2000 due 15 Oct), and these savings debits.
+     * Returns, for each debit, the card whose bill it was linked to ("A", "B"), or "-" for none.
+     */
+    private List<String> cardsPaidWithTwoCards(String[]... debits) {
+        UUID cardA = UUID.randomUUID();
+        UUID cardB = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport billA =
+                ccStatement(UUID.randomUUID(), cardA, new BigDecimal("3000.00"), LocalDate.of(2026, 10, 12));
+        billA.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        com.finora.entity.StatementImport billB =
+                ccStatement(UUID.randomUUID(), cardB, new BigDecimal("2000.00"), LocalDate.of(2026, 10, 15));
+        billB.setStatementPeriodEnd(LocalDate.of(2026, 9, 25));
+        maskCardAccount(cardA, "XXXXXXXXXXXX1111");
+        maskCardAccount(cardB, "XXXXXXXXXXXX2222");
+        Transaction chargeA = txn(UUID.randomUUID(), cardA, LocalDate.of(2026, 9, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        Transaction chargeB = txn(UUID.randomUUID(), cardB, LocalDate.of(2026, 9, 12),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-09-12T10:00:00Z"));
+        List<Transaction> payments = new java.util.ArrayList<>();
+        int n = 0;
+        for (String[] d : debits) {
+            n++;
+            payments.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(d[0]), new BigDecimal(d[1]),
+                    Transaction.Type.EXPENSE, d[2], Instant.parse(d[0] + "T10:00:00Z").plusSeconds(n)));
+        }
+        List<Transaction> rows = new java.util.ArrayList<>(List.of(chargeA, chargeB));
+        rows.addAll(payments);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(billA, billB));
+        when(transactionRepository.findByStatementImportId(billA.getId())).thenReturn(List.of(chargeA));
+        when(transactionRepository.findByStatementImportId(billB.getId())).thenReturn(List.of(chargeB));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, String> cardByPayment = new java.util.HashMap<>();
+        ccPendingEdgesIfAny().forEach(e -> cardByPayment.put(e.fromTransactionId(),
+                e.toTransactionId().equals(chargeA.getId()) ? "A" : "B"));
+        return payments.stream().map(p -> cardByPayment.getOrDefault(p.getId(), "-")).toList();
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_aPartPaymentNamingNoCard_isLinkedToNeither() {
+        // It could be paying either card, or a third whose statement is not here: linking it to one
+        // would be a guess, and a wrong guess would hide which card's statement is missing.
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "1000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("-");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_aPartPaymentNamingItsCard_isLinkedToThatCard() {
+        assertThat(cardsPaidWithTwoCards(new String[]{"2026-10-01", "1000.00", "CC BILLPAY XXXXXXXXXXXX2222"}))
+                .containsExactly("B");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_partsAddingUpToOneCardsBill_areLinkedToThatCard() {
+        // The exact total names the bill even though no part names the card.
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "1800.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"},
+                new String[]{"2026-10-02", "1200.00", "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("A", "A");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_theExactAmountOfOneBill_isLinkedToThatBill() {
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "2000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("B");
+    }
+
     @Test
     void reconcileForUser_aPaymentThatIsExactlyAnotherBill_isNotTakenAsAPartOfThisOne() {
         UUID cardA = UUID.randomUUID();
@@ -3548,8 +3621,11 @@ class ReconciliationServiceTest {
                 new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
         Transaction chargeB = txn(UUID.randomUUID(), cardB, LocalDate.of(2026, 9, 12),
                 new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-09-12T10:00:00Z"));
+        // Two cards, so a part payment must name its card to be linked to either.
+        maskCardAccount(cardA, "XXXXXXXXXXXX1111");
+        maskCardAccount(cardB, "XXXXXXXXXXXX2222");
         Transaction partOfA = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 1), new BigDecimal("1000.00"),
-                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-01T10:00:00Z"));
+                Transaction.Type.EXPENSE, "CC BILLPAY XXXXXXXXXXXX1111", Instant.parse("2026-10-01T10:00:00Z"));
         Transaction exactlyB = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 2), new BigDecimal("2000.00"),
                 Transaction.Type.EXPENSE, "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-02T10:00:00Z"));
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))

@@ -1,5 +1,6 @@
 import { api, rawApi, type ApiEnvelope } from './client';
 import { downloadBlob } from '../lib/download';
+import type { components } from './generated-types';
 import type {
 
   AccountDto, ActivationFunnelDto, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
@@ -710,6 +711,31 @@ export const adminInsightsExplorerApi = {
  *  observe. */
 export const adminUserWorkspaceApi = {
   get: (userId: string) => api.get<WorkspaceSummaryDto>(`/admin/users/${userId}/workspace`).then((r) => r.data),
+};
+
+// Gate 2a spec §6: the activation report. The enums come from the generated API types, so a
+// server-side change to any of them fails the type check here; the shape is written out because the
+// generated one marks every field optional.
+type GeneratedSchemas = components['schemas'];
+export type FunnelStep = NonNullable<GeneratedSchemas['ActivationStepAnswerCount']['step']>;
+export type ActivationMomentName = NonNullable<GeneratedSchemas['ActivationAnswerCount']['moment']>;
+export type ActivationAnswerName = NonNullable<GeneratedSchemas['ActivationAnswerCount']['answer']>;
+export type DeletionReasonName = NonNullable<GeneratedSchemas['ActivationDeletionReasonCount']['reason']>;
+export interface ActivationReport {
+  /** The earliest import-funnel date (YYYY-MM-DD), or null before the record has any rows. */
+  funnelGoLive: string | null;
+  weeks: { weekStart: string; counts: Record<FunnelStep, number> }[];
+  answers: { moment: ActivationMomentName; answer: ActivationAnswerName; count: number }[];
+  answersByStep: { step: FunnelStep; moment: ActivationMomentName; answer: ActivationAnswerName; count: number }[];
+  focusByStep: { step: FunnelStep; label: string; count: number }[];
+  trackingByStep: { step: FunnelStep; label: string; count: number }[];
+  deletionReasons: { month: string; reason: DeletionReasonName; count: number }[];
+}
+
+export const adminActivationApi = {
+  /** from/to (YYYY-MM-DD) bound the answers only. */
+  report: (from: string, to: string) =>
+    api.get<ActivationReport>('/admin/analytics/activation', { params: { from, to } }).then((r) => r.data),
 };
 
 export const adminPlatformAnalyticsApi = {

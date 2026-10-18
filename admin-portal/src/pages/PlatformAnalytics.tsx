@@ -5,17 +5,8 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { adminPlatformAnalyticsApi } from '../api/endpoints';
 import type { PlatformCategorySpendDto, PlatformMerchantSpendDto } from '../types';
+import { SPENDING_TRACKING_LABELS } from '../lib/activationLabels';
 
-/** The required setup question's answers, in the order users see them (SpendingTrackingQuestion). */
-const SPENDING_TRACKING_LABELS: Record<string, string> = {
-  NOT_TRACKED: "Don't really track it",
-  IN_MY_HEAD: 'Roughly, in their head',
-  PAPER: 'Notebook or paper',
-  SPREADSHEET: 'Spreadsheet (Excel, Google Sheets)',
-  EXPENSE_APP: 'Expense or budgeting app',
-  BANK_APP: "Their bank's app or statements",
-  OTHER: 'Something else',
-};
 
 /** Each answer's share of everyone who has answered, to one decimal place; a dash before anyone has. */
 function shareOf(count: number, answered: number) {

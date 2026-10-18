@@ -39,7 +39,9 @@ import java.util.UUID;
  *
  * <p>{@code transactions} also hashes the user's inflow kinds and remembered senders whole (Plan 2):
  * a kind or sender choice made on the web changes which rows count as income without touching any
- * transaction row, so without them the phone's income and review list would stay stale.
+ * transaction row, so without them the phone's income and review list would stay stale. The shared
+ * payments tables (V279) are hashed in for the same reason: a share, a split rule, a loan entry or a
+ * person's family switch changes what the figures count.
  *
  * <p>{@code preferences} (timezone and low-balance threshold) is its own value, not part of the
  * profile: the server computes the dashboard's "this month" and its alerts from them, so a change
@@ -70,7 +72,11 @@ public class ChangeStampService {
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM transactions WHERE user_id = ? AND deleted_at IS NULL)
                 || ':' || coalesce((SELECT md5(string_agg(k::text, ',' ORDER BY k.id)) FROM inflow_kinds k WHERE k.user_id = ?), '')
-                || ':' || coalesce((SELECT md5(string_agg(r::text, ',' ORDER BY r.id)) FROM sender_inflow_rules r WHERE r.user_id = ?), ''),
+                || ':' || coalesce((SELECT md5(string_agg(r::text, ',' ORDER BY r.id)) FROM sender_inflow_rules r WHERE r.user_id = ?), '')
+                || ':' || coalesce((SELECT md5(string_agg(x::text, ',' ORDER BY x.id)) FROM share_links x WHERE x.user_id = ?), '')
+                || ':' || coalesce((SELECT md5(string_agg(x::text, ',' ORDER BY x.id)) FROM split_rules x WHERE x.user_id = ?), '')
+                || ':' || coalesce((SELECT md5(string_agg(x::text, ',' ORDER BY x.id)) FROM loan_entries x WHERE x.user_id = ?), '')
+                || ':' || coalesce((SELECT md5(string_agg(x::text, ',' ORDER BY x.id)) FROM person_settings x WHERE x.user_id = ?), ''),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
                  FROM accounts WHERE user_id = ? AND deleted_at IS NULL),
               (SELECT count(*) || ':' || coalesce(sum(version), 0) || ':' || coalesce(max(created_at)::text, '')
@@ -107,7 +113,8 @@ public class ChangeStampService {
                     sha256Prefix(rs.getString(4)), sha256Prefix(rs.getString(5)),
                     sha256Prefix(rs.getString(6)), sha256Prefix(rs.getString(7)), sha256Prefix(rs.getString(8)),
                     sha256Prefix(rs.getString(9)));
-        }, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId);
+        }, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId,
+                userId, userId, userId, userId);
     }
 
     /** Hashed so the value is opaque: a client compares it, it does not read counts out of it. */

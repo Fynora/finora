@@ -218,6 +218,12 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    @Autowired private com.finora.people.PeopleRepository peopleRepository;
+    @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
+    @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
+    @Autowired private com.finora.repository.LoanEntryRepository loanEntryRepository;
+    @Autowired private com.finora.repository.PersonSettingRepository personSettingRepository;
+    @Autowired private com.finora.repository.PeoplePreferenceRepository peoplePreferenceRepository;
     @Autowired private RecurringDismissalRepository recurringDismissalRepository;
     @Autowired private AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     @Autowired private AiAuditLogRepository aiAuditLogRepository;
@@ -265,7 +271,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -365,6 +371,32 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(insightAcknowledgementRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /** Shared payments and loans (V279): all five tables, same anonymize-not-delete trap. */
+    @Test
+    @Transactional
+    void purgeDeletesPeopleTables() {
+        Transaction bill = saveTransaction(BigDecimal.valueOf(3000));
+        Transaction credit = saveTransaction(BigDecimal.valueOf(1000));
+        shareLinkRepository.save(new com.finora.entity.ShareLink(userId, credit.getId(), bill.getId(), BigDecimal.valueOf(1000)));
+        com.finora.entity.Category rent = new com.finora.entity.Category();
+        rent.setUserId(userId);
+        rent.setName("People Rent");
+        rent = categoryRepository.save(rent);
+        splitRuleRepository.save(new com.finora.entity.SplitRule(userId, "vpa:flatmate.a", rent.getId(), "vpa:owner.b", null));
+        loanEntryRepository.save(new com.finora.entity.LoanEntry(userId, "vpa:friend.k", null,
+                com.finora.entity.LoanEntry.Direction.CASH_SETTLED, BigDecimal.valueOf(500)));
+        personSettingRepository.save(new com.finora.entity.PersonSetting(userId, "vpa:friend.k", true));
+        peoplePreferenceRepository.save(new com.finora.entity.PeoplePreference(userId, "someone@upi"));
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(shareLinkRepository.findByUserId(userId)).isEmpty();
+        assertThat(splitRuleRepository.findByUserId(userId)).isEmpty();
+        assertThat(loanEntryRepository.findByUserId(userId)).isEmpty();
+        assertThat(personSettingRepository.findByUserId(userId)).isEmpty();
+        assertThat(peoplePreferenceRepository.findById(userId)).isEmpty();
     }
 
     /**

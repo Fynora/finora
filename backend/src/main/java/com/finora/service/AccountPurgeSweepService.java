@@ -254,6 +254,7 @@ public class AccountPurgeSweepService {
     private final ImportFunnelDayRepository importFunnelDayRepository;
     private final ActivationAnswerRepository activationAnswerRepository;
     private final InsightAcknowledgementRepository insightAcknowledgementRepository;
+    private final com.finora.people.PeopleRepository peopleRepository;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
@@ -328,6 +329,7 @@ public class AccountPurgeSweepService {
                                      ImportFunnelDayRepository importFunnelDayRepository,
                                      ActivationAnswerRepository activationAnswerRepository,
                                      InsightAcknowledgementRepository insightAcknowledgementRepository,
+                                     com.finora.people.PeopleRepository peopleRepository,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
@@ -401,6 +403,7 @@ public class AccountPurgeSweepService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
+        this.peopleRepository = peopleRepository;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
@@ -824,6 +827,8 @@ public class AccountPurgeSweepService {
             activationAnswerRepository.deleteByUserId(userId);
             // V277: the Insights "Got it" record, same anonymize-not-delete trap.
             insightAcknowledgementRepository.deleteByUserId(userId);
+            // V279: shared payments and loans, same anonymize-not-delete trap.
+            peopleRepository.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);

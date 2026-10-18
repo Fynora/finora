@@ -288,6 +288,7 @@ public class DataExportService {
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    private final com.finora.people.PeopleRepository peopleRepository;
     private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
 
@@ -337,6 +338,7 @@ public class DataExportService {
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
                               com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
+                              com.finora.people.PeopleRepository peopleRepository,
                               StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
@@ -357,6 +359,7 @@ public class DataExportService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
+        this.peopleRepository = peopleRepository;
         this.statementContentService = statementContentService;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
@@ -516,6 +519,9 @@ public class DataExportService {
                         .map(a -> new com.finora.dto.DataExportDto.InsightAcknowledgementExportDto(
                                 a.getKind(), a.getItemKey(), a.getAcknowledgedAt()))
                         .toList();
+
+        // V279: shared payments and loans, in the purge scope, so exported.
+        com.finora.people.PeopleRepository.PeopleExport sharedPayments = peopleRepository.exportFor(userId);
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
 
@@ -802,7 +808,7 @@ public class DataExportService {
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
-                activationAnswers, insightAcknowledgements);
+                activationAnswers, insightAcknowledgements, sharedPayments);
     }
 
     /**
@@ -874,6 +880,7 @@ public class DataExportService {
             writeJsonEntry(zos, "import_funnel_days.json", bundle.importFunnelDays());
             writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
             writeJsonEntry(zos, "insight_acknowledgements.json", bundle.insightAcknowledgements());
+            writeJsonEntry(zos, "shared_payments.json", bundle.sharedPayments());
 
             for (Summary statement : bundle.statementSummaries()) {
                 writeStoredFile(zos, "statements/" + statement.id() + "-" + sanitize(statement.fileName()),
@@ -1021,7 +1028,8 @@ public class DataExportService {
                 new ManifestEntry("spending_tracking.json", "How you told us you kept track of your spending before Fynora, and when.", bundle.spendingTracking().size()),
                 new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
                 new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
-                new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size())
+                new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size()),
+                new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -1128,7 +1136,8 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.SpendingTrackingExportDto> spendingTracking,
             List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
             List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
-            List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements
+            List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements,
+            com.finora.people.PeopleRepository.PeopleExport sharedPayments
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

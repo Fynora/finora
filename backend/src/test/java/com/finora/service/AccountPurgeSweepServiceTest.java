@@ -205,6 +205,7 @@ class AccountPurgeSweepServiceTest {
                 mock(com.finora.activation.ImportFunnelDayRepository.class),
                 mock(com.finora.activation.ActivationAnswerRepository.class),
                 mock(com.finora.repository.InsightAcknowledgementRepository.class),
+                mock(com.finora.people.PeopleRepository.class),
                 mock(RecurringDismissalRepository.class),
                 mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
                 mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),

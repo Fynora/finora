@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/{id}/internal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setInternal"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/trusted-senders/{id}": {
         parameters: {
             query?: never;
@@ -5652,6 +5668,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/analytics/activation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/accounts/{accountId}/coverage": {
         parameters: {
             query?: never;
@@ -6231,6 +6263,9 @@ export interface components {
             roleNames?: string[];
             /** Format: date-time */
             createdAt?: string;
+        };
+        AdminInternalAccountRequest: {
+            internal: boolean;
         };
         RelabelRequest: {
             merchantName?: string;
@@ -10842,6 +10877,8 @@ export interface components {
             accountCount?: number;
             /** Format: int64 */
             transactionCount?: number;
+            internalAccount?: boolean;
+            accountScope?: string;
         };
         ApiResponseListTrustedSenderDto: {
             success?: boolean;
@@ -12567,6 +12604,68 @@ export interface components {
             /** Format: int64 */
             transactionCount?: number;
         };
+        ActivationAnswerCount: {
+            /** @enum {string} */
+            moment?: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
+            /** @enum {string} */
+            answer?: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
+            /** Format: int64 */
+            count?: number;
+        };
+        ActivationDeletionReasonCount: {
+            /** Format: date */
+            month?: string;
+            /** @enum {string} */
+            reason?: "COULDNT_GET_STATEMENTS_IN" | "NOT_COMFORTABLE_WITH_DATA" | "NOTHING_USEFUL" | "USE_ANOTHER_APP" | "DONT_NEED_IT" | "SOMETHING_ELSE";
+            /** Format: int64 */
+            count?: number;
+        };
+        ActivationReportDto: {
+            /** Format: date */
+            funnelGoLive?: string;
+            weeks?: components["schemas"]["ActivationWeekRow"][];
+            answers?: components["schemas"]["ActivationAnswerCount"][];
+            answersByStep?: components["schemas"]["ActivationStepAnswerCount"][];
+            focusByStep?: components["schemas"]["ActivationStepLabelCount"][];
+            trackingByStep?: components["schemas"]["ActivationStepLabelCount"][];
+            deletionReasons?: components["schemas"]["ActivationDeletionReasonCount"][];
+        };
+        ActivationStepAnswerCount: {
+            /** @enum {string} */
+            step?: "SIGNED_UP" | "OPENED_IMPORT" | "CHOSE_FILE" | "REFUSED" | "READ_FAILED" | "HELD" | "READ_NOT_REVIEWED" | "REVIEWED_NOT_CONFIRMED" | "GOT_DATA_IN";
+            /** @enum {string} */
+            moment?: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
+            /** @enum {string} */
+            answer?: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
+            /** Format: int64 */
+            count?: number;
+        };
+        ActivationStepLabelCount: {
+            /** @enum {string} */
+            step?: "SIGNED_UP" | "OPENED_IMPORT" | "CHOSE_FILE" | "REFUSED" | "READ_FAILED" | "HELD" | "READ_NOT_REVIEWED" | "REVIEWED_NOT_CONFIRMED" | "GOT_DATA_IN";
+            label?: string;
+            /** Format: int64 */
+            count?: number;
+        };
+        ActivationWeekRow: {
+            /** Format: date */
+            weekStart?: string;
+            counts?: {
+                [key: string]: number;
+            };
+        };
+        ApiResponseActivationReportDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ActivationReportDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         ApiResponseCoverageDto: {
             success?: boolean;
             message?: string;
@@ -13140,6 +13239,32 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdminUpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseUserSummaryDto"];
+                };
+            };
+        };
+    };
+    setInternal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminInternalAccountRequest"];
             };
         };
         responses: {
@@ -21928,6 +22053,29 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponsePlatformAnalyticsDto"];
+                };
+            };
+        };
+    };
+    report: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseActivationReportDto"];
                 };
             };
         };

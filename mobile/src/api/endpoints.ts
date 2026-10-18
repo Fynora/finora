@@ -1081,6 +1081,23 @@ export interface InsightsData {
   // month to name, which is what every caller already gets for a response that predates it.
   reportingMonth?: string | null;
   reportingMonthIsCurrent?: boolean;
+  // Card bills paid in reportingMonth with no card statement on file to explain them (#2257), so
+  // the app can ask for that statement. The card is named only when every one points to the same
+  // card of the user's; otherwise both are null. Optional: an older backend omits it.
+  unlinkedCardBills?: UnlinkedCardBills | null;
+}
+export interface UnlinkedCardBills {
+  month: string;
+  total: number;
+  count: number;
+  cardName: string | null;
+  cardLast4: string | null;
+}
+/** What an Insights "Got it" names (#2257, V277); see the migration for each kind's key. */
+export type AckKind = 'CATEGORY_HIGH' | 'AMOUNT_CHANGED' | 'CARD_STATEMENT_MISSING';
+export interface InsightAcknowledgement {
+  kind: AckKind;
+  itemKey: string;
 }
 export type RecurringQuestionState = 'NEEDS_ANSWER' | 'ANSWERED' | 'AMOUNT_CHANGED' | 'NONE';
 export interface RecurringItem {
@@ -1123,6 +1140,11 @@ export const insightsApi = {
   // param existed -- see InsightsService.build's own doc comment.
   get: (month?: string) =>
     api.get<InsightsData>('/insights', { params: month ? { month } : {} }).then((r) => r.data),
+  // The rows this user marked "Got it", on any device. An older backend has no such endpoint.
+  acknowledgements: () =>
+    api.get<InsightAcknowledgement[]>('/insights/acknowledgements').then((r) => r.data),
+  acknowledge: (kind: AckKind, itemKey: string) =>
+    api.post<void>('/insights/acknowledgements', { kind, itemKey }).then((r) => r.data),
 };
 
 export type FynFeedback = 'HELPFUL' | 'NOT_HELPFUL';
@@ -1202,6 +1224,16 @@ export interface ReportData {
   /** Spend per day (days with spend only, oldest first), from the same rows as `categories`.
    *  Optional: an older server omits it. */
   dailySpend?: DailySpend[];
+  /** The month's spending by how it was paid, largest first, from the same rows and refund netting
+   *  as `categories`. Worked out from the account type and the statement wording, so
+   *  `UNIDENTIFIED` is spending whose wording names no method. Optional: an older server omits it. */
+  paymentMethods?: PaymentMethodAmount[];
+}
+export interface PaymentMethodAmount {
+  /** UPI, CARD, BANK_TRANSFER, CASH, CHEQUE, AUTO_DEBIT, WALLET or UNIDENTIFIED; a newer server may
+   *  send a code this client does not know. */
+  method: string;
+  amount: number;
 }
 export interface MonthComparison {
   previousMonth: string;

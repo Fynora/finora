@@ -23092,6 +23092,17 @@
                     }
                 }
             },
+            "PaymentMethodAmount": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "ReportDto": {
                 "type": "object",
                 "properties": {
@@ -23149,6 +23160,12 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/DailySpend"
+                        }
+                    },
+                    "paymentMethods": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PaymentMethodAmount"
                         }
                     }
                 }

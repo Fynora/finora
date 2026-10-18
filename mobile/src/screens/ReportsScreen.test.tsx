@@ -96,6 +96,28 @@ describe('ReportsScreen', () => {
     expect(await screen.findByLabelText(/Month: Jul 26/)).toBeTruthy();
   });
 
+  describe('opened on a given month (Insights: "Where did my money go?")', () => {
+    const nav = jest.requireMock('@react-navigation/native') as { useRoute: () => { params?: unknown } };
+    const original = nav.useRoute;
+    afterEach(() => { nav.useRoute = original; });
+
+    it('opens on the month it was sent to', async () => {
+      nav.useRoute = () => ({ params: { month: '2026-05' } });
+      renderScreen();
+
+      await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-05'));
+      expect(await screen.findByLabelText(/Month: May 26/)).toBeTruthy();
+    });
+
+    it('opens on the most recent month when sent one it has no report for', async () => {
+      nav.useRoute = () => ({ params: { month: '2019-01' } });
+      renderScreen();
+
+      await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-07'));
+      expect(api.forMonth).not.toHaveBeenCalledWith('2019-01');
+    });
+  });
+
   it('switches months on selection', async () => {
     renderScreen();
     await screen.findByLabelText(/Month: Jul 26/);
@@ -726,6 +748,52 @@ describe('the spending tab', () => {
     await screen.findByTestId('category-rows');
     expect(screen.queryByTestId('spend-calendar')).toBeNull();
     expect(screen.queryByTestId('biggest-spends')).toBeNull();
+  });
+});
+
+describe('how you paid', () => {
+  it('ranks the methods with their amounts and shares, and says where they come from', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, {
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'CARD', amount: 3000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+
+    const card = await screen.findByTestId('payment-methods');
+    expect(within(card).getByText('How you paid')).toBeTruthy();
+    expect(within(card).getByLabelText('UPI: ₹6,000, 60 percent of spending')).toBeTruthy();
+    expect(within(card).getByLabelText('Card: ₹3,000, 30 percent of spending')).toBeTruthy();
+    expect(within(screen.getByTestId('payment-methods-unidentified')).getByText('Not identified')).toBeTruthy();
+    expect(within(card).getByText(/Worked out from the account and the wording on your statements/)).toBeTruthy();
+  });
+
+  it('draws no unidentified row when every rupee has a named method', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, { paymentMethods: [{ method: 'UPI', amount: 900 }] }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('payment-methods');
+    expect(screen.queryByTestId('payment-methods-unidentified')).toBeNull();
+  });
+
+  it('is left out when too little of the spending has a named method, or from an older server', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, {
+      paymentMethods: [{ method: 'UPI', amount: 300 }, { method: 'UNIDENTIFIED', amount: 700 }],
+    }));
+    const { unmount } = renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('payment-methods')).toBeNull();
+    unmount();
+
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('payment-methods')).toBeNull();
   });
 });
 

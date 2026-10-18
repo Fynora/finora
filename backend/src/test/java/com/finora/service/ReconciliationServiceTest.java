@@ -3265,6 +3265,460 @@ class ReconciliationServiceTest {
                 .findByStatementImportId(org.mockito.ArgumentMatchers.any());
     }
 
+    // --- The payment window opens on the statement date. Indian card statements fall due 18 to 20
+    // days after they are generated, and a bill paid soon after it arrives sat outside the old
+    // due date +/- 10 days, so the payment stayed counted as spending. ---
+
+    /** A card statement generated 20 days before it falls due, with one charge, and one payment. */
+    private List<TransactionGraphService.PendingEdge> ccEdgesForPaymentOn(LocalDate statementDate,
+                                                                          LocalDate dueDate, LocalDate paidOn) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), dueDate);
+        statement.setStatementPeriodEnd(statementDate);
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), paidOn, new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-07-01T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 6, 20),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-06-20T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream()
+                .filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+    }
+
+    @Test
+    void reconcileForUser_linksABillPaidTheDayAfterTheStatementDate_nineteenDaysBeforeItIsDue() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 23)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentMadeOnTheStatementDate() {
+        // The statement's period includes its own last day, and a bill payment reaches the card the
+        // same day it leaves the savings account, so it is printed on this statement as a payment of
+        // the bill before it.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 22)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentMadeBeforeTheStatementDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 21)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withAStatementDateMoreThanACycleBeforeTheDueDate_keepsTheTenDaysBeforeTheDueDate() {
+        // A statement date 60 days before the due date cannot be this statement's own: it is a misread
+        // date, and trusting it would open the window over the whole cycle before.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 6, 12), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 27)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withAStatementDateMoreThanACycleBeforeTheDueDate_stillLinksWithinTenDaysOfTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 6, 12), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 5)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_linksABillPaidThroughABillPaymentAppSevenDaysAfterTheStatementDate() {
+        // The shape seen in production: the exact amount due, paid through a bill-payment app 7 days
+        // after the statement date and 13 days before the due date. Outside the old due date +/- 10.
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 29), new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/",
+                Instant.parse("2026-09-29T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).singleElement()
+                .satisfies(e -> assertThat(e.fromTransactionId()).isEqualTo(payment.getId()));
+    }
+
+    /**
+     * Two consecutive statements of one card on a short cycle: the earlier one generated 22 Jul and
+     * due 11 Aug, the next generated 19 Aug and due 8 Sep. Returns the charges the payment was
+     * linked to, by which statement they belong to: "earlier", "next".
+     */
+    private List<String> statementsPaidByPaymentOn(LocalDate paidOn) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport earlier =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 8, 11));
+        earlier.setStatementPeriodEnd(LocalDate.of(2026, 7, 22));
+        com.finora.entity.StatementImport next =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("3000.00"), LocalDate.of(2026, 9, 8));
+        next.setStatementPeriodEnd(LocalDate.of(2026, 8, 19));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), paidOn, new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-08-01T10:00:00Z"));
+        Transaction earlierCharge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-07-10T10:00:00Z"));
+        Transaction nextCharge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 8, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-08-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(payment, earlierCharge, nextCharge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(earlier, next));
+        when(transactionRepository.findByStatementImportId(earlier.getId())).thenReturn(List.of(earlierCharge));
+        when(transactionRepository.findByStatementImportId(next.getId())).thenReturn(List.of(nextCharge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream()
+                .map(e -> e.toTransactionId().equals(earlierCharge.getId()) ? "earlier" : "next").toList();
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidEarlyInTheWindow_isScoredAsConfidentlyAsOnePaidOnTheDueDate() {
+        // 19 days before the due date is an ordinary time to pay a bill, not a weaker match: only
+        // lateness decays the score. MERCHANT_AND_AMOUNT(0.90) * amount 1.0 * dateDecay(0,10) 1.0 = 90.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 23)))
+                .singleElement().satisfies(e -> assertThat(e.confidence()).isEqualTo(90));
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidLate_isScoredByHowLateItIs() {
+        // 5 days late: dateDecay(5,10) = 0.85 -> round(90 * 0.85) = 77.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 16)))
+                .singleElement().satisfies(e -> assertThat(e.confidence()).isEqualTo(77));
+    }
+
+    /** A part payment of a 2500.00 bill (generated 22 Sep, due 12 Oct) made on 29 Sep with this narration. */
+    private List<TransactionGraphService.PendingEdge> ccEdgesForPartPaymentNarrated(String narration) {
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 29), new BigDecimal("1500.00"),
+                Transaction.Type.EXPENSE, narration, Instant.parse("2026-09-29T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        return ccPendingEdgesIfAny().stream().filter(e -> e.fromTransactionId().equals(payment.getId())).toList();
+    }
+
+    @Test
+    void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsUpiHandle() {
+        // Money sent TO the bill-payment app is a card bill: every such savings debit in production
+        // that a person categorised was put under "Credit Card bill".
+        assertThat(ccEdgesForPartPaymentNarrated("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"))
+                .singleElement().satisfies(e -> assertThat(e.explanation()).containsEntry("paymentStatus", "PARTIAL"));
+    }
+
+    @Test
+    void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsName() {
+        assertThat(ccEdgesForPartPaymentNarrated("CRED Club UPI20260929000000001 100000000001")).hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPurchasePaidThroughTheBillPaymentApp() {
+        // "Paid via" names the app the person paid a shop WITH, not who was paid: a purchase.
+        assertThat(ccEdgesForPartPaymentNarrated(
+                "UPI-GROCER-GROCER@YBL-YESB0XXXXXX-100000000001-PAID VIA CRED")).isEmpty();
+    }
+
+    /**
+     * One 2500.00 bill (generated 22 Sep, due 12 Oct) and part payments sent to the bill-payment app,
+     * each given as {date, amount}. Returns the amounts of the payments linked to the bill, sorted.
+     */
+    private List<String> partsLinkedToA2500Bill(String[]... parts) {
+        UUID cardAccountId = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport statement =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
+        statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        List<Transaction> rows = new java.util.ArrayList<>(List.of(charge));
+        int n = 0;
+        for (String[] part : parts) {
+            n++;
+            rows.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(part[0]), new BigDecimal(part[1]),
+                    Transaction.Type.EXPENSE, "UPI/DR/10000000000" + n + "/CRED Clu/UTIB/cred.club@axisb/",
+                    Instant.parse(part[0] + "T10:00:00Z").plusSeconds(n)));
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
+        when(transactionRepository.findByStatementImportId(statement.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, Transaction> byId = rows.stream().collect(java.util.stream.Collectors.toMap(Transaction::getId, t -> t));
+        return ccPendingEdgesIfAny().stream().map(e -> byId.get(e.fromTransactionId()).getAmount().toPlainString())
+                .distinct().sorted().toList();
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInTwoParts_linksBothParts() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInParts_neverLinksMoreThanIsDue() {
+        // 1500 + 1000 settle the 2500 bill exactly; a third payment would take the linked total past
+        // what was owed, so it is not this bill's and stays counted as spending.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"},
+                new String[]{"2026-10-06", "400.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInParts_prefersThePartThatClearsWhatIsStillOwed() {
+        // After the 1500 nearest the due date, 1000 is still owed. The 300 is nearer the due date, but
+        // taking it first would leave 700 owed and shut the exact 1000 out.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "1000.00"}, new String[]{"2026-10-05", "1500.00"},
+                new String[]{"2026-09-28", "300.00"}))
+                .containsExactly("1000.00", "1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aPartThatWouldOverpayTheRest_staysCountedAsSpending() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "1500.00"}, new String[]{"2026-09-25", "1100.00"}))
+                .containsExactly("1500.00");
+    }
+
+    @Test
+    void reconcileForUser_aBillPaidInFull_takesNoFurtherPart() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "2500.00"}, new String[]{"2026-09-25", "500.00"}))
+                .containsExactly("2500.00");
+    }
+
+    @Test
+    void reconcileForUser_aSmallFurtherPart_ofABillAlreadyPartPaid_isLinked() {
+        // 60 is 2.4% of the bill: under the 5% minimum-due floor a lone payment needs, but this is a
+        // second part of a bill already part-paid, sent to the bill-payment app, and the two stay
+        // under what is due.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "1500.00"}, new String[]{"2026-09-25", "60.00"}))
+                .containsExactly("1500.00", "60.00");
+    }
+
+    @Test
+    void reconcileForUser_aSmallPaymentOnItsOwn_isNotLinked() {
+        // Alone it is no part of anything: a lone payment still needs the minimum-due floor.
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-10-05", "60.00"})).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_smallPartsThatAddUpToTheBill_areAllLinked() {
+        assertThat(partsLinkedToA2500Bill(new String[]{"2026-09-25", "2440.00"}, new String[]{"2026-09-26", "60.00"}))
+                .containsExactly("2440.00", "60.00");
+    }
+
+    @Test
+    void reconcileForUser_findsThePartsThatAddUpToTheBill_amongMoreThanTwelvePayments() {
+        // Fourteen payments in the window. Only 1100 + 1400 is exactly the 2500 due; without the
+        // exact-total search the nearest-to-due payment (1300) would be taken first, leaving 1200
+        // owed, which no single remaining part clears.
+        String[][] parts = new String[14][];
+        for (int i = 0; i < 12; i++) parts[i] = new String[]{"2026-09-" + (24 + i % 6), String.valueOf(1301 + i * 3) + ".00"};
+        parts[12] = new String[]{"2026-09-25", "1100.00"};
+        parts[13] = new String[]{"2026-09-26", "1400.00"};
+        assertThat(partsLinkedToA2500Bill(parts)).containsExactly("1100.00", "1400.00");
+    }
+
+    /**
+     * Two cards, each with a bill (A: 3000 due 12 Oct, B: 2000 due 15 Oct), and these savings debits.
+     * Returns, for each debit, the card whose bill it was linked to ("A", "B"), or "-" for none.
+     */
+    private List<String> cardsPaidWithTwoCards(String[]... debits) {
+        UUID cardA = UUID.randomUUID();
+        UUID cardB = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport billA =
+                ccStatement(UUID.randomUUID(), cardA, new BigDecimal("3000.00"), LocalDate.of(2026, 10, 12));
+        billA.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        com.finora.entity.StatementImport billB =
+                ccStatement(UUID.randomUUID(), cardB, new BigDecimal("2000.00"), LocalDate.of(2026, 10, 15));
+        billB.setStatementPeriodEnd(LocalDate.of(2026, 9, 25));
+        maskCardAccount(cardA, "XXXXXXXXXXXX1111");
+        maskCardAccount(cardB, "XXXXXXXXXXXX2222");
+        Transaction chargeA = txn(UUID.randomUUID(), cardA, LocalDate.of(2026, 9, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        Transaction chargeB = txn(UUID.randomUUID(), cardB, LocalDate.of(2026, 9, 12),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-09-12T10:00:00Z"));
+        List<Transaction> payments = new java.util.ArrayList<>();
+        int n = 0;
+        for (String[] d : debits) {
+            n++;
+            payments.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(d[0]), new BigDecimal(d[1]),
+                    Transaction.Type.EXPENSE, d[2], Instant.parse(d[0] + "T10:00:00Z").plusSeconds(n)));
+        }
+        List<Transaction> rows = new java.util.ArrayList<>(List.of(chargeA, chargeB));
+        rows.addAll(payments);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(billA, billB));
+        when(transactionRepository.findByStatementImportId(billA.getId())).thenReturn(List.of(chargeA));
+        when(transactionRepository.findByStatementImportId(billB.getId())).thenReturn(List.of(chargeB));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, String> cardByPayment = new java.util.HashMap<>();
+        ccPendingEdgesIfAny().forEach(e -> cardByPayment.put(e.fromTransactionId(),
+                e.toTransactionId().equals(chargeA.getId()) ? "A" : "B"));
+        return payments.stream().map(p -> cardByPayment.getOrDefault(p.getId(), "-")).toList();
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_aPartPaymentNamingNoCard_isLinkedToNeither() {
+        // It could be paying either card, or a third whose statement is not here: linking it to one
+        // would be a guess, and a wrong guess would hide which card's statement is missing.
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "1000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("-");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_aPartPaymentNamingItsCard_isLinkedToThatCard() {
+        assertThat(cardsPaidWithTwoCards(new String[]{"2026-10-01", "1000.00", "CC BILLPAY XXXXXXXXXXXX2222"}))
+                .containsExactly("B");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_partsAddingUpToOneCardsBill_areLinkedToThatCard() {
+        // The exact total names the bill even though no part names the card.
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "1800.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"},
+                new String[]{"2026-10-02", "1200.00", "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("A", "A");
+    }
+
+    @Test
+    void reconcileForUser_withTwoCards_theExactAmountOfOneBill_isLinkedToThatBill() {
+        assertThat(cardsPaidWithTwoCards(
+                new String[]{"2026-10-01", "2000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                .containsExactly("B");
+    }
+
+    @Test
+    void reconcileForUser_aPaymentThatIsExactlyAnotherBill_isNotTakenAsAPartOfThisOne() {
+        UUID cardA = UUID.randomUUID();
+        UUID cardB = UUID.randomUUID();
+        UUID savingsAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport billA =
+                ccStatement(UUID.randomUUID(), cardA, new BigDecimal("3000.00"), LocalDate.of(2026, 10, 12));
+        billA.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
+        com.finora.entity.StatementImport billB =
+                ccStatement(UUID.randomUUID(), cardB, new BigDecimal("2000.00"), LocalDate.of(2026, 10, 15));
+        billB.setStatementPeriodEnd(LocalDate.of(2026, 9, 25));
+        Transaction chargeA = txn(UUID.randomUUID(), cardA, LocalDate.of(2026, 9, 10),
+                new BigDecimal("3000.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
+        Transaction chargeB = txn(UUID.randomUUID(), cardB, LocalDate.of(2026, 9, 12),
+                new BigDecimal("2000.00"), Transaction.Type.EXPENSE, "SWIGGY", Instant.parse("2026-09-12T10:00:00Z"));
+        // Two cards, so a part payment must name its card to be linked to either.
+        maskCardAccount(cardA, "XXXXXXXXXXXX1111");
+        maskCardAccount(cardB, "XXXXXXXXXXXX2222");
+        Transaction partOfA = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 1), new BigDecimal("1000.00"),
+                Transaction.Type.EXPENSE, "CC BILLPAY XXXXXXXXXXXX1111", Instant.parse("2026-10-01T10:00:00Z"));
+        Transaction exactlyB = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 2), new BigDecimal("2000.00"),
+                Transaction.Type.EXPENSE, "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-02T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
+                .thenReturn(List.of(chargeA, chargeB, partOfA, exactlyB));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(billA, billB));
+        when(transactionRepository.findByStatementImportId(billA.getId())).thenReturn(List.of(chargeA));
+        when(transactionRepository.findByStatementImportId(billB.getId())).thenReturn(List.of(chargeB));
+
+        reconciliationService.reconcileForUser(userId);
+
+        Map<UUID, UUID> chargeByPayment = new java.util.HashMap<>();
+        ccPendingEdgesIfAny().forEach(e -> chargeByPayment.put(e.fromTransactionId(), e.toTransactionId()));
+        assertThat(chargeByPayment).containsEntry(partOfA.getId(), chargeA.getId())
+                .containsEntry(exactlyB.getId(), chargeB.getId()).hasSize(2);
+    }
+
+    @Test
+    void reconcileForUser_aNextStatementWhoseTotalWasNotRead_stillClosesTheEarlierBillsWindow() {
+        // The next statement (generated 19 Aug) has no total due read off it, so it is not one the
+        // pass can pay -- but it was still generated, and a payment after it is paying it, not the
+        // earlier bill.
+        UUID cardAccountId = UUID.randomUUID();
+        com.finora.entity.StatementImport earlier =
+                ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 8, 11));
+        earlier.setStatementPeriodEnd(LocalDate.of(2026, 7, 22));
+        com.finora.repository.StatementImportRepository.StatementMetadata nextWithoutTotal =
+                org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.StatementMetadata.class);
+        when(nextWithoutTotal.getStatementPeriodEnd()).thenReturn(LocalDate.of(2026, 8, 19));
+        com.finora.repository.StatementImportRepository.StatementMetadata earlierMeta =
+                org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.StatementMetadata.class);
+        when(earlierMeta.getStatementPeriodEnd()).thenReturn(LocalDate.of(2026, 7, 22));
+        when(earlierMeta.getPaymentDueDate()).thenReturn(LocalDate.of(2026, 8, 11));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, cardAccountId))
+                .thenReturn(List.of(earlierMeta, nextWithoutTotal));
+        Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 8, 20), new BigDecimal("2500.00"),
+                Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT", Instant.parse("2026-08-20T10:00:00Z"));
+        Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 7, 10),
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-07-10T10:00:00Z"));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(payment, charge));
+        when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(earlier));
+        when(transactionRepository.findByStatementImportId(earlier.getId())).thenReturn(List.of(charge));
+
+        reconciliationService.reconcileForUser(userId);
+
+        assertThat(ccPendingEdgesIfAny()).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_aPaymentOnTheNextStatementsDate_stillPaysTheEarlierBill() {
+        // Inside the next statement's own period, so printed there as a payment of the earlier bill.
+        assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 19))).containsExactly("earlier");
+    }
+
+    @Test
+    void reconcileForUser_aPaymentAfterTheNextStatementIsGenerated_paysTheNextBill_evenWithinTenDaysOfTheEarlierDueDate() {
+        // 9 days after the earlier due date, but the next statement already carries the unpaid
+        // earlier balance, so this payment is settling the next bill.
+        assertThat(statementsPaidByPaymentOn(LocalDate.of(2026, 8, 20))).containsExactly("next");
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentMadeBeforeAShortGapStatementDate_evenWithinTenDaysOfTheDueDate() {
+        // A statement due 5 days after it is generated: a payment 8 days before the due date predates
+        // the statement, so it cannot be paying it.
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 8, 6), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 3)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_stillLinksAPaymentTenDaysPastTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 21)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_doesNotLinkAPaymentElevenDaysPastTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(LocalDate.of(2026, 7, 22), LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 22)))
+                .isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_withoutAStatementDate_stillLinksAPaymentTenDaysBeforeTheDueDate() {
+        // No statement date read off the document: the window stays the due date +/- 10 days.
+        assertThat(ccEdgesForPaymentOn(null, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 8, 1)))
+                .hasSize(1);
+    }
+
+    @Test
+    void reconcileForUser_withoutAStatementDate_doesNotLinkAPaymentElevenDaysBeforeTheDueDate() {
+        assertThat(ccEdgesForPaymentOn(null, LocalDate.of(2026, 8, 11), LocalDate.of(2026, 7, 31)))
+                .isEmpty();
+    }
+
     // --- Partial payment / overpayment (roadmap Part 4) -- was exact-amount-only, so a real user
     // paying just the minimum due, or clearing an old balance on top of this one, matched nothing
     // at all: both the payment AND the full unpaid statement balance were double-counted as real
@@ -3296,8 +3750,9 @@ class ReconciliationServiceTest {
         assertThat(ccEdges.get(0).fromTransactionId()).isEqualTo(minimumDuePayment.getId());
         assertThat(ccEdges.get(0).explanation()).containsEntry("paymentStatus", "PARTIAL");
         // amountFactor = 1 - (2375/2500) = 0.05, floored at 0.5 per ConfidenceScorer's own comment
-        // -- MERCHANT_AND_AMOUNT(0.90) * 0.5 * dateDecay(1,10)=0.97 -> round(90*0.5*0.97) = 44.
-        assertThat(ccEdges.get(0).confidence()).isEqualTo(44);
+        // -- MERCHANT_AND_AMOUNT(0.90) * 0.5 * dateDecay(0,10)=1.0 (paid before the due date, so not
+        // late at all) -> round(90*0.5*1.0) = 45.
+        assertThat(ccEdges.get(0).confidence()).isEqualTo(45);
     }
 
     @Test
@@ -3723,13 +4178,15 @@ class ReconciliationServiceTest {
         assertSameOutcomeEitherIdOrder(swap -> {
             org.mockito.Mockito.clearInvocations(transactionGraphService);
             com.finora.entity.StatementImport statement =
-                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("55584.00"), due);
+                    ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("25584.00"), due);
+            // Together they are more than is due, so only one of them can be this bill's: a bill
+            // paid in parts never takes more than it says is owed.
             Transaction smaller = txn(swap ? HIGHEST_ID : LOWEST_ID, otherAccountId, due.plusDays(10),
                     new BigDecimal("10980.00"), Transaction.Type.EXPENSE, "CC PAYMENT ONE", Instant.now());
             Transaction closer = txn(swap ? LOWEST_ID : HIGHEST_ID, otherAccountId, due.plusDays(10),
                     new BigDecimal("20010.00"), Transaction.Type.EXPENSE, "CC PAYMENT TWO", Instant.now());
             Transaction charge = txn(UUID.randomUUID(), cardAccountId, due.minusDays(30),
-                    new BigDecimal("55584.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
+                    new BigDecimal("25584.00"), Transaction.Type.EXPENSE, "SHOP", Instant.now());
             when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
                     .thenReturn(swap ? List.of(closer, smaller, charge) : List.of(smaller, closer, charge));
             when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(statement));
@@ -4473,8 +4930,19 @@ class ReconciliationServiceTest {
     }
 
     @Test
-    void reconcileForUser_aBillPaymentApp_isNotEvidenceForAPartialAmount() {
-        assertThat(ccEdgesForSinglePayment("1000.00", "UPI CRED CLUB", null)).isEmpty();
+    void reconcileForUser_aBillPaymentRail_isNotEvidenceForAPartialAmount() {
+        // A rail word alone also covers utility and mandate payments.
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI BBPS ELECTRICITY", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_payingAShopThroughTheBillPaymentApp_isNotEvidenceForAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI-GROCER-GROCER@YBL-PAID VIA CRED", null)).isEmpty();
+    }
+
+    @Test
+    void reconcileForUser_payingTheBillPaymentAppItself_isEvidenceForAPartialAmount() {
+        assertThat(ccEdgesForSinglePayment("1000.00", "UPI CRED CLUB", null)).hasSize(1);
     }
 
     @Test

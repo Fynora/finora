@@ -9536,6 +9536,10 @@ export interface components {
             expenseDeltaPct?: number;
             netDelta?: number;
         };
+        PaymentMethodAmount: {
+            method?: string;
+            amount?: number;
+        };
         ReportDto: {
             month?: string;
             income?: number;
@@ -9553,6 +9557,7 @@ export interface components {
             savingsRateGateReason?: string;
             biggestSpends?: components["schemas"]["BiggestSpend"][];
             dailySpend?: components["schemas"]["DailySpend"][];
+            paymentMethods?: components["schemas"]["PaymentMethodAmount"][];
         };
         ApiResponseListReportTrendPoint: {
             success?: boolean;

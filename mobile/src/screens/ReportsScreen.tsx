@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -14,6 +14,7 @@ import { OptionPickerModal } from '../components/OptionPickerModal';
 import { BiggestSpends } from '../components/reportSections/BiggestSpends';
 import { CategoryBreakdown } from '../components/reportSections/CategoryBreakdown';
 import { CategoryChanges } from '../components/reportSections/CategoryChanges';
+import { PaymentMethods } from '../components/reportSections/PaymentMethods';
 import { MerchantsCard } from '../components/reportSections/MerchantsCard';
 import { Observations } from '../components/reportSections/Observations';
 import { ReportHero } from '../components/reportSections/ReportHero';
@@ -28,6 +29,7 @@ import {
   fmtCurrency, monthDateRange, monthLabel, monthLabelLong,
 } from '../lib/format';
 import { categoryChanges } from '../lib/reportSections/changeVsMonth';
+import { methodBreakdown } from '../lib/reportSections/methodBreakdown';
 import { comparisonMonthName } from '../lib/reportSections/comparison';
 import { buildObservations } from '../lib/reportSections/observationText';
 import { shortDate } from '../lib/reportSections/trend';
@@ -93,7 +95,13 @@ export function ReportsScreen() {
   // Null means "whatever the latest month is", not "none" -- see `month` below. Storing the
   // user's explicit pick rather than a resolved value is what lets the default keep tracking the
   // newest month as data arrives, without ever overriding a choice they made.
-  const [pickedMonth, setPickedMonth] = useState<string | null>(null);
+  // Kept with the requested month it was made under, so a later arrival with a new month replaces it.
+  const [pick, setPick] = useState<{ month: string; request: string | null } | null>(null);
+  // A month to open on, from Insights' "Where did my money go?". Used only when this screen has a
+  // report for it.
+  const route = useRoute<RouteProp<MoreStackParamList, 'Reports'>>();
+  const requestedMonth = route.params?.month ?? null;
+  const pickedMonth = pick && pick.request === requestedMonth ? pick.month : null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [tab, setTab] = useState<ReportTab>('overview');
   const [exporting, setExporting] = useState<Exporting>(null);
@@ -106,7 +114,9 @@ export function ReportsScreen() {
   // Derived, not stored: the server returns months ascending, so the last is the most recent.
   // Writing this default into state from an effect would render once with no month and then again
   // with one, and leave two sources of truth for which month is showing.
-  const month = pickedMonth ?? (months.length > 0 ? months[months.length - 1] : null);
+  const month = pickedMonth
+    ?? (requestedMonth && months.includes(requestedMonth) ? requestedMonth : null)
+    ?? (months.length > 0 ? months[months.length - 1] : null);
   const monthsNewestFirst = useMemo(() => [...months].reverse(), [months]);
   const monthIndex = month ? months.indexOf(month) : -1;
   const olderMonth = monthIndex > 0 ? months[monthIndex - 1] : null;
@@ -150,7 +160,7 @@ export function ReportsScreen() {
   );
 
   function pickMonth(next: string) {
-    setPickedMonth(next);
+    setPick({ month: next, request: requestedMonth });
     // Cleared with the month: an "export failed" line left over from July, sitting under May's
     // figures, reads as though May failed to export too.
     setExportError(null);
@@ -328,6 +338,7 @@ export function ReportsScreen() {
           />
           <Observations items={observations} />
           <CategoryChanges changes={changes} priorName={priorName} />
+          <PaymentMethods breakdown={methodBreakdown(report.paymentMethods)} />
           {hasCalendar ? (
             <SpendingCalendar
               month={report.month} days={report.dailySpend} complete={report.complete !== false}

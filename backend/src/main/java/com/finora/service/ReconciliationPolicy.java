@@ -83,8 +83,21 @@ public final class ReconciliationPolicy {
      * already judged reasonable for "settles slower than an instant transfer, but is still clearly
      * the same event." Already covered by {@link #CANDIDATE_WINDOW_DAYS}'s existing max (dominated
      * by {@link #REFUND_WINDOW_DAYS}), so no change to that derivation was needed.
+     *
+     * <p>Only the late side and the fallback use this now. The window opens the day after the
+     * statement date when the statement carries one, which is earlier than 10 days before the due
+     * date on every card statement in the real corpus -- see ReconciliationService.ccPaymentWindow.
      */
     public static final long CC_PAYMENT_DUE_DATE_WINDOW_DAYS = OWN_ACCOUNT_MATCH_DAY_WINDOW;
+
+    /**
+     * The most days a card statement's date can sit before its due date and still be trusted as that
+     * statement's own date for the payment window. One monthly billing cycle: a card bill falls due
+     * within the cycle after the statement that printed it (18 to 20 days on every card statement in
+     * the real corpus), so a date further back than a whole cycle was misread, and opening the window
+     * there would take in the payments of the bill before.
+     */
+    public static final long CC_STATEMENT_DATE_MAX_DAYS_BEFORE_DUE = 31;
 
     /**
      * The lowest fraction of a statement's printed total a payment can be and still count as a
@@ -113,6 +126,15 @@ public final class ReconciliationPolicy {
      * accepting an arbitrarily large, likely-unrelated payment as evidence for a specific card.
      */
     public static final BigDecimal CC_PAYMENT_MAX_OVERPAYMENT_RATIO = new BigDecimal("2.5");
+
+    /**
+     * The most distinct running totals the search for parts adding up to exactly a card bill
+     * (ReconciliationService.partsMakingTheTotal) holds before giving up. Bounds memory and time, not
+     * the number of payments: totals never pass the amount due, so with a handful of bill payments in
+     * a window the search holds a few hundred. A bill past this still gets its parts one at a time, up
+     * to what is owed, just not the exact-total search.
+     */
+    public static final int CC_PAYMENT_PARTS_MAX_SUMS = 100_000;
 
     /**
      * How far either side of an import's own date range the candidate set has to reach for a

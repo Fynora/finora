@@ -46,9 +46,19 @@ public record ReportDto(
          * as the category list. A day whose refunds cancel its purchases has no entry. A category
          * whose refunds exceed its purchases is floored at zero in the category list but not here,
          * so in that one case the days can add to slightly less than the category total. */
-        List<DailySpend> dailySpend
+        List<DailySpend> dailySpend,
+        /* The month's spending by how it was paid, largest first, from the same rows and refund
+         * netting as the category list. The method is worked out from the account type and the
+         * words at the front of the statement narration (PaymentMethodClassifier), never stored.
+         * UNIDENTIFIED is the spending whose wording names no method; it is listed, not hidden, so
+         * a client can say how much of the month the other rows cover. Empty when nothing was spent.
+         * A method whose refunds exceed its purchases is dropped, as a category is. */
+        List<PaymentMethodAmount> paymentMethods
 ) {
     public record CategoryAmount(String category, BigDecimal amount) {}
+    /** @param method a PaymentMethod name: UPI, CARD, BANK_TRANSFER, CASH, CHEQUE, AUTO_DEBIT, WALLET
+     *                or UNIDENTIFIED. A client shows a code it does not know under a generic label. */
+    public record PaymentMethodAmount(String method, BigDecimal amount) {}
     /** @param label the merchant, or the description when there is none */
     public record BiggestSpend(UUID id, LocalDate date, String label, String category, BigDecimal amount) {}
     public record DailySpend(LocalDate date, BigDecimal amount) {}

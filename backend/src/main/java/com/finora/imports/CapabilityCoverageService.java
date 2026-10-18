@@ -274,6 +274,11 @@ public class CapabilityCoverageService {
             // Summary" box). Tried only where no other reading of the summary forms the equation.
             // See CardSummarySignedFigureRowReader.
             "CREDIT_CARD_SUMMARY_SIGNED_FIGURE_ROW",
+            // A scanned statement whose first reading skipped an amount (a running balance that moved
+            // with no amount read) was read again in sparse-text mode, and the second reading was
+            // kept because its balance chain and totals verified. Real evidence: a scanned HSBC
+            // savings statement. See PdfPreviewGenerator.secondLook.
+            "OCR_SECOND_LOOK_RECOVERED_AMOUNTS",
             // No reading formed a billing equation, but one page printed a labelled opening balance
             // and net outstanding balance (real evidence: two HSBC cards, whose purchases and
             // payments panel is drawn as graphics). The pair is kept so the rows can be checked

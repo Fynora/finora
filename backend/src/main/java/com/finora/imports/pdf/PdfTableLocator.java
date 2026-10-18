@@ -489,7 +489,21 @@ public class PdfTableLocator {
                     // needsReview=true) -- detection stays correct, only its confidence score and
                     // review flag change, and the real-corpus ground-truth gate does not assert on
                     // either, only on the detected product type itself, which is unaffected.
-                    + "|^\\s*Total\\s+\\d+\\s+[\\d,]+\\.\\d{2}\\s*$");
+                    + "|^\\s*Total\\s+\\d+\\s+[\\d,]+\\.\\d{2}\\s*$"
+                    // Two real scanned HSBC savings statements close their table with a two-line
+                    // summary block under the last transaction -- "Withdrawals <total>DR  As at
+                    // <date>", then "Deposits <total>  Balance Carried Forward <balance>" -- with the
+                    // bank's address footer below it. The block's first line, its date read as a
+                    // transaction's, opened a new row or was glued onto the last transaction's
+                    // narration, and the footer staged as an unparseable row. Matched on the first
+                    // line: the label as its first word, followed directly by a printed total. The
+                    // column header (which also names Withdrawals and Deposits, after "Date") never
+                    // matches, and the words it keys on are ones the trace redactor already keeps, so
+                    // a blanked copy reads the same. The block's second line and the footer beneath
+                    // are then inside the block. A page-boundary block rather than a closing trigger,
+                    // since a longer statement may print the block at the foot of every page; the
+                    // next transaction row resumes.
+                    + "|^\\s*withdrawals\\s+[\\d,]+\\.\\d{2}");
 
     // ILLUSTRATIVE_BLOCK_SUPPRESSED. A real AU Small Finance Bank credit-card statement carries a
     // fee/interest-calculation appendix -- "Illustration for calculating Interest & Late Payment

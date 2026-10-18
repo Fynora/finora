@@ -1,5 +1,6 @@
 import type { ReportData } from '../../api/endpoints';
 import { comparisonGateNote, comparisonMonthName } from '../../lib/reportComparison';
+import { methodBreakdown } from './methodBreakdown';
 import { monthLabelLong } from './reportFormat';
 
 /** One decimal, so 12.34 reads as 12.3 and a whole number stays whole. */
@@ -58,6 +59,15 @@ export function reportCsvRows(report: ReportData): (string | number)[][] {
   }
 
   rows.push([], ['Category', 'Amount'], ...report.categories.map((c): (string | number)[] => [c.category, c.amount]));
+
+  // Only when the card would be drawn: a file that lists "Not identified" as nearly everything says
+  // little, and the screen leaves it out for the same reason.
+  const methods = methodBreakdown(report.paymentMethods);
+  if (methods) {
+    rows.push([], ['Spending by payment method'], ['Method', 'Amount'],
+      ...methods.named.map((r): (string | number)[] => [r.label, r.amount]),
+      ...(methods.unidentified ? [[methods.unidentified.label, methods.unidentified.amount] as (string | number)[]] : []));
+  }
 
   if (report.biggestSpends && report.biggestSpends.length > 0) {
     rows.push([], ['Biggest spends'], ['Date', 'Description', 'Category', 'Amount'],

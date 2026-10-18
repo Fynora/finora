@@ -31,6 +31,10 @@ const NON_FINANCIAL_KEYS = new Set([
   'category-options',
   // The user's own profile/preferences.
   'user-settings',
+  // The Insights rows a user marked "Got it" (V277). Only a "Got it" tap writes it -- the screen
+  // updates it optimistically and a pull refetches it -- and no transaction, account or import
+  // write can change which rows were marked.
+  'insight-acknowledgements',
   // useChangePolling's own probe (one opaque string from the backend). It is what DECIDES to run
   // this cascade, and a write to a transaction, account or import cannot change what asking it
   // means -- refetching it as part of the cascade would only make it compare against itself.

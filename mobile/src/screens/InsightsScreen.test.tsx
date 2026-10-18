@@ -2,825 +2,259 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
+import { trackNavigation } from '../lib/trackNavigation';
 import { InsightsScreen } from './InsightsScreen';
 import { expectHaptics, resetHapticCalls } from '../test/haptics';
 import {
-  categoriesApi, dashboardApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
+  accountsApi, categoriesApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type InsightsData,
 } from '../api/endpoints';
 
+// Every name and amount here is invented.
+
 jest.mock('../api/endpoints', () => ({
-  insightsApi: { get: jest.fn() },
-  recurringApi: { list: jest.fn(), dismiss: jest.fn(), categorize: jest.fn(), changedAmounts: jest.fn().mockResolvedValue([]) },
-  dashboardApi: { summary: jest.fn() },
+  insightsApi: { get: jest.fn(), acknowledgements: jest.fn(), acknowledge: jest.fn() },
+  recurringApi: { list: jest.fn(), dismiss: jest.fn(), categorize: jest.fn(), changedAmounts: jest.fn() },
+  reportsApi: { availableMonths: jest.fn(), trend: jest.fn() },
+  accountsApi: { list: jest.fn() },
   categoriesApi: { list: jest.fn() },
-  reportsApi: { availableMonths: jest.fn(), incomeTrend: jest.fn() },
   usageApi: { recordView: jest.fn().mockResolvedValue(undefined) },
-  // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
-  // the response" so it never fires in tests that don't care about it.
   onboardingApi: {
     getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: jest.fn().mockResolvedValue(undefined),
   },
 }));
+jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
-const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
-const categories = categoriesApi as jest.Mocked<typeof categoriesApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
+// The shared navigation stub (test/setup.ts), read inside a callback as the other screen tests do.
+let navigate: jest.Mock;
+
+function insightsData(overrides: Partial<InsightsData> = {}): InsightsData {
+  return {
+    sentences: [],
+    movers: [{ category: 'Food', current: 9400, priorAverage: 6300, pctChange: 49 }],
+    coverageCaveat: null,
+    biggestCategory: null,
+    topMerchant: null,
+    reportingMonth: '2026-09',
+    reportingMonthIsCurrent: false,
+    unlinkedCardBills: { month: '2026-09', total: 21400, count: 2, cardName: 'Sample Card', cardLast4: '0001' },
+    ...overrides,
+  };
+}
 
 function renderScreen() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <InsightsScreen />
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
+beforeEach(() => {
+  navigate = (useNavigation() as unknown as { navigate: jest.Mock }).navigate;
+  navigate.mockClear();
+  (trackNavigation as jest.Mock).mockClear();
+  insights.get.mockReset().mockResolvedValue(insightsData());
+  insights.acknowledgements.mockReset().mockResolvedValue([]);
+  insights.acknowledge.mockReset().mockResolvedValue(undefined);
+  recurring.list.mockReset().mockResolvedValue([
+    // Dates far from any real "today", so past and ahead never depend on the clock.
+    { merchant: 'sample gym', label: 'Monthly', averageAmount: 1500, occurrences: 3, lastDate: '2019-12-05', nextEstimate: '2020-01-05', state: 'NEEDS_ANSWER' },
+    { merchant: 'sample tv', label: 'Monthly', averageAmount: 649, occurrences: 8, lastDate: '2098-12-20', nextEstimate: '2099-01-20', state: 'ANSWERED', answer: 'Subscriptions' },
+  ]);
+  recurring.changedAmounts.mockReset().mockResolvedValue([]);
+  recurring.dismiss.mockReset().mockResolvedValue(undefined);
+  reports.availableMonths.mockReset().mockResolvedValue(['2026-08', '2026-09']);
+  reports.trend.mockReset().mockResolvedValue([
+    { month: '2026-08', income: 0, expense: 40000, transactionCount: 9, complete: true },
+    { month: '2026-09', income: 0, expense: 48000, transactionCount: 11, complete: true },
+  ]);
+  (accountsApi.list as jest.Mock).mockReset().mockResolvedValue([{ id: 'a1', lastStatementPeriodEnd: '2026-09-30' }]);
+  (categoriesApi.list as jest.Mock).mockReset().mockResolvedValue([]);
+});
+
 describe('InsightsScreen', () => {
-  beforeEach(() => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: ['You spent 18% less on dining this month.'],
-      movers: [
-        { category: 'Dining', current: 4000, priorAverage: 6000, pctChange: -33 },
-        { category: 'Travel', current: 9000, priorAverage: 3000, pctChange: 200 },
-        // Filtered out: no prior average means no comparison to make.
-        { category: 'New thing', current: 500, priorAverage: 0, pctChange: null },
-      ],
-      coverageCaveat: null,
-      biggestCategory: null,
-      topMerchant: null,
-    });
-    recurring.list.mockReset().mockResolvedValue([
-      {
-        merchant: 'netflix', label: 'Monthly', averageAmount: 649, occurrences: 6,
-        lastDate: '2026-07-04', nextEstimate: '2026-08-04',
-      },
+  it('is one screen of what is worth knowing, with no tabs', async () => {
+    renderScreen();
+    expect(await screen.findByText('Food is ₹3,100 above your usual month')).toBeTruthy();
+    expect(screen.getByText('To look at')).toBeTruthy();
+    expect(screen.getByText('Coming up')).toBeTruthy();
+    expect(screen.getByText('Paid regularly')).toBeTruthy();
+    expect(screen.getByText(/toward your Sample Card ending 0001 in September 2026/)).toBeTruthy();
+    expect(screen.getByText('New repeating payment: sample gym')).toBeTruthy();
+    for (const tab of ['Overview', 'Spending', 'Income', 'Recurring', 'Trends']) {
+      expect(screen.queryByRole('button', { name: tab })).toBeNull();
+    }
+  });
+
+  it('opens with one sentence about the month, from the same figures Reports shows', async () => {
+    renderScreen();
+    expect(await screen.findByText('You spent ₹48,000 in September 2026, 20% more than August.')).toBeTruthy();
+    expect(reports.trend).toHaveBeenCalledWith('2026-09', 6);
+  });
+
+  it('says "so far" with no comparison for a month not fully in', async () => {
+    reports.trend.mockResolvedValue([
+      { month: '2026-08', income: 0, expense: 40000, transactionCount: 9, complete: true },
+      { month: '2026-09', income: 0, expense: 48000, transactionCount: 11, complete: false },
     ]);
-    // Never resolves by default, so tests that don't care about the banner/glance card see them
-    // stay absent -- NOT mockResolvedValue(undefined), which TanStack Query logs a "Query data
-    // cannot be undefined" console.error for.
-    dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
-    categories.list.mockReset().mockResolvedValue([]);
-    reports.availableMonths.mockReset().mockResolvedValue([]);
-    reports.incomeTrend.mockReset().mockResolvedValue([
-      { month: '2026-06', income: 129464 },
-      { month: '2026-07', income: 145000 },
-    ]);
+    renderScreen();
+    expect(await screen.findByText("You've spent ₹48,000 in September 2026 so far.")).toBeTruthy();
   });
 
-  it('renders movers directly on Overview; recurring payments live under Spending', async () => {
+  it('leaves out the comparison when the month before has nothing', async () => {
+    reports.trend.mockResolvedValue([{ month: '2026-09', income: 0, expense: 48000, transactionCount: 11, complete: true }]);
     renderScreen();
-
-    expect(await screen.findByText('Dining')).toBeTruthy();
-    expect(screen.queryByText('netflix')).toBeNull();
-    // Sentences are still collapsed by default on Overview -- unchanged.
-    expect(screen.queryByText('You spent 18% less on dining this month.')).toBeNull();
-
-    fireEvent.press(screen.getByText('See all insights'));
-    expect(screen.getByText('You spent 18% less on dining this month.')).toBeTruthy();
+    expect(await screen.findByText('You spent ₹48,000 in September 2026.')).toBeTruthy();
   });
 
-  it('dismisses a recurring group from the Spending tab and removes it from the list', async () => {
-    recurring.dismiss.mockReset().mockResolvedValue(undefined);
+  it('invites a person with no statements yet to upload one, instead of empty sections', async () => {
+    insights.get.mockResolvedValue(insightsData({
+      sentences: ['Upload or add transactions to see spending insights.'], movers: [], reportingMonth: null,
+      reportingMonthIsCurrent: true, unlinkedCardBills: null,
+    }));
+    recurring.list.mockResolvedValue([]);
+    reports.availableMonths.mockResolvedValue([]);
     renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-    await screen.findByText('netflix');
-
-    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
-
-    await waitFor(() => expect(recurring.dismiss).toHaveBeenCalledWith('netflix'));
-    await waitFor(() => expect(screen.queryByText('netflix')).toBeNull());
+    expect(await screen.findByText('Upload a statement and Insights will show what needs a look, what is coming up and what you pay regularly.')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Import a statement' }));
+    expect(navigate).toHaveBeenCalledWith('Import');
+    expect(screen.queryByText('To look at')).toBeNull();
+    expect(screen.queryByText(/Nothing new to look at for/)).toBeNull();
   });
 
-  it('dismissing: nothing as the row leaves, one success when the server confirms', async () => {
-    let resolve!: () => void;
-    recurring.dismiss.mockReset().mockReturnValueOnce(new Promise<void>((r) => { resolve = r; }));
+  it('says so when insights cannot load, and still shows the repeating payments', async () => {
+    insights.get.mockRejectedValue(new Error('down'));
     renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-    await screen.findByText('netflix');
+    expect(await screen.findByText("Couldn't load what needs a look. Pull down to try again.")).toBeTruthy();
+    expect(screen.getByText('Paid regularly')).toBeTruthy();
+    expect(screen.queryByText(/Nothing new to look at for/)).toBeNull();
+  });
+
+  it('works against a server without "Got it" or unlinked card bills', async () => {
+    insights.acknowledgements.mockRejectedValue(Object.assign(new Error('Not Found'), { response: { status: 404 } }));
+    insights.get.mockResolvedValue(insightsData({ unlinkedCardBills: undefined }));
+    renderScreen();
+    expect(await screen.findByText('Food is ₹3,100 above your usual month')).toBeTruthy();
+    expect(screen.queryByText(/no card statement uploaded/)).toBeNull();
+    expect(screen.queryByText(/Couldn't/)).toBeNull();
+  });
+
+  it('hides a row marked "Got it" and remembers it on the server', async () => {
+    renderScreen();
+    await screen.findByText('Food is ₹3,100 above your usual month');
     resetHapticCalls();
 
-    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
-    // not.toBeOnTheScreen, not toBeNull: a failed toBeNull poll pretty-prints the whole fiber and
-    // starves the very timer that removes the row (failed this way on a loaded CI runner).
-    await waitFor(() => expect(screen.queryByText('netflix')).not.toBeOnTheScreen());
-    expectHaptics({});
+    fireEvent.press(screen.getByRole('button', { name: 'Got it: Food' }));
 
-    await act(async () => resolve());
+    await waitFor(() => expect(screen.queryByText('Food is ₹3,100 above your usual month')).not.toBeOnTheScreen());
+    expect(insights.acknowledge).toHaveBeenCalledTimes(1);
+    expect(insights.acknowledge).toHaveBeenCalledWith('CATEGORY_HIGH', 'Food|2026-09');
     await waitFor(() => expectHaptics({ success: 1 }));
   });
 
-  it('a dismiss the server refuses: one error, and the row comes back', async () => {
-    recurring.dismiss.mockReset().mockRejectedValueOnce(new Error('down'));
+  it('brings the row back when the server refuses "Got it"', async () => {
+    insights.acknowledge.mockRejectedValueOnce(new Error('down'));
     renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-    await screen.findByText('netflix');
+    await screen.findByText('Food is ₹3,100 above your usual month');
     resetHapticCalls();
 
-    fireEvent.press(screen.getByTestId('dismiss-recurring-netflix'));
+    fireEvent.press(screen.getByRole('button', { name: 'Got it: Food' }));
 
     await waitFor(() => expectHaptics({ error: 1 }));
-    expect(await screen.findByText('netflix')).toBeTruthy();
+    expect(await screen.findByText('Food is ₹3,100 above your usual month')).toBeTruthy();
   });
 
-  it('a "still Rent?" row replaces the nothing-detected message when no group is detected', async () => {
-    recurring.list.mockReset().mockResolvedValue([]);
-    jest.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
-      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
-    ]);
+  it('does not show rows already marked "Got it" on another device', async () => {
+    insights.acknowledgements.mockResolvedValue([{ kind: 'CARD_STATEMENT_MISSING', itemKey: '2026-09' }]);
     renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-
-    expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeOnTheScreen();
-    expect(screen.queryByText(/No recurring payments detected yet/)).not.toBeOnTheScreen();
+    await screen.findByText('Food is ₹3,100 above your usual month');
+    expect(screen.queryByText(/no card statement uploaded/)).toBeNull();
   });
 
-  it('asks what an unanswered repeating payment is, under its row on the Spending tab', async () => {
-    recurring.list.mockReset().mockResolvedValue([
-      {
-        merchant: 'sample owner', label: 'Monthly', averageAmount: 10000, occurrences: 3,
-        lastDate: '2026-07-04', nextEstimate: '2026-08-04', state: 'NEEDS_ANSWER', answer: null,
-        latestAmount: 10000, category: 'Other',
-      },
-    ]);
+  it('opens Import from the card statement row', async () => {
     renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-
-    expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeOnTheScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Upload statement' }));
+    expect(trackNavigation).toHaveBeenCalledWith('import-statement', 'contextual');
+    expect(navigate).toHaveBeenCalledWith('Import');
   });
 
-  it('"View Recurring" on Overview switches to Spending and shows the list there', async () => {
+  it('opens the month\'s payments in that category from a running-high row', async () => {
     renderScreen();
-    await screen.findByText('Dining');
-
-    fireEvent.press(screen.getByText('View Recurring →'));
-
-    expect(await screen.findByText('netflix')).toBeTruthy();
-  });
-
-  // Saying plainly that these are statistics, not an AI assistant, is the honest framing -- the
-  // same numbers read as something else entirely without it.
-  it('does not let the observations pass for AI output', async () => {
-    renderScreen();
-
-    expect(await screen.findByText(/not an\s+AI-generated assistant/)).toBeTruthy();
-  });
-
-  it('drops movers with nothing to compare against', async () => {
-    renderScreen();
-    await screen.findByText('Dining');
-
-    expect(screen.queryByText('New thing')).toBeNull();
-  });
-
-  // Spending more is the bad direction here -- the inverse of the Dashboard's income KPI.
-  it('marks a rise in spending as the adverse direction', async () => {
-    renderScreen();
-
-    expect(await screen.findByLabelText(/Travel spend was 200% more than your recent average/)).toBeTruthy();
-    expect(screen.getByLabelText(/Dining spend was 33% lower than your recent average/)).toBeTruthy();
-  });
-
-  /**
-   * useQueries rather than the web page's Promise.all: one rejected promise there loses BOTH
-   * sections, though they come from unrelated endpoints.
-   */
-  it('keeps recurring payments when the insights endpoint fails', async () => {
-    insights.get.mockReset().mockRejectedValue(new Error('boom'));
-    renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-
-    expect(await screen.findByText('netflix')).toBeTruthy();
-    expect(screen.getByText(/Couldn't load your insights/)).toBeTruthy();
-  });
-
-  it('ticks only when the tab changes', async () => {
-    renderScreen();
-    expect(await screen.findByText('Dining')).toBeTruthy();
-    fireEvent.press(screen.getByLabelText('Overview'));
-    expectHaptics({});
-    fireEvent.press(screen.getByLabelText('Spending'));
-    expectHaptics({ selection: 1 });
-  });
-
-  it('keeps insights when the recurring endpoint fails', async () => {
-    recurring.list.mockReset().mockRejectedValue(new Error('boom'));
-    renderScreen();
-
-    expect(await screen.findByText('Dining')).toBeTruthy();
-
-    fireEvent.press(screen.getByText('Spending'));
-    expect(await screen.findByText(/Couldn't load recurring payments/)).toBeTruthy();
-  });
-
-  it('explains why a section is empty rather than showing a blank card', async () => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: [], movers: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
-    });
-    recurring.list.mockReset().mockResolvedValue([]);
-    renderScreen();
-
-    expect(await screen.findByText(/Nothing stands out this month yet/)).toBeTruthy();
-
-    fireEvent.press(screen.getByText('Spending'));
-    expect(await screen.findByText(/at least 2 charges from the same merchant/)).toBeTruthy();
-  });
-
-  it('shows the static notice and skeleton sections immediately, before either query resolves', () => {
-    insights.get.mockReset().mockReturnValue(new Promise(() => {}));
-    recurring.list.mockReset().mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-
-    expect(screen.getByText(/not an\s+AI-generated assistant/)).toBeTruthy();
-    expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
-    expect(screen.queryByText('Key Insights')).toBeNull();
-  });
-
-  // Each card gates on only the query its own data comes from -- a slow recurringApi.list() must
-  // not hold Key Insights (which reads insightsQ only) on its skeleton too.
-  it('reveals Key Insights independently of a still-loading Recurring Payments', async () => {
-    recurring.list.mockReset().mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-
-    expect(await screen.findByText('Dining')).toBeTruthy();
-    expect(screen.queryByText('netflix')).toBeNull();
-
-    fireEvent.press(screen.getByText('Spending'));
-    await screen.findByText('You spent 18% less on dining this month.');
-    // Only Recurring Payments' own shimmer is left -- Spending's Observations already has real data.
-    expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
-  });
-
-  it('reveals Recurring Payments independently of a still-loading insights query', async () => {
-    insights.get.mockReset().mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-    fireEvent.press(screen.getByText('Spending'));
-
-    expect(await screen.findByText('netflix')).toBeTruthy();
-    expect(screen.queryByText('Key Insights')).toBeNull();
-  });
-
-  it('shows the banner and This Month at a Glance once dashboard-summary resolves', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798, 'Food & Dining': 900 },
-    } as any);
-    renderScreen();
-
-    expect(await screen.findByText("You're on track!")).toBeTruthy();
-    expect(screen.getByText(/22% lower than last month/)).toBeTruthy();
-    expect(screen.getByText('This Month at a Glance')).toBeTruthy();
-    expect(screen.getByText('2')).toBeTruthy(); // Categories count
-  });
-
-  it('frames the banner as a heads-up when spending is up, not "on track"', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
-      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
-    } as any);
-    renderScreen();
-
-    expect(await screen.findByText('Heads up')).toBeTruthy();
-    expect(screen.getByText(/15% higher than last month/)).toBeTruthy();
-  });
-
-  it('gives a month that is "so far" no verdict: no praise for spending that is only low because a statement is missing', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798, 'Food & Dining': 900 },
-      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
-    } as any);
-    renderScreen();
-
-    // The banner says why the month is partial, instead of "You're on track! ... Keep it up!".
-    expect(await screen.findByText(/September is partial so far: HDFC Card's latest data ends Sep 11/)).toBeTruthy();
-    expect(screen.queryByText("You're on track!")).toBeNull();
-    expect(screen.queryByText(/Keep it up/)).toBeNull();
-    expect(screen.queryByText(/22% lower/)).toBeNull();
-  });
-
-  it('says on the glance card itself that its changes compare a partial month', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
-      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
-    } as any);
-    renderScreen();
-
-    expect(await screen.findByTestId('glance-so-far-note')).toBeTruthy();
-    expect(screen.getByText(/compare a partial month with a full one/)).toBeTruthy();
-  });
-
-  it('puts no partial-month note on the glance card for a whole month, or when it has no change to qualify', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
-      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
-      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-    } as any);
-    renderScreen();
-    await screen.findByText('This Month at a Glance');
-    expect(screen.queryByTestId('glance-so-far-note')).toBeNull();
-  });
-
-  it('puts no change-note on the glance card when a partial month has no change figures at all', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: null, expenseDeltaPct: null,
-      netCashFlow: 60000, netDeltaPct: null, spendByCategory: { Shopping: 40000 },
-      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
-    } as any);
-    renderScreen();
-    await screen.findByText('This Month at a Glance');
-    expect(screen.queryByTestId('glance-so-far-note')).toBeNull();
-  });
-
-  it('gives a month that is "so far" no warning either when spending looks higher', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 100000, monthlyExpense: 40000, incomeDeltaPct: 0, expenseDeltaPct: 15,
-      netCashFlow: 60000, netDeltaPct: -5, spendByCategory: { Shopping: 40000 },
-      reportingMonth: '2026-09', reportingMonthIsCurrent: true,
-      statementBehind: { accountName: 'HDFC Card', coveredThrough: '2026-09-11', accountCount: 1 },
-    } as any);
-    renderScreen();
-
-    expect(await screen.findByText(/September is partial so far/)).toBeTruthy();
-    expect(screen.queryByText('Heads up')).toBeNull();
-  });
-
-  it('renders the Spending by Category donut and drills through on a slice tap', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 1, monthlyExpense: 10000, incomeDeltaPct: 0, expenseDeltaPct: 0, netCashFlow: 0,
-      netDeltaPct: 0, spendByCategory: { Dining: 4000, Groceries: 6000 },
-      reportingMonth: '2026-08', reportingMonthIsCurrent: false,
-    } as any);
-    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-    navigate.mockClear();
-    renderScreen();
-
-    expect(await screen.findByText('Spending by Category')).toBeTruthy();
-    fireEvent.press(screen.getByRole('button', { name: 'Dining: ₹4,000' }));
-
+    fireEvent.press(await screen.findByRole('button', { name: /^Food is ₹3,100 above your usual month/ }));
+    expect(trackNavigation).toHaveBeenCalledWith('transactions', 'contextual');
     expect(navigate).toHaveBeenCalledWith('Transactions', {
-      filters: expect.objectContaining({
-        categoryName: 'Dining', dateFrom: '2026-08-01', dateTo: '2026-08-31', label: 'Dining · Aug 26',
-      }),
+      filters: expect.objectContaining({ categoryName: 'Food', dateFrom: '2026-09-01', dateTo: '2026-09-30' }),
     });
   });
 
-  it('shows a Recurring Payments summary card with a View Recurring link', async () => {
+  it('opens Reports on the same month from "Where did my money go?"', async () => {
     renderScreen();
-
-    expect(await screen.findByText('1 active')).toBeTruthy();
-    expect(screen.getByText('₹649 / month')).toBeTruthy();
-    // Switching tabs itself is covered by the dedicated "View Recurring" test above -- this just
-    // confirms the control exists and is pressable without throwing.
-    fireEvent.press(screen.getByText('View Recurring →'));
+    fireEvent.press(await screen.findByRole('button', { name: 'Where did my money go? Opens Reports' }));
+    expect(trackNavigation).toHaveBeenCalledWith('reports', 'contextual');
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports', params: { month: '2026-09' } });
   });
 
-  it('renders neither the banner nor the glance card while summary is still loading', async () => {
-    renderScreen(); // dashboard.summary defaults to a never-resolving promise
-    await screen.findByText(/not an\s+AI-generated assistant/);
-    expect(screen.queryByText('This Month at a Glance')).toBeNull();
+  it('jumps down to a section from its question', async () => {
+    renderScreen();
+    await screen.findByText('Coming up');
+    fireEvent(screen.getByTestId('insights-section-comingUp'), 'layout', { nativeEvent: { layout: { x: 0, y: 640, width: 360, height: 200 } } });
+    const calls = (useScrollToTop as jest.Mock).mock.calls;
+    const list = calls[calls.length - 1][0].current;
+    const scrollTo = jest.spyOn(list, 'scrollTo');
+
+    fireEvent.press(screen.getByRole('button', { name: "What's coming up?" }));
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ y: 640 }));
   });
 
-  it('renders the biggest-category and top-merchant Key Insights rows and opens Transactions on tap', async () => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: [], movers: [], coverageCaveat: null,
-      biggestCategory: { name: 'Shopping', amount: 5798 },
-      topMerchant: { name: 'myntra', amount: 3299 },
-    });
-    categories.list.mockResolvedValue([
-      { id: 'c1', name: 'Shopping', isSystem: true, icon: 'shopping-bag', color: 'blue' },
-    ] as never);
+  it('shows the coverage warning and opens Import from it', async () => {
+    insights.get.mockResolvedValue(insightsData({ coverageCaveat: { month: '2026-09', gaps: [{ gapStart: '2026-09-05', gapEnd: '2026-09-19' }] } }));
     renderScreen();
-
-    expect(await screen.findByLabelText(/Biggest category: Shopping at ₹5,798/)).toBeTruthy();
-    expect(screen.getByLabelText(/Top merchant: myntra at ₹3,299/)).toBeTruthy();
-
-    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-    navigate.mockClear();
-    fireEvent.press(screen.getByLabelText(/Top merchant: myntra/));
-
-    expect(navigate).toHaveBeenCalledWith('Transactions', {
-      filters: { keyword: 'myntra', label: 'myntra', nonce: expect.any(Number) },
-    });
+    fireEvent.press(await screen.findByRole('button', { name: /^Possible gap in your September 2026 history/ }));
+    expect(navigate).toHaveBeenCalledWith('Import');
   });
 
-  it('shows the bottom banner and opens Reports from View Details', async () => {
-    dashboard.summary.mockResolvedValue({
-      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
-    } as any);
+  it('says once that these are rules, not an AI assistant', async () => {
     renderScreen();
+    await screen.findByText('To look at');
+    expect(screen.getAllByText(/not an AI-generated assistant/)).toHaveLength(1);
+  });
 
-    expect(await screen.findByText(/22% less than last month/)).toBeTruthy();
-    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-    navigate.mockClear();
-    fireEvent.press(screen.getByText('View Details →'));
+  it('dismisses a payment found by mistake, and brings it back if the server refuses', async () => {
+    recurring.dismiss.mockRejectedValueOnce(new Error('down'));
+    renderScreen();
+    await screen.findByText('Paid regularly');
+    resetHapticCalls();
+    fireEvent.press(screen.getByRole('button', { name: 'Not recurring: dismiss sample tv' }));
+    await waitFor(() => expectHaptics({ error: 1 }));
+    expect(recurring.dismiss).toHaveBeenCalledWith('sample tv');
+    expect(await screen.findByRole('button', { name: 'Not recurring: dismiss sample tv' })).toBeTruthy();
+  });
 
-    // Bug found and fixed alongside promoting Insights to a bottom tab: this screen no longer
-    // sits inside MoreStack, so reaching Reports (a MoreStack screen) is a nested navigate on the
-    // Tab.Navigator's own object, same pattern DashboardScreen already uses for Budgets/Reports.
-    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports' });
+  it('picking an older month asks for that month and says the repeating lists cover every statement', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    await waitFor(() => expect(insights.get).toHaveBeenCalledWith('2026-08'));
+    expect(await screen.findByText('Based on all your statements')).toBeTruthy();
   });
 
   it('opens Settings from the header gear', async () => {
     renderScreen();
-    await screen.findByText(/not an\s+AI-generated assistant/);
-    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-    navigate.mockClear();
-
-    fireEvent.press(screen.getByLabelText('Settings'));
-
+    fireEvent.press(await screen.findByRole('button', { name: 'Settings' }));
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
   });
-
-  it('shares one insights fetch between Overview and Spending until a month is picked', async () => {
-    renderScreen();
-    await screen.findByText('Dining');
-
-    // Two useQuery observers key off ['insights'] before any month is picked (Overview's own,
-    // and Spending's) -- exactly one network call, not two, because they share a cache key.
-    expect(insights.get).toHaveBeenCalledTimes(1);
-
-    fireEvent.press(screen.getByText('Spending'));
-    await screen.findByText('You spent 18% less on dining this month.');
-
-    expect(insights.get).toHaveBeenCalledTimes(1);
-  });
-
-  it('picking a month on Spending refetches insights for that month', async () => {
-    reports.availableMonths.mockReset().mockResolvedValue(['2026-06', '2026-07']);
-    renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-    await screen.findByText('You spent 18% less on dining this month.');
-
-    fireEvent.press(screen.getByLabelText(/Change month/));
-    fireEvent.press(screen.getByText('June 2026'));
-
-    await waitFor(() => expect(insights.get).toHaveBeenLastCalledWith('2026-06'));
-  });
-
-  it('Category Movers on Spending shows the first 5 with a See All expand', async () => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: [],
-      movers: Array.from({ length: 7 }, (_, i) => ({
-        category: `Cat${i}`, current: 100, priorAverage: 50, pctChange: 100,
-      })),
-      coverageCaveat: null, biggestCategory: null, topMerchant: null,
-    });
-    renderScreen();
-    fireEvent.press(await screen.findByText('Spending'));
-
-    await screen.findByText('Cat0');
-    expect(screen.queryByText('Cat6')).toBeNull();
-
-    fireEvent.press(screen.getByText('See All'));
-    expect(screen.getByText('Cat6')).toBeTruthy();
-  });
-
-  it.each([
-    ['Recurring', 'A dedicated Recurring tab is coming soon — see the Recurring Payments list under Spending for now.'],
-    ['Trends', 'Spending trends over time are coming soon.'],
-  ])('%s tab shows a coming-soon placeholder', async (tabLabel, message) => {
-    renderScreen();
-    fireEvent.press(await screen.findByText(tabLabel));
-    expect(await screen.findByText(message)).toBeTruthy();
-  });
-
-  describe('Income tab', () => {
-    beforeEach(() => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
-        reportingMonthIsCurrent: true, priorMonth: '2026-08', incomePrior: 129464,
-      } as any);
-    });
-
-    it('shows this month\'s income, its date range, its delta, and the trend chart', async () => {
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('1 – 30 Sep 2026')).toBeTruthy();
-      // July's trend point and the headline figure are both real ₹1,45,000 here (this month IS
-      // July) -- two legitimate matches, not a collision to dedupe.
-      expect(await screen.findAllByText('₹1,45,000')).toHaveLength(2);
-      // Names the prior month and its real figure, not a bare "vs last month" -- see
-      // DashboardSummaryDto.priorMonth/incomePrior's own doc comment for why.
-      expect(screen.getByText('▲ 12% vs Aug 26 (₹1,29,464)')).toBeTruthy();
-      expect(screen.getByText('Income Trend')).toBeTruthy();
-      expect(screen.getByLabelText(/Jun.*Jul/)).toBeTruthy();
-    });
-
-    it('omits the date range when the summary has no reporting month yet', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
-      } as any);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      await screen.findAllByText('₹1,45,000');
-      expect(screen.queryByText(/–/)).toBeNull();
-    });
-
-    it('falls back to "vs last month" when the backend has no priorMonth/incomePrior yet', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {}, reportingMonth: '2026-09',
-        reportingMonthIsCurrent: true,
-      } as any);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('▲ 12% vs last month')).toBeTruthy();
-    });
-
-    it('shows the "higher than last month" banner and opens Reports from View Details', async () => {
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-      await screen.findAllByText('₹1,45,000');
-
-      expect(screen.getByText('Your income is 12% higher than last month.')).toBeTruthy();
-      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-      navigate.mockClear();
-      fireEvent.press(screen.getByText('View Details →'));
-
-      expect(navigate).toHaveBeenCalledWith('More', { screen: 'Reports' });
-    });
-
-    it('frames a falling income as "lower than last month"', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        monthlyIncome: 90000, monthlyExpense: 40000, incomeDeltaPct: -15, expenseDeltaPct: 0,
-        netCashFlow: 50000, netDeltaPct: 0, spendByCategory: {},
-      } as any);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('▼ 15% vs last month')).toBeTruthy();
-      expect(screen.getByText('Your income is 15% lower than last month.')).toBeTruthy();
-    });
-
-    it('explains an empty trend rather than showing a blank chart', async () => {
-      reports.incomeTrend.mockReset().mockResolvedValue([]);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText(/Income trend appears once you have a month/)).toBeTruthy();
-    });
-
-    it('keeps the income figure visible when the trend endpoint fails', async () => {
-      reports.incomeTrend.mockReset().mockRejectedValue(new Error('boom'));
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('₹1,45,000')).toBeTruthy();
-      expect(screen.getByText(/Couldn't load your income trend/)).toBeTruthy();
-    });
-
-    it('shows loading skeletons for the income card and chart before either query resolves', async () => {
-      dashboard.summary.mockReset().mockReturnValue(new Promise(() => {}));
-      reports.incomeTrend.mockReset().mockReturnValue(new Promise(() => {}));
-      renderScreen();
-
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(screen.getAllByTestId('shimmer-block', { hidden: true }).length).toBeGreaterThan(0);
-      expect(screen.queryByText("This Month's Income")).toBeNull();
-      expect(screen.queryByText('Income Trend')).toBeNull();
-    });
-  });
-
-  describe('drill-through into the ledger (Track C/C4)', () => {
-    it('opens Transactions filtered to just this category -- no date range, since none is known here', async () => {
-      renderScreen();
-      await screen.findByText('Dining');
-      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-      navigate.mockClear();
-
-      fireEvent.press(screen.getByLabelText(/Dining spend was 33% lower than your recent average/));
-
-      expect(navigate).toHaveBeenCalledWith('Transactions', {
-        filters: { categoryName: 'Dining', label: 'Dining', nonce: expect.any(Number) },
-      });
-    });
-
-    it('narrows to the insights month once the response names one', async () => {
-      insights.get.mockReset().mockResolvedValue({
-        sentences: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
-        movers: [{ category: 'Dining', current: 4000, priorAverage: 6000, pctChange: -33 }],
-        reportingMonth: '2026-06', reportingMonthIsCurrent: false,
-      });
-      renderScreen();
-      await screen.findByText('Dining');
-      const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
-      navigate.mockClear();
-
-      fireEvent.press(screen.getByLabelText(/Dining spend was 33% lower than your recent average/));
-
-      expect(navigate).toHaveBeenCalledWith('Transactions', {
-        filters: {
-          categoryName: 'Dining', dateFrom: '2026-06-01', dateTo: '2026-06-30', label: 'Dining · Jun 26',
-          nonce: expect.any(Number),
-        },
-      });
-    });
-  });
-
-  // Statements are imported in arrears, so the newest month with data is routinely not the
-  // current one. Every heading and comparison here must name the month its figures describe:
-  // a user who imported up to June must not read June's figures as "This Month" in October.
-  // Two periods are in play -- the dashboard summary's (newest month with ANY data) and the
-  // insights endpoint's own (newest month with a PURCHASE) -- and each figure takes its label
-  // from the one it came from.
-  describe('a reporting month that is not the current one', () => {
-    const PAST_SUMMARY = {
-      monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-      netCashFlow: 132169, netDeltaPct: 28, spendByCategory: { Shopping: 5798 },
-      reportingMonth: '2026-06', reportingMonthIsCurrent: false, priorMonth: '2026-05', incomePrior: 129464,
-    };
-    const PAST_INSIGHTS = {
-      sentences: ['In 2026-06, total spend was ₹12,831 across 1 categories.'],
-      movers: [], coverageCaveat: null, biggestCategory: null,
-      topMerchant: { name: 'myntra', amount: 3299 },
-      reportingMonth: '2026-06', reportingMonthIsCurrent: false,
-    };
-
-    beforeEach(() => {
-      dashboard.summary.mockReset().mockResolvedValue(PAST_SUMMARY as any);
-      insights.get.mockReset().mockResolvedValue(PAST_INSIGHTS);
-    });
-
-    it('titles the glance card with the reporting month, not "This Month"', async () => {
-      renderScreen();
-
-      expect(await screen.findByText('June 2026 at a Glance')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-    });
-
-    it('compares against the named prior month in both banners, not "last month"', async () => {
-      renderScreen();
-
-      expect(await screen.findByText('Your spending is 22% lower than May 2026. Keep it up!')).toBeTruthy();
-      expect(screen.getByText("You're spending 22% less than May 2026.")).toBeTruthy();
-      expect(screen.queryByText(/last month/i)).toBeNull();
-    });
-
-    it('names the month when there is no delta to report either', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({ ...PAST_SUMMARY, expenseDeltaPct: null } as any);
-      renderScreen();
-
-      expect(await screen.findByText('June 2026')).toBeTruthy();
-      expect(screen.getByText('Keep an eye on your spending in June 2026.')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-    });
-
-    it('says which month had no spending, rather than "this month"', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({ ...PAST_SUMMARY, spendByCategory: {} } as any);
-      renderScreen();
-
-      expect(await screen.findByText('No spending recorded in June 2026.')).toBeTruthy();
-    });
-
-    it("names the insights month on the top-merchant row", async () => {
-      renderScreen();
-
-      expect(await screen.findByText(/Your top merchant in June 2026 was/)).toBeTruthy();
-    });
-
-    it('labels the insights by their own month, even when the summary reports a later one', async () => {
-      // An income-only July: the summary's newest month with ANY data is July, but the insights'
-      // newest month with a PURCHASE is still June. The figures below are June's.
-      dashboard.summary.mockReset().mockResolvedValue({
-        ...PAST_SUMMARY, reportingMonth: '2026-07', priorMonth: '2026-06',
-      } as any);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Spending'));
-
-      expect(await screen.findByText('Observations for June 2026')).toBeTruthy();
-      expect(screen.getByLabelText('Change month, currently June 2026')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-    });
-
-    it('titles a picked month by name on Spending', async () => {
-      reports.availableMonths.mockReset().mockResolvedValue(['2026-05', '2026-06']);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Spending'));
-      await screen.findByText('Observations for June 2026');
-      insights.get.mockResolvedValue({ ...PAST_INSIGHTS, topMerchant: null, reportingMonth: '2026-05' });
-
-      fireEvent.press(screen.getByLabelText(/Change month/));
-      fireEvent.press(screen.getByText('May 2026'));
-
-      expect(await screen.findByText('Observations for May 2026')).toBeTruthy();
-    });
-
-    it('keeps naming a picked month when its insights fail to load', async () => {
-      reports.availableMonths.mockReset().mockResolvedValue(['2026-05', '2026-06']);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Spending'));
-      await screen.findByText('Observations for June 2026');
-      insights.get.mockRejectedValue(new Error('boom'));
-
-      fireEvent.press(screen.getByLabelText(/Change month/));
-      fireEvent.press(screen.getByText('May 2026'));
-
-      expect(await screen.findByText(/Couldn't load your insights/)).toBeTruthy();
-      expect(screen.getByText('Observations for May 2026')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-    });
-
-    it('makes no month claim when the default insights fail to load', async () => {
-      insights.get.mockReset().mockRejectedValue(new Error('boom'));
-      renderScreen();
-      fireEvent.press(await screen.findByText('Spending'));
-
-      expect(await screen.findByText(/Couldn't load your insights/)).toBeTruthy();
-      expect(screen.getByText('Observations')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-    });
-
-    it('says which month a quiet Spending tab is quiet in', async () => {
-      insights.get.mockReset().mockResolvedValue({
-        ...PAST_INSIGHTS, sentences: [], topMerchant: null,
-      });
-      renderScreen();
-      fireEvent.press(await screen.findByText('Spending'));
-
-      expect(await screen.findByText(/Nothing stands out in June 2026/)).toBeTruthy();
-    });
-
-    it('titles the income card with the reporting month and compares against the named prior month', async () => {
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('Income for June 2026')).toBeTruthy();
-      expect(screen.getByText('Your income is 12% higher than May 2026.')).toBeTruthy();
-      expect(screen.queryByText(/this month/i)).toBeNull();
-      expect(screen.queryByText(/last month/i)).toBeNull();
-    });
-
-    it('names the comparison on the income delta even without priorMonth', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        ...PAST_SUMMARY, priorMonth: null, incomePrior: null,
-      } as any);
-      renderScreen();
-      fireEvent.press(await screen.findByText('Income'));
-
-      expect(await screen.findByText('▲ 12% vs the month before June 2026')).toBeTruthy();
-    });
-  });
-
-  describe('a reporting month that is the current one', () => {
-    it('keeps "This Month" headings when the server says the month is current', async () => {
-      dashboard.summary.mockReset().mockResolvedValue({
-        monthlyIncome: 145000, monthlyExpense: 12831, incomeDeltaPct: 12, expenseDeltaPct: -22,
-        netCashFlow: 132169, netDeltaPct: 28, spendByCategory: {},
-        reportingMonth: '2026-10', reportingMonthIsCurrent: true, priorMonth: '2026-09', incomePrior: 129464,
-      } as any);
-      insights.get.mockReset().mockResolvedValue({
-        sentences: [], movers: [], coverageCaveat: null, biggestCategory: null,
-        topMerchant: { name: 'myntra', amount: 3299 },
-        reportingMonth: '2026-10', reportingMonthIsCurrent: true,
-      });
-      renderScreen();
-
-      expect(await screen.findByText('This Month at a Glance')).toBeTruthy();
-      expect(screen.getByText(/Your top merchant this month was/)).toBeTruthy();
-      expect(screen.getByText('No spending recorded this month yet.')).toBeTruthy();
-
-      fireEvent.press(screen.getByText('Spending'));
-      expect(await screen.findByText("This Month's Observations")).toBeTruthy();
-
-      fireEvent.press(screen.getByText('Income'));
-      expect(await screen.findByText("This Month's Income")).toBeTruthy();
-    });
-  });
 });
 
-// D3 (Track D security cleanup). Spend movers name real merchants/amounts -- as screenshot-
-// attractive as anything on the Dashboard or Accounts screen, which already guard against this.
-describe('screen capture protection (Track D/D3)', () => {
-  it('calls usePreventScreenCapture on mount', () => {
+describe('kept from the old screen', () => {
+  it('blocks screen capture', () => {
     renderScreen();
-
     expect(usePreventScreenCapture).toHaveBeenCalled();
-  });
-});
-
-describe('getting-started checklist dwell timer', () => {
-  beforeEach(() => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: [], movers: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
-    });
-    recurring.list.mockReset().mockResolvedValue([]);
   });
 
   it('marks VIEW_INSIGHTS complete after a 1.5s dwell', async () => {
@@ -828,76 +262,29 @@ describe('getting-started checklist dwell timer', () => {
     (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
       items: [{ key: 'VIEW_INSIGHTS', completed: false }], completedCount: 0, totalCount: 6,
     });
-
     renderScreen();
-
     await act(async () => { await jest.advanceTimersByTimeAsync(0); });
     await act(async () => { await jest.advanceTimersByTimeAsync(1500); });
-
     expect(onboardingApi.completeChecklistItem).toHaveBeenCalledWith('VIEW_INSIGHTS');
     jest.useRealTimers();
   });
 
-  it('does not fire if the item is already complete', async () => {
-    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
-    (onboardingApi.getChecklist as jest.Mock).mockResolvedValue({
-      items: [{ key: 'VIEW_INSIGHTS', completed: true }], completedCount: 1, totalCount: 6,
-    });
-
-    renderScreen();
-
-    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
-    await act(async () => { await jest.advanceTimersByTimeAsync(1500); });
-
-    expect(onboardingApi.completeChecklistItem).not.toHaveBeenCalled();
-    jest.useRealTimers();
-  });
-});
-
-describe('usage view recording', () => {
-  beforeEach(() => {
-    insights.get.mockReset().mockResolvedValue({
-      sentences: [], movers: [], coverageCaveat: null, biggestCategory: null, topMerchant: null,
-    });
-    recurring.list.mockReset().mockResolvedValue([]);
+  it('records one insights view after a 1.5s dwell', async () => {
     (usageApi.recordView as jest.Mock).mockClear();
-  });
-
-  it('records one insights view after a 1.5s dwell, and none before it', async () => {
     jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
-
     renderScreen();
-
     await act(async () => { await jest.advanceTimersByTimeAsync(1400); });
     expect(usageApi.recordView).not.toHaveBeenCalled();
     await act(async () => { await jest.advanceTimersByTimeAsync(200); });
-    expect(usageApi.recordView).toHaveBeenCalledTimes(1);
     expect(usageApi.recordView).toHaveBeenCalledWith('insights');
     jest.useRealTimers();
   });
 
-  it('does not record a view when the screen is left before the dwell elapses', async () => {
-    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
-
-    const { unmount } = renderScreen();
-    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
-    unmount();
-    await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
-
-    expect(usageApi.recordView).not.toHaveBeenCalled();
-    jest.useRealTimers();
-  });
-});
-
-describe('a second tap on this screen\'s tab', () => {
-  // The library's useScrollToTop scrolls the list it is given back to the top when the tab that is
-  // already open is pressed again (and only then). This checks the screen hands it its list.
-  it('scrolls the screen back to the top: the list is handed to useScrollToTop', async () => {
+  it('hands its list to useScrollToTop, so a second tab tap scrolls to the top', async () => {
     (useScrollToTop as jest.Mock).mockClear();
     renderScreen();
     await waitFor(() => {
       const calls = (useScrollToTop as jest.Mock).mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
       expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
     });
   });

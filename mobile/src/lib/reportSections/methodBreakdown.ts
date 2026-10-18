@@ -42,6 +42,11 @@ export function formatShare(share: number): string {
   return share < 1 ? '<1%' : `${Math.round(share)}%`;
 }
 
+/** The same share as a screen reader should say it: "60 percent", or "under 1 percent". */
+export function spokenShare(share: number): string {
+  return share < 1 ? 'under 1 percent' : `${Math.round(share)} percent`;
+}
+
 /** A code this client does not know (a newer server): shown as readable words, never the raw code. */
 function labelFor(method: string): string {
   const known = LABELS[method];

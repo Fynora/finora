@@ -1,4 +1,4 @@
-import { MIN_NAMED_SHARE, formatShare, methodBreakdown } from './methodBreakdown';
+import { MIN_NAMED_SHARE, formatShare, methodBreakdown, spokenShare } from './methodBreakdown';
 
 const m = (method: string, amount: number) => ({ method, amount });
 
@@ -54,6 +54,12 @@ describe('methodBreakdown', () => {
     expect(formatShare(0.99)).toBe('<1%');
     expect(formatShare(1)).toBe('1%');
     expect(formatShare(59.6)).toBe('60%');
+  });
+
+  it('says a share the way a screen reader should, with no percent sign to mispronounce', () => {
+    expect(spokenShare(60.4)).toBe('60 percent');
+    expect(spokenShare(0.2)).toBe('under 1 percent');
+    expect(spokenShare(1)).toBe('1 percent');
   });
 
   it('labels every code the server sends', () => {

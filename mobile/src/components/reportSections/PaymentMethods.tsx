@@ -1,12 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { fmtCurrency } from '../../lib/format';
-import { formatShare, type MethodBreakdown, type MethodRow } from '../../lib/reportSections/methodBreakdown';
+import { formatShare, spokenShare, type MethodBreakdown, type MethodRow } from '../../lib/reportSections/methodBreakdown';
 import { spacing, typography, useTheme } from '../../theme';
 import { DashboardCard } from '../dashboard/DashboardCard';
 import { SectionHeading } from '../Card';
 
-const spoken = (r: MethodRow) =>
-  `${r.label}: ${fmtCurrency(r.amount)}, ${formatShare(r.share).replace('<1%', 'under 1 percent').replace('%', ' percent')} of spending`;
+const spoken = (r: MethodRow) => `${r.label}: ${fmtCurrency(r.amount)}, ${spokenShare(r.share)} of spending`;
 
 /**
  * How the month's spending was paid, ranked, with each method's share of the whole. The methods are

@@ -155,12 +155,25 @@ public class InsightsService {
         for (String m : priorMonths) {
             groupByCategory(moverTxns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
         }
-        int priorCount = Math.max(priorMonths.size(), 1);
+        // A category's usual month starts at the first month it has any spend in the user's history:
+        // a regular payment that began partway through the window is not "running high" because the
+        // months before it began read as zero (shared payments spec §7). Months after it first
+        // appeared still count, as zero when nothing was spent.
+        Map<String, String> firstMonthByCat = new HashMap<>();
+        for (Transaction t : moverTxns) {
+            if (refunds.spendAmount(t).signum() <= 0) continue;
+            String key = categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized";
+            String seen = YearMonth.from(t.getTxnDate()).toString();
+            firstMonthByCat.merge(key, seen, (a, b) -> a.compareTo(b) <= 0 ? a : b);
+        }
 
         List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
             BigDecimal priorTotal = priorByCat.getOrDefault(e.getKey(), BigDecimal.ZERO);
-            BigDecimal priorAvg = priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
+            String first = firstMonthByCat.getOrDefault(e.getKey(), currentMonth);
+            long priorCount = priorMonths.stream().filter(m -> m.compareTo(first) >= 0).count();
+            BigDecimal priorAvg = priorCount == 0 ? BigDecimal.ZERO
+                    : priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
             Double pct = priorAvg.compareTo(BigDecimal.ZERO) > 0
                     ? current.subtract(priorAvg).divide(priorAvg, 6, RoundingMode.HALF_UP).doubleValue() * 100
                     : null;

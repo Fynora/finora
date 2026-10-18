@@ -98,9 +98,17 @@ public class ActivationFunnelService {
     }
 
     private static List<ActivationReportDto.WeekRow> weeks(Map<UUID, Counted> users) {
-        Map<LocalDate, Map<FunnelStep, Long>> byWeek = new TreeMap<>();
+        TreeMap<LocalDate, Map<FunnelStep, Long>> byWeek = new TreeMap<>();
         for (Counted c : users.values()) {
             byWeek.computeIfAbsent(c.weekStart(), w -> zeroSteps()).merge(c.step(), 1L, Long::sum);
+        }
+        // A week with no signups between the first and the last is a row of zeros: left out, a quiet
+        // week would read as though it never happened.
+        if (!byWeek.isEmpty()) {
+            LocalDate last = byWeek.lastKey();
+            for (LocalDate w = byWeek.firstKey(); w.isBefore(last); w = w.plusWeeks(1)) {
+                byWeek.computeIfAbsent(w, k -> zeroSteps());
+            }
         }
         List<ActivationReportDto.WeekRow> rows = new ArrayList<>();
         byWeek.forEach((week, counts) -> rows.add(new ActivationReportDto.WeekRow(week, counts)));

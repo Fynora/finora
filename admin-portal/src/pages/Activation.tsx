@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { adminActivationApi, type ActivationMomentName, type ActivationReport, type FunnelStep } from '../api/endpoints';
@@ -150,10 +150,20 @@ function DeletionReasons({ reasons }: { reasons: ActivationReport['deletionReaso
 
 function ActivationContent() {
   const [range, setRange] = useState(defaultRange);
-  const { data, isLoading, isError } = useQuery({
+  const { data: fetched, isLoading, isError } = useQuery({
     queryKey: ['admin-activation', range.from, range.to],
     queryFn: () => adminActivationApi.report(range.from, range.to),
+    // The whole report refetches for a new range; keep the last one on screen meanwhile.
+    placeholderData: keepPreviousData,
   });
+  // The last report that loaded. keepPreviousData covers the wait, but React Query drops the kept
+  // report once the new request fails; this keeps it, under a notice that it is the previous range.
+  const [lastGood, setLastGood] = useState<ActivationReport | undefined>();
+  useEffect(() => { if (fetched) setLastGood(fetched); }, [fetched]);
+  const data = fetched ?? lastGood;
+  // A start after the end (typed, which min/max do not stop) would be a 400 that blanks the page.
+  const setFrom = (from: string) => { if (from && from <= range.to) setRange((r) => ({ ...r, from })); };
+  const setTo = (to: string) => { if (to && to >= range.from) setRange((r) => ({ ...r, to })); };
 
   return (
     <div className="space-y-8">
@@ -170,6 +180,9 @@ function ActivationContent() {
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
       {isError && !data && <p role="alert" className="text-sm text-danger">The activation report could not be loaded.</p>}
+      {isError && data && (
+        <p role="alert" className="text-sm text-danger">Could not load that range. Showing the previous report.</p>
+      )}
 
       {data && (
         <>
@@ -186,7 +199,7 @@ function ActivationContent() {
                   type="date"
                   value={range.from}
                   max={range.to}
-                  onChange={(e) => e.target.value && setRange((r) => ({ ...r, from: e.target.value }))}
+                  onChange={(e) => setFrom(e.target.value)}
                   className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card"
                 />
               </label>
@@ -196,7 +209,7 @@ function ActivationContent() {
                   type="date"
                   value={range.to}
                   min={range.from}
-                  onChange={(e) => e.target.value && setRange((r) => ({ ...r, to: e.target.value }))}
+                  onChange={(e) => setTo(e.target.value)}
                   className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card"
                 />
               </label>

@@ -100,6 +100,40 @@ describe('Activation', () => {
     await waitFor(() => expect(adminActivationApi.report).toHaveBeenLastCalledWith('2026-09-01', firstCall[1]));
   });
 
+  // A new range refetches the whole report; the page must not drop to "Loading…" while it does.
+  it('keeps the tables on screen while a new range loads', async () => {
+    renderPage();
+    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    vi.mocked(adminActivationApi.report).mockReturnValue(new Promise(() => {}));
+
+    fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2026-09-01' } });
+
+    await waitFor(() => expect(adminActivationApi.report).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('table', { name: 'Funnel by signup week' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  });
+
+  // A typed start after the end would be a 400 that blanks the page; it is ignored instead.
+  it('ignores a start date after the end date', async () => {
+    renderPage();
+    await screen.findByRole('table', { name: 'Funnel by signup week' });
+
+    fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2999-01-01' } });
+
+    expect(adminActivationApi.report).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Answers from')).not.toHaveValue('2999-01-01');
+  });
+
+  it('says when a new range fails, rather than passing the old numbers off as the new range', async () => {
+    renderPage();
+    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    vi.mocked(adminActivationApi.report).mockRejectedValue(new Error('down'));
+
+    fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2026-09-01' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load that range. Showing the previous report.');
+  });
+
   it('noLinksInFunnelCells', async () => {
     renderPage();
 

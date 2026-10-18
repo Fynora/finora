@@ -90,7 +90,9 @@ class ActivationReportIT extends AbstractIntegrationTest {
         JsonNode report = report(admin(), null, null);
 
         assertThat(week(report, "2030-06-17").get("counts").get("SIGNED_UP").asLong()).isEqualTo(1);
-        assertThat(findWeek(report, "2030-06-10")).as("not the UTC week").isNull();
+        // The UTC week may exist as a row of zeros (quiet weeks are filled), but this signup is not in it.
+        JsonNode utcWeek = findWeek(report, "2030-06-10");
+        assertThat(utcWeek == null ? 0 : utcWeek.get("counts").get("SIGNED_UP").asLong()).as("not the UTC week").isZero();
     }
 
     @Test
@@ -103,6 +105,20 @@ class ActivationReportIT extends AbstractIntegrationTest {
             assertThat(counts.has(step.name())).as(step.name()).isTrue();
         }
         assertThat(counts.get("GOT_DATA_IN").asLong()).isZero();
+    }
+
+    /** A week with no signups between two that have them is a row of zeros, not a missing row. */
+    @Test
+    void aQuietWeekBetweenTwoIsShownAsZeros() throws Exception {
+        signupAt(Instant.parse("2031-03-05T06:00:00Z")); // week of Monday 3 March 2031
+        signupAt(Instant.parse("2031-03-19T06:00:00Z")); // week of Monday 17 March 2031
+
+        JsonNode report = report(admin(), null, null);
+
+        JsonNode quiet = week(report, "2031-03-10");
+        for (FunnelStep step : FunnelStep.values()) {
+            assertThat(quiet.get("counts").get(step.name()).asLong()).as(step.name()).isZero();
+        }
     }
 
     @Test

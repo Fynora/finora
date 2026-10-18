@@ -11,6 +11,10 @@ import { expectHaptics } from '../test/haptics';
 // mocked below), so useNavigation() would otherwise throw. mockNavigate is asserted against by
 // the new "floating + button" test further down.
 const mockNavigate = jest.fn();
+// The Insights tab's dot reads this count (lib/useInsightsLookAtCount has its own tests); a fixed
+// value here keeps the tab bar free of a query client.
+let mockLookAtCount = 0;
+jest.mock('../lib/useInsightsLookAtCount', () => ({ useInsightsLookAtCount: () => mockLookAtCount }));
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
   // The floating pill builds its navigate action with this, same as the library's own bar.
@@ -187,5 +191,30 @@ describe('AppTabs floating + button', () => {
     expectHaptics({ selection: 1 });
     fireEvent.press(screen.getByText('Import Statement'));
     expectHaptics({ selection: 1 });
+  });
+});
+
+describe('AppTabs Insights dot', () => {
+  afterEach(() => { mockLookAtCount = 0; });
+
+  function showTabs() {
+    render(
+      <TourTargetProvider>
+        <AppTabs />
+      </TourTargetProvider>
+    );
+  }
+
+  it('shows no dot and the plain label when nothing needs a look', () => {
+    showTabs();
+    expect(screen.queryByTestId('insights-tab-dot')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Insights' })).toBeTruthy();
+  });
+
+  it('shows a dot, and says so to a screen reader, while something needs a look', () => {
+    mockLookAtCount = 2;
+    showTabs();
+    expect(screen.getByTestId('insights-tab-dot')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Insights, has things to look at' })).toBeTruthy();
   });
 });

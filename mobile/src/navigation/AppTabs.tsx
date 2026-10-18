@@ -46,6 +46,7 @@ import { VerifyEmailChangeScreen } from '../screens/settings/VerifyEmailChangeSc
 import { useTheme } from '../theme';
 import { hapticSelection } from '../lib/haptics';
 import { trackNavigation } from '../lib/trackNavigation';
+import { useInsightsLookAtCount } from '../lib/useInsightsLookAtCount';
 import type { AppTabParamList, MoreStackParamList } from './types';
 import { FloatingTabBar } from './FloatingTabBar';
 import { TabBarSpaceContext } from './useTabBarSpace';
@@ -164,6 +165,8 @@ export function AppTabs() {
   // against the Tab.Navigator this same render is about to produce.
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
   const [sheetVisible, setSheetVisible] = useState(false);
+  // A dot on Insights while its "To look at" list has anything in it.
+  const insightsToLookAt = useInsightsLookAtCount();
   // Tour target refs (tourSteps.ts) for the 3 tabs the tour spotlights directly -- 'More' has no
   // entry here because its own tour steps (Accounts/Budgets/Goals) target rows inside
   // MoreScreen, not the tab icon itself; see that screen's own registration.
@@ -203,6 +206,9 @@ export function AppTabs() {
             return (
               <View ref={register}>
                 <Ionicons name={(focused ? icons.active : icons.inactive) as any} size={size} color={color} />
+                {route.name === 'Insights' && insightsToLookAt > 0 ? (
+                  <View testID="insights-tab-dot" style={[styles.dot, { backgroundColor: c.danger, borderColor: c.bg }]} />
+                ) : null}
               </View>
             );
           },
@@ -236,6 +242,7 @@ export function AppTabs() {
           name="Insights"
           component={InsightsScreen}
           listeners={{ tabPress: () => trackNavigation("insights", "tab") }}
+          options={insightsToLookAt > 0 ? { tabBarAccessibilityLabel: 'Insights, has things to look at' } : undefined}
         />
         <Tab.Screen name="More" component={MoreNavigator} />
       </Tab.Navigator>
@@ -257,6 +264,8 @@ export function AppTabs() {
 const styles = StyleSheet.create({
   flexFill: { flex: 1 },
   fabWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Top-right of the icon, ringed in the page colour so it reads on the glass pill.
+  dot: { position: 'absolute', top: -1, right: -3, width: 9, height: 9, borderRadius: 4.5, borderWidth: 1.5 },
   // A filled circle inside the pill, no longer raised above the bar, so it needs no shadow of its own.
   fab: { width: PLUS_SIZE, height: PLUS_SIZE, borderRadius: PLUS_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
 });

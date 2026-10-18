@@ -96,6 +96,28 @@ describe('ReportsScreen', () => {
     expect(await screen.findByLabelText(/Month: Jul 26/)).toBeTruthy();
   });
 
+  describe('opened on a given month (Insights: "Where did my money go?")', () => {
+    const nav = jest.requireMock('@react-navigation/native') as { useRoute: () => { params?: unknown } };
+    const original = nav.useRoute;
+    afterEach(() => { nav.useRoute = original; });
+
+    it('opens on the month it was sent to', async () => {
+      nav.useRoute = () => ({ params: { month: '2026-05' } });
+      renderScreen();
+
+      await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-05'));
+      expect(await screen.findByLabelText(/Month: May 26/)).toBeTruthy();
+    });
+
+    it('opens on the most recent month when sent one it has no report for', async () => {
+      nav.useRoute = () => ({ params: { month: '2019-01' } });
+      renderScreen();
+
+      await waitFor(() => expect(api.forMonth).toHaveBeenCalledWith('2026-07'));
+      expect(api.forMonth).not.toHaveBeenCalledWith('2019-01');
+    });
+  });
+
   it('switches months on selection', async () => {
     renderScreen();
     await screen.findByLabelText(/Month: Jul 26/);

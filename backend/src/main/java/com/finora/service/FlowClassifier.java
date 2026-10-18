@@ -54,6 +54,9 @@ public final class FlowClassifier {
         OWN_ACCOUNT_TRANSFER, USER_OWN_MONEY, CARD_PAYMENT_RECEIVED,
         INVESTMENT_CONTRIBUTION, INVESTMENT_WITHDRAWAL,
         LOAN_DRAWDOWN,
+        // Shared payments and loans (PeopleLedger): a credit the user linked to a bill as someone's
+        // share, and money the user borrowed from a person.
+        SHARE_OF_BILL, BORROWED,
         PERSON_INFLOW, CARD_UNEXPLAINED_CREDIT, CASH_DEPOSIT, MERCHANT_CREDIT, UNKNOWN_SENDER
     }
 

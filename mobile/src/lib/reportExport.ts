@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import type { ReportData } from '../api/endpoints';
 import { fmtCurrency, monthLabelLong } from './format';
 import { comparisonGateNote, comparisonMonthName, deltaPhrase, netChangePhrase } from './reportSections/comparison';
+import { methodBreakdown } from './reportSections/methodBreakdown';
 import { shareFileAndCleanUp } from './shareFile';
 
 /**
@@ -89,6 +90,15 @@ function reportRows(report: ReportData): string[][] {
 
   rows.push([], ['Category', 'Amount'], ...report.categories.map((c) => [c.category, String(c.amount)]));
 
+  // Only when the card would be drawn: a file that lists "Not identified" as nearly everything says
+  // little, and the screen leaves it out for the same reason.
+  const methods = methodBreakdown(report.paymentMethods);
+  if (methods) {
+    rows.push([], ['Spending by payment method'], ['Method', 'Amount'],
+      ...methods.named.map((r) => [r.label, String(r.amount)]),
+      ...(methods.unidentified ? [[methods.unidentified.label, String(methods.unidentified.amount)]] : []));
+  }
+
   if (report.biggestSpends && report.biggestSpends.length > 0) {
     rows.push([], ['Biggest spends'], ['Date', 'Description', 'Category', 'Amount'],
       ...report.biggestSpends.map((s) => [s.date, s.label, s.category, String(s.amount)]));
@@ -164,6 +174,12 @@ export function toPrintableHtml(report: ReportData): string {
   const notesHtml = notes.length > 0
     ? `<ul class="notes">${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`
     : '';
+  const methods = methodBreakdown(report.paymentMethods);
+  const methodsHtml = methods
+    ? `<h2>Spending by payment method</h2><table>${[...methods.named, ...(methods.unidentified ? [methods.unidentified] : [])]
+      .map((r) => `<tr><td>${escapeHtml(r.label)}</td><td class="num">${escapeHtml(fmtCurrency(r.amount))}</td></tr>`)
+      .join('')}</table>`
+    : '';
   const biggestHtml = report.biggestSpends && report.biggestSpends.length > 0
     ? `<h2>Biggest spends</h2><table>${report.biggestSpends
       .map((s) => `<tr><td>${escapeHtml(s.date)}</td><td>${escapeHtml(s.label)}<div class="sub">${escapeHtml(s.category)}</div></td><td class="num">${escapeHtml(fmtCurrency(s.amount))}</td></tr>`)
@@ -210,6 +226,7 @@ export function toPrintableHtml(report: ReportData): string {
   ${notesHtml}
   <h2>Category Breakdown</h2>
   ${categoryRows ? `<table>${categoryRows}</table>` : '<p class="empty">No expenses recorded this month.</p>'}
+  ${methodsHtml}
   ${biggestHtml}
   ${dailyHtml}
 </body>

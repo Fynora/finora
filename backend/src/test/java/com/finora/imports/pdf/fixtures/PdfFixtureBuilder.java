@@ -332,6 +332,76 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * {@link #buildAmountOnLastLineSample} with the amount its third payee row is missing printed:
+     * what a second reading of that scan returns when it reads every amount. Its balances chain from
+     * the brought-forward line to the last row.
+     */
+    public static byte[] buildAmountOnLastLineSampleEveryAmountRead() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "29AUG2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "31AUG2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "", "50,000.00", "58,000.00")
+                .row(col, "01SEP2026", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "500.00", "", "56,500.00")
+                .row(col, "", "UPI100000000007", "", "", "")
+                .row(col, "", "100000000008", "", "", "")
+                .row(col, "", "SAMPLE PAYEE THREE", "500.00", "", "56,000.00")
+                .row(col, "05SEP2026", "ECS-SAMPLE", "", "", "")
+                .row(col, "", "100000000009", "", "", "")
+                .row(col, "", "100000000010", "2,000.00", "", "54,000.00");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * {@link #buildAmountOnLastLineSampleEveryAmountRead} with one amount read wrong (500.00 as
+     * 600.00): every amount present, but its balance no longer follows from the row above, and no
+     * balance can be restored either, since the rows on its two sides disagree about it. A second
+     * reading like this proves nothing. (A balance read one glyph wrong would not do: when both
+     * neighbours agree on the true value, OcrBalanceCellRepair restores it, legitimately.)
+     */
+    public static byte[] buildAmountOnLastLineSampleEveryAmountReadOneAmountMisread() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "29AUG2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "31AUG2026", "NEFTREF100000000001", "", "", "")
+                .row(col, "", "NEFT FROM SAMPLE PAYER PVT", "", "", "")
+                .row(col, "", "LTD", "", "", "")
+                .row(col, "", "SAMPLE BANK NA", "", "", "")
+                .row(col, "", "REF100000000002", "", "50,000.00", "58,000.00")
+                .row(col, "01SEP2026", "UPI100000000003", "", "", "")
+                .row(col, "", "100000000004", "", "", "")
+                .row(col, "", "SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "", "UPI100000000005", "", "", "")
+                .row(col, "", "100000000006", "", "", "")
+                .row(col, "", "SAMPLE PAYEE TWO", "600.00", "", "56,500.00")
+                .row(col, "", "UPI100000000007", "", "", "")
+                .row(col, "", "100000000008", "", "", "")
+                .row(col, "", "SAMPLE PAYEE THREE", "500.00", "", "56,000.00")
+                .row(col, "05SEP2026", "ECS-SAMPLE", "", "", "")
+                .row(col, "", "100000000009", "", "", "")
+                .row(col, "", "100000000010", "2,000.00", "", "54,000.00");
+
+        return render(List.of(page));
+    }
+
+    /**
      * The layout AMOUNTLESS_ANCHOR_COMPLETED must leave alone: date and the start of the narration,
      * then the reference and figures, then the value date and the narration's TAIL -- figures in the
      * middle of the block, more narration under them. Modeled on a real Indian Overseas Bank

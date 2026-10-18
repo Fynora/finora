@@ -1200,6 +1200,16 @@ export interface ReportData {
   /** Spend per day (days with spend only, oldest first), from the same rows as `categories`.
    *  Optional: an older server omits it. */
   dailySpend?: DailySpend[];
+  /** The month's spending by how it was paid, largest first, from the same rows and refund netting
+   *  as `categories`. Worked out from the account type and the statement wording, so
+   *  `UNIDENTIFIED` is spending whose wording names no method. Optional: an older server omits it. */
+  paymentMethods?: PaymentMethodAmount[];
+}
+export interface PaymentMethodAmount {
+  /** UPI, CARD, BANK_TRANSFER, CASH, CHEQUE, AUTO_DEBIT, WALLET or UNIDENTIFIED; a newer server may
+   *  send a code this client does not know. */
+  method: string;
+  amount: number;
 }
 export interface MonthComparison {
   previousMonth: string;

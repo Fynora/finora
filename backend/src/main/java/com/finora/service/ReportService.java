@@ -133,6 +133,21 @@ public class ReportService {
                 .map(e -> new ReportDto.DailySpend(e.getKey(), e.getValue()))
                 .toList();
 
+        // How it was paid: the same spend rows and netting again, grouped by the method the account
+        // type and the statement wording name. An account type of null (not set) is read as a bank
+        // account by the classifier.
+        Map<UUID, com.finora.entity.Account.Type> accountTypes = new java.util.HashMap<>();
+        for (com.finora.entity.Account a : accounts) accountTypes.put(a.getId(), a.getAccountType());
+        List<ReportDto.PaymentMethodAmount> paymentMethods = RefundNetting.withoutNegativeSpend(spendRows.stream()
+                        .collect(Collectors.groupingBy(
+                                t -> PaymentMethodClassifier.classify(t, accountTypes.get(t.getAccountId())).name(),
+                                Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))))
+                .entrySet().stream()
+                .filter(e -> e.getValue().signum() > 0)
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(e -> new ReportDto.PaymentMethodAmount(e.getKey(), e.getValue()))
+                .toList();
+
         Map<String, BigDecimal> incomeByLabel = new java.util.LinkedHashMap<>();
         for (Transaction t : txnsForTotals) {
             if (!FlowTotals.countsAsIncome(t, flow)) continue;
@@ -156,7 +171,7 @@ public class ReportService {
                 unresolvedInflow, incomeByKind,
                 txnsForTotals.size(), FlowTotals.unresolvedInflowCount(txnsForTotals, flow), comparison,
                 coverage == null || coverage.completeFor(month),
-                savings.pct(), savings.gateReason(), biggestSpends, dailySpend);
+                savings.pct(), savings.gateReason(), biggestSpends, dailySpend, paymentMethods);
     }
 
     /** How many of the month's largest purchases the report lists. */

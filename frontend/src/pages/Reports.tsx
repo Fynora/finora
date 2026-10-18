@@ -16,6 +16,8 @@ import { BiggestSpends } from './reportSections/BiggestSpends';
 import { CategoryBreakdown } from './reportSections/CategoryBreakdown';
 import { CategoryChanges } from './reportSections/CategoryChanges';
 import { categoryChanges } from './reportSections/changeVsMonth';
+import { PaymentMethods } from './reportSections/PaymentMethods';
+import { methodBreakdown } from './reportSections/methodBreakdown';
 import { comparisonMonthName } from '../lib/reportComparison';
 import { MerchantsCard } from './reportSections/MerchantsCard';
 import { SpendingCalendar } from './reportSections/SpendingCalendar';
@@ -138,7 +140,8 @@ export default function Reports() {
     ? categoryChanges(report.categories, extrasForReport.previous.categories)
     : [];
   const priorName = report?.comparison ? comparisonMonthName(report.comparison.previousMonth, report.month) : '';
-  const hasSide = observations.length > 0 || changes.length > 0 || (report?.incomeByKind?.length ?? 0) > 1;
+  const methods = report ? methodBreakdown(report.paymentMethods) : null;
+  const hasSide = observations.length > 0 || changes.length > 0 || methods !== null || (report?.incomeByKind?.length ?? 0) > 1;
 
   const showMonthsSkeleton = useDelayedLoading(loading);
   // First load only -- `report === null` is what separates "nothing to show yet" from "showing last
@@ -242,6 +245,7 @@ export default function Reports() {
               <div className="space-y-6 lg:col-span-2">
                 <Observations items={observations} />
                 <CategoryChanges changes={changes} priorName={priorName} />
+                <PaymentMethods breakdown={methods} />
                 {/* Plan 2: income split by what it was -- Family support and the user's own kinds
                     get their own lines. */}
                 {report.incomeByKind && report.incomeByKind.length > 1 && (

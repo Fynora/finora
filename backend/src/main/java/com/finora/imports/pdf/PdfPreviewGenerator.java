@@ -188,7 +188,72 @@ public class PdfPreviewGenerator {
      *   why supplying one for an unencrypted document is safe.
      */
     public PdfGenerationResult generateSectionsWithContext(UUID userId, String filename, byte[] fileBytes, String password) throws IOException {
-        return generateSectionsFromAcquired(userId, filename, acquire(fileBytes, password));
+        com.finora.imports.pdf.acquisition.AcquiredDocument acquired = acquire(fileBytes, password);
+        PdfGenerationResult first = generateSectionsFromAcquired(userId, filename, acquired);
+        if (acquired.source() != TextSource.OCR
+                || !first.documentContext().diagnostics().contains(BALANCE_MOVED_WITHOUT_AN_AMOUNT)) {
+            return first;
+        }
+        return secondLook(userId, filename, fileBytes, password, first);
+    }
+
+    /** See {@link #secondLook}. */
+    static final String BALANCE_MOVED_WITHOUT_AN_AMOUNT = "BALANCE_MOVED_WITHOUT_AN_AMOUNT";
+
+    /**
+     * A scanned statement whose first reading skipped an amount -- a row whose running balance moved
+     * with no amount read -- is read once more, segmented differently, and the second reading is kept
+     * only when the document's own figures prove it: no such row left, every section's balance chain
+     * and statement totals VERIFIED, nothing the trust rules would hold, and no fewer rows or sections
+     * than the first reading. Anything short of that keeps the first reading, which the totals then
+     * hold for review exactly as before.
+     *
+     * <p>Every amount kept is one read off the page; none is worked out from the balances. Sid's
+     * decision (2026-10-17), on a real scanned HSBC statement whose first reading dropped one amount
+     * outright: the sparse-text second reading read all thirteen rows, every date, amount and balance
+     * matching the page, with both checks verified.
+     */
+    private PdfGenerationResult secondLook(UUID userId, String filename, byte[] fileBytes, String password,
+                                           PdfGenerationResult first) throws IOException {
+        java.util.Optional<com.finora.imports.pdf.acquisition.AcquiredDocument> again =
+                textAcquirer.secondLook(fileBytes, password);
+        if (again.isEmpty()) return first;
+        PdfGenerationResult second = generateSectionsFromAcquired(userId, filename, again.get());
+        if (secondReadingProven(first, second)) {
+            DocumentContext ctx = second.documentContext();
+            ctx.record("OCR_SECOND_LOOK_RECOVERED_AMOUNTS");
+            return second;
+        }
+        first.documentContext().recordDiagnostic("OCR_SECOND_LOOK_NOT_PROVEN");
+        return first;
+    }
+
+    static boolean secondReadingProven(PdfGenerationResult first, PdfGenerationResult second) {
+        if (second.documentContext().diagnostics().contains(BALANCE_MOVED_WITHOUT_AN_AMOUNT)) return false;
+        if (second.sections().size() != first.sections().size()) return false;
+        if (stagedRowCount(second) < stagedRowCount(first)) return false;
+        List<com.finora.dto.ImportDto.VerificationReport> reports = new ArrayList<>();
+        for (StagedAccountSection section : second.sections()) {
+            if (section.rows().isEmpty()) continue;
+            if (section.verification() == null) return false;
+            if (!outcomeIs(section.verification(), com.finora.imports.BalanceChainValidator.RULE, "VERIFIED")
+                    || !outcomeIs(section.verification(), com.finora.imports.StatementTotalsValidator.RULE, "VERIFIED")) {
+                return false;
+            }
+            reports.add(section.verification());
+        }
+        if (reports.isEmpty()) return false;
+        return !com.finora.imports.trust.TrustPredicate.evaluate(reports, List.of(),
+                LocalDate.now(java.time.ZoneOffset.UTC)).hold();
+    }
+
+    private static int stagedRowCount(PdfGenerationResult result) {
+        return result.sections().stream().mapToInt(s -> s.rows().size()).sum();
+    }
+
+    private static boolean outcomeIs(com.finora.dto.ImportDto.VerificationReport report, String rule, String outcome) {
+        return report.findings().stream()
+                .anyMatch(f -> f != null && rule.equals(f.rule()) && outcome.equals(f.outcome()));
     }
 
     /** Text acquisition alone, with the same acquirer an import uses. */
@@ -693,7 +758,7 @@ public class PdfPreviewGenerator {
                 unparseable.add(new UnparseableRow(row,
                         "The running balance changed on this row, but no amount was read for it, so it "
                                 + "could not be staged as a transaction"));
-                if (ctx != null) ctx.recordDiagnostic("BALANCE_MOVED_WITHOUT_AN_AMOUNT");
+                if (ctx != null) ctx.recordDiagnostic(BALANCE_MOVED_WITHOUT_AN_AMOUNT);
             }
 
             BigDecimal balance = CsvParser.parseNumeric(

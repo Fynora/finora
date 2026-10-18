@@ -140,6 +140,23 @@ describe('toCsv — what qualifies the figures', () => {
     expect(toCsv({ ...plain, biggestSpends: [], dailySpend: [] })).not.toContain('Biggest spends');
   });
 
+  it('writes the spending by payment method, with the unidentified part named, when the screen would draw the card', () => {
+    const csv = toCsv({
+      ...plain,
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'CARD', amount: 3000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    });
+    expect(csv).toContain('"Spending by payment method"');
+    expect(csv).toContain('"UPI","6000"');
+    expect(csv).toContain('"Card","3000"');
+    expect(csv).toContain('"Not identified","1000"');
+  });
+
+  it('writes no payment-method section when too little of the spending has a named method', () => {
+    expect(toCsv({ ...plain, paymentMethods: [{ method: 'UPI', amount: 300 }, { method: 'UNIDENTIFIED', amount: 700 }] }))
+      .not.toContain('payment method');
+    expect(toCsv(plain)).not.toContain('payment method');
+  });
+
   it('neutralises a purchase name that starts with a formula-triggering character', () => {
     const csv = toCsv({
       ...plain,
@@ -203,6 +220,18 @@ describe('toPrintableHtml — what qualifies the figures', () => {
     });
     expect(html).toContain('Not shown: no income was counted this month');
     expect(html).toContain('A statement is missing around September or August, so they are not compared.');
+  });
+
+  it('prints the spending by payment method, and omits it when the screen would leave the card out', () => {
+    const html = toPrintableHtml({
+      ...plain,
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    });
+    expect(html).toContain('Spending by payment method');
+    expect(html).toContain('<td>UPI</td><td class="num">₹6,000</td>');
+    expect(html).toContain('<td>Not identified</td><td class="num">₹1,000</td>');
+    expect(toPrintableHtml({ ...plain, paymentMethods: [{ method: 'UPI', amount: 1 }, { method: 'UNIDENTIFIED', amount: 9 }] }))
+      .not.toContain('Spending by payment method');
   });
 
   it('prints the biggest spends and the spend per day, escaped, and omits them when there are none', () => {

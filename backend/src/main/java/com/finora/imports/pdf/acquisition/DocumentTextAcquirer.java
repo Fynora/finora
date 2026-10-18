@@ -42,4 +42,14 @@ public interface DocumentTextAcquirer {
      *  capability is a property of the acquirer, whereas choosing between two capable acquirers is
      *  a routing decision this package does not make. */
     boolean supports(byte[] fileBytes);
+
+    /**
+     * A second, differently segmented reading of a document whose pixels were recognised, or empty
+     * when this acquirer has none. Never consulted on its own: the caller asks only once the first
+     * reading has shown a word was skipped, and keeps this one only if the document's own figures
+     * verify it.
+     */
+    default java.util.Optional<AcquiredDocument> secondLook(byte[] fileBytes, String password) throws IOException {
+        return java.util.Optional.empty();
+    }
 }

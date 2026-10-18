@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
-import { passwordChangeApi, accountLifecycleApi } from '../api/endpoints';
+import { passwordChangeApi, accountLifecycleApi, type DeletionReason } from '../api/endpoints';
+import { DELETION_REASONS, DELETION_REASON_QUESTION } from '../lib/activationQuestions';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode, resetPhoneVerification } from '../lib/phoneAuth';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import type { ConfirmationResult } from 'firebase/auth';
@@ -55,6 +56,8 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
   const [otp, setOtp] = useState('');
 
   const [understood, setUnderstood] = useState(false);
+  // Gate 2a spec §5: optional. Null sends no reason, and the delete button never depends on it.
+  const [reason, setReason] = useState<DeletionReason | null>(null);
 
   useEffect(() => () => resetPhoneVerification(), []);
 
@@ -111,6 +114,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
     setSessionId(null);
     setConfirmation(null);
     resetPhoneVerification();
+    setReason(null);
     setError(null);
   }
 
@@ -119,7 +123,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
     setSubmitting(true);
     setError(null);
     try {
-      await accountLifecycleApi.deleteAccount(sessionId);
+      await accountLifecycleApi.deleteAccount(sessionId, reason ?? undefined);
       onDeleted();
     } catch (e: any) {
       console.error('DeleteAccountModal: submitDelete failed', e);
@@ -132,7 +136,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30" onClick={onClose} data-testid="delete-account-modal">
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="delete-account-title" tabIndex={-1} className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="delete-account-title" tabIndex={-1} className="bg-card rounded-xl2 shadow-card p-6 w-[420px] max-w-[90vw] max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 id="delete-account-title" className="text-lg font-semibold text-ink">Delete Account</h2>
           <button onClick={onClose} className="text-muted hover:text-ink" aria-label="Close">
@@ -240,6 +244,25 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
                   submitted.
                 </p>
               </div>
+            </div>
+            <div role="radiogroup" aria-labelledby="delete-account-reason" className="space-y-1.5">
+              <p id="delete-account-reason" className="text-xs font-medium text-ink">{DELETION_REASON_QUESTION}</p>
+              {DELETION_REASONS.map((r) => (
+                <label key={r.key} className="flex items-center gap-2 text-xs text-ink cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delete-account-reason"
+                    value={r.key}
+                    checked={reason === r.key}
+                    disabled={submitting}
+                    onChange={() => setReason(r.key)}
+                    // Skipping is always allowed: a click on the chosen answer clears it, so a stray
+                    // click is never sent as a reason.
+                    onClick={() => { if (reason === r.key) setReason(null); }}
+                  />
+                  <span>{r.label}</span>
+                </label>
+              ))}
             </div>
             <label className="flex items-start gap-2 text-xs text-ink cursor-pointer">
               <input

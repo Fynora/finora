@@ -188,7 +188,7 @@ public class UserController {
      *  local session immediately after this succeeds, same as deactivate() above. */
     @PostMapping("/account/delete")
     public ApiResponse<DeleteAccountResponse> deleteAccount(@Valid @RequestBody DeleteAccountRequest request) {
-        accountLifecycleService.requestDeletion(currentUser.id(), request.sessionId());
+        accountLifecycleService.requestDeletion(currentUser.id(), request.sessionId(), request.reason());
         return ApiResponse.ok(new DeleteAccountResponse(
                 "Your account has been permanently deleted. You've been signed out everywhere."));
     }

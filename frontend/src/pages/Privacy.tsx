@@ -178,6 +178,10 @@ export default function Privacy() {
           only, never the time, the file or anything in it, so we can see where adding a statement gets
           difficult. These records are linked to your account and are deleted if you delete your account.
         </p>
+        <p>
+          If you tell us why you are deleting your account, we keep that answer with the month only and no
+          link to you or your account, so it is not deleted with your account.
+        </p>
       </PublicSection>
 
       <PublicSection title="Data Usage">

@@ -172,4 +172,10 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/where adding a statement gets\s+difficult/i);
   });
 
+  // Gate 2a spec §8: the deletion reason is kept unlinked, so the page says it outlives the account.
+  it('discloses that a deletion reason is kept with the month only and no link to the person', () => {
+    expect(policyText()).toMatch(
+      /If you tell us why you are deleting your account, we keep that answer with the month only and no\s+link to you or your account, so it is not deleted with your account\./);
+  });
+
 });

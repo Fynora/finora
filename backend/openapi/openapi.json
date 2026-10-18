@@ -15603,6 +15603,17 @@
                     "sessionId": {
                         "type": "string",
                         "minLength": 1
+                    },
+                    "reason": {
+                        "type": "string",
+                        "enum": [
+                            "COULDNT_GET_STATEMENTS_IN",
+                            "NOT_COMFORTABLE_WITH_DATA",
+                            "NOTHING_USEFUL",
+                            "USE_ANOTHER_APP",
+                            "DONT_NEED_IT",
+                            "SOMETHING_ELSE"
+                        ]
                     }
                 },
                 "required": [

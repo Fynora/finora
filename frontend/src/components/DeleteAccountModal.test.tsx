@@ -111,4 +111,80 @@ describe('DeleteAccountModal', () => {
       );
     });
   });
+
+  /** Gate 2a spec §5: one optional question on the confirm step. */
+  describe('the reason for leaving', () => {
+    async function advanceToConfirmStep(user: ReturnType<typeof userEvent.setup>) {
+      render(<DeleteAccountModal onClose={vi.fn()} onDeleted={vi.fn()} signInMethod="PASSWORD" />);
+      await user.type(screen.getByLabelText(/current password/i), 'OldPass123!');
+      await user.click(screen.getByRole('button', { name: /send code/i }));
+      await user.type(await screen.findByLabelText(/verification code/i), '654321');
+      await user.click(screen.getByRole('button', { name: /^verify$/i }));
+      await screen.findByRole('button', { name: /permanently delete account/i });
+    }
+
+    it('asks the exact question, with the six answers in order', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      const group = screen.getByRole('radiogroup', { name: "Before you go: what's the main reason?" });
+      expect(Array.from(group.querySelectorAll('input[type="radio"]')).map((r) => (r as HTMLInputElement).labels?.[0]?.textContent))
+        .toEqual([
+          "I couldn't get my statements in", "I'm not comfortable with my data here", "It didn't show me anything useful",
+          'I use another app', "I don't need it anymore", 'Something else',
+        ]);
+      expect(screen.getAllByRole('radio').every((r) => !(r as HTMLInputElement).checked)).toBe(true);
+    });
+
+    it('sendsTheChosenReason', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      await user.click(screen.getByRole('radio', { name: 'I use another app' }));
+      await user.click(screen.getByRole('checkbox'));
+      await user.click(screen.getByRole('button', { name: /permanently delete account/i }));
+
+      await waitFor(() => expect(accountLifecycleApi.deleteAccount).toHaveBeenCalledWith('session-1', 'USE_ANOTHER_APP'));
+    });
+
+    it('sendsNoReasonWhenNoneChosen', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      await user.click(screen.getByRole('checkbox'));
+      await user.click(screen.getByRole('button', { name: /permanently delete account/i }));
+
+      await waitFor(() => expect(accountLifecycleApi.deleteAccount).toHaveBeenCalledWith('session-1', undefined));
+    });
+
+    // Skipping is always allowed: a tap on the chosen answer clears it, so a stray tap is not sent.
+    it('tapping the chosen answer again clears it', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      await user.click(screen.getByRole('radio', { name: 'Something else' }));
+      await user.click(screen.getByRole('radio', { name: 'Something else' }));
+      await user.click(screen.getByRole('checkbox'));
+      await user.click(screen.getByRole('button', { name: /permanently delete account/i }));
+
+      expect(screen.getByRole('radio', { name: 'Something else' })).not.toBeChecked();
+      await waitFor(() => expect(accountLifecycleApi.deleteAccount).toHaveBeenCalledWith('session-1', undefined));
+    });
+
+    it('deleteEnabledWithoutAReason', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      await user.click(screen.getByRole('checkbox'));
+
+      expect(screen.getByRole('button', { name: /permanently delete account/i })).toBeEnabled();
+    });
+
+    it('has no text input on the confirm step', async () => {
+      const user = userEvent.setup();
+      await advanceToConfirmStep(user);
+
+      expect(screen.queryByRole('textbox')).toBeNull();
+    });
+  });
 });

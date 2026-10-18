@@ -136,8 +136,8 @@ Rules that follow from it, stated so a builder does not have to choose:
 - **Reports, Dashboard, Insights, Budgets and exports all read the same netting.** Today
   `RefundNetting.from` builds expense id → refunded total from refund legs, and `RefundNetting.reportable`
   drops refund legs. Shares join both: `from` adds share links to the per-expense total, `reportable`
-  drops a credit whose whole amount is linked as shares (a partly linked credit's remainder is read as
-  today). The callers today: `DashboardService`, `ReportService`, `AnalyticsService`, `InsightsService`,
+  drops a credit that has any share link (it leaves income in full; a remainder that fits no bill is
+  answered with "they owed you", §6 D). The callers today: `DashboardService`, `ReportService`, `AnalyticsService`, `InsightsService`,
   `BudgetService`, `CategorizationService`, `StatementImportService` (verify each; a caller that builds
   `RefundNetting` from a month window must load share links across all time, as refunds already are).
 - **Lent and repays-a-borrowing debits** are not spending, like a transfer; they are not income either.

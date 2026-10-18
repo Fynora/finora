@@ -68,6 +68,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/people/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peoplePreferences"];
+        put: operations["peopleSetPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/person/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["peoplePersonSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notification-preferences": {
         parameters: {
             query?: never;
@@ -990,6 +1022,70 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["verify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/split-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["peopleAddSplitRule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["peopleLinkShare"];
+        delete: operations["peopleUnlinkShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["peopleSettle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["peopleAddEntry"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3796,6 +3892,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peopleList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peopleSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/person": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peoplePerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/bills/{billId}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peopleBillShares"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/status": {
         parameters: {
             query?: never;
@@ -5764,6 +5924,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/people/split-rules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["peopleRemoveSplitRule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/people/entries/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["peopleDeleteEntry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/google/gmail/connection": {
         parameters: {
             query?: never;
@@ -5981,6 +6173,40 @@ export interface components {
             name?: string;
             countsAsIncome?: boolean;
             builtIn?: string;
+        };
+        PreferencesRequest: {
+            ownUpiId?: string;
+        };
+        ApiResponsePreferencesDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PreferencesDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PreferencesDto: {
+            ownUpiId?: string;
+        };
+        PersonSettingsRequest: {
+            personKey: string;
+            family?: boolean;
+        };
+        ApiResponseVoid: {
+            success?: boolean;
+            message?: string;
+            data?: unknown;
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         UpdatePreferenceRequest: {
             /** @enum {string} */
@@ -6261,18 +6487,6 @@ export interface components {
         ChangePlanRequest: {
             planCode: string;
             reason: string;
-        };
-        ApiResponseVoid: {
-            success?: boolean;
-            message?: string;
-            data?: unknown;
-            /** Format: date-time */
-            timestamp?: string;
-            errorCode?: string;
-            requestId?: string;
-            details?: {
-                [key: string]: unknown;
-            };
         };
         UpdatePlatformSettingsRequest: {
             registrationsEnabled?: boolean;
@@ -7327,6 +7541,97 @@ export interface components {
         };
         VerifyPhoneResponse: {
             message?: string;
+        };
+        SplitRuleRequest: {
+            /** Format: uuid */
+            creditId: string;
+            /** Format: uuid */
+            billId: string;
+        };
+        ApiResponseSplitRuleDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SplitRuleDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SplitRuleDto: {
+            /** Format: uuid */
+            id?: string;
+            senderKey?: string;
+            /** Format: uuid */
+            billCategoryId?: string;
+            billCategory?: string;
+            billPayeeKey?: string;
+            billMerchant?: string;
+        };
+        LinkShareRequest: {
+            /** Format: uuid */
+            creditId: string;
+            /** Format: uuid */
+            billId: string;
+            amount?: number;
+        };
+        ApiResponseShareDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ShareDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ShareDto: {
+            /** Format: uuid */
+            creditId?: string;
+            /** Format: uuid */
+            billId?: string;
+            label?: string;
+            /** Format: date */
+            date?: string;
+            amount?: number;
+            fromRule?: boolean;
+        };
+        SettleRequest: {
+            personKey: string;
+            /** @enum {string} */
+            how: "CASH" | "LET_GO";
+        };
+        EntryRequest: {
+            /** Format: uuid */
+            txnId: string;
+            /** @enum {string} */
+            direction: "LENT" | "PAID_BACK" | "BORROWED" | "REPAID" | "CASH_SETTLED" | "LET_GO";
+        };
+        ApiResponseEntryDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["EntryDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        EntryDto: {
+            /** Format: uuid */
+            id?: string;
+            personKey?: string;
+            /** Format: uuid */
+            txnId?: string;
+            /** @enum {string} */
+            direction?: "LENT" | "PAID_BACK" | "BORROWED" | "REPAID" | "CASH_SETTLED" | "LET_GO";
+            amount?: number;
         };
         SpendingTrackingRequest: {
             method?: string;
@@ -9716,6 +10021,120 @@ export interface components {
             latestDate?: string;
             amountMin?: number;
             amountMax?: number;
+        };
+        ApiResponseListPersonDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PersonDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PersonDto: {
+            personKey?: string;
+            label?: string;
+            owedToUser?: number;
+            /** Format: date */
+            since?: string;
+            family?: boolean;
+        };
+        ApiResponsePeopleSuggestionsResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PeopleSuggestionsResult"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BillOption: {
+            /** Format: uuid */
+            billId?: string;
+            category?: string;
+            payeeLabel?: string;
+            /** Format: date */
+            date?: string;
+            amount?: number;
+            remaining?: number;
+        };
+        ExpectedShare: {
+            personKey?: string;
+            label?: string;
+            usualAmount?: number;
+            /** Format: int32 */
+            usualDay?: number;
+            late?: boolean;
+            /** Format: uuid */
+            ruleId?: string;
+        };
+        PeopleSuggestionsResult: {
+            items?: components["schemas"]["Suggestion"][];
+            expected?: components["schemas"]["ExpectedShare"][];
+        };
+        Suggestion: {
+            kind?: string;
+            ackKey?: string;
+            /** Format: uuid */
+            txnId?: string;
+            /** Format: uuid */
+            relatedTxnId?: string;
+            personKey?: string;
+            label?: string;
+            amount?: number;
+            /** Format: date */
+            date?: string;
+            category?: string;
+            bills?: components["schemas"]["BillOption"][];
+            owed?: number;
+        };
+        ApiResponsePersonDetailDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PersonDetailDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PersonDetailDto: {
+            personKey?: string;
+            label?: string;
+            owedToUser?: number;
+            /** Format: date */
+            since?: string;
+            family?: boolean;
+            timeline?: components["schemas"]["TimelineItem"][];
+            rules?: components["schemas"]["SplitRuleDto"][];
+        };
+        TimelineItem: {
+            /** Format: date */
+            date?: string;
+            kind?: string;
+            amount?: number;
+            /** Format: uuid */
+            txnId?: string;
+        };
+        ApiResponseListShareDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ShareDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseChecklistResponse: {
             success?: boolean;
@@ -12868,6 +13287,74 @@ export interface operations {
             };
         };
     };
+    peoplePreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePreferencesDto"];
+                };
+            };
+        };
+    };
+    peopleSetPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePreferencesDto"];
+                };
+            };
+        };
+    };
+    peoplePersonSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     list: {
         parameters: {
             query?: never;
@@ -14700,6 +15187,125 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVerifyPhoneResponse"];
+                };
+            };
+        };
+    };
+    peopleAddSplitRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSplitRuleDto"];
+                };
+            };
+        };
+    };
+    peopleLinkShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkShareRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseShareDto"];
+                };
+            };
+        };
+    };
+    peopleUnlinkShare: {
+        parameters: {
+            query: {
+                creditId: string;
+                billId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    peopleSettle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    peopleAddEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseEntryDto"];
                 };
             };
         };
@@ -19417,6 +20023,90 @@ export interface operations {
             };
         };
     };
+    peopleList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListPersonDto"];
+                };
+            };
+        };
+    };
+    peopleSuggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePeopleSuggestionsResult"];
+                };
+            };
+        };
+    };
+    peoplePerson: {
+        parameters: {
+            query: {
+                key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePersonDetailDto"];
+                };
+            };
+        };
+    };
+    peopleBillShares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                billId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListShareDto"];
+                };
+            };
+        };
+    };
     status_1: {
         parameters: {
             query?: never;
@@ -22063,6 +22753,50 @@ export interface operations {
         };
     };
     forgetSenderInflowRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    peopleRemoveSplitRule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    peopleDeleteEntry: {
         parameters: {
             query?: never;
             header?: never;

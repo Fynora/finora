@@ -71,7 +71,7 @@ class PeopleSuggestionsTest {
         return e;
     }
 
-    private PeopleSuggestions.Result build() {
+    private PeopleSuggestions.PeopleSuggestionsResult build() {
         PeopleLedger ledger = PeopleLedger.build(rows, links, rules, entries, repaymentKeys);
         return PeopleSuggestions.build(new PeopleSuggestions.Input(ledger, rows, categories, acks, family,
                 rules, entries, repaymentKeys, TODAY));

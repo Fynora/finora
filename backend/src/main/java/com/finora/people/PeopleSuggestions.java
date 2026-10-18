@@ -59,7 +59,7 @@ public final class PeopleSuggestions {
 
     public record ExpectedShare(String personKey, String label, BigDecimal usualAmount, int usualDay, boolean late, UUID ruleId) {}
 
-    public record Result(List<Suggestion> items, List<ExpectedShare> expected) {}
+    public record PeopleSuggestionsResult(List<Suggestion> items, List<ExpectedShare> expected) {}
 
     /** {@code acknowledged}: "KIND|ackKey" for every row the user marked "Got it". */
     public record Input(PeopleLedger ledger, Collection<Transaction> rows, Map<UUID, String> categoryNames,
@@ -68,7 +68,7 @@ public final class PeopleSuggestions {
 
     private PeopleSuggestions() {}
 
-    public static Result build(Input in) {
+    public static PeopleSuggestionsResult build(Input in) {
         List<Transaction> live = in.rows().stream()
                 .filter(t -> t.getId() != null && t.getTxnDate() != null && t.getAmount() != null
                         && t.getIsDuplicateOf() == null
@@ -197,7 +197,7 @@ public final class PeopleSuggestions {
                         .thenComparing(Suggestion::date, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(MAX_ITEMS)
                 .toList();
-        return new Result(shown, expected(in, live, byId));
+        return new PeopleSuggestionsResult(shown, expected(in, live, byId));
     }
 
     /** For each split rule: the sender's latest share and the day it usually comes; late once that day

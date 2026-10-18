@@ -259,6 +259,84 @@
                 }
             }
         },
+        "/api/v1/people/preferences": {
+            "get": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peoplePreferences",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePreferencesDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleSetPreferences",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PreferencesRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePreferencesDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/person/settings": {
+            "put": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peoplePersonSettings",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PersonSettingsRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/notification-preferences": {
             "get": {
                 "tags": [
@@ -2913,6 +2991,164 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseVerifyPhoneResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/split-rules": {
+            "post": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleAddSplitRule",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SplitRuleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSplitRuleDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/shares": {
+            "post": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleLinkShare",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LinkShareRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseShareDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleUnlinkShare",
+                "parameters": [
+                    {
+                        "name": "creditId",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "billId",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/settle": {
+            "post": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleSettle",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SettleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/entries": {
+            "post": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleAddEntry",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EntryRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseEntryDto"
                                 }
                             }
                         }
@@ -9296,6 +9532,108 @@
                 }
             }
         },
+        "/api/v1/people": {
+            "get": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleList",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListPersonDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/suggestions": {
+            "get": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleSuggestions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePeopleSuggestionsResult"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/person": {
+            "get": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peoplePerson",
+                "parameters": [
+                    {
+                        "name": "key",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponsePersonDetailDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/bills/{billId}/shares": {
+            "get": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleBillShares",
+                "parameters": [
+                    {
+                        "name": "billId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListShareDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/onboarding/status": {
             "get": {
                 "tags": [
@@ -12983,6 +13321,68 @@
                 }
             }
         },
+        "/api/v1/people/split-rules/{id}": {
+            "delete": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleRemoveSplitRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/people/entries/{id}": {
+            "delete": {
+                "tags": [
+                    "people-controller"
+                ],
+                "operationId": "peopleDeleteEntry",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/google/gmail/connection": {
             "delete": {
                 "tags": [
@@ -13531,6 +13931,94 @@
                     },
                     "builtIn": {
                         "type": "string"
+                    }
+                }
+            },
+            "PreferencesRequest": {
+                "type": "object",
+                "properties": {
+                    "ownUpiId": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 0
+                    }
+                }
+            },
+            "ApiResponsePreferencesDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PreferencesDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PreferencesDto": {
+                "type": "object",
+                "properties": {
+                    "ownUpiId": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PersonSettingsRequest": {
+                "type": "object",
+                "properties": {
+                    "personKey": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "minLength": 0
+                    },
+                    "family": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "personKey"
+                ]
+            },
+            "ApiResponseVoid": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {},
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },
@@ -14316,32 +14804,6 @@
                     "planCode",
                     "reason"
                 ]
-            },
-            "ApiResponseVoid": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {},
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
             },
             "UpdatePlatformSettingsRequest": {
                 "type": "object",
@@ -17227,6 +17689,254 @@
                     }
                 }
             },
+            "SplitRuleRequest": {
+                "type": "object",
+                "properties": {
+                    "creditId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "billId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "billId",
+                    "creditId"
+                ]
+            },
+            "ApiResponseSplitRuleDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/SplitRuleDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SplitRuleDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "senderKey": {
+                        "type": "string"
+                    },
+                    "billCategoryId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "billCategory": {
+                        "type": "string"
+                    },
+                    "billPayeeKey": {
+                        "type": "string"
+                    },
+                    "billMerchant": {
+                        "type": "string"
+                    }
+                }
+            },
+            "LinkShareRequest": {
+                "type": "object",
+                "properties": {
+                    "creditId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "billId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "amount": {
+                        "type": "number",
+                        "minimum": 0.01
+                    }
+                },
+                "required": [
+                    "billId",
+                    "creditId"
+                ]
+            },
+            "ApiResponseShareDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ShareDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ShareDto": {
+                "type": "object",
+                "properties": {
+                    "creditId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "billId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "fromRule": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "SettleRequest": {
+                "type": "object",
+                "properties": {
+                    "personKey": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "minLength": 0
+                    },
+                    "how": {
+                        "type": "string",
+                        "enum": [
+                            "CASH",
+                            "LET_GO"
+                        ]
+                    }
+                },
+                "required": [
+                    "how",
+                    "personKey"
+                ]
+            },
+            "EntryRequest": {
+                "type": "object",
+                "properties": {
+                    "txnId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": [
+                            "LENT",
+                            "PAID_BACK",
+                            "BORROWED",
+                            "REPAID",
+                            "CASH_SETTLED",
+                            "LET_GO"
+                        ]
+                    }
+                },
+                "required": [
+                    "direction",
+                    "txnId"
+                ]
+            },
+            "ApiResponseEntryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EntryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "EntryDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "personKey": {
+                        "type": "string"
+                    },
+                    "txnId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": [
+                            "LENT",
+                            "PAID_BACK",
+                            "BORROWED",
+                            "REPAID",
+                            "CASH_SETTLED",
+                            "LET_GO"
+                        ]
+                    },
+                    "amount": {
+                        "type": "number"
+                    }
+                }
+            },
             "SpendingTrackingRequest": {
                 "type": "object",
                 "properties": {
@@ -17518,7 +18228,7 @@
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING"
+                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING|SHARE_CHECK|LENT_CHECK|PAYBACK_CHECK|SETTLE|EVERY_MONTH|ALWAYS_PERSON"
                     },
                     "itemKey": {
                         "type": "string",
@@ -23573,6 +24283,308 @@
                     },
                     "amountMax": {
                         "type": "number"
+                    }
+                }
+            },
+            "ApiResponseListPersonDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PersonDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PersonDto": {
+                "type": "object",
+                "properties": {
+                    "personKey": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "owedToUser": {
+                        "type": "number"
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "family": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponsePeopleSuggestionsResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PeopleSuggestionsResult"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BillOption": {
+                "type": "object",
+                "properties": {
+                    "billId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "payeeLabel": {
+                        "type": "string"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "remaining": {
+                        "type": "number"
+                    }
+                }
+            },
+            "ExpectedShare": {
+                "type": "object",
+                "properties": {
+                    "personKey": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "usualAmount": {
+                        "type": "number"
+                    },
+                    "usualDay": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "late": {
+                        "type": "boolean"
+                    },
+                    "ruleId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "PeopleSuggestionsResult": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Suggestion"
+                        }
+                    },
+                    "expected": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExpectedShare"
+                        }
+                    }
+                }
+            },
+            "Suggestion": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "ackKey": {
+                        "type": "string"
+                    },
+                    "txnId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "relatedTxnId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "personKey": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "bills": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BillOption"
+                        }
+                    },
+                    "owed": {
+                        "type": "number"
+                    }
+                }
+            },
+            "ApiResponsePersonDetailDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PersonDetailDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PersonDetailDto": {
+                "type": "object",
+                "properties": {
+                    "personKey": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "owedToUser": {
+                        "type": "number"
+                    },
+                    "since": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "family": {
+                        "type": "boolean"
+                    },
+                    "timeline": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimelineItem"
+                        }
+                    },
+                    "rules": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SplitRuleDto"
+                        }
+                    }
+                }
+            },
+            "TimelineItem": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "txnId": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "ApiResponseListShareDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ShareDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

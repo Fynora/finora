@@ -84,9 +84,9 @@ public class PeopleService {
 
     /** The Insights rows that ask about money with people, and the shares expected in (spec §6, §7). */
     @Transactional(readOnly = true)
-    public PeopleSuggestions.Result suggestions(UUID userId) {
+    public PeopleSuggestions.PeopleSuggestionsResult suggestions(UUID userId) {
         List<UUID> liveAccounts = accounts.findByUserId(userId).stream().map(com.finora.entity.Account::getId).toList();
-        if (liveAccounts.isEmpty()) return new PeopleSuggestions.Result(List.of(), List.of());
+        if (liveAccounts.isEmpty()) return new PeopleSuggestions.PeopleSuggestionsResult(List.of(), List.of());
         List<Transaction> rows = transactions.findByUserIdAndAccountIdIn(userId, liveAccounts);
         Map<UUID, String> categoryNames = new HashMap<>();
         for (Category c : categories.findByUserId(userId)) categoryNames.put(c.getId(), c.getName());

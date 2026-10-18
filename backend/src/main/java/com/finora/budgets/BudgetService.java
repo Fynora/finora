@@ -36,6 +36,12 @@ public class BudgetService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
     private final TimelineEventService timelineEventService;
 
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
@@ -57,6 +63,7 @@ public class BudgetService {
         this.accountRepository = accountRepository;
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
         this.auditService = auditService;
         this.timelineEventService = timelineEventService;
     }
@@ -93,8 +100,7 @@ public class BudgetService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> monthTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> reportable = RefundNetting.reportable(
-                monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
+        List<Transaction> reportable = reportRows.reportable(userId, monthTxns);
         RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
         Map<UUID, BigDecimal> spendByCategory = RefundNetting.withoutNegativeSpend(reportable.stream()
                 .filter(t -> spend.countsAsSpend(t) && t.getCategoryId() != null)
@@ -180,8 +186,7 @@ public class BudgetService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> monthTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> reportable = RefundNetting.reportable(
-                monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
+        List<Transaction> reportable = reportRows.reportable(userId, monthTxns);
         RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
         return RefundNetting.floorAtZero(reportable.stream()
                 .filter(t -> spend.countsAsSpend(t) && categoryId.equals(t.getCategoryId()))
@@ -206,8 +211,8 @@ public class BudgetService {
      */
     private RefundNetting refundsFor(UUID userId) {
         List<UUID> liveAccountIds = liveAccountIds(userId);
-        if (liveAccountIds.isEmpty()) return RefundNetting.from(List.of());
-        return RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+        if (liveAccountIds.isEmpty()) return reportRows.netting(userId, List.of());
+        return reportRows.netting(userId, transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                 userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
                 liveAccountIds));
     }

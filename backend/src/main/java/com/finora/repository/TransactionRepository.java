@@ -321,6 +321,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  than re-deriving it here. */
     List<Transaction> findByUserIdAndAccountIdIn(UUID userId, java.util.Collection<UUID> accountIds);
 
+    /** PeopleLedgerService: a split or repayment rule's sender's rows. */
+    List<Transaction> findByUserIdAndCounterpartyKeyIn(UUID userId, java.util.Collection<String> counterpartyKeys);
+
+    /** PeopleLedgerService: the bills a split rule can fill. */
+    List<Transaction> findByUserIdAndCategoryIdIn(UUID userId, java.util.Collection<UUID> categoryIds);
+
     /** Plan 6, Track B: every AA-sourced row this account already has in a re-fetched window --
      *  what AccountAggregatorTransactionDiffService diffs a fresh Setu fetch against. Scoped by
      *  {@code source} so a MANUAL/CSV_IMPORT/GMAIL_IMPORT row in the same date range is never

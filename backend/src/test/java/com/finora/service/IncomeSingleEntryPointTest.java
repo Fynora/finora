@@ -27,6 +27,7 @@ class IncomeSingleEntryPointTest {
             "AccountAggregatorTransactionDiffService.java", // mapping an AA credit/debit onto direction
             "BankActivityCategory.java",                   // a category LABEL from words + direction, never a total
             "QuickSortService.java",                       // a question's wording (money in vs paid out), never a total
+            "PeopleLedger.java",                           // matching a share credit to its bill by direction, never a total
             "Transaction.java");                           // the enum's own declaration
 
     @Test

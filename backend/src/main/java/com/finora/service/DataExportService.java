@@ -288,7 +288,7 @@ public class DataExportService {
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
-    private final com.finora.people.PeopleRepository peopleRepository;
+    private final com.finora.people.PeopleData peopleData;
     private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
 
@@ -338,7 +338,7 @@ public class DataExportService {
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
                               com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
-                              com.finora.people.PeopleRepository peopleRepository,
+                              com.finora.people.PeopleData peopleData,
                               StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
@@ -359,7 +359,7 @@ public class DataExportService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
-        this.peopleRepository = peopleRepository;
+        this.peopleData = peopleData;
         this.statementContentService = statementContentService;
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
@@ -521,7 +521,7 @@ public class DataExportService {
                         .toList();
 
         // V279: shared payments and loans, in the purge scope, so exported.
-        com.finora.people.PeopleRepository.PeopleExport sharedPayments = peopleRepository.exportFor(userId);
+        com.finora.people.PeopleData.PeopleExport sharedPayments = peopleData.exportFor(userId);
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);
 
@@ -1137,7 +1137,7 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
             List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
             List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements,
-            com.finora.people.PeopleRepository.PeopleExport sharedPayments
+            com.finora.people.PeopleData.PeopleExport sharedPayments
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

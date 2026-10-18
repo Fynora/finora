@@ -218,7 +218,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
-    @Autowired private com.finora.people.PeopleRepository peopleRepository;
+    @Autowired private com.finora.people.PeopleData peopleData;
     @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
     @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
     @Autowired private com.finora.repository.LoanEntryRepository loanEntryRepository;
@@ -271,7 +271,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleRepository, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,

@@ -22,9 +22,19 @@ public class InflowChoiceService {
     private final InflowKindRepository kinds;
     private final SenderInflowRuleRepository rules;
 
+    private final com.finora.people.PeopleLedgerService peopleLedgerService;
+
+    /** No shares or loans -- for unit tests that build this by hand. */
     public InflowChoiceService(InflowKindRepository kinds, SenderInflowRuleRepository rules) {
+        this(kinds, rules, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public InflowChoiceService(InflowKindRepository kinds, SenderInflowRuleRepository rules,
+                               com.finora.people.PeopleLedgerService peopleLedgerService) {
         this.kinds = kinds;
         this.rules = rules;
+        this.peopleLedgerService = peopleLedgerService;
     }
 
     @Transactional(readOnly = true)
@@ -39,6 +49,7 @@ public class InflowChoiceService {
     }
 
     public FlowTotals.Context contextFor(UUID userId, Collection<Account> accounts, Collection<Category> categories) {
-        return FlowTotals.context(accounts, categories, forUser(userId));
+        return FlowTotals.context(accounts, categories, forUser(userId),
+                peopleLedgerService == null ? com.finora.people.PeopleLedger.EMPTY : peopleLedgerService.forUser(userId));
     }
 }

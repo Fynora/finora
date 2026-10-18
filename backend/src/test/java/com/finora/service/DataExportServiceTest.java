@@ -135,7 +135,7 @@ class DataExportServiceTest {
             mock(com.finora.activation.ActivationAnswerRepository.class);
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository =
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
-    private final com.finora.people.PeopleRepository peopleRepository = mock(com.finora.people.PeopleRepository.class);
+    private final com.finora.people.PeopleData peopleData = mock(com.finora.people.PeopleData.class);
 
 
     private UserRepository userRepository;
@@ -306,7 +306,7 @@ class DataExportServiceTest {
         inflowKindRepository = mock(com.finora.repository.InflowKindRepository.class);
         senderInflowRuleRepository = mock(com.finora.repository.SenderInflowRuleRepository.class);
 
-        when(peopleRepository.exportFor(any())).thenReturn(com.finora.people.PeopleRepository.PeopleExport.EMPTY);
+        when(peopleData.exportFor(any())).thenReturn(com.finora.people.PeopleData.PeopleExport.EMPTY);
         when(passwordEncoder.matches(any(), any())).thenReturn(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(user()));
 
@@ -323,7 +323,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleRepository,
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleData,
                 statementContentService);
     }
 
@@ -1830,13 +1830,13 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("importFunnelDayRepository.deleteByUserId", "import_funnel_days.json"),
                 Map.entry("activationAnswerRepository.deleteByUserId", "activation_answers.json"),
                 Map.entry("insightAcknowledgementRepository.deleteByUserId", "insight_acknowledgements.json"),
-                Map.entry("peopleRepository.deleteByUserId", "shared_payments.json"),
+                Map.entry("peopleData.deleteByUserId", "shared_payments.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 
         String purgeSource = java.nio.file.Files.readString(
                 java.nio.file.Path.of("src/main/java/com/finora/service/AccountPurgeSweepService.java"));
         java.util.regex.Matcher calls = java.util.regex.Pattern
-                .compile("(\\w+Repository)\\.((?:hardDelete|delete|anonymize)\\w*)\\(")
+                .compile("(\\w+Repository|peopleData)\\.((?:hardDelete|delete|anonymize)\\w*)\\(")
                 .matcher(purgeSource);
         java.util.Set<String> purgeCalls = new java.util.TreeSet<>();
         while (calls.find()) purgeCalls.add(calls.group(1) + "." + calls.group(2));

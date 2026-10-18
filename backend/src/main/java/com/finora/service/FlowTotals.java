@@ -29,11 +29,17 @@ public final class FlowTotals {
      *  credit is never income), which category ids are the user's Salary category, and the user's
      *  inflow kinds (Plan 2). Production code builds this through InflowChoiceService.contextFor. */
     public record Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices,
-                          Set<UUID> repaymentCategoryIds) {
+                          Set<UUID> repaymentCategoryIds, com.finora.people.PeopleLedger people) {
 
         /** No repayment category -- for callers that predate it. */
         public Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices) {
             this(accountTypes, salaryCategoryIds, choices, Set.of());
+        }
+
+        /** No shares or loans -- for callers that predate them. */
+        public Context(Map<UUID, Account.Type> accountTypes, Set<UUID> salaryCategoryIds, InflowChoices choices,
+                       Set<UUID> repaymentCategoryIds) {
+            this(accountTypes, salaryCategoryIds, choices, repaymentCategoryIds, com.finora.people.PeopleLedger.EMPTY);
         }
     }
 
@@ -41,6 +47,12 @@ public final class FlowTotals {
     static final String REPAYMENT_CATEGORY = "Friend Repayment";
 
     public static Context context(Collection<Account> accounts, Collection<Category> categories, InflowChoices choices) {
+        return context(accounts, categories, choices, com.finora.people.PeopleLedger.EMPTY);
+    }
+
+    /** With the user's shares and loans (PeopleLedger): what they confirmed there outranks their kinds. */
+    public static Context context(Collection<Account> accounts, Collection<Category> categories, InflowChoices choices,
+                                  com.finora.people.PeopleLedger people) {
         Map<UUID, Account.Type> types = new HashMap<>();
         for (Account a : accounts) {
             if (a.getId() != null && a.getAccountType() != null) types.put(a.getId(), a.getAccountType());
@@ -55,7 +67,7 @@ public final class FlowTotals {
             if (name.equalsIgnoreCase("Salary")) salary.add(c.getId());
             if (name.equalsIgnoreCase(REPAYMENT_CATEGORY)) repayment.add(c.getId());
         }
-        return new Context(types, salary, choices, repayment);
+        return new Context(types, salary, choices, repayment, people == null ? com.finora.people.PeopleLedger.EMPTY : people);
     }
 
     public static boolean countsAsIncome(Transaction t, Context ctx) {
@@ -128,7 +140,8 @@ public final class FlowTotals {
         return FlowClassifier.classify(t,
                 t.getAccountId() == null ? null : ctx.accountTypes().get(t.getAccountId()),
                 categoryRole(t, ctx),
-                chosen == null ? null : chosen.kind());
+                chosen == null ? null : chosen.kind(),
+                ctx.people() == null ? null : ctx.people().creditDecision(t));
     }
 
     private static FlowClassifier.CategoryRole categoryRole(Transaction t, Context ctx) {

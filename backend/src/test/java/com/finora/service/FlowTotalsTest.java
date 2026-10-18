@@ -231,6 +231,30 @@ class FlowTotalsTest {
         assertThat(FlowTotals.incomeLabel(t, ctx)).isEqualTo("Family support");
     }
 
+    /** Shared payments and loans: what the user confirmed in the people ledger outranks their
+     *  sender's kind (spec §5 precedence) -- a credit they said was borrowed is not income. */
+    @Test void ledgerDecisionOutranksChosenKind() {
+        Account savings = account(Account.Type.SAVINGS);
+        Transaction t = fromAPerson(savings, "5000.00");
+        ReflectionTestUtils.setField(t, "id", UUID.randomUUID());
+        t.setCounterpartyKey("vpa:asha");
+        t.setTxnDate(java.time.LocalDate.of(2026, 9, 1));
+        InflowKind family = new InflowKind();
+        ReflectionTestUtils.setField(family, "id", UUID.randomUUID());
+        family.setName("Family support");
+        family.setCountsAsIncome(true);
+        family.setBuiltIn(InflowKind.BuiltIn.FAMILY_SUPPORT);
+        com.finora.people.PeopleLedger people = com.finora.people.PeopleLedger.build(List.of(t), List.of(), List.of(),
+                List.of(new com.finora.entity.LoanEntry(t.getUserId(), "vpa:asha", t.getId(),
+                        com.finora.entity.LoanEntry.Direction.BORROWED, new java.math.BigDecimal("5000.00"))), java.util.Set.of());
+        FlowTotals.Context ctx = FlowTotals.context(List.of(savings), List.of(),
+                new InflowChoices(Map.of(family.getId(), family), Map.of("vpa:asha", family.getId())), people);
+
+        assertThat(FlowTotals.decision(t, ctx)).isEqualTo(new FlowClassifier.FlowDecision(
+                FlowClassifier.FlowClass.LIABILITY, FlowClassifier.FlowReason.BORROWED));
+        assertThat(FlowTotals.countsAsIncome(t, ctx)).isFalse();
+    }
+
     @Test void incomeLabelNamesTheAutomaticReason() {
         Account savings = account(Account.Type.SAVINGS);
         Transaction t = credit(savings, "100.00", "SB INT CREDIT");

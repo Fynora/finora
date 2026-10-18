@@ -68,6 +68,12 @@ public class InsightsService {
      *  performed no calendar resolution at all. */
     private final UserRepository userRepository;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
     /** Phase 3 of docs/proposals/statement-continuity-and-coverage-integrity-proposal.md (§8) --
      *  Insights consumes coverage, it doesn't own it: {@link StatementCoverageAnalyzer} stays a
      *  pure function with no repository of its own, so this is the same repository call Phase 1's
@@ -90,6 +96,7 @@ public class InsightsService {
         this.budgetRepository = budgetRepository;
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
         this.statementImportRepository = statementImportRepository;
     }
 
@@ -391,7 +398,7 @@ public class InsightsService {
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
-        RefundNetting refunds = RefundNetting.from(all);
+        RefundNetting refunds = reportRows.netting(userId, all);
         // excludingInvestmentTransfers applies here (unlike DashboardService/ReportService, which
         // keep a separate category-breakdown list): every number this whole method produces --
         // the headline "total spend" sentence, the category movers, the top-merchant callout -- is
@@ -399,7 +406,7 @@ public class InsightsService {
         // category" or a spend-trend mover would contradict the very point of this exclusion. See
         // RefundNetting.excludingInvestmentTransfers's own comment on the narrower, budget-safe cut.
         List<Transaction> reportable = RefundNetting.excludingInvestmentTransfers(
-                RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all)));
+                reportRows.reportable(userId, all));
         // Spend rows: every purchase plus the refunds and card adjustments reconciliation could
         // not link to one, which give spend back in their own month and category -- the same rule
         // the dashboard and reports use (RefundNetting.withUnlinkedOffsets). Price with

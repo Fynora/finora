@@ -254,7 +254,7 @@ public class AccountPurgeSweepService {
     private final ImportFunnelDayRepository importFunnelDayRepository;
     private final ActivationAnswerRepository activationAnswerRepository;
     private final InsightAcknowledgementRepository insightAcknowledgementRepository;
-    private final com.finora.people.PeopleRepository peopleRepository;
+    private final com.finora.people.PeopleData peopleData;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
@@ -329,7 +329,7 @@ public class AccountPurgeSweepService {
                                      ImportFunnelDayRepository importFunnelDayRepository,
                                      ActivationAnswerRepository activationAnswerRepository,
                                      InsightAcknowledgementRepository insightAcknowledgementRepository,
-                                     com.finora.people.PeopleRepository peopleRepository,
+                                     com.finora.people.PeopleData peopleData,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
@@ -403,7 +403,7 @@ public class AccountPurgeSweepService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
-        this.peopleRepository = peopleRepository;
+        this.peopleData = peopleData;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
@@ -828,7 +828,7 @@ public class AccountPurgeSweepService {
             // V277: the Insights "Got it" record, same anonymize-not-delete trap.
             insightAcknowledgementRepository.deleteByUserId(userId);
             // V279: shared payments and loans, same anonymize-not-delete trap.
-            peopleRepository.deleteByUserId(userId);
+            peopleData.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);

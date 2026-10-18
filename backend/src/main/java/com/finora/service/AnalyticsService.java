@@ -67,6 +67,12 @@ public class AnalyticsService {
     // months in the server's zone and in hardcoded UTC respectively. See UserZone.
     private final UserRepository userRepository;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
     // Multi-Year Comparison (issue #1455): the one caller of gapsForUser -- see MultiYearCoverage.
     private final AccountCoverageService accountCoverageService;
 
@@ -93,6 +99,7 @@ public class AnalyticsService {
         this.confidenceEngine = confidenceEngine;
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
         this.accountCoverageService = accountCoverageService;
     }
 
@@ -269,7 +276,7 @@ public class AnalyticsService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
-        List<Transaction> reportable = RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all));
+        List<Transaction> reportable = reportRows.reportable(userId, all);
         return ReportingPeriod.resolve(ReportingPeriod.monthsWithData(reportable), UserZone.forUser(userRepository, userId));
     }
 
@@ -469,7 +476,7 @@ public class AnalyticsService {
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
         // Flow-classified income, the same rule the dashboard and reports use -- see FlowTotals.
-        return RefundNetting.reportable(rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)).stream()
+        return reportRows.reportable(userId, rangeTxns).stream()
                 .filter(t -> FlowTotals.countsAsIncome(t, flow))
                 .toList();
     }
@@ -646,7 +653,7 @@ public class AnalyticsService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
-        return RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all)).stream()
+        return reportRows.reportable(userId, all).stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
     }
@@ -663,7 +670,7 @@ public class AnalyticsService {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        return RefundNetting.reportable(rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)).stream()
+        return reportRows.reportable(userId, rangeTxns).stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
     }
@@ -700,7 +707,7 @@ public class AnalyticsService {
         List<Transaction> rows = from == null
                 ? transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds)
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        return RefundNetting.reportable(rows, transactionGraphService.ccPaymentFromTransactionIds(rows));
+        return reportRows.reportable(userId, rows);
     }
 
     /** How many of these rows are purchases -- a group's count never includes the refunds netted into it. */
@@ -711,8 +718,8 @@ public class AnalyticsService {
     /** The offsets for the same user, so a refunded purchase contributes what it actually cost. */
     private RefundNetting refundsFor(UUID userId) {
         List<UUID> liveAccountIds = liveAccountIds(userId);
-        if (liveAccountIds.isEmpty()) return RefundNetting.from(List.of());
-        return RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+        if (liveAccountIds.isEmpty()) return reportRows.netting(userId, List.of());
+        return reportRows.netting(userId, transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                 userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
                 liveAccountIds));
     }

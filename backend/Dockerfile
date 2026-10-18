@@ -34,7 +34,15 @@ WORKDIR /app
 # measured through the real parser, not just for character accuracy. -data-eng is separate from
 # the engine package because Alpine ships trained-data packages per language rather than bundling
 # English into the base install.
-RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-eng
+#
+# libexpat is named here so it is brought to the newest version Alpine ships, not left at the
+# version baked into the pinned base. The base image is rebuilt upstream only occasionally, and
+# between rebuilds a newly published fix (libexpat 2.9.0-r0 for the CVE that failed the nightly
+# image scan on 2026-10-18) sits in the Alpine repository while the base still holds the old build.
+# `--upgrade` on a named package keeps the rest of the base as pinned; it is not an exact-version
+# pin, so it cannot turn a routine rebuild into a failure. Once a base image newer than 2.9.0-r0
+# is pinned above, the extra name is harmless and can be dropped.
+RUN apk add --no-cache --upgrade libexpat tesseract-ocr tesseract-ocr-data-eng
 
 # The English model OCR was evaluated and tuned against: tessdata_fast 4.1.0, pinned by checksum.
 # Alpine's tesseract-ocr-data-eng ships the larger standard model instead, and every OCR measurement

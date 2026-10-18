@@ -1,5 +1,6 @@
 package com.finora.controller;
 
+import com.finora.dto.AdminDtos.AdminInternalAccountRequest;
 import com.finora.dto.AdminDtos.AdminReactivateRequest;
 import com.finora.dto.AdminDtos.AdminUpdateUserRequest;
 import com.finora.dto.PagedResponse;
@@ -64,6 +65,15 @@ public class AdminUserController {
     @PreAuthorize("hasAuthority('USER_UPDATE')")
     public ApiResponse<UserSummaryDto> update(@PathVariable UUID id, @Valid @RequestBody AdminUpdateUserRequest request) {
         return ApiResponse.ok(adminUserService.updateProfile(currentUser.id(), id, request), "Profile updated");
+    }
+
+    /** Gate 2a: leave this USER account out of the activation counts, or count it again. */
+    @PutMapping("/{id}/internal")
+    @PreAuthorize("hasAuthority('USER_UPDATE')")
+    public ApiResponse<UserSummaryDto> setInternal(@PathVariable UUID id,
+                                                   @Valid @RequestBody AdminInternalAccountRequest request) {
+        return ApiResponse.ok(adminUserService.setInternal(currentUser.id(), id, request.internal()),
+                request.internal() ? "Marked as internal" : "No longer internal");
     }
 
     @PostMapping("/{id}/suspend")

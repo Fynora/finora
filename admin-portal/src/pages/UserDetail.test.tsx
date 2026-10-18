@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import UserDetail from './UserDetail';
@@ -40,7 +40,7 @@ vi.mock('../context/NotificationContext', () => ({
 vi.mock('../api/endpoints', () => {
   const pending = () => new Promise(() => {});
   return {
-    adminUsersApi: { get: vi.fn(), suspend: vi.fn(), reactivate: vi.fn(), update: vi.fn() },
+    adminUsersApi: { get: vi.fn(), suspend: vi.fn(), reactivate: vi.fn(), update: vi.fn(), setInternal: vi.fn() },
     adminAuditApi: { forUser: vi.fn(pending) },
     adminRolesApi: { listRoles: vi.fn(pending), assignRole: vi.fn(), revokeRole: vi.fn() },
     adminAccountsApi: { forUser: vi.fn(pending), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -76,6 +76,8 @@ const USER: UserDetailDto = {
   updatedAt: '2026-01-02T00:00:00Z',
   accountCount: 2,
   transactionCount: 17,
+  internalAccount: false,
+  accountScope: 'USER',
 };
 
 /**
@@ -195,5 +197,60 @@ describe('UserDetail — profile actions', () => {
 
     renderWith(['USER_VIEW', 'ROLE_MANAGE']);
     expect(await screen.findByRole('heading', { name: 'Roles' })).toBeInTheDocument();
+  });
+});
+
+/** Gate 2a spec §6: leave an internal or test account out of the activation counts. */
+describe('UserDetail — internal account flag', () => {
+  const LABEL = 'Internal or test account (left out of activation counts)';
+
+  it('togglesInternalFlag', async () => {
+    vi.mocked(adminUsersApi.setInternal).mockResolvedValue({} as never);
+    renderWith(['USER_VIEW', 'USER_UPDATE']);
+
+    const box = await screen.findByRole('checkbox', { name: LABEL });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+
+    await waitFor(() => expect(adminUsersApi.setInternal).toHaveBeenCalledWith('user-1', true));
+  });
+
+  it('shows the current value and clears it', async () => {
+    vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, internalAccount: true });
+    vi.mocked(adminUsersApi.setInternal).mockResolvedValue({} as never);
+    renderWith(['USER_VIEW', 'USER_UPDATE']);
+
+    const box = await screen.findByRole('checkbox', { name: LABEL });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+
+    await waitFor(() => expect(adminUsersApi.setInternal).toHaveBeenCalledWith('user-1', false));
+  });
+
+  it('says so when the change fails, and the box keeps the saved value', async () => {
+    vi.mocked(adminUsersApi.setInternal).mockRejectedValue(new Error('down'));
+    renderWith(['USER_VIEW', 'USER_UPDATE']);
+
+    const box = await screen.findByRole('checkbox', { name: LABEL });
+    fireEvent.click(box);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not change this');
+    expect(box).not.toBeChecked();
+  });
+
+  it('hiddenWithoutUserUpdate', async () => {
+    renderWith(['USER_VIEW']);
+    await screen.findByText('Target User');
+
+    expect(screen.queryByRole('checkbox', { name: LABEL })).not.toBeInTheDocument();
+  });
+
+  // Admin accounts are already left out of the counts, and the server refuses the flag for them.
+  it('is not offered for an admin account', async () => {
+    vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, accountScope: 'ADMIN', roleNames: ['ADMIN'] });
+    renderWith(['USER_VIEW', 'USER_UPDATE']);
+    await screen.findByText('Target User');
+
+    expect(screen.queryByRole('checkbox', { name: LABEL })).not.toBeInTheDocument();
   });
 });

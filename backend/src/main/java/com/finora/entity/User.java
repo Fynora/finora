@@ -197,6 +197,11 @@ public class User {
     @Column(name = "phone_verified", nullable = false)
     private boolean phoneVerified = false;
 
+    /** Gate 2a (V279): an internal or test USER account, left out of the activation counts. Set by an
+     *  admin from the user page (AdminUserService.setInternal), never by the user. */
+    @Column(name = "internal_account", nullable = false)
+    private boolean internalAccount = false;
+
     // D-23. Same shape as phoneVerified above, but proven by a clicked email link
     // (AuthService.verifyEmail) rather than an OTP -- see V93's own migration comment for why this
     // exists: Google sign-in's auto-link only trusts a match on `email` once this is true, closing
@@ -325,6 +330,8 @@ public class User {
     public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
     public boolean isPhoneVerified() { return phoneVerified; }
     public void setPhoneVerified(boolean phoneVerified) { this.phoneVerified = phoneVerified; }
+    public boolean isInternalAccount() { return internalAccount; }
+    public void setInternalAccount(boolean internalAccount) { this.internalAccount = internalAccount; }
     public boolean isEmailVerified() { return emailVerified; }
     public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
     public String getStatus() { return status; }

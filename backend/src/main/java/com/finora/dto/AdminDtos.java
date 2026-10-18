@@ -46,7 +46,11 @@ public class AdminDtos {
             Instant createdAt,
             Instant updatedAt,
             long accountCount,
-            long transactionCount
+            long transactionCount,
+            /** Gate 2a: left out of the activation counts (V279). */
+            boolean internalAccount,
+            /** USER or ADMIN. The admin page offers the internal flag only for USER accounts. */
+            String accountScope
     ) {}
 
     /** Aggregate, platform-wide (not per-user) counts for the admin Dashboard's stat tiles.
@@ -252,6 +256,9 @@ public class AdminDtos {
      *  a suspended account with no note attached (today's existing behavior) is still a valid call;
      *  a null/blank body maps to a null reason exactly like AdminUpdateUserRequest's null-is-absent
      *  convention above, not a validation error. */
+    /** Gate 2a spec §6: mark or unmark a USER account as internal, so activation counts leave it out. */
+    public record AdminInternalAccountRequest(@jakarta.validation.constraints.NotNull Boolean internal) {}
+
     public record AdminReactivateRequest(
             @jakarta.validation.constraints.Size(max = 500, message = "Reason is too long")
             String reason

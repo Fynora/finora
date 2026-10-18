@@ -78,6 +78,10 @@ function UserDetailContent({ id }: { id: string }) {
     mutationFn: (roleName: string) => adminRolesApi.revokeRole(id, roleName),
     onSuccess: invalidateUser,
   });
+  const internalMutation = useMutation({
+    mutationFn: (internal: boolean) => adminUsersApi.setInternal(id, internal),
+    onSuccess: invalidateUser,
+  });
 
   if (isLoading || !user) {
     return <p className="text-muted text-sm">Loading…</p>;
@@ -162,6 +166,22 @@ function UserDetailContent({ id }: { id: string }) {
             <div className="flex items-center gap-2 text-muted"><Calendar size={14} /> Joined {new Date(user.createdAt).toLocaleDateString()}</div>
             <div className="flex items-center gap-2 text-muted">Roles: {user.roleNames.join(', ')}</div>
           </div>
+        )}
+
+        {/* Gate 2a spec §6. USER accounts only: admin accounts are left out of the counts already. */}
+        {canEditProfile && user.accountScope === 'USER' && (
+          <label className="flex items-center gap-2 mt-4 text-sm text-ink cursor-pointer">
+            <input
+              type="checkbox"
+              checked={user.internalAccount}
+              disabled={internalMutation.isPending}
+              onChange={(e) => internalMutation.mutate(e.target.checked)}
+            />
+            Internal or test account (left out of activation counts)
+          </label>
+        )}
+        {internalMutation.isError && (
+          <p role="alert" className="mt-1 text-xs text-danger">Could not change this. Please try again.</p>
         )}
 
         <div className="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-border">

@@ -179,6 +179,9 @@ export const adminUsersApi = {
     api.post<UserSummaryDto>('/admin/users', request).then((r) => r.data),
   update: (id: string, request: AdminUpdateUserRequest) =>
     api.put<UserSummaryDto>(`/admin/users/${id}`, request).then((r) => r.data),
+  /** Gate 2a: leave a USER account out of the activation counts, or count it again. */
+  setInternal: (id: string, internal: boolean) =>
+    api.put<UserSummaryDto>(`/admin/users/${id}/internal`, { internal }).then((r) => r.data),
 };
 
 export const adminRolesApi = {

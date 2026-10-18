@@ -41,6 +41,10 @@ public final class PeopleSuggestions {
     static final int SETTLE_AFTER_DAYS = 60;
     static final int LOOK_BACK_DAYS = 180;
     static final int MAX_BILL_OPTIONS = 5;
+    /** "Lent, or paid for something?" only for payments this recent, and at most this many at once: a
+     *  user who pays people often would otherwise get one question per payment, all of their history. */
+    static final int LENT_ASK_WITHIN_DAYS = 90;
+    static final int MAX_LENT_CHECKS = 2;
 
     /** Categories that say nothing about what a credit was for. */
     private static final Set<String> NOT_SPENDING = Set.of(
@@ -128,7 +132,8 @@ public final class PeopleSuggestions {
             String category = name(in, d.getCategoryId());
             if (category != null && !NOT_SPENDING.contains(category.toLowerCase(Locale.ROOT))
                     && FlowClassifier.categoryIsTheUsersChoice(d)) continue;
-            if (ChronoUnit.DAYS.between(d.getTxnDate(), in.today()) < LENT_AFTER_DAYS) continue;
+            long age = ChronoUnit.DAYS.between(d.getTxnDate(), in.today());
+            if (age < LENT_AFTER_DAYS || age > LENT_ASK_WITHIN_DAYS) continue;
             boolean cameBack = live.stream().anyMatch(c -> PeopleLedger.isCredit(c) && key.equals(c.getCounterpartyKey())
                     && c.getTxnDate().isAfter(d.getTxnDate())
                     && !c.getTxnDate().isAfter(d.getTxnDate().plusDays(LENT_AFTER_DAYS)));
@@ -191,10 +196,12 @@ public final class PeopleSuggestions {
         }
         items.addAll(always.values());
 
+        int[] lentShown = {0};
         List<Suggestion> shown = items.stream()
                 .filter(s -> !in.acknowledged().contains(s.kind() + "|" + s.ackKey()))
                 .sorted(Comparator.comparing((Suggestion s) -> ORDER.indexOf(s.kind()))
                         .thenComparing(Suggestion::date, Comparator.nullsLast(Comparator.reverseOrder())))
+                .filter(s -> !s.kind().equals("LENT_CHECK") || lentShown[0]++ < MAX_LENT_CHECKS)
                 .limit(MAX_ITEMS)
                 .toList();
         return new PeopleSuggestionsResult(shown, expected(in, live, byId));

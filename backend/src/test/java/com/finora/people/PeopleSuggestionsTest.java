@@ -140,6 +140,22 @@ class PeopleSuggestionsTest {
         assertThat(kinds()).containsExactly("LENT_CHECK");
     }
 
+    /** Only recent payments are asked about: a long history of payments to people is not a backlog of questions. */
+    @Test
+    void lentCheckOnlyForPaymentsInTheLast90Days() {
+        debit(2000, TODAY.minusDays(91), "vpa:friend.k", null);
+        assertThat(kinds()).doesNotContain("LENT_CHECK");
+        rows.clear();
+        debit(2000, TODAY.minusDays(90), "vpa:friend.k", null);
+        assertThat(kinds()).containsExactly("LENT_CHECK");
+    }
+
+    @Test
+    void atMostTwoLentChecksAtOnce() {
+        for (int i = 0; i < 4; i++) debit(2000, TODAY.minusDays(31 + i), "vpa:friend." + i, null);
+        assertThat(kinds()).containsExactly("LENT_CHECK", "LENT_CHECK");
+    }
+
     @Test
     void noLentCheckWhenMoneyCameBack() {
         Transaction d = debit(2000, TODAY.minusDays(40), "vpa:friend.k", null);

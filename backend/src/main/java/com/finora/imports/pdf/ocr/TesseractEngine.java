@@ -178,6 +178,22 @@ public final class TesseractEngine implements OcrEngine {
 
     @Override
     public List<RecognisedText> recognise(byte[] pdf, int dpi) throws IOException {
+        return recognise(pdf, dpi, false);
+    }
+
+    /**
+     * Every page read in sparse-text mode alone, for a second look at a document whose first
+     * reading skipped a word it should have read (see {@code PdfPreviewGenerator}'s second look).
+     * Measured on a real scanned HSBC statement: the default layout analysis dropped one amount
+     * outright -- no run at all where it is printed, on a clean page whose low-confidence share
+     * never triggers the sparse retry -- while sparse-text mode read it, at the same resolution and
+     * with the same model.
+     */
+    public List<RecognisedText> recogniseSparse(byte[] pdf, int dpi) throws IOException {
+        return recognise(pdf, dpi, true);
+    }
+
+    private List<RecognisedText> recognise(byte[] pdf, int dpi, boolean sparseOnly) throws IOException {
         long deadline = System.nanoTime() + documentBudget.toNanos();
         Path work = Files.createTempDirectory("tesseract-eval-");
         // finally, not just a trailing call: this now runs against real uploaded statements, and a
@@ -199,6 +215,10 @@ public final class TesseractEngine implements OcrEngine {
 
                 PDRectangle size = in.getPage(page).getMediaBox();
                 float scale = size.getWidth() / image.getWidth();
+                if (sparseOnly) {
+                    pages.add(new PageReadings(parse(run(png, SPARSE_TEXT_PSM, deadline, page, pageCount), page, scale), null));
+                    continue;
+                }
                 List<RecognisedText> standard = parse(run(png, null, deadline, page, pageCount), page, scale);
                 List<RecognisedText> sparse = lowConfidenceShare(standard) > SPARSE_RETRY_LOW_CONFIDENCE_SHARE
                         ? parse(run(png, SPARSE_TEXT_PSM, deadline, page, pageCount), page, scale)

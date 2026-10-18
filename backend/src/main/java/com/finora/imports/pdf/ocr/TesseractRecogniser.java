@@ -53,6 +53,13 @@ public final class TesseractRecogniser implements RecognisingTextAcquirer {
         return AcquiredDocument.of(RecognisedTextAdapter.toPositionedText(recognised));
     }
 
+    /** Every page read again in sparse-text mode -- see {@link TesseractEngine#recogniseSparse}. */
+    @Override
+    public java.util.Optional<AcquiredDocument> secondLook(byte[] fileBytes, String password) throws IOException {
+        var recognised = RunAssembler.assemble(engine.recogniseSparse(fileBytes, OCR_DPI));
+        return java.util.Optional.of(AcquiredDocument.of(RecognisedTextAdapter.toPositionedText(recognised)));
+    }
+
     /**
      * Whether the engine is installed at all.
      *

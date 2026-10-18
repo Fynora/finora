@@ -81,6 +81,24 @@ describe('reportCsvRows', () => {
     expect(rows).toContain('2026-09-03|400');
   });
 
+  it('writes the spending by payment method, with the unidentified part named, when the screen would draw the card', () => {
+    const rows = flat({
+      ...base,
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'CARD', amount: 3000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    });
+    expect(rows).toContain('Spending by payment method');
+    expect(rows).toContain('Method|Amount');
+    expect(rows).toContain('UPI|6000');
+    expect(rows).toContain('Card|3000');
+    expect(rows).toContain('Not identified|1000');
+  });
+
+  it('writes no payment-method section when too little of the spending has a named method', () => {
+    const rows = flat({ ...base, paymentMethods: [{ method: 'UPI', amount: 300 }, { method: 'UNIDENTIFIED', amount: 700 }] });
+    expect(rows).not.toContain('Spending by payment method');
+    expect(flat({ ...base })).not.toContain('Spending by payment method');
+  });
+
   it('leaves out a section the report has no data for instead of writing an empty header', () => {
     const rows = flat({ ...base, biggestSpends: [], dailySpend: [] });
     expect(rows).not.toContain('Biggest spends');

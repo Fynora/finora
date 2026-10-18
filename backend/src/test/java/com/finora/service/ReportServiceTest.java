@@ -618,6 +618,81 @@ class ReportServiceTest {
         return reportService.forMonth(userId, "2026-07");
     }
 
+    // ---- how it was paid: the same rows and netting, grouped by the method the wording names ----
+
+    /** A purchase as a statement import produces it: the bank's narration is what a rail is read from. */
+    private Transaction statementRow(String amount, LocalDate date, String merchant, String description) {
+        Transaction t = purchase(amount, date, merchant, description);
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        return t;
+    }
+
+    @Test
+    void paymentMethods_groupTheSpendRowsByTheRailTheNarrationNames_largestFirst() {
+        ReportDto report = reportOf(
+                statementRow("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
+                statementRow("200.00", LocalDate.of(2026, 7, 3), "Cafe", "UPI/DR/100000000002/CAFE"),
+                statementRow("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
+                statementRow("1000.00", LocalDate.of(2026, 7, 5), null, "ATM WDL 100000000003 MUMBAI"),
+                statementRow("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
+
+        assertThat(report.paymentMethods()).extracting(ReportDto.PaymentMethodAmount::method)
+                .containsExactly("CARD", "CASH", "UNIDENTIFIED", "UPI");
+        assertThat(report.paymentMethods()).extracting(m -> m.amount().intValue())
+                .containsExactly(4000, 1000, 700, 500);
+    }
+
+    @Test
+    void paymentMethods_addUpToTheSameSpendTheCategoryListShows() {
+        ReportDto report = reportOf(
+                statementRow("300.00", LocalDate.of(2026, 7, 2), "Swiggy", "UPI/DR/100000000001/SWIGGY"),
+                statementRow("4000.00", LocalDate.of(2026, 7, 4), "Big Mart", "POS 411111XXXXXX1111 BIG MART"),
+                statementRow("700.00", LocalDate.of(2026, 7, 6), null, "SOME WORDS THAT NAME NO RAIL"));
+
+        BigDecimal byMethod = report.paymentMethods().stream().map(ReportDto.PaymentMethodAmount::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal byCategory = report.categories().stream().map(ReportDto.CategoryAmount::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(byMethod).isEqualByComparingTo(byCategory).isEqualByComparingTo("5000.00");
+    }
+
+    @Test
+    void paymentMethods_everythingOnACreditCardAccountIsACardPayment_whateverTheNarrationSays() {
+        liveAccount.setAccountType(Account.Type.CREDIT_CARD);
+        Transaction t = statementRow("800.00", LocalDate.of(2026, 7, 2), "Shop", "UPI/DR/100000000001/SHOP");
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
+                .thenReturn(List.of(t));
+
+        ReportDto report = reportService.forMonth(userId, "2026-07");
+
+        assertThat(report.paymentMethods()).extracting(ReportDto.PaymentMethodAmount::method).containsExactly("CARD");
+    }
+
+    @Test
+    void paymentMethods_neverCountATransferTheCategoryListLeavesOut() {
+        Transaction transfer = statementRow("50000.00", LocalDate.of(2026, 7, 3), "Own account", "UPI/DR/100000000001/SELF");
+        transfer.setTransfer(true);
+        ReportDto report = reportOf(transfer,
+                statementRow("250.00", LocalDate.of(2026, 7, 4), "Cafe", "UPI/DR/100000000002/CAFE"));
+
+        assertThat(report.paymentMethods()).extracting(m -> m.amount().intValue()).containsExactly(250);
+    }
+
+    @Test
+    void paymentMethods_aRowTypedInByHandIsUnidentified_notReadForARailWord() {
+        Transaction typed = purchase("400.00", LocalDate.of(2026, 7, 5), null, "ATM cafe lunch");
+        typed.setSource(Transaction.Source.MANUAL);
+
+        ReportDto report = reportOf(typed);
+
+        assertThat(report.paymentMethods()).extracting(ReportDto.PaymentMethodAmount::method).containsExactly("UNIDENTIFIED");
+    }
+
+    @Test
+    void paymentMethods_areEmptyWhenNothingWasSpent() {
+        assertThat(reportOf().paymentMethods()).isEmpty();
+    }
+
     @Test
     void biggestSpends_areTheThreeLargestPurchases_biggestFirst_labelledByMerchantElseDescription() {
         ReportDto report = reportOf(

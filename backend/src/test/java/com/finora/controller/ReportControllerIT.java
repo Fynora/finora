@@ -329,6 +329,36 @@ class ReportControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void theMonthReport_groupsSpendingByHowItWasPaid_andAddsUpToTheExpense() throws Exception {
+        User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
+        UUID account = accountRepository.findByUserId(user.getId()).stream().findFirst().orElseThrow().getId();
+        Transaction upi = new Transaction();
+        upi.setUserId(user.getId());
+        upi.setAccountId(account);
+        upi.setAmount(new BigDecimal("250.00"));
+        upi.setTxnType(Transaction.Type.EXPENSE);
+        upi.setTxnDate(LocalDate.of(2026, 7, 11));
+        upi.setDescription("UPI/DR/100000000001/SAMPLE CAFE");
+        upi.setSource(Transaction.Source.CSV_IMPORT);
+        upi.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        transactionRepository.save(upi);
+
+        JsonNode july = data(get("/api/v1/reports?month=2026-07", user));
+
+        JsonNode methods = july.get("paymentMethods");
+        assertThat(methods.isArray()).isTrue();
+        BigDecimal sum = BigDecimal.ZERO;
+        java.util.Map<String, BigDecimal> byMethod = new java.util.HashMap<>();
+        for (JsonNode m : methods) {
+            sum = sum.add(m.get("amount").decimalValue());
+            byMethod.put(m.get("method").asText(), m.get("amount").decimalValue());
+        }
+        assertThat(byMethod.get("UPI")).isEqualByComparingTo("250.00");
+        assertThat(byMethod).containsKey("UNIDENTIFIED");
+        assertThat(sum).isEqualByComparingTo(july.get("expense").decimalValue());
+    }
+
+    @Test
     void aMonthWithEveryStatementReachingItsEnd_isComplete() throws Exception {
         User user = userWithFourMonths(LocalDate.of(2026, 9, 30));
 

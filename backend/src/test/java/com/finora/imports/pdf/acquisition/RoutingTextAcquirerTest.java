@@ -166,4 +166,48 @@ class RoutingTextAcquirerTest {
     private static String text(AcquiredDocument acquired) {
         return acquired.runs().stream().map(PositionedText::text).reduce("", (a, b) -> a + "|" + b);
     }
+
+    /** A recogniser with a second look: one run reading "SECOND", or a failure when asked to. */
+    private static class SecondLookRecogniser extends CountingRecogniser {
+        final boolean fails;
+
+        SecondLookRecogniser(boolean fails) {
+            this.fails = fails;
+        }
+
+        @Override
+        public java.util.Optional<AcquiredDocument> secondLook(byte[] fileBytes, String password) throws IOException {
+            if (fails) throw new IOException("engine gone");
+            return java.util.Optional.of(AcquiredDocument.of(List.of(new PositionedText("SECOND", 50f, 100f, 0,
+                    60f, 8f, 0.9f, TextSource.OCR))));
+        }
+    }
+
+    @Test
+    void aSecondLookComesFromTheRecogniser() throws Exception {
+        var routing = new RoutingTextAcquirer(nativeAcquirer(), List.of(new SecondLookRecogniser(false)));
+
+        var second = routing.secondLook(ScannedPdfFixture.scan(PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()), null);
+
+        assertThat(second).isPresent();
+        assertThat(text(second.get())).isEqualTo("|SECOND");
+    }
+
+    @Test
+    void noSecondLookWithoutARecogniserThatHasOne() throws Exception {
+        assertThat(new RoutingTextAcquirer(nativeAcquirer(), List.of()).secondLook(ScannedPdfFixture.scan(PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()), null))
+                .isEmpty();
+        // A recogniser with no second look of its own (the interface default) offers none either.
+        assertThat(new RoutingTextAcquirer(nativeAcquirer(), List.of(new CountingRecogniser()))
+                .secondLook(ScannedPdfFixture.scan(PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()), null)).isEmpty();
+    }
+
+    /** A failing second look leaves the first reading standing, exactly as a failing recogniser
+     *  leaves the native result in {@link RoutingTextAcquirer#acquire}. */
+    @Test
+    void aSecondLookThatFailsIsTreatedAsNone() throws Exception {
+        var routing = new RoutingTextAcquirer(nativeAcquirer(), List.of(new SecondLookRecogniser(true)));
+
+        assertThat(routing.secondLook(ScannedPdfFixture.scan(PdfFixtureBuilder.buildReferenceNumberAndBalanceSample()), null)).isEmpty();
+    }
 }

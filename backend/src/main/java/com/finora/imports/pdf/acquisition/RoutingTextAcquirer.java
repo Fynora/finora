@@ -97,6 +97,26 @@ public class RoutingTextAcquirer implements DocumentTextAcquirer {
         return read;
     }
 
+    /**
+     * The first deployed recogniser's second look, if it has one. Native text has no second
+     * reading: it is exact when present. A recogniser that fails is treated as having none, for the
+     * same reason {@link #acquire} falls through one -- the first reading then simply stands.
+     */
+    @Override
+    public java.util.Optional<AcquiredDocument> secondLook(byte[] fileBytes, String password) {
+        for (RecognisingTextAcquirer recogniser : recognisers) {
+            if (!recogniser.supports(fileBytes)) continue;
+            try {
+                java.util.Optional<AcquiredDocument> second = recogniser.secondLook(fileBytes, password);
+                if (second.isPresent() && !second.get().runs().isEmpty()) return second;
+            } catch (IOException | RuntimeException e) {
+                log.warn("recogniser {} could not take a second look at this document; keeping the first reading",
+                        recogniser.getClass().getSimpleName(), e);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     /** Whatever native extraction can attempt, since it is always the first thing tried. */
     @Override
     public boolean supports(byte[] fileBytes) {

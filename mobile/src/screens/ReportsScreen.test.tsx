@@ -751,6 +751,52 @@ describe('the spending tab', () => {
   });
 });
 
+describe('how you paid', () => {
+  it('ranks the methods with their amounts and shares, and says where they come from', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, {
+      paymentMethods: [{ method: 'UPI', amount: 6000 }, { method: 'CARD', amount: 3000 }, { method: 'UNIDENTIFIED', amount: 1000 }],
+    }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+
+    const card = await screen.findByTestId('payment-methods');
+    expect(within(card).getByText('How you paid')).toBeTruthy();
+    expect(within(card).getByLabelText('UPI: ₹6,000, 60 percent of spending')).toBeTruthy();
+    expect(within(card).getByLabelText('Card: ₹3,000, 30 percent of spending')).toBeTruthy();
+    expect(within(screen.getByTestId('payment-methods-unidentified')).getByText('Not identified')).toBeTruthy();
+    expect(within(card).getByText(/Worked out from the account and the wording on your statements/)).toBeTruthy();
+  });
+
+  it('draws no unidentified row when every rupee has a named method', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, { paymentMethods: [{ method: 'UPI', amount: 900 }] }));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('payment-methods');
+    expect(screen.queryByTestId('payment-methods-unidentified')).toBeNull();
+  });
+
+  it('is left out when too little of the spending has a named method, or from an older server', async () => {
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m, {
+      paymentMethods: [{ method: 'UPI', amount: 300 }, { method: 'UNIDENTIFIED', amount: 700 }],
+    }));
+    const { unmount } = renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('payment-methods')).toBeNull();
+    unmount();
+
+    api.forMonth.mockImplementation(async (m: string) => reportFor(m));
+    renderScreen();
+    await loadedReport();
+    await openTab('Spending');
+    await screen.findByTestId('category-rows');
+    expect(screen.queryByTestId('payment-methods')).toBeNull();
+  });
+});
+
 describe('biggest changes since the month before', () => {
   const cmp = (over: Record<string, unknown> = {}) => ({
     previousMonth: '2026-06', reliable: true, gateReason: null, previousIncome: 70000, previousExpense: 60000,

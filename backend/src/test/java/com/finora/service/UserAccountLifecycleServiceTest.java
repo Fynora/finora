@@ -79,7 +79,9 @@ class UserAccountLifecycleServiceTest {
         service = new UserAccountLifecycleService(userRepository,
                 new GoogleReauthVerifier(passwordEncoder, googleIdTokenVerifierService, appleIdTokenVerifierService),
                 refreshTokenService, auditService, emailProvider, requestMetadata, passwordChangeService,
-                accountPurgeSweepService, transactionTemplate);
+                accountPurgeSweepService, transactionTemplate,
+                mock(com.finora.activation.AccountDeletionReasonRepository.class),
+                mock(com.finora.activation.ActivationFacts.class), mock(com.finora.activation.ReportingDay.class));
     }
 
     private User user(String accountScope) {

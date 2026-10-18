@@ -870,6 +870,8 @@ export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENE
  *  the generated API types, so a server-side change to either list fails the type check here. */
 export type ActivationMoment = NonNullable<GeneratedSchemas['QuestionResponse']['moment']>;
 export type ActivationAnswer = GeneratedSchemas['ActivationAnswerRequest']['answer'];
+/** Gate 2a spec §5: the fixed reasons for deleting an account, from the generated API types. */
+export type DeletionReason = NonNullable<GeneratedSchemas['DeleteAccountRequest']['reason']>;
 
 export const activationApi = {
   /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
@@ -1274,8 +1276,10 @@ export const accountLifecycleApi = {
   // sessionId proves current-password+OTP -- see PasswordChangeService.consumeForAccountDeletion,
   // reused via the same DELETION_CONFIRMED-gated session DeleteAccountModal builds up through
   // passwordChangeApi.start/verifyOtp.
-  deleteAccount: (sessionId: string) =>
-    api.post<{ message: string }>('/users/me/account/delete', { sessionId }).then((r) => r.data),
+  // reason is optional (Gate 2a spec §5): undefined when the person skipped the question, and then
+  // it is left out of the body entirely.
+  deleteAccount: (sessionId: string, reason?: DeletionReason) =>
+    api.post<{ message: string }>('/users/me/account/delete', { sessionId, reason }).then((r) => r.data),
   // Phase C (Download My Data). POST with the password in the body -- responseType: 'blob' since
   // the response is a streamed ZIP, not JSON (see UserController.exportData/DataExportService on
   // the backend). The filename is chosen client-side rather than read back out of

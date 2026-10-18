@@ -1,5 +1,6 @@
 package com.finora.dto;
 
+import com.finora.activation.DeletionReason;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -35,8 +36,12 @@ public class AccountLifecycleDtos {
      *  UserAccountLifecycleService.requestDeletion and PasswordChangeService.
      *  consumeForAccountDeletion. No currentPassword field: the session itself is that proof, same
      *  as CompleteRequest never re-asks for it either -- this is deliberately a higher bar than
-     *  DeactivateRequest's password-only re-auth, since this action is irreversible. */
-    public record DeleteAccountRequest(@NotBlank String sessionId) {}
+     *  DeactivateRequest's password-only re-auth, since this action is irreversible.
+     *
+     *  <p>reason (Gate 2a spec §5) is optional: null means the person skipped the question, which
+     *  changes nothing about the deletion. An unknown name is refused with 400 before anything
+     *  happens, like every other fixed list the apps send. */
+    public record DeleteAccountRequest(@NotBlank String sessionId, DeletionReason reason) {}
 
     public record DeleteAccountResponse(String message) {}
 

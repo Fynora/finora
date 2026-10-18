@@ -1,4 +1,4 @@
-import type { ActivationAnswer, ActivationMoment } from '../api/endpoints';
+import type { ActivationAnswer, ActivationMoment, DeletionReason } from '../api/endpoints';
 
 /**
  * "What stopped you?" (Gate 2a spec §4.1): each moment's question and its fixed answers, word for
@@ -67,3 +67,18 @@ export function forgetActivationAnswered(): void {
 
 /** Test seam: the memory is module state, which persists across the tests in one file. */
 export const resetActivationAnsweredForTests = forgetActivationAnswered;
+
+/**
+ * Gate 2a spec §5: the optional question when someone deletes their account, word for word and in
+ * order. The server holds the same list (DeletionReason.java) and keeps the answer with the month
+ * only and no link to the person.
+ */
+export const DELETION_REASON_QUESTION = "Before you go: what's the main reason?";
+export const DELETION_REASONS: { key: DeletionReason; label: string }[] = [
+  { key: 'COULDNT_GET_STATEMENTS_IN', label: "I couldn't get my statements in" },
+  { key: 'NOT_COMFORTABLE_WITH_DATA', label: "I'm not comfortable with my data here" },
+  { key: 'NOTHING_USEFUL', label: "It didn't show me anything useful" },
+  { key: 'USE_ANOTHER_APP', label: 'I use another app' },
+  { key: 'DONT_NEED_IT', label: "I don't need it anymore" },
+  { key: 'SOMETHING_ELSE', label: 'Something else' },
+];

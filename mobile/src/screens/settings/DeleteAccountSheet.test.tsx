@@ -174,7 +174,8 @@ describe('DeleteAccountSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: /Permanently Delete Account/ }));
     await settle();
 
-    await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalledWith('sess-1'));
+    // No reason chosen: the optional reason is left undefined (Gate 2a spec §5).
+    await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalledWith('sess-1', undefined));
     expect(onDeleted).toHaveBeenCalled();
   });
 
@@ -229,5 +230,90 @@ describe('DeleteAccountSheet', () => {
     expect(
       screen.getByRole('button', { name: /Permanently Delete Account/ }).props.accessibilityState.disabled
     ).toBe(true);
+  });
+
+  /** Gate 2a spec §5: one optional question on the confirm step. */
+  describe('the reason for leaving', () => {
+    const UNDERSTOOD = 'I understand this permanently deletes my account and cannot be undone.';
+
+    function radioLabels(): string[] {
+      return screen.getAllByRole('radio').map((r) => String(r.props.accessibilityLabel));
+    }
+
+    it('asks the exact question, with the six answers in order and none chosen', async () => {
+      renderSheet();
+      await reachConfirmStep();
+
+      expect(screen.getByText("Before you go: what's the main reason?")).toBeTruthy();
+      expect(radioLabels()).toEqual([
+        "I couldn't get my statements in", "I'm not comfortable with my data here", "It didn't show me anything useful",
+        'I use another app', "I don't need it anymore", 'Something else',
+      ]);
+      expect(screen.getAllByRole('radio').every((r) => r.props.accessibilityState?.checked === false)).toBe(true);
+    });
+
+    it('sendsTheChosenReason', async () => {
+      renderSheet();
+      await reachConfirmStep();
+
+      fireEvent.press(screen.getByRole('radio', { name: 'I use another app' }));
+      fireEvent.press(screen.getByLabelText(UNDERSTOOD));
+      fireEvent.press(screen.getByRole('button', { name: /Permanently Delete Account/ }));
+      await settle();
+
+      await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalledWith('sess-1', 'USE_ANOTHER_APP'));
+    });
+
+    it('sendsNoReasonWhenNoneChosen', async () => {
+      renderSheet();
+      await reachConfirmStep();
+
+      fireEvent.press(screen.getByLabelText(UNDERSTOOD));
+      fireEvent.press(screen.getByRole('button', { name: /Permanently Delete Account/ }));
+      await settle();
+
+      await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalled());
+      expect(lifecycleApi.deleteAccount.mock.calls[0][1]).toBeUndefined();
+    });
+
+    // Skipping is always allowed: a tap on the chosen answer clears it, so a stray tap is not sent.
+    it('tapping the chosen answer again clears it', async () => {
+      renderSheet();
+      await reachConfirmStep();
+
+      fireEvent.press(screen.getByRole('radio', { name: 'Something else' }));
+      expect(screen.getByRole('radio', { name: 'Something else' }).props.accessibilityState.checked).toBe(true);
+      fireEvent.press(screen.getByRole('radio', { name: 'Something else' }));
+      expect(screen.getByRole('radio', { name: 'Something else' }).props.accessibilityState.checked).toBe(false);
+
+      fireEvent.press(screen.getByLabelText(UNDERSTOOD));
+      fireEvent.press(screen.getByRole('button', { name: /Permanently Delete Account/ }));
+      await settle();
+      await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalled());
+      expect(lifecycleApi.deleteAccount.mock.calls[0][1]).toBeUndefined();
+    });
+
+    it('deleteEnabledWithoutAReason', async () => {
+      renderSheet();
+      await reachConfirmStep();
+
+      fireEvent.press(screen.getByLabelText(UNDERSTOOD));
+
+      expect(
+        screen.getByRole('button', { name: /Permanently Delete Account/ }).props.accessibilityState.disabled
+      ).toBe(false);
+    });
+
+    it('Start over clears the chosen reason', async () => {
+      renderSheet();
+      await reachConfirmStep();
+      fireEvent.press(screen.getByRole('radio', { name: 'I use another app' }));
+
+      fireEvent.press(screen.getByRole('button', { name: /Start over/ }));
+      await settle();
+      await reachConfirmStep();
+
+      expect(screen.getByRole('radio', { name: 'I use another app' }).props.accessibilityState.checked).toBe(false);
+    });
   });
 });

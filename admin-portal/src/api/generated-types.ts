@@ -6749,6 +6749,8 @@ export interface components {
         StreamingResponseBody: unknown;
         DeleteAccountRequest: {
             sessionId: string;
+            /** @enum {string} */
+            reason?: "COULDNT_GET_STATEMENTS_IN" | "NOT_COMFORTABLE_WITH_DATA" | "NOTHING_USEFUL" | "USE_ANOTHER_APP" | "DONT_NEED_IT" | "SOMETHING_ELSE";
         };
         ApiResponseDeleteAccountResponse: {
             success?: boolean;

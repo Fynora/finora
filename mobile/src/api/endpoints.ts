@@ -857,6 +857,8 @@ export type FunnelEvent = 'IMPORT_SCREEN_OPENED' | 'FILE_CHOSEN' | 'REVIEW_OPENE
  *  the generated API types, so a server-side change to either list fails the type check here. */
 export type ActivationMoment = NonNullable<GeneratedSchemas['QuestionResponse']['moment']>;
 export type ActivationAnswer = GeneratedSchemas['ActivationAnswerRequest']['answer'];
+/** Gate 2a spec §5: the fixed reasons for deleting an account, from the generated API types. */
+export type DeletionReason = NonNullable<GeneratedSchemas['DeleteAccountRequest']['reason']>;
 
 export const activationApi = {
   /** Fire and forget -- callers go through lib/trackFunnel, which swallows every failure. */
@@ -1349,8 +1351,10 @@ export const accountLifecycleApi = {
   // sessionId proves current-password+OTP -- see PasswordChangeService.consumeForAccountDeletion,
   // reached through the same passwordChangeApi.start/verifyOtp calls DeleteAccountSheet drives
   // (identical to ChangePasswordSheet's own password->otp steps, forking only after verifyOtp).
-  deleteAccount: (sessionId: string) =>
-    api.post<{ message: string }>('/users/me/account/delete', { sessionId }).then((r) => r.data),
+  // reason is optional (Gate 2a spec §5): undefined when the person skipped the question, and then
+  // it is left out of the body entirely.
+  deleteAccount: (sessionId: string, reason?: DeletionReason) =>
+    api.post<{ message: string }>('/users/me/account/delete', { sessionId, reason }).then((r) => r.data),
   // Phase C (Download My Data). ArrayBuffer + withArrayBufferErrorMessage, not Blob -- see the
   // comment on that function above for why responseType: 'arraybuffer' needs it. Written into the
   // cache dir and handed to the OS share sheet, since there is no sandboxed "Downloads" location

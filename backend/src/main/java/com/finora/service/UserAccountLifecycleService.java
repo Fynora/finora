@@ -1,5 +1,10 @@
 package com.finora.service;
 
+import com.finora.activation.AccountDeletionReason;
+import com.finora.activation.AccountDeletionReasonRepository;
+import com.finora.activation.ActivationFacts;
+import com.finora.activation.DeletionReason;
+import com.finora.activation.ReportingDay;
 import com.finora.config.RequestMetadata;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
@@ -35,13 +40,18 @@ public class UserAccountLifecycleService {
     private final PasswordChangeService passwordChangeService;
     private final AccountPurgeSweepService accountPurgeSweepService;
     private final TransactionTemplate transactionTemplate;
+    private final AccountDeletionReasonRepository deletionReasons;
+    private final ActivationFacts activationFacts;
+    private final ReportingDay reportingDay;
 
     public UserAccountLifecycleService(UserRepository userRepository, GoogleReauthVerifier googleReauthVerifier,
                                         RefreshTokenService refreshTokenService, AuditService auditService,
                                         EmailProvider emailProvider, RequestMetadata requestMetadata,
                                         PasswordChangeService passwordChangeService,
                                         AccountPurgeSweepService accountPurgeSweepService,
-                                        TransactionTemplate transactionTemplate) {
+                                        TransactionTemplate transactionTemplate,
+                                        AccountDeletionReasonRepository deletionReasons,
+                                        ActivationFacts activationFacts, ReportingDay reportingDay) {
         this.userRepository = userRepository;
         this.googleReauthVerifier = googleReauthVerifier;
         this.refreshTokenService = refreshTokenService;
@@ -51,6 +61,9 @@ public class UserAccountLifecycleService {
         this.passwordChangeService = passwordChangeService;
         this.accountPurgeSweepService = accountPurgeSweepService;
         this.transactionTemplate = transactionTemplate;
+        this.deletionReasons = deletionReasons;
+        this.activationFacts = activationFacts;
+        this.reportingDay = reportingDay;
     }
 
     /**
@@ -165,6 +178,18 @@ public class UserAccountLifecycleService {
      *                  PasswordChangeService.complete() never re-asks for it either.
      */
     public void requestDeletion(UUID userId, String sessionId) {
+        requestDeletion(userId, sessionId, null);
+    }
+
+    /**
+     * {@link #requestDeletion(UUID, String)}, keeping the optional reason the person gave (Gate 2a
+     * spec §5). The reason is written in phase one's transaction, after the OTP session is consumed:
+     * so it exists only for a deletion that happened, and whether they had data is read before the
+     * purge removes it. It is stored with no link to them (see V278), so the purge leaves it alone.
+     *
+     * @param reason null when they skipped the question; then nothing is written.
+     */
+    public void requestDeletion(UUID userId, String sessionId, DeletionReason reason) {
         String[] emailHolder = new String[1];
         transactionTemplate.executeWithoutResult(tx -> {
             User user = requireUser(userId);
@@ -188,6 +213,11 @@ public class UserAccountLifecycleService {
             // the session is invalid, expired, or not at OTP_VERIFIED. Also consumes it
             // (DELETION_CONFIRMED) so it can never be replayed into an actual password change.
             passwordChangeService.consumeForAccountDeletion(userId, sessionId);
+
+            if (reason != null) {
+                deletionReasons.save(new AccountDeletionReason(reason,
+                        reportingDay.today().withDayOfMonth(1), activationFacts.hasEverImported(userId)));
+            }
 
             Instant now = Instant.now();
             user.setStatus(User.STATUS_PENDING_DELETION);

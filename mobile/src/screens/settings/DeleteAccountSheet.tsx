@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
-import { accountLifecycleApi, passwordChangeApi } from '../../api/endpoints';
+import { accountLifecycleApi, passwordChangeApi, type DeletionReason } from '../../api/endpoints';
+import { DELETION_REASONS, DELETION_REASON_QUESTION } from '../../lib/activationQuestions';
 import { toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode, type PhoneConfirmation } from '../../lib/phoneAuth';
@@ -60,6 +61,8 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
   const [confirmation, setConfirmation] = useState<PhoneConfirmation | null>(null);
   const [otp, setOtp] = useState('');
   const [understood, setUnderstood] = useState(false);
+  // Gate 2a spec §5: optional. Null sends no reason, and the delete button never depends on it.
+  const [reason, setReason] = useState<DeletionReason | null>(null);
 
   const otpValid = /^\d{6}$/.test(otp);
 
@@ -110,6 +113,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     setSessionId(null);
     setConfirmation(null);
     setUnderstood(false);
+    setReason(null);
     setError(null);
   }
 
@@ -120,7 +124,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
       setSubmitting(true);
       const startedAt = requestStartedAt();
       try {
-        await accountLifecycleApi.deleteAccount(sessionId);
+        await accountLifecycleApi.deleteAccount(sessionId, reason ?? undefined);
         onDeleted();
       } catch (e) {
         reportTransportFailure(e, 'delete-account:submit', startedAt);
@@ -219,6 +223,31 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
                 </Text>
               </View>
 
+              <View accessibilityRole="radiogroup" accessibilityLabel={DELETION_REASON_QUESTION} style={styles.reasons}>
+                <Text style={[styles.reasonQuestion, { color: c.ink }]}>{DELETION_REASON_QUESTION}</Text>
+                {DELETION_REASONS.map((r) => {
+                  const chosen = reason === r.key;
+                  return (
+                    <Pressable
+                      key={r.key}
+                      // Skipping is always allowed: a tap on the chosen answer clears it, so a stray
+                      // tap is never sent as a reason.
+                      onPress={() => setReason(chosen ? null : r.key)}
+                      disabled={submitting}
+                      style={styles.reasonRow}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: chosen, disabled: submitting }}
+                      accessibilityLabel={r.label}
+                    >
+                      <View style={[styles.radio, { borderColor: chosen ? c.primary : c.border }]}>
+                        {chosen ? <View style={[styles.radioDot, { backgroundColor: c.primary }]} /> : null}
+                      </View>
+                      <Text style={[styles.reasonLabel, { color: c.ink }]}>{r.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Pressable
                 onPress={() => setUnderstood((v) => !v)}
                 style={styles.confirmRow}
@@ -274,4 +303,11 @@ const styles = StyleSheet.create({
   },
   tick: { fontSize: 14, fontWeight: '700' },
   confirmLabel: { fontSize: 12, lineHeight: 17, flex: 1 },
+  reasons: { marginBottom: spacing.sm },
+  reasonQuestion: { fontSize: 13, fontWeight: '600', marginBottom: spacing.xs },
+  // 44pt rows: each answer is its own tap target.
+  reasonRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
+  reasonLabel: { fontSize: 13, flex: 1 },
 });

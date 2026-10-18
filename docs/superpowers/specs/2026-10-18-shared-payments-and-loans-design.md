@@ -1,6 +1,6 @@
 # Shared payments and loans — design
 
-Date: 2026-10-18. Status: draft for Sid's review.
+Date: 2026-10-18. Status: approved by Sid 2026-10-18.
 
 Builds on the 2026-10-02 person-flows design (`2026-10-02-person-flows-dashboard-design.md`), whose
 §2 decided that money paid back should lower spending, matched per person, in the payment's own
@@ -264,7 +264,7 @@ Constraints every builder must keep:
 - Weak-identity senders get one-off links only, never rules or balances.
 - The user's UPI id for "Ask them" is asked once and stored on the profile.
 
-## 12. Open for Sid
+## 12. Decided by Sid (2026-10-18)
 
-- Which plan this belongs to (Free, or Plus).
-- The situations marked *Later* or *Out* in §3 (15, 16, 17): confirm they stay out of this build.
+- Free for now: no plan gating.
+- Situations 15, 16 and 17 (§3) stay out of this build.

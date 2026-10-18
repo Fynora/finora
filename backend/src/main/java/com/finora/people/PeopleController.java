@@ -38,6 +38,12 @@ public class PeopleController {
         return ApiResponse.ok(people.people(currentUser.id()));
     }
 
+    /** Rows for Insights' To look at, and the shares expected in for Coming up. */
+    @GetMapping("/suggestions")
+    public ApiResponse<PeopleSuggestions.Result> suggestions() {
+        return ApiResponse.ok(people.suggestions(currentUser.id()));
+    }
+
     @GetMapping("/person")
     public ApiResponse<PeopleDtos.PersonDetailDto> person(@RequestParam @NotBlank String key) {
         return ApiResponse.ok(people.person(currentUser.id(), key));

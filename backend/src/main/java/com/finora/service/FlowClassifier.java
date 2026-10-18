@@ -272,7 +272,7 @@ public final class FlowClassifier {
 
     /** A person, or a rule or pattern learned from them, put the row in its category -- not a global
      *  rule or the AI fallback, which can guess Salary for a person's transfer. */
-    private static boolean categoryIsTheUsersChoice(Transaction t) {
+    public static boolean categoryIsTheUsersChoice(Transaction t) {
         if (t.isCategoryManuallySet()) return true;
         Transaction.DecisionSource source = t.getDecisionSource();
         return source == Transaction.DecisionSource.MANUAL

@@ -56,11 +56,16 @@ public class PeopleService {
     private final CategoryRepository categories;
     private final PeopleLedgerService ledgers;
     private final TransactionService transactionService;
+    private final com.finora.repository.AccountRepository accounts;
+    private final com.finora.repository.UserRepository users;
+    private final com.finora.repository.InsightAcknowledgementRepository acknowledgements;
 
     public PeopleService(ShareLinkRepository shareLinks, SplitRuleRepository splitRules, LoanEntryRepository loanEntries,
                          PersonSettingRepository personSettings, PeoplePreferenceRepository preferences,
                          TransactionRepository transactions, CategoryRepository categories,
-                         PeopleLedgerService ledgers, TransactionService transactionService) {
+                         PeopleLedgerService ledgers, TransactionService transactionService,
+                         com.finora.repository.AccountRepository accounts, com.finora.repository.UserRepository users,
+                         com.finora.repository.InsightAcknowledgementRepository acknowledgements) {
         this.shareLinks = shareLinks;
         this.splitRules = splitRules;
         this.loanEntries = loanEntries;
@@ -70,6 +75,28 @@ public class PeopleService {
         this.categories = categories;
         this.ledgers = ledgers;
         this.transactionService = transactionService;
+        this.accounts = accounts;
+        this.users = users;
+        this.acknowledgements = acknowledgements;
+    }
+
+    // ---- suggestions ----
+
+    /** The Insights rows that ask about money with people, and the shares expected in (spec §6, §7). */
+    @Transactional(readOnly = true)
+    public PeopleSuggestions.Result suggestions(UUID userId) {
+        List<UUID> liveAccounts = accounts.findByUserId(userId).stream().map(com.finora.entity.Account::getId).toList();
+        if (liveAccounts.isEmpty()) return new PeopleSuggestions.Result(List.of(), List.of());
+        List<Transaction> rows = transactions.findByUserIdAndAccountIdIn(userId, liveAccounts);
+        Map<UUID, String> categoryNames = new HashMap<>();
+        for (Category c : categories.findByUserId(userId)) categoryNames.put(c.getId(), c.getName());
+        Set<String> acked = new HashSet<>();
+        acknowledgements.findByUserId(userId).forEach(a -> acked.add(a.getKind() + "|" + a.getItemKey()));
+        LocalDate today = LocalDate.now(com.finora.util.UserZone.of(
+                users.findById(userId).map(com.finora.entity.User::getTimezone).orElse(null)));
+        return PeopleSuggestions.build(new PeopleSuggestions.Input(ledgers.forUser(userId), rows, categoryNames, acked,
+                familyKeys(userId), splitRules.findByUserId(userId), loanEntries.findByUserId(userId),
+                ledgers.repaymentSenderKeys(userId), today));
     }
 
     // ---- shares ----

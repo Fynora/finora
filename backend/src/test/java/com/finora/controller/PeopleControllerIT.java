@@ -109,6 +109,32 @@ class PeopleControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void suggestionsAskAboutAShareAndForgetItOnceAcknowledged() throws Exception {
+        User user = createUser();
+        Transaction credit = txn(user, Transaction.Type.INCOME, 800, "vpa:friend.k");
+        credit.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        credit.setTxnDate(LocalDate.now().minusDays(1));
+        credit.setDescription("UPI/vpa:friend.k/dinner share");
+        transactionRepository.save(credit);
+
+        JsonNode items = suggestions(user).get("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).get("kind").asText()).isEqualTo("SHARE_CHECK");
+        assertThat(items.get(0).get("txnId").asText()).isEqualTo(credit.getId().toString());
+
+        restTemplate.exchange("/api/v1/insights/acknowledgements", HttpMethod.POST, new HttpEntity<>(
+                "{\"kind\":\"SHARE_CHECK\",\"itemKey\":\"" + credit.getId() + "\"}", bearerFor(user)), String.class);
+        assertThat(suggestions(user).get("items")).isEmpty();
+    }
+
+    private JsonNode suggestions(User user) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange("/api/v1/people/suggestions", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(user)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).get("data");
+    }
+
+    @Test
     void unauthenticatedIs401() {
         HttpHeaders headers = new HttpHeaders();
         ResponseEntity<String> response = restTemplate.exchange("/api/v1/people", HttpMethod.GET, new HttpEntity<>(headers), String.class);

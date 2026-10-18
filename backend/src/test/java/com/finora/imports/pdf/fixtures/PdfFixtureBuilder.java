@@ -302,6 +302,36 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * An HSBC savings ledger closed by its summary block and followed by the bank's address footer,
+     * laid out as OCR returned them on two real scanned statements: the block on two lines (totals,
+     * then "As at" with a date; totals, then "Balance Carried Forward" with the balance), and the
+     * footer's first line pairing the bank's name with its delivery disclaimer. Synthetic values.
+     */
+    public static byte[] buildHsbcSummaryBlockAndFooterSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+        float[] summary = {LEFT_MARGIN, 140f, 190f, 490f};
+        float[] footer = {LEFT_MARGIN, 300f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "29AUG2026", "BALANCE BROUGHT FORWARD", "", "", "8,000.00")
+                .row(col, "31AUG2026", "NEFT FROM SAMPLE PAYER", "", "50,000.00", "58,000.00")
+                .row(col, "01SEP2026", "UPI SAMPLE PAYEE ONE", "1,000.00", "", "57,000.00")
+                .row(col, "05SEP2026", "ECS-SAMPLE", "3,000.00", "", "54,000.00")
+                .row(summary, "Withdrawals", "4,000.00DR", "As at", "05SEP2026")
+                .row(summary, "Deposits", "50,000.00", "Balance Carried Forward", "54,000.00")
+                .blankLine()
+                .row(footer, "The Hongkong and Shanghai Banking Corporation Limited",
+                        "The Hongkong and Shanghai Banking Corporation Limited would be deemed to have fulfilled")
+                .row(footer, "India Area Management Office", "where the statement is sent via electronic means")
+                .line("1 Sample Road, Sample City");
+
+        return render(List.of(page));
+    }
+
+    /**
      * {@link #buildAmountOnLastLineSample} with the amount its third payee row is missing printed:
      * what a second reading of that scan returns when it reads every amount. Its balances chain from
      * the brought-forward line to the last row.

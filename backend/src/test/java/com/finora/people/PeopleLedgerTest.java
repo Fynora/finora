@@ -182,6 +182,18 @@ class PeopleLedgerTest {
                 entry(lent, LoanEntry.Direction.LET_GO, 2000)), Set.of()).droppedIds()).isEmpty();
     }
 
+    /** Lent 2000, 1500 came back, the rest let go: only 500 became spending, not the whole 2000. */
+    @Test
+    void letGoAfterPartRepaymentCountsOnlyTheRest() {
+        Transaction lent = row(Transaction.Type.EXPENSE, 2000, d(9, 3), FRIEND, null);
+        Transaction back = row(Transaction.Type.INCOME, 1500, d(9, 20), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(lent, LoanEntry.Direction.LENT, 2000),
+                entry(back, LoanEntry.Direction.PAID_BACK, 1500), entry(lent, LoanEntry.Direction.LET_GO, 500)), Set.of());
+        assertThat(l.droppedIds()).doesNotContain(lent.getId());
+        assertThat(l.sharedByBillId().get(lent.getId())).isEqualByComparingTo("1500");
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+    }
+
     @Test
     void balanceGoesToZeroAndPast() {
         Transaction lent = row(Transaction.Type.EXPENSE, 2000, d(9, 3), FRIEND, null);

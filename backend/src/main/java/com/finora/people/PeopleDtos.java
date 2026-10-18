@@ -1,0 +1,53 @@
+package com.finora.people;
+
+import com.finora.entity.LoanEntry;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+/** Requests and responses of /api/v1/people (spec §7). */
+public final class PeopleDtos {
+
+    private PeopleDtos() {}
+
+    /** {@code amount} null: as much as fits (what is left of the credit and of the bill). */
+    public record LinkShareRequest(@NotNull UUID creditId, @NotNull UUID billId, @DecimalMin("0.01") BigDecimal amount) {}
+
+    public record ShareDto(UUID creditId, UUID billId, String label, LocalDate date, BigDecimal amount, boolean fromRule) {}
+
+    /** LENT and REPAID on a payment out; PAID_BACK and BORROWED on money in. */
+    public record EntryRequest(@NotNull UUID txnId, @NotNull LoanEntry.Direction direction) {}
+
+    public record EntryDto(UUID id, String personKey, UUID txnId, LoanEntry.Direction direction, BigDecimal amount) {}
+
+    public enum SettleHow { CASH, LET_GO }
+
+    public record SettleRequest(@NotBlank @Size(max = 200) String personKey, @NotNull SettleHow how) {}
+
+    /** The credit and the bill the rule is made from: its sender, its bill's category and payee. */
+    public record SplitRuleRequest(@NotNull UUID creditId, @NotNull UUID billId) {}
+
+    public record SplitRuleDto(UUID id, String senderKey, UUID billCategoryId, String billCategory,
+                               String billPayeeKey, String billMerchant) {}
+
+    /** Positive {@code owedToUser}: they owe the user; negative: the user owes them. */
+    public record PersonDto(String personKey, String label, BigDecimal owedToUser, LocalDate since, boolean family) {}
+
+    /** {@code kind}: a loan entry's direction, or SHARE for a share they paid toward a bill. */
+    public record TimelineItem(LocalDate date, String kind, BigDecimal amount, UUID txnId) {}
+
+    public record PersonDetailDto(String personKey, String label, BigDecimal owedToUser, LocalDate since,
+                                  boolean family, List<TimelineItem> timeline, List<SplitRuleDto> rules) {}
+
+    public record PersonSettingsRequest(@NotBlank @Size(max = 200) String personKey, boolean family) {}
+
+    public record PreferencesRequest(@Size(max = 100) String ownUpiId) {}
+
+    public record PreferencesDto(String ownUpiId) {}
+}

@@ -81,6 +81,17 @@ public final class PeopleLedger {
 
     public List<Share> sharesOf(UUID billId) { return sharesByBillId.getOrDefault(billId, List.of()); }
 
+    /** Every share, all bills. */
+    public List<Share> allShares() {
+        return sharesByBillId.values().stream().flatMap(List::stream).toList();
+    }
+
+    /** How much of this credit is already linked as shares. */
+    public BigDecimal sharedFromCredit(UUID creditId) {
+        return allShares().stream().filter(s -> s.creditId().equals(creditId))
+                .map(Share::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     /** By person key; a settled person (balance exactly zero) is absent. */
     public Map<String, Balance> balances() { return balances; }
 
@@ -160,6 +171,21 @@ public final class PeopleLedger {
                     : e.getCreatedAt() == null ? LocalDate.now(ZoneOffset.UTC) : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
             events.add(new Event(e.getPersonKey(), when, signed(e), false));
         }
+
+        // A lent payment let go becomes spending, but only the part that never came back: the rest
+        // nets off it the way a share does, so a half-repaid loan let go costs half.
+        Map<UUID, BigDecimal> letGoAmount = new HashMap<>();
+        for (LoanEntry e : entries) {
+            if (e.getDirection() == LoanEntry.Direction.LET_GO && e.getTxnId() != null) {
+                letGoAmount.merge(e.getTxnId(), e.getAmount(), BigDecimal::add);
+            }
+        }
+        letGoAmount.forEach((txnId, gone) -> {
+            Transaction debit = live.get(txnId);
+            if (!isBill(debit) || debit.getAmount() == null) return;
+            BigDecimal cameBack = debit.getAmount().subtract(gone).min(debit.getAmount());
+            if (cameBack.signum() > 0) shared.merge(txnId, cameBack, BigDecimal::add);
+        });
 
         // 4. The repayment rule: a credit from the sender with no link or entry counts toward what
         //    they owe, never past zero.
@@ -266,6 +292,6 @@ public final class PeopleLedger {
                 && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED;
     }
 
-    private static boolean isCredit(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.INCOME; }
-    private static boolean isBill(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.EXPENSE; }
+    static boolean isCredit(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.INCOME; }
+    static boolean isBill(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.EXPENSE; }
 }

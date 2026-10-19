@@ -59,13 +59,15 @@ public class PeopleService {
     private final com.finora.repository.AccountRepository accounts;
     private final com.finora.repository.UserRepository users;
     private final com.finora.repository.InsightAcknowledgementRepository acknowledgements;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public PeopleService(ShareLinkRepository shareLinks, SplitRuleRepository splitRules, LoanEntryRepository loanEntries,
                          PersonSettingRepository personSettings, PeoplePreferenceRepository preferences,
                          TransactionRepository transactions, CategoryRepository categories,
                          PeopleLedgerService ledgers, TransactionService transactionService,
                          com.finora.repository.AccountRepository accounts, com.finora.repository.UserRepository users,
-                         com.finora.repository.InsightAcknowledgementRepository acknowledgements) {
+                         com.finora.repository.InsightAcknowledgementRepository acknowledgements,
+                         org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.shareLinks = shareLinks;
         this.splitRules = splitRules;
         this.loanEntries = loanEntries;
@@ -78,6 +80,16 @@ public class PeopleService {
         this.accounts = accounts;
         this.users = users;
         this.acknowledgements = acknowledgements;
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * One write at a time per user, held to the end of the transaction. Every write here reads the
+     * user's balances or links and then writes from what it read: without this, two taps at once
+     * ("Paid in cash" twice) both read the same open balance and settle it twice.
+     */
+    private void oneWriteAtATime(UUID userId) {
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "people:" + userId);
     }
 
     // ---- suggestions ----
@@ -103,6 +115,7 @@ public class PeopleService {
 
     @Transactional
     public PeopleDtos.ShareDto link(UUID userId, PeopleDtos.LinkShareRequest req) {
+        oneWriteAtATime(userId);
         Transaction credit = owned(userId, req.creditId());
         Transaction bill = owned(userId, req.billId());
         if (!PeopleLedger.isCredit(credit) || !PeopleLedger.isBill(bill)) {
@@ -114,23 +127,26 @@ public class PeopleService {
             throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         }
         loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, credit.getId()));
-        List<ShareLink> existing = shareLinks.findByUserIdAndCreditTxnId(userId, credit.getId()).stream()
-                .filter(l -> l.getBillTxnId().equals(bill.getId())).toList();
-        shareLinks.deleteAll(existing);
-        shareLinks.flush();
         PeopleLedger ledger = ledgers.forUser(userId);
-        BigDecimal creditLeft = credit.getAmount().subtract(ledger.sharedFromCredit(credit.getId()));
-        BigDecimal billLeft = bill.getAmount().subtract(ledger.sharedByBillId().getOrDefault(bill.getId(), BigDecimal.ZERO));
+        // This pair's own earlier link (a second tap, or a changed amount) is replaced, not added to.
+        BigDecimal ownEarlier = ledger.sharesOf(bill.getId()).stream()
+                .filter(s -> s.creditId().equals(credit.getId()) && !s.fromRule())
+                .map(PeopleLedger.Share::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal creditLeft = credit.getAmount().subtract(ledger.sharedFromCredit(credit.getId())).add(ownEarlier);
+        BigDecimal billLeft = bill.getAmount().subtract(ledger.sharedByBillId().getOrDefault(bill.getId(), BigDecimal.ZERO))
+                .add(ownEarlier);
         BigDecimal cap = creditLeft.min(billLeft);
         BigDecimal amount = req.amount() == null ? cap : req.amount().min(cap);
         if (amount.signum() <= 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_LEFT);
-        shareLinks.save(new ShareLink(userId, credit.getId(), bill.getId(), amount));
+        // One statement, so a double tap cannot race into the (credit, bill) unique key.
+        shareLinks.upsert(userId, credit.getId(), bill.getId(), amount);
         return new PeopleDtos.ShareDto(credit.getId(), bill.getId(), PayeeLabel.of(credit, "Unknown"),
                 credit.getTxnDate(), amount, false);
     }
 
     @Transactional
     public void unlink(UUID userId, UUID creditId, UUID billId) {
+        oneWriteAtATime(userId);
         shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, creditId).stream()
                 .filter(l -> l.getBillTxnId().equals(billId)).toList());
     }
@@ -151,6 +167,7 @@ public class PeopleService {
 
     @Transactional
     public PeopleDtos.EntryDto addEntry(UUID userId, PeopleDtos.EntryRequest req) {
+        oneWriteAtATime(userId);
         Transaction t = owned(userId, req.txnId());
         boolean out = PeopleLedger.isBill(t);
         boolean fits = switch (req.direction()) {
@@ -166,17 +183,29 @@ public class PeopleService {
         if (out && !shareLinks.findByUserIdAndBillTxnId(userId, t.getId()).isEmpty()) {
             throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         }
-        if (!out) shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, t.getId()));
+        BigDecimal amount = t.getAmount();
+        if (req.amount() != null) {
+            // Only part of the payment: on a credit, the part left over after the bills it is linked
+            // to, which keeps its share links.
+            BigDecimal shared = out ? BigDecimal.ZERO : ledgers.forUser(userId).sharedFromCredit(t.getId());
+            if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_LEFT);
+            amount = req.amount();
+        } else if (!out) {
+            shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, t.getId()));
+        }
         loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, t.getId()).stream()
                 .filter(e -> e.getDirection() != req.direction()).toList());
+        loanEntries.flush();
+        // One statement, so a double tap cannot race into the (txn, direction) unique key.
+        loanEntries.upsert(userId, person, t.getId(), req.direction().name(), amount);
         LoanEntry entry = loanEntries.findByUserIdAndTxnId(userId, t.getId()).stream()
-                .filter(e -> e.getDirection() == req.direction()).findFirst()
-                .orElseGet(() -> loanEntries.save(new LoanEntry(userId, person, t.getId(), req.direction(), t.getAmount())));
+                .filter(e -> e.getDirection() == req.direction()).findFirst().orElseThrow();
         return entryDto(entry);
     }
 
     @Transactional
     public void deleteEntry(UUID userId, UUID entryId) {
+        oneWriteAtATime(userId);
         loanEntries.findById(entryId).filter(e -> e.getUserId().equals(userId)).ifPresent(e -> {
             if (e.getDirection() == LoanEntry.Direction.LENT && e.getTxnId() != null) {
                 loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
@@ -191,6 +220,7 @@ public class PeopleService {
      *  came back, newest first (the oldest were repaid first). */
     @Transactional
     public void settle(UUID userId, PeopleDtos.SettleRequest req) {
+        oneWriteAtATime(userId);
         PeopleLedger.Balance balance = ledgers.forUser(userId).balances().get(req.personKey());
         if (balance == null || balance.owedToUser().signum() <= 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_OWED);
         BigDecimal open = balance.owedToUser();
@@ -229,6 +259,7 @@ public class PeopleService {
 
     @Transactional
     public PeopleDtos.SplitRuleDto addSplitRule(UUID userId, PeopleDtos.SplitRuleRequest req) {
+        oneWriteAtATime(userId);
         Transaction credit = owned(userId, req.creditId());
         Transaction bill = owned(userId, req.billId());
         if (!PeopleLedger.isCredit(credit) || !PeopleLedger.isBill(bill)) {
@@ -253,6 +284,7 @@ public class PeopleService {
 
     @Transactional
     public void removeSplitRule(UUID userId, UUID ruleId) {
+        oneWriteAtATime(userId);
         splitRules.findById(ruleId).filter(r -> r.getUserId().equals(userId) && r.isActive()).ifPresent(r -> {
             r.setRemovedAt(Instant.now());
             splitRules.save(r);
@@ -304,10 +336,8 @@ public class PeopleService {
 
     @Transactional
     public void setPersonSettings(UUID userId, PeopleDtos.PersonSettingsRequest req) {
-        PersonSetting s = personSettings.findByUserIdAndPersonKey(userId, req.personKey())
-                .orElseGet(() -> new PersonSetting(userId, req.personKey(), req.family()));
-        s.setFamily(req.family());
-        personSettings.save(s);
+        oneWriteAtATime(userId);
+        personSettings.upsert(userId, req.personKey(), req.family());
     }
 
     @Transactional(readOnly = true)
@@ -317,10 +347,9 @@ public class PeopleService {
 
     @Transactional
     public PeopleDtos.PreferencesDto setPreferences(UUID userId, PeopleDtos.PreferencesRequest req) {
+        oneWriteAtATime(userId);
         String upi = req.ownUpiId() == null || req.ownUpiId().isBlank() ? null : req.ownUpiId().trim();
-        PeoplePreference p = preferences.findById(userId).orElseGet(() -> new PeoplePreference(userId, upi));
-        p.setOwnUpiId(upi);
-        preferences.save(p);
+        preferences.upsert(userId, upi);
         return new PeopleDtos.PreferencesDto(upi);
     }
 

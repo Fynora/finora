@@ -17872,6 +17872,10 @@
                             "CASH_SETTLED",
                             "LET_GO"
                         ]
+                    },
+                    "amount": {
+                        "type": "number",
+                        "minimum": 0.01
                     }
                 },
                 "required": [
@@ -18228,7 +18232,7 @@
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING|SHARE_CHECK|LENT_CHECK|PAYBACK_CHECK|SETTLE|EVERY_MONTH|ALWAYS_PERSON"
+                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING|SHARE_CHECK|LENT_CHECK|PAYBACK_CHECK|SETTLE|EVERY_MONTH|ALWAYS_PERSON|LEFTOVER_CHECK"
                     },
                     "itemKey": {
                         "type": "string",
@@ -24228,6 +24232,13 @@
                             "AMOUNT_CHANGED",
                             "NONE"
                         ]
+                    },
+                    "yourShare": {
+                        "type": "number"
+                    },
+                    "sharedWith": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

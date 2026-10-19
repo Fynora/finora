@@ -98,7 +98,7 @@ class InsightAcknowledgementsIT extends AbstractIntegrationTest {
     @Test
     void acceptsPeopleKinds() {
         User user = createUser();
-        for (String kind : java.util.List.of("SHARE_CHECK", "LENT_CHECK", "PAYBACK_CHECK", "SETTLE", "EVERY_MONTH", "ALWAYS_PERSON")) {
+        for (String kind : java.util.List.of("SHARE_CHECK", "LENT_CHECK", "PAYBACK_CHECK", "SETTLE", "EVERY_MONTH", "ALWAYS_PERSON", "LEFTOVER_CHECK")) {
             assertThat(post(user, kind, "k-" + kind).getStatusCode()).as(kind).isEqualTo(HttpStatus.OK);
         }
     }

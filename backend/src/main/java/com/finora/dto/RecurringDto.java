@@ -15,8 +15,20 @@ public record RecurringDto(
         String category,          // most common category among the group's rows; null if none
         BigDecimal latestAmount,  // the most recent payment the user did not file by hand (else the most recent)
         String answer,            // the saved answer's category (the user's PAYEE rule), or null
-        QuestionState state
+        QuestionState state,
+        // Shared payments and loans: the user's average share once other people's shares are
+        // taken off, and how many people share it. Both null when nobody shares this payment.
+        BigDecimal yourShare,
+        Integer sharedWith
 ) {
+    /** Before shares existed: nobody shares it. */
+    public RecurringDto(String merchant, String label, BigDecimal averageAmount, int occurrences,
+                        LocalDate lastDate, LocalDate nextEstimate, String category, BigDecimal latestAmount,
+                        String answer, QuestionState state) {
+        this(merchant, label, averageAmount, occurrences, lastDate, nextEstimate, category, latestAmount, answer, state,
+                null, null);
+    }
+
     /** Whether, and how, the app asks about this payment. */
     public enum QuestionState {
         /** No saved answer, and every payment is still "Other" or a structural "Personal Transfer"

@@ -72,7 +72,8 @@ CREATE TABLE people_preferences (
 --   SETTLE         "<person key>|<newest loan entry id>"  (asks again once the balance changes)
 --   EVERY_MONTH    "<sender key>|<bill category id>"
 --   ALWAYS_PERSON  "<person key>"
+--   LEFTOVER_CHECK "<transaction id>"  (the part of a credit left over after the bills it is linked to)
 ALTER TABLE insight_acknowledgements DROP CONSTRAINT insight_acknowledgements_kind_check;
 ALTER TABLE insight_acknowledgements ADD CONSTRAINT insight_acknowledgements_kind_check CHECK (kind IN (
     'CATEGORY_HIGH', 'AMOUNT_CHANGED', 'CARD_STATEMENT_MISSING',
-    'SHARE_CHECK', 'LENT_CHECK', 'PAYBACK_CHECK', 'SETTLE', 'EVERY_MONTH', 'ALWAYS_PERSON'));
+    'SHARE_CHECK', 'LENT_CHECK', 'PAYBACK_CHECK', 'SETTLE', 'EVERY_MONTH', 'ALWAYS_PERSON', 'LEFTOVER_CHECK'));

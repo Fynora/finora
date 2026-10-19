@@ -7610,6 +7610,7 @@ export interface components {
             txnId: string;
             /** @enum {string} */
             direction: "LENT" | "PAID_BACK" | "BORROWED" | "REPAID" | "CASH_SETTLED" | "LET_GO";
+            amount?: number;
         };
         ApiResponseEntryDto: {
             success?: boolean;
@@ -10000,6 +10001,9 @@ export interface components {
             answer?: string;
             /** @enum {string} */
             state?: "NEEDS_ANSWER" | "ANSWERED" | "AMOUNT_CHANGED" | "NONE";
+            yourShare?: number;
+            /** Format: int32 */
+            sharedWith?: number;
         };
         ApiResponseListChangedAmountDto: {
             success?: boolean;

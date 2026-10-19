@@ -51,7 +51,7 @@ public final class PeopleSuggestions {
             "friend repayment", "personal transfer", "other", "transfer", "salary", "uncategorized");
     private static final Pattern SHARE_WORDS = Pattern.compile("(?i)\\b(rent|share|split|trip|dinner|lunch|bill)\\b");
     private static final List<String> ORDER = List.of(
-            "SHARE_CHECK", "PAYBACK_CHECK", "EVERY_MONTH", "ALWAYS_PERSON", "LENT_CHECK", "SETTLE");
+            "SHARE_CHECK", "LEFTOVER_CHECK", "PAYBACK_CHECK", "EVERY_MONTH", "ALWAYS_PERSON", "LENT_CHECK", "SETTLE");
 
     /** {@code relatedTxnId}: the earlier payment a PAYBACK_CHECK would mark as lent, or the bill an
      *  EVERY_MONTH rule is made from. {@code owed}: what the person owes, when they owe. */
@@ -90,6 +90,16 @@ public final class PeopleSuggestions {
         for (Transaction c : live) {
             if (!PeopleLedger.isCredit(c) || !isPerson(c) || in.familyKeys().contains(c.getCounterpartyKey())) continue;
             if (ChronoUnit.DAYS.between(c.getTxnDate(), in.today()) > ASK_WITHIN_DAYS) continue;
+            // D. the part of a credit left over after the bills it is linked to: they owed you, or borrowed?
+            if (sharedCredits.contains(c.getId()) && !entryTxns.contains(c.getId())
+                    && CounterpartyIdentity.identifiesOnePayee(c.getCounterpartyKey())) {
+                BigDecimal leftover = c.getAmount().subtract(in.ledger().sharedFromCredit(c.getId()));
+                if (leftover.signum() > 0) {
+                    items.add(new Suggestion("LEFTOVER_CHECK", c.getId().toString(), c.getId(), null, c.getCounterpartyKey(),
+                            label(c), leftover, c.getTxnDate(), name(in, c.getCategoryId()), List.of(), null));
+                }
+                continue;
+            }
             if (sharedCredits.contains(c.getId()) || entryTxns.contains(c.getId()) || in.ledger().creditDecision(c) != null) continue;
             // A. a share of a bill?
             String category = name(in, c.getCategoryId());

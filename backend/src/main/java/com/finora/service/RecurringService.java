@@ -168,6 +168,39 @@ public class RecurringService {
         return counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
     }
 
+    /** Shared payments and loans: other people's shares of a repeating bill. Set by Spring; null in a
+     *  unit test that builds this service by hand, where nobody shares anything. */
+    private com.finora.people.PeopleLedgerService peopleLedgerService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setPeopleLedgerService(com.finora.people.PeopleLedgerService peopleLedgerService) {
+        this.peopleLedgerService = peopleLedgerService;
+    }
+
+    /** The user's average share of a repeating bill once other people's shares are taken off; null
+     *  when nobody shares any of its payments. Detection itself reads the full amounts, which stay
+     *  steady while shares come and go. */
+    static BigDecimal yourShare(List<Transaction> group, com.finora.people.PeopleLedger people) {
+        boolean shared = group.stream().anyMatch(t -> !people.sharesOf(t.getId()).isEmpty());
+        if (!shared) return null;
+        return group.stream()
+                .map(t -> t.getAmount().subtract(people.sharedByBillId().getOrDefault(t.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(group.size()), 2, RoundingMode.HALF_UP);
+    }
+
+    /** How many people share a repeating bill, across its payments; null when nobody does. */
+    static Integer sharedWith(List<Transaction> group, com.finora.people.PeopleLedger people, Map<UUID, Transaction> rowsById) {
+        java.util.Set<String> senders = new java.util.HashSet<>();
+        for (Transaction t : group) {
+            for (com.finora.people.PeopleLedger.Share s : people.sharesOf(t.getId())) {
+                Transaction credit = rowsById.get(s.creditId());
+                senders.add(credit == null || credit.getCounterpartyKey() == null ? s.creditId().toString() : credit.getCounterpartyKey());
+            }
+        }
+        return senders.isEmpty() ? null : senders.size();
+    }
+
     @Transactional
     public List<RecurringDto> detectForUser(UUID userId) {
         // Was featureFlagRepository.isEnabled(...) directly -- bypassed FeatureFlagService, which
@@ -220,6 +253,11 @@ public class RecurringService {
         // was asked about directly keeps that answer.
         payeeRules.forEach(r -> RecurringAnswerService.payeeLabelsOf(r).forEach(l -> answers.putIfAbsent(l, r)));
 
+        com.finora.people.PeopleLedger people = peopleLedgerService == null
+                ? com.finora.people.PeopleLedger.EMPTY : peopleLedgerService.forUser(userId);
+        Map<UUID, Transaction> rowsById = new HashMap<>();
+        allTransactions.forEach(t -> rowsById.put(t.getId(), t));
+
         List<RecurringDto> results = new ArrayList<>();
         for (var entry : byMerchant.entrySet()) {
             List<Transaction> group = entry.getValue();
@@ -265,7 +303,8 @@ public class RecurringService {
                         mostCommonCategory(group, categoryNames),
                         (latest != null ? latest : group.get(group.size() - 1)).getAmount(),
                         answer == null ? null : answer.getActionValue(),
-                        questionState(group, latest, answer, categoryNames)));
+                        questionState(group, latest, answer, categoryNames),
+                        yourShare(group, people), sharedWith(group, people, rowsById)));
             }
         }
 

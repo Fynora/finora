@@ -240,6 +240,90 @@ class PeopleServiceIT extends AbstractIntegrationTest {
         assertThat(people.people(userId)).isEmpty();
     }
 
+    // ---- the leftover of a credit bigger than its bill (fix everything, 2026-10-19) ----
+
+    @Test
+    void leftoverPaidBackKeepsTheShareAndSettlesTheRest() {
+        Transaction lent = txn(Transaction.Type.EXPENSE, 500, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT, null));
+        Transaction bill = txn(Transaction.Type.EXPENSE, 1000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        people.addEntry(userId, new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("500")));
+        assertThat(people.billShares(userId, bill.getId())).singleElement()
+                .satisfies(s -> assertThat(s.amount()).isEqualByComparingTo("1000"));
+        assertThat(people.people(userId)).isEmpty();
+    }
+
+    @Test
+    void aLeftoverAnswerAboveWhatIsLeftIsRefused() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 1000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        assertThatThrownBy(() -> people.addEntry(userId,
+                new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("600"))))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_NOTHING_LEFT));
+    }
+
+    // ---- a double tap never fails (fix everything, 2026-10-19) ----
+
+    @Test
+    void concurrentTapsNeverFail() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 15; round++) {
+                Transaction bill = txn(Transaction.Type.EXPENSE, 1000, "vpa:owner.b", rent.getId());
+                Transaction credit = txn(Transaction.Type.INCOME, 400, "vpa:flatmate.a", rent.getId());
+                Transaction lent = txn(Transaction.Type.EXPENSE, 300, "vpa:friend.k", null);
+                java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(2);
+                java.util.List<java.util.concurrent.Future<?>> taps = new java.util.ArrayList<>();
+                for (int t = 0; t < 2; t++) {
+                    taps.add(pool.submit(() -> {
+                        start.await();
+                        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+                        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT, null));
+                        people.setPersonSettings(userId, new PeopleDtos.PersonSettingsRequest("vpa:friend.k", false));
+                        return null;
+                    }));
+                }
+                for (var tap : taps) tap.get();
+                assertThat(people.billShares(userId, bill.getId())).hasSize(1);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Two "Paid in cash" taps at once settle the balance once, never twice into a negative one. */
+    @Test
+    void concurrentSettlesSettleOnce() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 10; round++) {
+                String key = "vpa:friend." + round;
+                Transaction lent = txn(Transaction.Type.EXPENSE, 1000, key, null);
+                people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+                java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(2);
+                java.util.List<java.util.concurrent.Future<?>> taps = new java.util.ArrayList<>();
+                for (int t = 0; t < 2; t++) {
+                    taps.add(pool.submit(() -> {
+                        start.await();
+                        try {
+                            people.settle(userId, new PeopleDtos.SettleRequest(key, PeopleDtos.SettleHow.CASH));
+                        } catch (ApiException alreadySettled) {
+                            assertThat(alreadySettled.getCode()).isEqualTo(ErrorCode.PEOPLE_NOTHING_OWED);
+                        }
+                        return null;
+                    }));
+                }
+                for (var tap : taps) tap.get();
+                assertThat(people.people(userId)).as("round " + round).noneMatch(p -> p.personKey().equals(key));
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     @Test
     void countsAsNamesTheShareNotTheSendersKind() {
         Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());

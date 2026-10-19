@@ -21,8 +21,15 @@ public final class PeopleDtos {
 
     public record ShareDto(UUID creditId, UUID billId, String label, LocalDate date, BigDecimal amount, boolean fromRule) {}
 
-    /** LENT and REPAID on a payment out; PAID_BACK and BORROWED on money in. */
-    public record EntryRequest(@NotNull UUID txnId, @NotNull LoanEntry.Direction direction) {}
+    /** LENT and REPAID on a payment out; PAID_BACK and BORROWED on money in. {@code amount} null: the
+     *  payment's full amount, replacing any share links on it. Set: only that much -- the part of a
+     *  credit left over after the bills it is linked to, which keeps its share links. */
+    public record EntryRequest(@NotNull UUID txnId, @NotNull LoanEntry.Direction direction,
+                               @DecimalMin("0.01") BigDecimal amount) {
+        public EntryRequest(UUID txnId, LoanEntry.Direction direction) {
+            this(txnId, direction, null);
+        }
+    }
 
     public record EntryDto(UUID id, String personKey, UUID txnId, LoanEntry.Direction direction, BigDecimal amount) {}
 

@@ -49,6 +49,7 @@ class PeopleFiguresIT extends AbstractIntegrationTest {
     @Autowired private AnalyticsService analyticsService;
     @Autowired private InsightsService insightsService;
     @Autowired private BudgetService budgetService;
+    @Autowired private com.finora.service.RecurringService recurringService;
 
     private UUID userId;
     private UUID accountId;
@@ -150,6 +151,40 @@ class PeopleFiguresIT extends AbstractIntegrationTest {
         var report = reportService.forRange(userId, month.atDay(1), month.atEndOfMonth());
         assertThat(report.unresolvedInflowCount()).isZero();
         assertThat(report.income()).isEqualByComparingTo("0");
+    }
+
+    /** Paid regularly and Coming up read the repeating payments: a split rent shows the user's
+     *  share and how many people share it, beside the full amount older apps still read. */
+    @Test
+    void repeatingPaymentShowsYourShareAndHowManyShareIt() {
+        for (int back = 3; back >= 0; back--) {
+            YearMonth m = month.minusMonths(back);
+            Transaction bill = txn(Transaction.Type.EXPENSE, 30000, m.atDay(1), "vpa:owner.b", rent.getId());
+            bill.setMerchant("Owner");
+            transactionRepository.save(bill);
+            for (String who : new String[]{"vpa:flatmate.a", "vpa:flatmate.c", "vpa:flatmate.d"}) {
+                Transaction share = txn(Transaction.Type.INCOME, 7500, m.atDay(1), who, rent.getId());
+                shareLinkRepository.save(new ShareLink(userId, share.getId(), bill.getId(), BigDecimal.valueOf(7500)));
+            }
+        }
+        var rentItem = recurringService.detectForUser(userId).stream()
+                .filter(r -> "Owner".equals(r.merchant())).findFirst().orElseThrow();
+        assertThat(rentItem.averageAmount()).isEqualByComparingTo("30000");
+        assertThat(rentItem.yourShare()).isEqualByComparingTo("7500");
+        assertThat(rentItem.sharedWith()).isEqualTo(3);
+    }
+
+    @Test
+    void repeatingPaymentNobodySharesHasNoShareFields() {
+        for (int back = 3; back >= 0; back--) {
+            Transaction bill = txn(Transaction.Type.EXPENSE, 499, month.minusMonths(back).atDay(5), "vpa:stream.x", null);
+            bill.setMerchant("Stream");
+            transactionRepository.save(bill);
+        }
+        var item = recurringService.detectForUser(userId).stream()
+                .filter(r -> "Stream".equals(r.merchant())).findFirst().orElseThrow();
+        assertThat(item.yourShare()).isNull();
+        assertThat(item.sharedWith()).isNull();
     }
 
     @Test

@@ -138,6 +138,30 @@ class PeopleSuggestionsTest {
         assertThat(kinds()).doesNotContain("SHARE_CHECK");
     }
 
+    /** A credit bigger than the bill it was linked to: the part left over is asked about. */
+    @Test
+    void leftoverCheckWhenACreditIsBiggerThanItsBill() {
+        Transaction bill = debit(1000, TODAY.minusDays(5), "vpa:owner.b", FOOD);
+        Transaction c = credit(1500, TODAY.minusDays(3), "vpa:friend.k", FOOD);
+        links.add(new ShareLink(USER, c.getId(), bill.getId(), BigDecimal.valueOf(1000)));
+        PeopleSuggestions.Suggestion s = build().items().get(0);
+        assertThat(s.kind()).isEqualTo("LEFTOVER_CHECK");
+        assertThat(s.txnId()).isEqualTo(c.getId());
+        assertThat(s.amount()).isEqualByComparingTo("500");
+        assertThat(s.ackKey()).isEqualTo(c.getId().toString());
+    }
+
+    @Test
+    void noLeftoverCheckOnceTheLeftoverIsAnswered() {
+        Transaction bill = debit(1000, TODAY.minusDays(5), "vpa:owner.b", FOOD);
+        Transaction c = credit(1500, TODAY.minusDays(3), "vpa:friend.k", FOOD);
+        links.add(new ShareLink(USER, c.getId(), bill.getId(), BigDecimal.valueOf(1000)));
+        LoanEntry e = new LoanEntry(USER, "vpa:friend.k", c.getId(), LoanEntry.Direction.PAID_BACK, BigDecimal.valueOf(500));
+        ReflectionTestUtils.setField(e, "id", UUID.randomUUID());
+        entries.add(e);
+        assertThat(kinds()).doesNotContain("LEFTOVER_CHECK");
+    }
+
     @Test
     void billsListedBeforeThenAfter() {
         Transaction after = debit(2000, TODAY.minusDays(1), "vpa:shop.x", FOOD);

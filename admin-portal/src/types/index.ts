@@ -26,6 +26,9 @@ export interface UserDetailDto extends UserSummaryDto {
   updatedAt: string;
   accountCount: number;
   transactionCount: number;
+  /** Gate 2a: left out of the activation counts. */
+  internalAccount: boolean;
+  accountScope: 'USER' | 'ADMIN';
 }
 
 export interface PagedResponse<T> {

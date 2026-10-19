@@ -196,7 +196,7 @@ public class AdminUserService {
                 : transactionRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds);
         return new UserDetailDto(user.getId(), user.getEmail(), user.getFullName(), user.getPhoneNumber(),
                 user.isPhoneVerified(), user.getStatus(), roleNames(user), user.getCreatedAt(),
-                user.getUpdatedAt(), accountCount, transactionCount);
+                user.getUpdatedAt(), accountCount, transactionCount, user.isInternalAccount(), user.getAccountScope());
     }
 
     /**
@@ -280,6 +280,29 @@ public class AdminUserService {
         }
         requireUser(userId);
         accountPurgeSweepService.adminPurge(userId, actingAdminId);
+    }
+
+    /**
+     * Gate 2a spec §6: marks a USER-scope account as internal (the founder's own, a tester's) so the
+     * activation page leaves it out of every count, or clears the mark. ADMIN-scope accounts are
+     * left out of those counts already, so the flag is refused for them. Idempotent: setting the
+     * value it already has writes nothing, audit entry included, like suspend() above.
+     */
+    @Transactional
+    public UserSummaryDto setInternal(UUID actingAdminId, UUID userId, boolean internal) {
+        User user = requireUser(userId);
+        if (User.SCOPE_ADMIN.equals(user.getAccountScope())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Admin accounts are already left out of activation counts.");
+        }
+        if (user.isInternalAccount() != internal) {
+            user.setInternalAccount(internal);
+            user.setUpdatedAt(Instant.now());
+            userRepository.save(user);
+            auditService.record(userId, "USER_INTERNAL_ACCOUNT_SET", "User", userId,
+                    Map.of("internal", internal, "setBy", actingAdminId.toString()));
+        }
+        return toSummary(user);
     }
 
     private User requireUser(UUID userId) {

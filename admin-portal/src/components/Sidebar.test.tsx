@@ -35,6 +35,25 @@ describe('Sidebar', () => {
     localStorage.clear();
   });
 
+  // Gate 2a spec §6.
+  it('showsActivationWithPlatformAnalyticsView', () => {
+    renderSidebar(['PLATFORM_ANALYTICS_VIEW']);
+    expect(screen.getByRole('link', { name: /Activation/ })).toHaveAttribute('href', '/analytics/activation');
+  });
+
+  it('hides Activation without PLATFORM_ANALYTICS_VIEW', () => {
+    renderSidebar(['USER_VIEW']);
+    expect(screen.queryByRole('link', { name: /Activation/ })).not.toBeInTheDocument();
+  });
+
+  // "/analytics" is a prefix of "/analytics/activation": without end matching, both light up.
+  it('highlights only Activation on the activation page', () => {
+    renderSidebar(['PLATFORM_ANALYTICS_VIEW'], '/analytics/activation');
+
+    expect(screen.getByRole('link', { name: /Activation/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Platform Analytics/ })).not.toHaveAttribute('aria-current');
+  });
+
   it('always shows Dashboard, which requires no permission', () => {
     renderSidebar([]);
     expect(screen.getByText('Dashboard')).toBeInTheDocument();

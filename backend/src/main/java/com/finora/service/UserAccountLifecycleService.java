@@ -214,7 +214,9 @@ public class UserAccountLifecycleService {
             // (DELETION_CONFIRMED) so it can never be replayed into an actual password change.
             passwordChangeService.consumeForAccountDeletion(userId, sessionId);
 
-            if (reason != null) {
+            // Not for an internal or test account: the row is unlinked, so once stored it could never
+            // be left out of the activation counts the way the account itself is.
+            if (reason != null && !user.isInternalAccount()) {
                 deletionReasons.save(new AccountDeletionReason(reason,
                         reportingDay.today().withDayOfMonth(1), activationFacts.hasEverImported(userId)));
             }

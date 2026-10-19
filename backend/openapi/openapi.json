@@ -689,6 +689,47 @@
                 }
             }
         },
+        "/api/v1/admin/users/{id}/internal": {
+            "put": {
+                "tags": [
+                    "admin-user-controller"
+                ],
+                "operationId": "setInternal",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AdminInternalAccountRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseUserSummaryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/trusted-senders/{id}": {
             "put": {
                 "tags": [
@@ -12773,6 +12814,46 @@
                 }
             }
         },
+        "/api/v1/admin/analytics/activation": {
+            "get": {
+                "tags": [
+                    "admin-activation-controller"
+                ],
+                "operationId": "report",
+                "parameters": [
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "to",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseActivationReportDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/accounts/{accountId}/coverage": {
             "get": {
                 "tags": [
@@ -14237,6 +14318,17 @@
                         "format": "date-time"
                     }
                 }
+            },
+            "AdminInternalAccountRequest": {
+                "type": "object",
+                "properties": {
+                    "internal": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "internal"
+                ]
             },
             "RelabelRequest": {
                 "type": "object",
@@ -26437,6 +26529,12 @@
                     "transactionCount": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "internalAccount": {
+                        "type": "boolean"
+                    },
+                    "accountScope": {
+                        "type": "string"
                     }
                 }
             },
@@ -30663,6 +30761,231 @@
                     "transactionCount": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ActivationAnswerCount": {
+                "type": "object",
+                "properties": {
+                    "moment": {
+                        "type": "string",
+                        "enum": [
+                            "NO_FILE",
+                            "REFUSED",
+                            "NOT_CONFIRMED"
+                        ]
+                    },
+                    "answer": {
+                        "type": "string",
+                        "enum": [
+                            "NO_STATEMENT",
+                            "NOT_COMFORTABLE",
+                            "DIDNT_KNOW_HOW",
+                            "NO_POINT_YET",
+                            "NOT_NOW",
+                            "TRY_ANOTHER_FILE",
+                            "NO_OTHER_STATEMENT",
+                            "DONT_UNDERSTAND_FAILURE",
+                            "LEAVE_FOR_NOW",
+                            "ROWS_LOOKED_WRONG",
+                            "WRONG_FILE",
+                            "NOT_READY_TO_SAVE",
+                            "COME_BACK_LATER",
+                            "SKIPPED"
+                        ]
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationDeletionReasonCount": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "enum": [
+                            "COULDNT_GET_STATEMENTS_IN",
+                            "NOT_COMFORTABLE_WITH_DATA",
+                            "NOTHING_USEFUL",
+                            "USE_ANOTHER_APP",
+                            "DONT_NEED_IT",
+                            "SOMETHING_ELSE"
+                        ]
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationReportDto": {
+                "type": "object",
+                "properties": {
+                    "funnelGoLive": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "weeks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationWeekRow"
+                        }
+                    },
+                    "answers": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationAnswerCount"
+                        }
+                    },
+                    "answersByStep": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationStepAnswerCount"
+                        }
+                    },
+                    "focusByStep": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationStepLabelCount"
+                        }
+                    },
+                    "trackingByStep": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationStepLabelCount"
+                        }
+                    },
+                    "deletionReasons": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationDeletionReasonCount"
+                        }
+                    }
+                }
+            },
+            "ActivationStepAnswerCount": {
+                "type": "object",
+                "properties": {
+                    "step": {
+                        "type": "string",
+                        "enum": [
+                            "SIGNED_UP",
+                            "OPENED_IMPORT",
+                            "CHOSE_FILE",
+                            "REFUSED",
+                            "READ_FAILED",
+                            "HELD",
+                            "READ_NOT_REVIEWED",
+                            "REVIEWED_NOT_CONFIRMED",
+                            "GOT_DATA_IN"
+                        ]
+                    },
+                    "moment": {
+                        "type": "string",
+                        "enum": [
+                            "NO_FILE",
+                            "REFUSED",
+                            "NOT_CONFIRMED"
+                        ]
+                    },
+                    "answer": {
+                        "type": "string",
+                        "enum": [
+                            "NO_STATEMENT",
+                            "NOT_COMFORTABLE",
+                            "DIDNT_KNOW_HOW",
+                            "NO_POINT_YET",
+                            "NOT_NOW",
+                            "TRY_ANOTHER_FILE",
+                            "NO_OTHER_STATEMENT",
+                            "DONT_UNDERSTAND_FAILURE",
+                            "LEAVE_FOR_NOW",
+                            "ROWS_LOOKED_WRONG",
+                            "WRONG_FILE",
+                            "NOT_READY_TO_SAVE",
+                            "COME_BACK_LATER",
+                            "SKIPPED"
+                        ]
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationStepLabelCount": {
+                "type": "object",
+                "properties": {
+                    "step": {
+                        "type": "string",
+                        "enum": [
+                            "SIGNED_UP",
+                            "OPENED_IMPORT",
+                            "CHOSE_FILE",
+                            "REFUSED",
+                            "READ_FAILED",
+                            "HELD",
+                            "READ_NOT_REVIEWED",
+                            "REVIEWED_NOT_CONFIRMED",
+                            "GOT_DATA_IN"
+                        ]
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationWeekRow": {
+                "type": "object",
+                "properties": {
+                    "weekStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                }
+            },
+            "ApiResponseActivationReportDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ActivationReportDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

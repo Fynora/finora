@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
   CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
-  LifeBuoy, MessageSquare, MailCheck, Megaphone } from 'lucide-react';
+  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
 import { initials } from '../lib/initials';
@@ -44,7 +44,9 @@ const GROUPS = [
       { to: '/reconciliation', label: 'Reconciliation Monitor', icon: GitMerge, end: false, permission: 'RECONCILIATION_VIEW' },
       { to: '/reconciliation-explorer', label: 'Reconciliation Explorer', icon: Waypoints, end: false, permission: 'RECONCILIATION_VIEW' },
       { to: '/insights-explorer', label: 'Insight Explorer', icon: Lightbulb, end: false, permission: 'INSIGHTS_EXPLORER_VIEW' },
-      { to: '/analytics', label: 'Platform Analytics', icon: BarChart3, end: false, permission: 'PLATFORM_ANALYTICS_VIEW' },
+      // end: true, or it would light up alongside Activation, whose path it is a prefix of.
+      { to: '/analytics', label: 'Platform Analytics', icon: BarChart3, end: true, permission: 'PLATFORM_ANALYTICS_VIEW' },
+      { to: '/analytics/activation', label: 'Activation', icon: Footprints, end: false, permission: 'PLATFORM_ANALYTICS_VIEW' },
     ],
   },
   {

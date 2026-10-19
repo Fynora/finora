@@ -174,6 +174,20 @@ class AccountDeletionReasonIT extends AbstractIntegrationTest {
         assertThat(rowsFor(month)).hasSize(1);
     }
 
+    /** An internal or test account's reason would skew the counts, and once stored it can no longer
+     *  be told apart, so it is not kept. The deletion itself goes ahead as normal. */
+    @Test
+    void anInternalAccountsReasonIsNotKept() throws Exception {
+        LocalDate month = pinMonth(2031, 10);
+        Signed user = signUp();
+        jdbc.update("UPDATE users SET internal_account = true WHERE id = ?", user.userId());
+
+        assertThat(delete(user, verifiedSession(user), "\"NOTHING_USEFUL\"").getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(userRepository.findById(user.userId())).get().satisfies(u -> assertThat(u.isDeleted()).isTrue());
+        assertThat(rowsFor(month)).isEmpty();
+    }
+
     /** The enum and V278's CHECK are two copies of one list; this fails the moment they drift. */
     @Test
     void everyReasonIsAcceptedByTheDatabase() {

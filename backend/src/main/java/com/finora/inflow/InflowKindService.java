@@ -54,6 +54,8 @@ public class InflowKindService {
             Map.entry(FlowClassifier.FlowReason.CARD_PAYMENT_RECEIVED, "Card bill payment"),
             Map.entry(FlowClassifier.FlowReason.INVESTMENT_WITHDRAWAL, "Money back from an investment"),
             Map.entry(FlowClassifier.FlowReason.LOAN_DRAWDOWN, "Loan money received"),
+            Map.entry(FlowClassifier.FlowReason.SHARE_OF_BILL, "Someone's share of a bill you paid"),
+            Map.entry(FlowClassifier.FlowReason.BORROWED, "Money you borrowed"),
             Map.entry(FlowClassifier.FlowReason.PERSON_INFLOW, "Not counted yet · from a person"),
             Map.entry(FlowClassifier.FlowReason.CARD_UNEXPLAINED_CREDIT, "Not counted yet · card credit"),
             Map.entry(FlowClassifier.FlowReason.CASH_DEPOSIT, "Not counted yet · cash paid in"),
@@ -199,7 +201,9 @@ public class InflowKindService {
         String refusal = notChoosableReason(t);
         // A pairing reconciliation made outranks the user's kind (FlowClassifier), so the kind is
         // only "applied" when it is what actually decided the row.
-        InflowChoices.Chosen chosen = refusal == null ? FlowTotals.chosen(t, ctx) : null;
+        // A share or a loan the user confirmed (PeopleLedger) outranks their kind: say so, not the kind.
+        boolean ledgerDecided = ctx.people() != null && ctx.people().creditDecision(t) != null;
+        InflowChoices.Chosen chosen = refusal == null && !ledgerDecided ? FlowTotals.chosen(t, ctx) : null;
         String key = t.getCounterpartyKey();
         boolean senderAvailable = com.finora.util.CounterpartyIdentity.identifiesOnePayee(key);
         String summary = chosen != null

@@ -221,6 +221,18 @@ class PeopleLedgerTest {
         assertThat(l.balances()).doesNotContainKey(FRIEND);
     }
 
+    /** A bill the user answered as a loan is not a shared bill: a rule must not hang shares on it,
+     *  or the flatmates' money would leave every figure along with the lent payment. */
+    @Test
+    void ruleSkipsABillMarkedLent() {
+        Transaction bill = bill(30000, d(9, 1));
+        share(7500, d(9, 4));
+        PeopleLedger l = build(List.of(), List.of(rentRule()),
+                List.of(new LoanEntry(USER, OWNER, bill.getId(), LoanEntry.Direction.LENT, bd("30000"))), Set.of());
+        assertThat(l.sharesOf(bill.getId())).isEmpty();
+        assertThat(l.droppedIds()).containsExactly(bill.getId());
+    }
+
     @Test
     void weakKeyGetsNoRuleMatch() {
         row(Transaction.Type.EXPENSE, 30000, d(9, 1), OWNER, RENT);

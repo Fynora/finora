@@ -15,6 +15,8 @@ public interface LoanEntryRepository extends JpaRepository<LoanEntry, UUID> {
 
     List<LoanEntry> findByUserIdAndPersonKey(UUID userId, String personKey);
 
+    List<LoanEntry> findByUserIdAndTxnId(UUID userId, UUID txnId);
+
     /** AccountPurgeSweepService, through PeopleRepository: the users row is anonymized, not deleted,
      *  so the ON DELETE CASCADE never fires there. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)

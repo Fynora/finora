@@ -41,9 +41,9 @@ public final class PeopleSuggestions {
     static final int SETTLE_AFTER_DAYS = 60;
     static final int LOOK_BACK_DAYS = 180;
     static final int MAX_BILL_OPTIONS = 5;
-    /** "Lent, or paid for something?" only for payments this recent, and at most this many at once: a
-     *  user who pays people often would otherwise get one question per payment, all of their history. */
-    static final int LENT_ASK_WITHIN_DAYS = 90;
+    /** Questions only about money this recent, and at most MAX_LENT_CHECKS "lent?" rows at once: a user
+     *  who pays people often would otherwise get one question per payment, all of their history. */
+    static final int ASK_WITHIN_DAYS = 90;
     static final int MAX_LENT_CHECKS = 2;
 
     /** Categories that say nothing about what a credit was for. */
@@ -89,6 +89,7 @@ public final class PeopleSuggestions {
 
         for (Transaction c : live) {
             if (!PeopleLedger.isCredit(c) || !isPerson(c) || in.familyKeys().contains(c.getCounterpartyKey())) continue;
+            if (ChronoUnit.DAYS.between(c.getTxnDate(), in.today()) > ASK_WITHIN_DAYS) continue;
             if (sharedCredits.contains(c.getId()) || entryTxns.contains(c.getId()) || in.ledger().creditDecision(c) != null) continue;
             // A. a share of a bill?
             String category = name(in, c.getCategoryId());
@@ -133,7 +134,7 @@ public final class PeopleSuggestions {
             if (category != null && !NOT_SPENDING.contains(category.toLowerCase(Locale.ROOT))
                     && FlowClassifier.categoryIsTheUsersChoice(d)) continue;
             long age = ChronoUnit.DAYS.between(d.getTxnDate(), in.today());
-            if (age < LENT_AFTER_DAYS || age > LENT_ASK_WITHIN_DAYS) continue;
+            if (age < LENT_AFTER_DAYS || age > ASK_WITHIN_DAYS) continue;
             boolean cameBack = live.stream().anyMatch(c -> PeopleLedger.isCredit(c) && key.equals(c.getCounterpartyKey())
                     && c.getTxnDate().isAfter(d.getTxnDate())
                     && !c.getTxnDate().isAfter(d.getTxnDate().plusDays(LENT_AFTER_DAYS)));

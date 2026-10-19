@@ -108,6 +108,12 @@ public class PeopleService {
         if (!PeopleLedger.isCredit(credit) || !PeopleLedger.isBill(bill)) {
             throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         }
+        // One answer per payment: a bill already marked lent or repaid is not a shared bill, and a
+        // credit's earlier "paid back" or "borrowed" gives way to the share.
+        if (!loanEntries.findByUserIdAndTxnId(userId, bill.getId()).isEmpty()) {
+            throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
+        }
+        loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, credit.getId()));
         List<ShareLink> existing = shareLinks.findByUserIdAndCreditTxnId(userId, credit.getId()).stream()
                 .filter(l -> l.getBillTxnId().equals(bill.getId())).toList();
         shareLinks.deleteAll(existing);
@@ -155,15 +161,29 @@ public class PeopleService {
         if (!fits) throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         String person = t.getCounterpartyKey();
         if (!CounterpartyIdentity.identifiesOnePayee(person)) throw new ApiException(ErrorCode.PEOPLE_NOT_ONE_PAYEE);
-        LoanEntry entry = loanEntries.findByUserIdAndPersonKey(userId, person).stream()
-                .filter(e -> t.getId().equals(e.getTxnId()) && e.getDirection() == req.direction()).findFirst()
+        // One answer per payment. A bill other people paid shares of is not a loan; a credit's
+        // share links give way to the new answer; any earlier answer on this payment is replaced.
+        if (out && !shareLinks.findByUserIdAndBillTxnId(userId, t.getId()).isEmpty()) {
+            throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
+        }
+        if (!out) shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, t.getId()));
+        loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, t.getId()).stream()
+                .filter(e -> e.getDirection() != req.direction()).toList());
+        LoanEntry entry = loanEntries.findByUserIdAndTxnId(userId, t.getId()).stream()
+                .filter(e -> e.getDirection() == req.direction()).findFirst()
                 .orElseGet(() -> loanEntries.save(new LoanEntry(userId, person, t.getId(), req.direction(), t.getAmount())));
         return entryDto(entry);
     }
 
     @Transactional
     public void deleteEntry(UUID userId, UUID entryId) {
-        loanEntries.findById(entryId).filter(e -> e.getUserId().equals(userId)).ifPresent(loanEntries::delete);
+        loanEntries.findById(entryId).filter(e -> e.getUserId().equals(userId)).ifPresent(e -> {
+            if (e.getDirection() == LoanEntry.Direction.LENT && e.getTxnId() != null) {
+                loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
+                        .filter(x -> x.getDirection() == LoanEntry.Direction.LET_GO).toList());
+            }
+            loanEntries.delete(e);
+        });
     }
 
     /** CASH: the open balance was paid back outside the bank. LET_GO: it never will be -- each lent
@@ -191,7 +211,9 @@ public class PeopleService {
                 .sorted(Comparator.comparing(Transaction::getTxnDate).reversed()).toList();
         for (Transaction debit : lent) {
             if (open.signum() <= 0) break;
-            BigDecimal stillOut = debit.getAmount().subtract(alreadyGone.getOrDefault(debit.getId(), BigDecimal.ZERO));
+            // Already let go (in part, the rest having come back): that payment is closed.
+            if (alreadyGone.containsKey(debit.getId())) continue;
+            BigDecimal stillOut = debit.getAmount();
             BigDecimal gone = stillOut.min(open);
             if (gone.signum() <= 0) continue;
             loanEntries.save(new LoanEntry(userId, req.personKey(), debit.getId(), LoanEntry.Direction.LET_GO, gone));

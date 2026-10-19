@@ -30,6 +30,7 @@ class PeopleServiceIT extends AbstractIntegrationTest {
 
     @Autowired private PeopleService people;
     @Autowired private ReportService reportService;
+    @Autowired private com.finora.inflow.InflowKindService inflowKindService;
     @Autowired private UserRepository userRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private CategoryRepository categoryRepository;
@@ -178,6 +179,80 @@ class PeopleServiceIT extends AbstractIntegrationTest {
                 .satisfies(s -> assertThat(s.fromRule()).isTrue());
         people.removeSplitRule(userId, rule.id());
         assertThat(monthSpend()).isEqualByComparingTo("30000");
+    }
+
+    // ---- one answer per payment (review 2026-10-19) ----
+
+    @Test
+    void answeringAgainReplacesThePreviousAnswer() {
+        Transaction out = txn(Transaction.Type.EXPENSE, 1000, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(out.getId(), LoanEntry.Direction.LENT));
+        people.addEntry(userId, new PeopleDtos.EntryRequest(out.getId(), LoanEntry.Direction.REPAID));
+        assertThat(people.person(userId, "vpa:friend.k").timeline()).singleElement()
+                .satisfies(i -> assertThat(i.kind()).isEqualTo("REPAID"));
+        assertThat(people.person(userId, "vpa:friend.k").owedToUser()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void linkingAPaidBackCreditAsAShareDropsThePaidBack() {
+        Transaction lent = txn(Transaction.Type.EXPENSE, 1000, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+        Transaction credit = txn(Transaction.Type.INCOME, 1000, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK));
+        Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        // The credit is a share now, not a repayment: the friend still owes the 1000.
+        assertThat(people.person(userId, "vpa:friend.k").owedToUser()).isEqualByComparingTo("1000");
+        assertThat(people.billShares(userId, bill.getId())).hasSize(1);
+    }
+
+    @Test
+    void markingAShareCreditPaidBackDropsTheShare() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1000, "vpa:friend.k", null);
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        people.addEntry(userId, new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK));
+        assertThat(people.billShares(userId, bill.getId())).isEmpty();
+        assertThat(monthSpend()).isEqualByComparingTo("4000");
+    }
+
+    @Test
+    void lendingABillThatHasSharesIsRefused() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1000, "vpa:flatmate.a", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        assertThatThrownBy(() -> people.addEntry(userId, new PeopleDtos.EntryRequest(bill.getId(), LoanEntry.Direction.LENT)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+    }
+
+    @Test
+    void lettingGoAgainAfterAPartLetGoNeverFails() {
+        Transaction first = txn(Transaction.Type.EXPENSE, 2000, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(first.getId(), LoanEntry.Direction.LENT));
+        Transaction back = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(back.getId(), LoanEntry.Direction.PAID_BACK));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:friend.k", PeopleDtos.SettleHow.LET_GO));
+        Transaction second = txn(Transaction.Type.EXPENSE, 300, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(second.getId(), LoanEntry.Direction.LENT));
+        Transaction repaid = txn(Transaction.Type.EXPENSE, 900, "vpa:friend.k", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(repaid.getId(), LoanEntry.Direction.REPAID));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:friend.k", PeopleDtos.SettleHow.LET_GO));
+        assertThat(people.people(userId)).isEmpty();
+    }
+
+    @Test
+    void countsAsNamesTheShareNotTheSendersKind() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1000, "vpa:flatmate.a", rent.getId());
+        UUID incomeKind = inflowKindService.list(userId).stream()
+                .filter(k -> "INCOME".equals(k.builtIn())).findFirst().orElseThrow().id();
+        inflowKindService.setChoice(userId, credit.getId(),
+                new com.finora.inflow.InflowDtos.SetChoiceRequest(incomeKind, com.finora.service.InflowChoices.Scope.SENDER));
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        var countsAs = inflowKindService.countsAs(userId, credit.getId());
+        assertThat(countsAs.flowReason()).isEqualTo("SHARE_OF_BILL");
+        assertThat(countsAs.kind()).isNull();
+        assertThat(countsAs.summary()).contains("share");
     }
 
     @Test

@@ -98,6 +98,24 @@ class PeopleSuggestionsTest {
         assertThat(kinds()).containsExactly("SHARE_CHECK");
     }
 
+    /** Like "lent?": only recent credits are asked about, never a backlog of a user's whole history. */
+    @Test
+    void shareCheckOnlyForCreditsInTheLast90Days() {
+        credit(500, TODAY.minusDays(91), "vpa:friend.k", REPAY);
+        assertThat(kinds()).doesNotContain("SHARE_CHECK");
+        rows.clear();
+        credit(500, TODAY.minusDays(90), "vpa:friend.k", REPAY);
+        assertThat(kinds()).containsExactly("SHARE_CHECK");
+    }
+
+    @Test
+    void paybackCheckOnlyForCreditsInTheLast90Days() {
+        Transaction lent = debit(2000, TODAY.minusDays(150), "vpa:friend.k", null);
+        entry(lent, LoanEntry.Direction.LENT);
+        credit(500, TODAY.minusDays(91), "vpa:friend.k", null);
+        assertThat(kinds()).doesNotContain("PAYBACK_CHECK");
+    }
+
     @Test
     void noShareCheckOnRepaymentWithAnEarlierPayment() {
         debit(500, TODAY.minusDays(20), "vpa:friend.k", TRANSFER);

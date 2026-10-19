@@ -134,6 +134,8 @@ public final class PeopleLedger {
                 if (!isCredit(credit) || !rule.getSenderKey().equals(credit.getCounterpartyKey())) continue;
                 if (explicitlyLinked.contains(credit.getId()) || answered.contains(credit.getId())) continue;
                 for (Transaction bill : ruleCandidates(rule, credit, byDate)) {
+                    // A bill the user answered as a loan is not a shared bill.
+                    if (answered.contains(bill.getId())) continue;
                     BigDecimal amount = left(creditLeft, credit).min(left(billLeft, bill));
                     if (amount.signum() <= 0) continue;
                     record(credit, bill, amount, true, creditLeft, billLeft, sharesByBill);

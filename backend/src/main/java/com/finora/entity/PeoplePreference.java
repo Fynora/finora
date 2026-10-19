@@ -8,7 +8,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-/** The user's own UPI id (V279), asked once for "Ask them": the payment link it builds pays the user. */
+/** The user's own UPI id (V281), asked once for "Ask them": the payment link it builds pays the user. */
 @Entity
 @Table(name = "people_preferences")
 public class PeoplePreference {

@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.UUID;
 
-/** Split rules, removed ones included (V279). */
+/** Split rules, removed ones included (V281). */
 public interface SplitRuleRepository extends JpaRepository<SplitRule, UUID> {
     List<SplitRule> findByUserId(UUID userId);
 

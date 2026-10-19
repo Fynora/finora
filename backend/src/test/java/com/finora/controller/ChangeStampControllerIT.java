@@ -189,7 +189,7 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         assertMovedOnly(afterKind, stampOf(user), "transactions");
     }
 
-    /** Shared payments and loans (V279): a share, a split rule, a loan entry or a person's family
+    /** Shared payments and loans (V281): a share, a split rule, a loan entry or a person's family
      *  switch changes what the figures count without touching a transaction row. */
     @Test
     void movesOnlyTransactionsWhenAShareRuleEntryOrPersonSettingChanges() {

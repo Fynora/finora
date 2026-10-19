@@ -94,7 +94,7 @@ class InsightAcknowledgementsIT extends AbstractIntegrationTest {
         assertThat(list(someoneElse)).isEmpty();
     }
 
-    /** Shared payments and loans (V279): each suggestion kind can be marked "Got it". */
+    /** Shared payments and loans (V281): each suggestion kind can be marked "Got it". */
     @Test
     void acceptsPeopleKinds() {
         User user = createUser();

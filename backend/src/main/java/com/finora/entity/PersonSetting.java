@@ -8,7 +8,7 @@ import jakarta.persistence.Table;
 
 import java.util.UUID;
 
-/** Per-person choices (V279). family: never asked "lent?" or "settle it" for this person. */
+/** Per-person choices (V281). family: never asked "lent?" or "settle it" for this person. */
 @Entity
 @Table(name = "person_settings")
 public class PersonSetting {

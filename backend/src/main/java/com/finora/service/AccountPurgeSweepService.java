@@ -827,7 +827,7 @@ public class AccountPurgeSweepService {
             activationAnswerRepository.deleteByUserId(userId);
             // V277: the Insights "Got it" record, same anonymize-not-delete trap.
             insightAcknowledgementRepository.deleteByUserId(userId);
-            // V279: shared payments and loans, same anonymize-not-delete trap.
+            // V281: shared payments and loans, same anonymize-not-delete trap.
             peopleData.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);

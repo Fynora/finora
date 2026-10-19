@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.UUID;
 
-/** Loan entries (V279). */
+/** Loan entries (V281). */
 public interface LoanEntryRepository extends JpaRepository<LoanEntry, UUID> {
     List<LoanEntry> findByUserId(UUID userId);
 

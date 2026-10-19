@@ -520,7 +520,7 @@ public class DataExportService {
                                 a.getKind(), a.getItemKey(), a.getAcknowledgedAt()))
                         .toList();
 
-        // V279: shared payments and loans, in the purge scope, so exported.
+        // V281: shared payments and loans, in the purge scope, so exported.
         com.finora.people.PeopleData.PeopleExport sharedPayments = peopleData.exportFor(userId);
 
         List<BudgetDto> budgets = budgetService.listForUser(userId);

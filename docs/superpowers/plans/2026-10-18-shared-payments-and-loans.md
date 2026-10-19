@@ -61,7 +61,7 @@ endpoints.
 
 | File | Responsibility |
 |---|---|
-| `db/migration/V279__people_links.sql` | 5 tables, ack-kind constraint widened |
+| `db/migration/V281__people_links.sql` | 5 tables, ack-kind constraint widened |
 | `entity/ShareLink.java`, `SplitRule.java`, `LoanEntry.java`, `PersonSetting.java`, `PeoplePreference.java` | JPA entities |
 | `repository/…Repository.java` (5) | Spring Data repositories |
 | `people/PeopleLedger.java` | Pure: links + rules + entries + rows → figures and balances |
@@ -74,7 +74,7 @@ endpoints.
 ### Task 1: Tables, entities, purge, export, change stamp
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V279__people_links.sql`, the five entities and repositories above.
+- Create: `backend/src/main/resources/db/migration/V281__people_links.sql`, the five entities and repositories above.
 - Modify: `AccountPurgeSweepService.java` (delete the five by user, next to `insightAcknowledgementRepository.deleteByUserId`),
   `DataExportService.java` + `DataExportDto.java` (five export lists, as `InsightAcknowledgementExportDto`),
   `ChangeStampService.java` (hash the five tables into the `transactions` value, as `sender_inflow_rules` is),

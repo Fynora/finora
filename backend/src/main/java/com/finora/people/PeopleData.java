@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The five shared-payments tables (V279) as one unit for the account purge and the data export, so
+ * The five shared-payments tables (V281) as one unit for the account purge and the data export, so
  * neither has to know them one by one. DataExportServiceTest's purge-to-export guard matches
  * {@code peopleData.deleteByUserId} by name, so this call is held to an export entry like a repository's.
  */

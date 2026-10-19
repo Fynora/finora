@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-/** A credit the user confirmed is someone's share of a bill (V279). Read through PeopleLedger,
+/** A credit the user confirmed is someone's share of a bill (V281). Read through PeopleLedger,
  *  which caps the amount at what is left of the bill and of the credit. */
 @Entity
 @Table(name = "share_links")

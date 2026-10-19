@@ -614,7 +614,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(acks.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("kind", "itemKey", "acknowledgedAt");
     }
 
-    /** Shared payments and loans (V279): one entry with the user's shares, split rules, loan
+    /** Shared payments and loans (V281): one entry with the user's shares, split rules, loan
      *  entries, people settings and own UPI id -- only this user's. */
     @Test
     void exportIncludesPeopleTables() throws Exception {

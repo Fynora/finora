@@ -373,7 +373,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(insightAcknowledgementRepository.findByUserId(userId)).isEmpty();
     }
 
-    /** Shared payments and loans (V279): all five tables, same anonymize-not-delete trap. */
+    /** Shared payments and loans (V281): all five tables, same anonymize-not-delete trap. */
     @Test
     @Transactional
     void purgeDeletesPeopleTables() {

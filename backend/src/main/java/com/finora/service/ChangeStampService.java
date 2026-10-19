@@ -40,7 +40,7 @@ import java.util.UUID;
  * <p>{@code transactions} also hashes the user's inflow kinds and remembered senders whole (Plan 2):
  * a kind or sender choice made on the web changes which rows count as income without touching any
  * transaction row, so without them the phone's income and review list would stay stale. The shared
- * payments tables (V279) are hashed in for the same reason: a share, a split rule, a loan entry or a
+ * payments tables (V281) are hashed in for the same reason: a share, a split rule, a loan entry or a
  * person's family switch changes what the figures count.
  *
  * <p>{@code preferences} (timezone and low-balance threshold) is its own value, not part of the

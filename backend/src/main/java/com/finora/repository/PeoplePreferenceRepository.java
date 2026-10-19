@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.UUID;
 
-/** The user's own UPI id (V279), one row per user. */
+/** The user's own UPI id (V281), one row per user. */
 public interface PeoplePreferenceRepository extends JpaRepository<PeoplePreference, UUID> {
 
     /** Set the user's own UPI id -- one statement, so two saves at once cannot both insert. */

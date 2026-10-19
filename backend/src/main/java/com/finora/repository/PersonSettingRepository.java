@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.UUID;
 
-/** Per-person settings (V279). */
+/** Per-person settings (V281). */
 public interface PersonSettingRepository extends JpaRepository<PersonSetting, UUID> {
     List<PersonSetting> findByUserId(UUID userId);
 

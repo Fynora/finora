@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.UUID;
 
-/** Shares the user confirmed (V279). */
+/** Shares the user confirmed (V281). */
 public interface ShareLinkRepository extends JpaRepository<ShareLink, UUID> {
     List<ShareLink> findByUserId(UUID userId);
 

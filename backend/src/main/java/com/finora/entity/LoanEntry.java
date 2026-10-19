@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-/** One line of a person's balance (V279). See PeopleLedger for how the directions add up. */
+/** One line of a person's balance (V281). See PeopleLedger for how the directions add up. */
 @Entity
 @Table(name = "loan_entries")
 public class LoanEntry {

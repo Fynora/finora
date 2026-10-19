@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
 
-/** "Shares from this sender against this bill, every time" (V279). The bill is named by its
+/** "Shares from this sender against this bill, every time" (V281). The bill is named by its
  *  category plus its payee key, or its merchant name when that key names no one -- never by amount.
  *  Applied when figures are read (PeopleLedger); removing it sets removedAt and undoes every share
  *  it made. */

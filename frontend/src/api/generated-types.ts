@@ -3956,6 +3956,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/people/of-transaction/{txnId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["peoplePersonOf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/people/bills/{billId}/shares": {
         parameters: {
             query?: never;
@@ -10162,6 +10178,22 @@ export interface components {
             amount?: number;
             /** Format: uuid */
             txnId?: string;
+        };
+        ApiResponsePersonRefDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["PersonRefDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        PersonRefDto: {
+            personKey?: string;
+            label?: string;
         };
         ApiResponseListShareDto: {
             success?: boolean;
@@ -20210,6 +20242,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponsePersonDetailDto"];
+                };
+            };
+        };
+    };
+    peoplePersonOf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                txnId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponsePersonRefDto"];
                 };
             };
         };

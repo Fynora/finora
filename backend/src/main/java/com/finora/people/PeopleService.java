@@ -333,6 +333,14 @@ public class PeopleService {
     }
 
     @Transactional(readOnly = true)
+    public PeopleDtos.PersonRefDto personOf(UUID userId, UUID txnId) {
+        Transaction t = owned(userId, txnId);
+        String key = t.getCounterpartyKey();
+        if (!CounterpartyIdentity.identifiesOnePayee(key)) throw new ApiException(ErrorCode.PEOPLE_NOT_ONE_PAYEE);
+        return new PeopleDtos.PersonRefDto(key, labels(userId, Set.of(key)).getOrDefault(key, "Unknown"));
+    }
+
+    @Transactional(readOnly = true)
     public PeopleDtos.PersonDetailDto person(UUID userId, String personKey) {
         PeopleLedger ledger = ledgers.forUser(userId);
         PeopleLedger.Balance balance = ledger.balances().get(personKey);

@@ -134,6 +134,48 @@ class PeopleControllerIT extends AbstractIntegrationTest {
         return mapper.readTree(response.getBody()).get("data");
     }
 
+    private ResponseEntity<String> get(User user, String path) {
+        return restTemplate.exchange("/api/v1/people" + path, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
+    /** A transaction's details open its person's page: the key is given only for one that names a person. */
+    @Test
+    void aTransactionNamesItsPerson() throws Exception {
+        User user = createUser();
+        Transaction lent = txn(user, Transaction.Type.EXPENSE, 2000, "vpa:friend.k");
+        ResponseEntity<String> response = get(user, "/of-transaction/" + lent.getId());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("personKey").asText()).isEqualTo("vpa:friend.k");
+        assertThat(data.get("label").asText()).isNotBlank();
+    }
+
+    @Test
+    void aWeakKeyNamesNoPersonAndAnotherUsersTransactionIs404() {
+        User user = createUser();
+        Transaction weak = txn(user, Transaction.Type.INCOME, 500, "cut:abc");
+        assertThat(get(user, "/of-transaction/" + weak.getId()).getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        Transaction theirs = txn(createUser(), Transaction.Type.EXPENSE, 2000, "vpa:friend.k");
+        assertThat(get(user, "/of-transaction/" + theirs.getId()).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    /** The UPI id goes into a request the user shares: only name@bank is kept. */
+    @Test
+    void onlyAUpiIdIsSaved() throws Exception {
+        User user = createUser();
+        HttpEntity<String> bad = new HttpEntity<>("{\"ownUpiId\":\"user@bank&am=1\"}", bearerFor(user));
+        assertThat(restTemplate.exchange("/api/v1/people/preferences", HttpMethod.PUT, bad, String.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        HttpEntity<String> good = new HttpEntity<>("{\"ownUpiId\":\"user.sample@okbank\"}", bearerFor(user));
+        assertThat(restTemplate.exchange("/api/v1/people/preferences", HttpMethod.PUT, good, String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        JsonNode saved = mapper.readTree(get(user, "/preferences").getBody()).get("data");
+        assertThat(saved.get("ownUpiId").asText()).isEqualTo("user.sample@okbank");
+        HttpEntity<String> cleared = new HttpEntity<>("{\"ownUpiId\":null}", bearerFor(user));
+        assertThat(restTemplate.exchange("/api/v1/people/preferences", HttpMethod.PUT, cleared, String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+    }
+
     @Test
     void unauthenticatedIs401() {
         HttpHeaders headers = new HttpHeaders();

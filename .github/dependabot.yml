@@ -239,6 +239,15 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "expo-*"
         update-types: ["version-update:semver-major"]
+      # jest-expo is the same case under a name `expo-*` does not match: its major is the SDK number
+      # too (jest-expo 57.x for SDK 57). PR #2277 (57.0.5 -> 58.0.11) failed every mobile suite
+      # before any test ran, "Could not locate module react-native/asset-registry mapped as
+      # .../react-native/src/asset-registry.js": jest-expo 58 maps to a file react-native 0.86.3
+      # does not have (0.87.0 does) and peer-depends on @react-native/jest-preset ^0.88.0. It moves
+      # with the SDK upgrade, with every other Expo package. Minor and patch releases inside the
+      # 57 line still arrive through npm-minor-and-patch.
+      - dependency-name: "jest-expo"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 

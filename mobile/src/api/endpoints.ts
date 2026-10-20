@@ -1112,6 +1112,10 @@ export interface RecurringItem {
   latestAmount?: number | null;
   answer?: string | null;
   state?: RecurringQuestionState;
+  // Shared payments: the user's average share once other people's shares come off, and how many
+  // people share it. Null when nobody does; absent on an older backend.
+  yourShare?: number | null;
+  sharedWith?: number | null;
 }
 /** A saved answer whose payee's latest payment left the saved range (backend ChangedAmountDto). */
 export interface ChangedAmountItem {
@@ -1229,6 +1233,11 @@ export interface BillShare {
   amount: number;
   fromRule: boolean;
 }
+/** The person on the other side of one transaction. */
+export interface PersonRef {
+  personKey: string;
+  label: string;
+}
 export interface LoanEntry {
   id: string;
   personKey: string;
@@ -1249,7 +1258,8 @@ const _peopleShapesMatchTheServer: [
   FieldsOf<PersonDetail, GeneratedSchemas['PersonDetailDto']>,
   FieldsOf<BillShare, GeneratedSchemas['ShareDto']>,
   FieldsOf<LoanEntry, GeneratedSchemas['EntryDto']>,
-] = [true, true, true, true, true, true, true, true, true];
+  FieldsOf<PersonRef, GeneratedSchemas['PersonRefDto']>,
+] = [true, true, true, true, true, true, true, true, true, true];
 void _peopleShapesMatchTheServer;
 
 export const peopleApi = {
@@ -1257,6 +1267,9 @@ export const peopleApi = {
   list: () => api.get<PersonBalance[]>('/people').then((r) => r.data),
   /** The To look at rows about people, and the shares expected in for Coming up. */
   suggestions: () => api.get<PeopleSuggestions>('/people/suggestions').then((r) => r.data),
+  /** The person a transaction was with; fails (422) when its payee does not name one person. */
+  personOf: (txnId: string) =>
+    api.get<PersonRef>(`/people/of-transaction/${txnId}`).then((r) => r.data),
   person: (personKey: string) =>
     api.get<PersonDetail>('/people/person', { params: { key: personKey } }).then((r) => r.data),
   setFamily: (personKey: string, family: boolean) =>

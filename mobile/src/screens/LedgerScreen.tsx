@@ -30,6 +30,7 @@ import { LedgerPinnedBar, LedgerTitleBlock, PINNED_BAR_SHOWN_AFTER } from '../co
 import { AddTransactionSheet } from './AddTransactionSheet';
 import { EditTransactionSheet } from './EditTransactionSheet';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
+import { BillPickerSheet } from '../components/people/BillPickerSheet';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
@@ -191,6 +192,9 @@ export function LedgerScreen() {
   // comment for why (each becomes an independently-accessible row there, instead of a button
   // nested inside the row's own already-accessible Pressable).
   const [viewingDetail, setViewingDetail] = useState<Transaction | null>(null);
+  // Shared payments: the bill picker for a credit ("Share of a bill") or a bill ("Split this"),
+  // opened after the details sheet closes, as every other sheet from it is.
+  const [pickingShare, setPickingShare] = useState<{ mode: 'bill' | 'credit'; transaction: Transaction } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   // The pinned bar is shown once the list has moved far enough for the large title to reach it.
   const [barShown, setBarShown] = useState(false);
@@ -801,8 +805,22 @@ export function LedgerScreen() {
           onViewCorrection={() => { setViewingDetail(null); setViewingCorrection(viewingDetail); }}
           onDelete={() => confirmDelete(viewingDetail)}
           deleting={deletingId === viewingDetail.id}
+          onShareOfABill={() => { setViewingDetail(null); setPickingShare({ mode: 'bill', transaction: viewingDetail }); }}
+          onSplit={() => { setViewingDetail(null); setPickingShare({ mode: 'credit', transaction: viewingDetail }); }}
+          onOpenPerson={(personKey) => {
+            setViewingDetail(null);
+            navigation.navigate('More', { screen: 'Person', params: { personKey } });
+          }}
         />
       ) : null}
+
+      {pickingShare ? (() => {
+        const t = pickingShare.transaction;
+        const payment = { txnId: t.id, label: rowTitle(t), amount: Math.abs(t.amount), date: t.date };
+        return pickingShare.mode === 'bill'
+          ? <BillPickerSheet mode="bill" credit={payment} options={null} onClose={() => setPickingShare(null)} />
+          : <BillPickerSheet mode="credit" bill={{ ...payment, category: t.categoryName || null }} onClose={() => setPickingShare(null)} />;
+      })() : null}
     </GlassScreen>
   );
 }

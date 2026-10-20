@@ -1,5 +1,6 @@
 import type {
-  AckKind, ChangedAmountItem, InsightsData, PeopleSuggestionKind, RecurringItem, UnlinkedCardBills,
+  AckKind, ChangedAmountItem, ExpectedShare, InsightsData, PeopleSuggestion, PeopleSuggestionKind, PersonBalance,
+  RecurringItem, UnlinkedCardBills,
 } from '../api/endpoints';
 
 /**
@@ -31,6 +32,9 @@ interface Dismissible {
 export type LookAtRow =
   | ({ kind: 'card-statement' } & UnlinkedCardBills & Dismissible)
   | { kind: 'new-recurring'; item: RecurringItem }
+  // Shared payments and loans: the server picks and orders these (PeopleSuggestions); its "Got it"
+  // kind is the row's own kind and its key comes with it.
+  | { kind: 'people'; item: PeopleSuggestion }
   | ({
       kind: 'amount-changed';
       merchant: string;
@@ -67,16 +71,19 @@ function normalizeMerchant(merchant: string): string {
 }
 
 /**
- * "To look at": a card statement to upload, new repeating payments to answer, repeating payments
- * whose amount moved, and categories running high -- in that order, less what was marked "Got it".
+ * "To look at": a card statement to upload, questions about money with people, new repeating
+ * payments to answer, repeating payments whose amount moved, and categories running high -- in that
+ * order, less what was marked "Got it".
  */
 export function buildToLookAt(input: {
   insights?: InsightsData;
   recurring: RecurringItem[];
   changed: ChangedAmountItem[];
   acks: Set<string>;
+  /** The server's people rows; absent on an older server. */
+  people?: PeopleSuggestion[];
 }): LookAtRow[] {
-  const { insights, recurring, changed, acks } = input;
+  const { insights, recurring, changed, acks, people = [] } = input;
   const rows: LookAtRow[] = [];
   const acked = (kind: AckKind, itemKey: string) => acks.has(ackEntry(kind, itemKey));
 
@@ -86,6 +93,11 @@ export function buildToLookAt(input: {
     if (!acked('CARD_STATEMENT_MISSING', itemKey)) {
       rows.push({ kind: 'card-statement', ...bills, ackKind: 'CARD_STATEMENT_MISSING', ackItemKey: itemKey });
     }
+  }
+
+  // The server already leaves out what was marked "Got it"; this also hides one the moment it is tapped.
+  for (const item of people) {
+    if (!acked(item.kind, item.ackKey)) rows.push({ kind: 'people', item });
   }
 
   for (const item of recurring) {
@@ -155,7 +167,38 @@ export function comingUp(recurring: RecurringItem[], today: string): {
   return { rows, stillToGoOut };
 }
 
-/** "Paid regularly": every repeating payment as a monthly amount, largest first, with the totals. */
+/** "4th", "22nd": a day of the month with its English ending. */
+function ordinal(day: number): string {
+  const tens = day % 100;
+  if (tens >= 11 && tens <= 13) return `${day}th`;
+  return `${day}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th'}`;
+}
+
+/** "Coming up", money in: each split rule's usual share, around its usual day, marked late once past. */
+export function expectedSharesIn(expected: ExpectedShare[]): {
+  key: string; title: string; when: string; amount: number; late: boolean;
+}[] {
+  return expected.map((e) => ({
+    key: e.ruleId,
+    title: `${e.label}'s share`,
+    when: e.late ? `late, usually around the ${ordinal(e.usualDay)}` : `around the ${ordinal(e.usualDay)}`,
+    amount: e.usualAmount,
+    late: e.late,
+  }));
+}
+
+/** "With people": who owes the user and whom the user owes, largest first. A family person is never
+ *  listed here (spec §7), and a settled balance is not a line. */
+export function withPeople(balances: PersonBalance[]): { owedToYou: PersonBalance[]; youOwe: PersonBalance[] } {
+  const open = balances.filter((p) => !p.family && p.owedToUser !== 0);
+  return {
+    owedToYou: open.filter((p) => p.owedToUser > 0).sort((a, b) => b.owedToUser - a.owedToUser),
+    youOwe: open.filter((p) => p.owedToUser < 0).sort((a, b) => a.owedToUser - b.owedToUser),
+  };
+}
+
+/** "Paid regularly": every repeating payment as a monthly amount, largest first, with the totals. A
+ *  bill other people share counts at the user's share, as every other figure does. */
 export function paidRegularly(recurring: RecurringItem[]): {
   rows: { item: RecurringItem; monthly: number; rising: boolean }[];
   monthlyTotal: number;
@@ -164,7 +207,7 @@ export function paidRegularly(recurring: RecurringItem[]): {
   const rows = recurring
     .map((item) => ({
       item,
-      monthly: item.averageAmount * (MONTHLY_FACTOR[item.label] ?? 1),
+      monthly: (item.yourShare ?? item.averageAmount) * (MONTHLY_FACTOR[item.label] ?? 1),
       rising: item.latestAmount != null && item.latestAmount > item.averageAmount,
     }))
     .sort((a, b) => b.monthly - a.monthly);

@@ -31,22 +31,30 @@ export function PaidRegularlySection({ rows, monthlyTotal, yearlyTotal, olderMon
         <Text style={[typography.bodyS, styles.totals, { color: c.mutedInk }]}>Based on all your statements</Text>
       ) : null}
       <Card>
-        {rows.map(({ item, rising }, i) => (
+        {rows.map(({ item, rising }, i) => {
+          const shared = item.yourShare != null && item.sharedWith != null;
+          const shown = shared ? (item.yourShare as number) : item.averageAmount;
+          const spoken = shared
+            ? `your share ${fmtCurrency(shown)} of ${fmtCurrency(item.averageAmount)}, split with ${item.sharedWith}`
+            : fmtCurrency(item.averageAmount);
+          return (
           <View
             key={item.merchant}
             style={[styles.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
           >
             <View
               accessible
-              accessibilityLabel={`${item.merchant}, ${item.label}, ${fmtCurrency(item.averageAmount)}${rising ? ', latest payment went up' : ''}`}
+              accessibilityLabel={`${item.merchant}, ${item.label}, ${spoken}${rising ? ', latest payment went up' : ''}`}
               style={styles.main}
             >
               <View style={styles.text}>
                 <Text style={[typography.labelM, { color: c.ink }]}>{item.merchant}</Text>
-                <Text style={[typography.bodyS, { color: c.mutedInk }]}>{`${item.label} · seen ${item.occurrences}×`}</Text>
+                <Text style={[typography.bodyS, { color: c.mutedInk }]}>
+                  {shared ? `${item.label} · split with ${item.sharedWith}` : `${item.label} · seen ${item.occurrences}×`}
+                </Text>
               </View>
               <Text style={[typography.numberS, { color: c.ink }]}>
-                {fmtCurrency(item.averageAmount)}
+                {fmtCurrency(shown)}
                 {rising ? <Text style={{ color: c.dangerInk }}> ▲</Text> : null}
               </Text>
             </View>
@@ -60,7 +68,8 @@ export function PaidRegularlySection({ rows, monthlyTotal, yearlyTotal, olderMon
               <Ionicons name="close" size={16} color={c.mutedInk} />
             </Pressable>
           </View>
-        ))}
+          );
+        })}
       </Card>
     </View>
   );

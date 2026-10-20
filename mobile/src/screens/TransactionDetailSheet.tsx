@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button } from '../components/Button';
 import { MerchantLogo } from '../components/MerchantLogo';
+import { PeopleTransactionSection } from '../components/people/PeopleTransactionSection';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { fmtDate, fmtForeignAmount, fmtStatementBalance } from '../lib/format';
 import { rowTitle } from '../lib/ledgerRows';
@@ -27,6 +28,10 @@ interface Props {
   onViewCorrection: () => void;
   onDelete: () => void;
   deleting: boolean;
+  /** Shared payments and loans: each opens its own sheet or page, so the host closes this one first. */
+  onShareOfABill: () => void;
+  onSplit: () => void;
+  onOpenPerson: (personKey: string) => void;
 }
 
 /**
@@ -51,6 +56,7 @@ interface Props {
 export function TransactionDetailSheet({
   transaction: t, onClose, onChangeCategory, onEdit, onViewSource, onExplainCategory,
   onMarkTransfer, onUnmarkTransfer, unmarking, onViewCorrection, onDelete, deleting,
+  onShareOfABill, onSplit, onOpenPerson,
 }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
@@ -180,6 +186,13 @@ export function TransactionDetailSheet({
                 <InfoRow label="Balance after" value={fmtStatementBalance(t.balanceAfter)} />
               ) : null}
             </View>
+
+            <PeopleTransactionSection
+              transaction={t}
+              onShareOfABill={onShareOfABill}
+              onSplit={onSplit}
+              onOpenPerson={onOpenPerson}
+            />
 
             {/* Bug found in review: every row below gets `disabled={busy}` -- while a delete or
                 unmark is in flight for THIS transaction, every other action (Edit, Change

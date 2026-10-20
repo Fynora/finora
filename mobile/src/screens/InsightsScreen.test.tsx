@@ -6,7 +6,8 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { InsightsScreen } from './InsightsScreen';
 import { expectHaptics, resetHapticCalls } from '../test/haptics';
 import {
-  accountsApi, categoriesApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi, type InsightsData,
+  accountsApi, categoriesApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi, usageApi,
+  type InsightsData, type PeopleSuggestion,
 } from '../api/endpoints';
 
 // Every name and amount here is invented.
@@ -18,6 +19,9 @@ jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn() },
   categoriesApi: { list: jest.fn() },
   usageApi: { recordView: jest.fn().mockResolvedValue(undefined) },
+  peopleApi: { suggestions: jest.fn(), list: jest.fn(), link: jest.fn(), addEntry: jest.fn(), settle: jest.fn(), preferences: jest.fn() },
+  inflowApi: { kinds: jest.fn(), setChoice: jest.fn() },
+  transactionsApi: { search: jest.fn(), updateCategory: jest.fn() },
   onboardingApi: {
     getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: jest.fn().mockResolvedValue(undefined),
@@ -28,6 +32,7 @@ jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
+const people = peopleApi as jest.Mocked<typeof peopleApi>;
 // The shared navigation stub (test/setup.ts), read inside a callback as the other screen tests do.
 let navigate: jest.Mock;
 
@@ -75,6 +80,9 @@ beforeEach(() => {
   ]);
   (accountsApi.list as jest.Mock).mockReset().mockResolvedValue([{ id: 'a1', lastStatementPeriodEnd: '2026-09-30' }]);
   (categoriesApi.list as jest.Mock).mockReset().mockResolvedValue([]);
+  people.suggestions.mockReset().mockResolvedValue({ items: [], expected: [] });
+  people.list.mockReset().mockResolvedValue([]);
+  (inflowApi.kinds as jest.Mock).mockReset().mockResolvedValue([{ id: 'k-paid-back', name: 'Paid back', countsAsIncome: false, builtIn: 'PAID_BACK' }]);
 });
 
 describe('InsightsScreen', () => {
@@ -248,6 +256,80 @@ describe('InsightsScreen', () => {
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Settings' }));
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+});
+
+describe('money with people', () => {
+  const shareCheck: PeopleSuggestion = {
+    kind: 'SHARE_CHECK', ackKey: 'c-1', txnId: 'c-1', relatedTxnId: null, personKey: 'vpa:flatmate.a', label: 'Flatmate A',
+    amount: 9000, date: '2026-09-04', category: 'Rent', owed: null,
+    bills: [{ billId: 'b-1', category: 'Rent', payeeLabel: 'Sample Owner', date: '2026-09-01', amount: 36000, remaining: 36000 }],
+  };
+
+  it('asks about a share in To look at, and "Yes, pick the bill" opens the picker with the server\'s bills', async () => {
+    people.suggestions.mockResolvedValue({ items: [shareCheck], expected: [] });
+    renderScreen();
+    expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Yes, pick the bill' }));
+    expect(await screen.findByText('Share of which bill?')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Rent, 1 Sep, Sample Owner, ₹36,000' })).toBeTruthy();
+  });
+
+  it('"Got it" on a people row hides it and saves it under its own kind', async () => {
+    people.suggestions.mockResolvedValue({ items: [shareCheck], expected: [] });
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Got it: Flatmate A' }));
+    await waitFor(() => expect(screen.queryByText(/from Flatmate A on 4 Sep/)).not.toBeOnTheScreen());
+    expect(insights.acknowledge).toHaveBeenCalledWith('SHARE_CHECK', 'c-1');
+  });
+
+  it('"Paid for something" opens that day\'s payments, to find this one by its date', async () => {
+    people.suggestions.mockResolvedValue({
+      items: [{ ...shareCheck, kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', label: 'Friend K', amount: 2000, date: '2026-08-03', category: null, bills: [] }],
+      expected: [],
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Paid for something' }));
+    expect(navigate).toHaveBeenCalledWith('Transactions', {
+      filters: expect.objectContaining({ dateFrom: '2026-08-03', dateTo: '2026-08-03', label: 'Friend K · 3 Aug' }),
+    });
+    // The person's name is the server's label, not words the payment's text is known to contain.
+    expect(navigate.mock.calls[0][1].filters.keyword).toBeUndefined();
+  });
+
+  it('lists who owes whom under With people, reached by "Who owes me?", and opens a person', async () => {
+    people.list.mockResolvedValue([
+      { personKey: 'vpa:friend.k', label: 'Friend K', owedToUser: 500, since: '2026-08-03', family: false },
+      { personKey: 'vpa:friend.p', label: 'Friend P', owedToUser: -800, since: '2026-08-12', family: false },
+      { personKey: 'vpa:sibling.s', label: 'Sibling S', owedToUser: 3000, since: '2026-08-01', family: true },
+    ]);
+    renderScreen();
+    expect(await screen.findByText('With people')).toBeTruthy();
+    expect(screen.queryByText('Sibling S')).toBeNull();
+    fireEvent(screen.getByTestId('insights-section-withPeople'), 'layout', { nativeEvent: { layout: { x: 0, y: 900, width: 360, height: 200 } } });
+    const calls = (useScrollToTop as jest.Mock).mock.calls;
+    const scrollTo = jest.spyOn(calls[calls.length - 1][0].current, 'scrollTo');
+    fireEvent.press(screen.getByRole('button', { name: 'Who owes me? 2 people' }));
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ y: 900 }));
+    fireEvent.press(screen.getByRole('button', { name: 'Friend K owes you ₹500' }));
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Person', params: { personKey: 'vpa:friend.k' } });
+  });
+
+  it('shows the shares expected in under Coming up', async () => {
+    people.suggestions.mockResolvedValue({
+      items: [], expected: [{ personKey: 'vpa:flatmate.a', label: 'Flatmate A', usualAmount: 9000, usualDay: 4, late: true, ruleId: 'r1' }],
+    });
+    renderScreen();
+    expect(await screen.findByText("Flatmate A's share")).toBeTruthy();
+    expect(screen.getByText('late, usually around the 4th')).toBeTruthy();
+  });
+
+  it('works against a server without the people endpoints', async () => {
+    people.suggestions.mockRejectedValue(new Error('404'));
+    people.list.mockRejectedValue(new Error('404'));
+    renderScreen();
+    expect(await screen.findByText('Food is ₹3,100 above your usual month')).toBeTruthy();
+    expect(screen.queryByText('With people')).toBeNull();
   });
 });
 

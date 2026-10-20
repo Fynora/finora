@@ -7,6 +7,21 @@ const item = (merchant: string, label: string, averageAmount: number, latestAmou
 });
 
 describe('PaidRegularlySection', () => {
+  it('shows a shared bill at the user\'s share, and how many people share it', () => {
+    render(
+      <PaidRegularlySection
+        rows={[{ item: { ...item('sample owner', 'Monthly', 36000), yourShare: 9000, sharedWith: 3 }, monthly: 9000, rising: false }]}
+        monthlyTotal={9000}
+        yearlyTotal={108000}
+        olderMonthPicked={false}
+        onDismiss={jest.fn()}
+      />,
+    );
+    expect(screen.getByText('Monthly · split with 3')).toBeTruthy();
+    expect(screen.getByText('₹9,000')).toBeTruthy();
+    expect(screen.getByLabelText('sample owner, Monthly, your share ₹9,000 of ₹36,000, split with 3')).toBeTruthy();
+  });
+
   function show(olderMonthPicked = false) {
     const onDismiss = jest.fn();
     render(

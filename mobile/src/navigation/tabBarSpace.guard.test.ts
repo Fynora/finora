@@ -26,8 +26,8 @@ const LAYOUT_WITH_ROOM = /<AuthScreenLayout\b/;
 const ASKS = /\buseTabBarSpace\(/;
 
 it('finds every screen reachable from the tabs', () => {
-  // 34 imported by AppTabs plus Paywall and My Subscription. A drop means the import scan broke.
-  expect(reachableScreens()).toHaveLength(36);
+  // 35 imported by AppTabs plus Paywall and My Subscription. A drop means the import scan broke.
+  expect(reachableScreens()).toHaveLength(37);
 });
 
 it('every screen reachable from the tabs that scrolls asks for room under the pill', () => {

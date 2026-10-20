@@ -8,7 +8,7 @@ import {
   DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
   ledgerPageRequest,
 } from './LedgerScreen';
-import { categoriesApi, dashboardApi, onboardingApi, transactionsApi } from '../api/endpoints';
+import { categoriesApi, dashboardApi, onboardingApi, peopleApi, transactionsApi } from '../api/endpoints';
 import { expectHaptics } from '../test/haptics';
 import { dayHeading } from '../lib/ledgerRows';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
@@ -63,6 +63,12 @@ jest.mock('../api/endpoints', () => ({
   onboardingApi: {
     getChecklist: jest.fn().mockResolvedValue({ items: [], completedCount: 0, totalCount: 6 }),
     completeChecklistItem: jest.fn().mockResolvedValue(undefined),
+  },
+  // Shared payments: no shares and no person unless a test says so.
+  peopleApi: {
+    billShares: jest.fn().mockResolvedValue([]),
+    personOf: jest.fn().mockRejectedValue(new Error('422')),
+    link: jest.fn(), suggestions: jest.fn().mockResolvedValue({ items: [], expected: [] }), addEntry: jest.fn(),
   },
 }));
 
@@ -2363,6 +2369,36 @@ describe('searching', () => {
 
     expect(screen.getByLabelText('Search transactions').props.value).toBe('');
     expect(screen.queryByLabelText('Clear search')).toBeNull();
+  });
+});
+
+describe('money with people, from the detail sheet', () => {
+  const credit = () => txn({
+    id: 'c-1', description: 'Flatmate share', type: 'INCOME', amount: 9000, date: '2026-10-04',
+    reconciliationStatus: 'OK', counterpartyType: 'PERSON', categoryName: 'Rent',
+  } as Partial<Transaction>);
+
+  it('"Share of a bill" closes the details and opens the bill picker for that credit', async () => {
+    transactions.search.mockResolvedValue(page([credit()]) as never);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Flatmate share'));
+    fireEvent.press(await screen.findByRole('button', { name: 'Share of a bill' }));
+    expect(await screen.findByText('Share of which bill?')).toBeTruthy();
+    expect(screen.queryByText('Transaction Details')).toBeNull();
+    // The picker looks up the bills around the credit.
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'EXPENSE', dateFrom: '2026-09-20', dateTo: '2026-10-18',
+    })));
+  });
+
+  it('"See <person>" opens their page', async () => {
+    (peopleApi.personOf as jest.Mock).mockResolvedValueOnce({ personKey: 'vpa:flatmate.a', label: 'Flatmate A' });
+    transactions.search.mockResolvedValue(page([credit()]) as never);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Flatmate share'));
+    fireEvent.press(await screen.findByRole('button', { name: 'See Flatmate A' }));
+    expect(mockNavigate).toHaveBeenCalledWith('More', { screen: 'Person', params: { personKey: 'vpa:flatmate.a' } });
+    await waitFor(() => expect(screen.queryByText('Transaction Details')).toBeNull());
   });
 });
 

@@ -7,6 +7,38 @@ const item = (merchant: string, nextEstimate: string, averageAmount: number): Re
 });
 
 describe('ComingUpSection', () => {
+  it('lists the shares expected in, says which is late, and keeps them out of what goes out', () => {
+    render(
+      <ComingUpSection
+        rows={[{ item: item('tv', '2026-10-20', 649), past: false }]}
+        stillToGoOut={649}
+        latestStatementEnd={null}
+        expected={[
+          { key: 'r1', title: "Flatmate A's share", when: 'around the 4th', amount: 9000, late: false },
+          { key: 'r2', title: "Flatmate B's share", when: 'late, usually around the 2nd', amount: 9000, late: true },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Flatmate A's share")).toBeTruthy();
+    expect(screen.getByText('late, usually around the 2nd')).toBeTruthy();
+    expect(screen.getAllByText('+₹9,000')).toHaveLength(2);
+    expect(screen.getByLabelText("Flatmate B's share, ₹9,000 coming in, late, usually around the 2nd")).toBeTruthy();
+    expect(screen.getAllByText('₹649')).toHaveLength(2);
+  });
+
+  it('shows the shares expected in even with nothing going out, and no going-out total', () => {
+    render(
+      <ComingUpSection
+        rows={[]}
+        stillToGoOut={0}
+        latestStatementEnd={null}
+        expected={[{ key: 'r1', title: "Flatmate A's share", when: 'around the 4th', amount: 9000, late: false }]}
+      />,
+    );
+    expect(screen.getByText("Flatmate A's share")).toBeTruthy();
+    expect(screen.queryByText('Still to go out this month')).toBeNull();
+  });
+
   it('shows what is ahead, what may already be paid, and what is still to go out', () => {
     render(
       <ComingUpSection

@@ -2,7 +2,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, SectionHeading } from '../Card';
 import { RecurringQuestion } from '../RecurringQuestion';
+import { PeopleLookAtRow } from './PeopleLookAtRow';
 import { fmtCurrency, monthLabelLong } from '../../lib/format';
+import type { PeopleSuggestion } from '../../api/endpoints';
 import type { LookAtRow } from '../../lib/insightsFeed';
 import { radius, spacing, typography, useTheme } from '../../theme';
 
@@ -13,6 +15,12 @@ interface Props {
   onOpenRow: (row: LookAtRow) => void;
   onAck: (row: LookAtRow) => void;
   onUpload: () => void;
+  /** Today, YYYY-MM-DD, and the built-in Paid back kind: what the people rows need. */
+  today: string;
+  paidBackKindId: string | null;
+  onPickBill: (item: PeopleSuggestion) => void;
+  onAsk: (item: PeopleSuggestion) => void;
+  onOpenPayment: (item: PeopleSuggestion) => void;
 }
 
 function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string {
@@ -27,7 +35,9 @@ function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string
  * buttons are siblings of its tappable text, never inside it -- an accessible Pressable hides the
  * buttons nested in it from screen readers.
  */
-export function LookAtSection({ rows, monthLong, onOpenRow, onAck, onUpload }: Props) {
+export function LookAtSection({
+  rows, monthLong, onOpenRow, onAck, onUpload, today, paidBackKindId, onPickBill, onAsk, onOpenPayment,
+}: Props) {
   const c = useTheme();
   const divider = { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border };
 
@@ -73,6 +83,20 @@ export function LookAtSection({ rows, monthLong, onOpenRow, onAck, onUpload }: P
           </View>
         );
       }
+      case 'people':
+        return (
+          <View key={`people-${row.item.kind}-${row.item.ackKey}`} style={index > 0 && divider}>
+            <PeopleLookAtRow
+              item={row.item}
+              today={today}
+              paidBackKindId={paidBackKindId}
+              onAck={() => onAck(row)}
+              onPickBill={onPickBill}
+              onAsk={onAsk}
+              onOpenPayment={onOpenPayment}
+            />
+          </View>
+        );
       case 'new-recurring':
         return (
           <View key={`new-${row.item.merchant}`} style={style}>

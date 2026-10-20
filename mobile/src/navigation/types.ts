@@ -46,6 +46,9 @@ export type MoreStackParamList = {
   // Plan 2: "Money not counted yet" -- the credits left out of income, one row per sender. Opened
   // from the Dashboard banner and Reports with the period they show; no params means this month.
   MoneyReview: { start: string; end: string } | undefined;
+  // Shared payments and loans: one person's balance, history and rules. Opened from Insights'
+  // With people and from a transaction's details; the key is the server's payee key.
+  Person: { personKey: string };
   Statements: undefined;
   Budgets: undefined;
   // Insights' "Where did my money go?" opens the month it is showing.

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { insightsApi, recurringApi } from '../api/endpoints';
+import { insightsApi, peopleApi, recurringApi } from '../api/endpoints';
 import { ackEntry, buildToLookAt } from './insightsFeed';
 
 /**
@@ -14,6 +14,8 @@ export function useInsightsLookAtCount(): number {
   const changedQ = useQuery({
     queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
   });
+  // Optional, as on an older server: a failure leaves the other rows counted.
+  const peopleQ = useQuery({ queryKey: ['people', 'suggestions'], queryFn: () => peopleApi.suggestions(), retry: false });
   const acksQ = useQuery({
     queryKey: ['insight-acknowledgements'], queryFn: () => insightsApi.acknowledgements(), retry: false,
   });
@@ -22,6 +24,7 @@ export function useInsightsLookAtCount(): number {
     const acks = new Set((acksQ.data ?? []).map((a) => ackEntry(a.kind, a.itemKey)));
     return buildToLookAt({
       insights: insightsQ.data, recurring: recurringQ.data ?? [], changed: changedQ.data ?? [], acks,
+      people: peopleQ.data?.items ?? [],
     }).length;
-  }, [insightsQ.data, recurringQ.data, changedQ.data, acksQ.data]);
+  }, [insightsQ.data, recurringQ.data, changedQ.data, acksQ.data, peopleQ.data]);
 }

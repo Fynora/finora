@@ -171,7 +171,10 @@ public final class PeopleLedger {
             }
             LocalDate when = t != null ? t.getTxnDate()
                     : e.getCreatedAt() == null ? LocalDate.now(ZoneOffset.UTC) : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            events.add(new Event(e.getPersonKey(), when, signed(e), false));
+            // Money back moves only a balance they owe: past it, it flips (more back than lent), but
+            // with nothing owed it is a debt Fynora never saw ("they owed you"), not money the user owes.
+            Cap cap = e.getDirection() == LoanEntry.Direction.PAID_BACK ? Cap.WHILE_OWED : Cap.NONE;
+            events.add(new Event(e.getPersonKey(), when, signed(e), cap));
         }
 
         // A lent payment let go becomes spending, but only the part that never came back: the rest
@@ -195,15 +198,19 @@ public final class PeopleLedger {
             if (!isCredit(t) || t.getCounterpartyKey() == null || !repaymentSenderKeys.contains(t.getCounterpartyKey())) continue;
             if (answered.contains(t.getId()) || decisions.containsKey(t.getId())) continue;
             if (!CounterpartyIdentity.identifiesOnePayee(t.getCounterpartyKey())) continue;
-            events.add(new Event(t.getCounterpartyKey(), t.getTxnDate(), t.getAmount().negate(), true));
+            events.add(new Event(t.getCounterpartyKey(), t.getTxnDate(), t.getAmount().negate(), Cap.TO_ZERO));
         }
 
         return new PeopleLedger(Map.copyOf(shared), Map.copyOf(sharesByBill), Set.copyOf(dropped),
                 Map.copyOf(decisions), balances(events));
     }
 
-    /** One movement of a person's balance; {@code capped}: may only bring a positive balance to zero. */
-    private record Event(String personKey, LocalDate date, BigDecimal amount, boolean capped) {}
+    /** How far money back may move a balance. TO_ZERO: only bring a positive balance to zero (the
+     *  repayment rule). WHILE_OWED: only while one is owed, then in full, so the excess flips it. */
+    private enum Cap { NONE, TO_ZERO, WHILE_OWED }
+
+    /** One movement of a person's balance. */
+    private record Event(String personKey, LocalDate date, BigDecimal amount, Cap cap) {}
 
     private static BigDecimal signed(LoanEntry e) {
         BigDecimal a = e.getAmount();
@@ -225,10 +232,8 @@ public final class PeopleLedger {
             BigDecimal total = BigDecimal.ZERO;
             for (Event e : list) {
                 BigDecimal amount = e.amount();
-                if (e.capped()) {
-                    if (total.signum() <= 0) continue;
-                    amount = amount.abs().min(total).negate();
-                }
+                if (e.cap() != Cap.NONE && total.signum() <= 0) continue;
+                if (e.cap() == Cap.TO_ZERO) amount = amount.abs().min(total).negate();
                 total = total.add(amount);
                 BigDecimal rest = amount;
                 while (rest.signum() != 0 && !open.isEmpty()

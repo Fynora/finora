@@ -211,6 +211,16 @@ class PeopleLedgerTest {
         assertThat(zero.balances()).doesNotContainKey(FRIEND);
     }
 
+    /** "They owed you" (spec §6 D): money back for a debt Fynora never saw. It leaves income, and it
+     *  must not read as the user now owing them -- only money back past an open loan flips. */
+    @Test
+    void paidBackWithNothingLentOpensNoBalance() {
+        Transaction back = row(Transaction.Type.INCOME, 500, d(9, 20), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(back, LoanEntry.Direction.PAID_BACK, 500)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.creditDecision(back)).isNotNull();
+    }
+
     @Test
     void repaymentRuleStopsAtZero() {
         Transaction lent = row(Transaction.Type.EXPENSE, 1000, d(9, 1), FRIEND, null);

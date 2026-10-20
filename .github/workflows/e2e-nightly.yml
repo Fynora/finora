@@ -177,6 +177,14 @@ jobs:
           # test; investigating a smoke-job 429, the backend log showed exactly 15 refresh calls
           # went through before the next one tripped it. Raised for the same reason as the others.
           RATE_LIMIT_REFRESH_MAX: 10000
+          # A statement whose rows miss its own closing balance is held for an accuracy check, and
+          # a hold keeps a copy of the file while a person checks it. With no storage configured the
+          # backend refuses such an upload (503), which is what turned two import tests red here
+          # from 17 October (#2254 made the hold apply) until the tests were rewritten to expect
+          # the hold. "filesystem" is the provider meant for local development and tests; the
+          # runner's disk is thrown away with the job.
+          STATEMENT_STORAGE_PROVIDER: filesystem
+          STATEMENT_STORAGE_FS_ROOT: ${{ runner.temp }}/statements
         run: |
           java -jar target/finora-backend-*.jar > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 1 60); do

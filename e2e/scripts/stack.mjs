@@ -19,6 +19,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -154,6 +155,13 @@ async function startBackend() {
       // suite's userPage/adminPage fixtures create a fresh page per test -- the default ceiling
       // (15/300s) is reachable well before the suite is, unrelated to whether the product works.
       RATE_LIMIT_REFRESH_MAX: '10000',
+      // A statement whose rows miss its own closing balance is held for an accuracy check, and a
+      // hold keeps a copy of the file while a person checks it. With no storage the backend
+      // refuses such an upload (503), and the import tests that cover the hold fail with it.
+      // "filesystem" is the provider meant for local development and tests. Same as the nightly
+      // workflow (e2e-nightly.yml).
+      STATEMENT_STORAGE_PROVIDER: 'filesystem',
+      STATEMENT_STORAGE_FS_ROOT: resolve(tmpdir(), 'finora-e2e-statements'),
     },
   });
   child.unref();

@@ -2,6 +2,7 @@ import { test, expect, uploadStatement } from '../../fixtures/test';
 import {
   csv, emptyStatement, corruptedPdf, notAPdf, unsupportedFile, manyMerchants, wrappedHeaderPdf,
   FIVE_ROW_STATEMENT, CONSISTENT_BALANCE_STATEMENT, BROKEN_BALANCE_STATEMENT,
+  CHAIN_BREAK_STATEMENT, CHAIN_BREAK_ROW_INDEX,
 } from '../../fixtures/statements';
 import { count, transactionsFor } from '../../fixtures/db';
 
@@ -170,7 +171,11 @@ test.describe('Phase 2 — verification engine', () => {
   /** When it does break, it must say WHERE — a verdict with no location is not something a user
    *  can check against their own statement. */
   test('a broken balance chain names the row it breaks at', async ({ api }) => {
-    const staged = await api.stage(BROKEN_BALANCE_STATEMENT);
+    // CHAIN_BREAK_STATEMENT, not BROKEN_BALANCE_STATEMENT: since #2254 a statement whose rows miss
+    // its own closing balance is held for an accuracy check rather than staged for review, and
+    // this test is about the finding a reviewed statement carries.
+    const staged = await api.stage(CHAIN_BREAK_STATEMENT);
+    expect(staged.success, `staging was refused: ${staged.errorCode} ${staged.message}`).toBe(true);
     const findings = staged.data!.staging.verification!.findings;
 
     const chain = findings.find((f) => f.rule === 'BALANCE_CHAIN')!;
@@ -179,6 +184,8 @@ test.describe('Phase 2 — verification engine', () => {
     expect(discrepancies.length).toBeGreaterThan(0);
     expect(discrepancies[0]).toHaveProperty('expectedBalance');
     expect(discrepancies[0]).toHaveProperty('actualBalance');
+    // The row the fixture corrupted, not merely "somewhere".
+    expect(discrepancies[0].rowIndex).toBe(CHAIN_BREAK_ROW_INDEX);
   });
 
   /** A rule that cannot apply reports NOT_APPLICABLE rather than passing, because "we did not
@@ -197,12 +204,51 @@ test.describe('Phase 2 — verification engine', () => {
   test('the review screen surfaces findings without breaking on an unfamiliar one',
     async ({ userPage }) => {
       await userPage.goto('/app/import');
-      await uploadStatement(userPage, 'broken.csv', 'text/csv', csv(BROKEN_BALANCE_STATEMENT));
+      await uploadStatement(userPage, 'broken.csv', 'text/csv', csv(CHAIN_BREAK_STATEMENT));
 
-      await expect(userPage.getByText(/3 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
+      await expect(userPage.getByText(/12 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
       // The panel is present and the page still works -- the Phase 17 console guard on this fixture
       // is what catches a rule the UI has no renderer for.
       await expect(userPage.getByRole('button', { name: /confirm import/i })).toBeVisible();
+    });
+
+  /**
+   * The other side of the same rule: a statement whose rows do not add up to its own closing
+   * balance is not offered for import at all. "A statement imports only once its amounts are
+   * confirmed" is the promise that keeps wrong figures out of someone's records, and nothing in
+   * this suite checked it, which is how two tests asserting the opposite stayed red for four
+   * nights after #2254 made it true.
+   *
+   * Needs the backend under test to have statement storage (a held statement's copy has to live
+   * somewhere while it is checked): the nightly workflow sets STATEMENT_STORAGE_PROVIDER=filesystem.
+   */
+  test('a statement whose rows miss its closing balance is held, not staged for import', async ({ api }) => {
+    const staged = await api.stage(BROKEN_BALANCE_STATEMENT);
+    expect(
+      staged.errorCode,
+      'a hold needs statement storage on the backend under test (STATEMENT_STORAGE_PROVIDER=filesystem)',
+    ).not.toBe('SERVICE_UNAVAILABLE');
+    expect(staged.success, `${staged.errorCode} ${staged.message}`).toBe(true);
+
+    expect(staged.data!.heldForReviewJobId, 'the statement is held, with a job the client follows').toBeTruthy();
+    const totals = staged.data!.staging.verification!.findings.find((f) => f.rule === 'STATEMENT_TOTALS');
+    expect(totals?.outcome, 'held because its rows miss the closing balance').toBe('FAILED');
+
+    // And the statement that reconciles is NOT held: the hold must not be a blanket.
+    const clean = await api.stage(CONSISTENT_BALANCE_STATEMENT);
+    expect(clean.data!.heldForReviewJobId ?? null).toBeNull();
+  });
+
+  test('the user is told their statement is being checked, and is not offered the import',
+    async ({ userPage }) => {
+      await userPage.goto('/app/import');
+      await uploadStatement(userPage, 'held.csv', 'text/csv', csv(BROKEN_BALANCE_STATEMENT));
+
+      await expect(userPage.getByText("We're double-checking this statement")).toBeVisible({ timeout: 20_000 });
+      await expect(userPage.getByText(/up to 48 hours/i)).toBeVisible();
+      // Nothing to review or confirm while a person checks it, and no raw server wording.
+      await expect(userPage.getByRole('button', { name: /confirm import/i })).toHaveCount(0);
+      await expect(userPage.getByText(/app\.statement-storage|object storage/i)).toHaveCount(0);
     });
 });
 

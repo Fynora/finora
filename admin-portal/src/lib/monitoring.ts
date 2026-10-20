@@ -127,6 +127,37 @@ export function scrubEvent(event: ErrorEvent): ErrorEvent {
   return event;
 }
 
+/**
+ * Everything Sentry's SDK can collect on its own, switched off. Replaces `sendDefaultPii: false`,
+ * which Sentry 11 removed: its replacement, `dataCollection`, collects everything it can unless
+ * told otherwise, so deleting the old flag without this would have turned collection ON.
+ *
+ * Written as the full list of categories Sentry 10 and 11 have in common, not just the ones that
+ * matter in a browser today, so one that gains an effect later is off here rather than on by
+ * default. The exception is `queues`: Sentry 10 has no such field (setting it would not compile
+ * there), and in 11.8.0 nothing but the option resolver reads it.
+ *
+ * Two traps this shape avoids, both checked against the published SDK source:
+ *   - `httpHeaders` is the `{ request, response }` object, never a bare `false`. Sentry 10 reads
+ *     `httpHeaders.request`, finds nothing on a boolean, and falls back to collecting headers.
+ *   - Once `dataCollection` is set, Sentry 10 ignores `sendDefaultPii` altogether, so the old flag
+ *     is not kept alongside this as a second line of defence -- it would do nothing, and Sentry 11
+ *     no longer accepts it as an option.
+ *
+ * `scrubEvent` and `scrubBreadcrumb` still run on whatever is left; this narrows what reaches them.
+ */
+export const NO_DATA_COLLECTION: NonNullable<Sentry.BrowserOptions['dataCollection']> = {
+  userInfo: false,
+  cookies: false,
+  httpHeaders: { request: false, response: false },
+  httpBodies: [],
+  urlQueryParams: false,
+  graphQL: { document: false, variables: false },
+  genAI: { inputs: false, outputs: false },
+  databaseQueryData: false,
+  stackFrameVariables: false,
+};
+
 export function initMonitoring(): void {
   const dsn = import.meta.env.VITE_SENTRY_DSN;
   if (!dsn) return;
@@ -134,10 +165,9 @@ export function initMonitoring(): void {
   Sentry.init({
     dsn,
 
-    // Never attach IP address, cookies, or user identity. Sentry's own default is already false,
-    // but this is the setting whose accidental flip would be most damaging here, so it's stated
-    // rather than inherited.
-    sendDefaultPii: false,
+    // Never attach IP address, cookies, or user identity -- see NO_DATA_COLLECTION. Stated rather
+    // than inherited, because this is the setting whose accidental flip would be most damaging.
+    dataCollection: NO_DATA_COLLECTION,
 
     environment: import.meta.env.DEV ? 'development' : 'production',
 

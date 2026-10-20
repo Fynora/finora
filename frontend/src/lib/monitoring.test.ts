@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import * as Sentry from '@sentry/react';
 import type { Breadcrumb, ErrorEvent } from '@sentry/react';
-import { redactPath, scrubBreadcrumb, scrubEvent, scrubUrl } from './monitoring';
+import { NO_DATA_COLLECTION, initMonitoring, redactPath, scrubBreadcrumb, scrubEvent, scrubUrl } from './monitoring';
+
+// Only `init` is replaced: the point is to read the options it is handed, not to start a client
+// that would try to reach Sentry.
+vi.mock('@sentry/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@sentry/react')>()),
+  init: vi.fn(),
+}));
 
 /*
  * Ported from mobile/src/lib/monitoring.test.ts, plus the navigation case that has no mobile
@@ -172,5 +180,73 @@ describe('scrubEvent', () => {
   it('leaves an event with nothing sensitive untouched', () => {
     const event = { message: 'Something failed' } as unknown as ErrorEvent;
     expect(scrubEvent(event)).toEqual({ message: 'Something failed' });
+  });
+});
+
+describe('initMonitoring data collection', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.mocked(Sentry.init).mockClear();
+  });
+
+  it('starts Sentry with every automatic collection category switched off', () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.invalid/1');
+    // Injected by the build (vite.config.ts), so it does not exist under vitest.
+    vi.stubGlobal('__APP_RELEASE__', 'test-release');
+    initMonitoring();
+
+    expect(Sentry.init).toHaveBeenCalledTimes(1);
+    const options = vi.mocked(Sentry.init).mock.calls[0][0] as Record<string, unknown>;
+    expect(options.dataCollection).toBe(NO_DATA_COLLECTION);
+    // Sentry 11 removed this option and Sentry 10 ignores it once dataCollection is set, so a
+    // copy left in would read as protection while doing nothing.
+    expect(options).not.toHaveProperty('sendDefaultPii');
+  });
+
+  it('is read by the installed Sentry as collecting nothing automatically', () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.invalid/1');
+    vi.stubGlobal('__APP_RELEASE__', 'test-release');
+    initMonitoring();
+    const options = vi.mocked(Sentry.init).mock.calls[0][0] as Record<string, unknown>;
+
+    // A real client built from the options init was given, so this checks what the SDK in
+    // node_modules RESOLVES them to, not what we typed. That is the part that went wrong twice
+    // while writing this: Sentry 11 silently collects everything if the option is dropped, and
+    // Sentry 10 treats a boolean `httpHeaders: false` as "not set" and collects headers.
+    const client = new Sentry.BrowserClient({
+      ...options,
+      integrations: [],
+      stackParser: Sentry.defaultStackParser,
+      transport: () => ({ send: () => Promise.resolve({}), flush: () => Promise.resolve(true) }),
+    } as ConstructorParameters<typeof Sentry.BrowserClient>[0]);
+    const resolved = client.getDataCollectionOptions();
+
+    expect(resolved.userInfo).toBe(false);
+    expect(resolved.cookies).toBe(false);
+    expect(resolved.httpHeaders.request).toBe(false);
+    expect(resolved.httpHeaders.response).toBe(false);
+    expect(resolved.httpBodies).toEqual([]);
+    expect(resolved.urlQueryParams).toBe(false);
+    expect(resolved.graphQL).toEqual({ document: false, variables: false });
+    expect(resolved.genAI).toEqual({ inputs: false, outputs: false });
+    expect(resolved.databaseQueryData).toBe(false);
+    expect(resolved.stackFrameVariables).toBe(false);
+  });
+
+  it('turns off identity, cookies, headers in both directions, bodies and query strings', () => {
+    expect(NO_DATA_COLLECTION.userInfo).toBe(false);
+    expect(NO_DATA_COLLECTION.cookies).toBe(false);
+    expect(NO_DATA_COLLECTION.urlQueryParams).toBe(false);
+    expect(NO_DATA_COLLECTION.httpBodies).toEqual([]);
+    // The object form, not a bare `false`: Sentry 10 reads `.request` off whatever it is given
+    // and treats a missing value as "collect", so a boolean here would switch headers back on.
+    expect(NO_DATA_COLLECTION.httpHeaders).toEqual({ request: false, response: false });
+  });
+
+  it('does not start Sentry at all without a DSN', () => {
+    vi.stubEnv('VITE_SENTRY_DSN', '');
+    initMonitoring();
+    expect(Sentry.init).not.toHaveBeenCalled();
   });
 });

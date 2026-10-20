@@ -15,8 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Asserts the safety settings rather than trusting them.
  *
  * <p>Every option here is one whose accidental flip ships customer data to a third party, and none
- * of them fail loudly when wrong: a build with {@code sendDefaultPii=true} passes every other test
- * in this repository. These assertions are the only thing that would notice.
+ * of them fail loudly when wrong: a build that left Sentry's data collection at its defaults, which
+ * collect nearly everything, passes every other test in this repository. These assertions are the
+ * only thing that would notice.
  *
  * <p>The same reasoning as {@code SentryScrubberTest}: configuration that silently stops protecting
  * looks exactly like configuration that protects.

@@ -202,6 +202,36 @@ describe('initMonitoring data collection', () => {
     expect(options).not.toHaveProperty('sendDefaultPii');
   });
 
+  it('is read by the installed Sentry as collecting nothing automatically', () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.invalid/1');
+    vi.stubGlobal('__APP_RELEASE__', 'test-release');
+    initMonitoring();
+    const options = vi.mocked(Sentry.init).mock.calls[0][0] as Record<string, unknown>;
+
+    // A real client built from the options init was given, so this checks what the SDK in
+    // node_modules RESOLVES them to, not what we typed. That is the part that went wrong twice
+    // while writing this: Sentry 11 silently collects everything if the option is dropped, and
+    // Sentry 10 treats a boolean `httpHeaders: false` as "not set" and collects headers.
+    const client = new Sentry.BrowserClient({
+      ...options,
+      integrations: [],
+      stackParser: Sentry.defaultStackParser,
+      transport: () => ({ send: () => Promise.resolve({}), flush: () => Promise.resolve(true) }),
+    } as ConstructorParameters<typeof Sentry.BrowserClient>[0]);
+    const resolved = client.getDataCollectionOptions();
+
+    expect(resolved.userInfo).toBe(false);
+    expect(resolved.cookies).toBe(false);
+    expect(resolved.httpHeaders.request).toBe(false);
+    expect(resolved.httpHeaders.response).toBe(false);
+    expect(resolved.httpBodies).toEqual([]);
+    expect(resolved.urlQueryParams).toBe(false);
+    expect(resolved.graphQL).toEqual({ document: false, variables: false });
+    expect(resolved.genAI).toEqual({ inputs: false, outputs: false });
+    expect(resolved.databaseQueryData).toBe(false);
+    expect(resolved.stackFrameVariables).toBe(false);
+  });
+
   it('turns off identity, cookies, headers in both directions, bodies and query strings', () => {
     expect(NO_DATA_COLLECTION.userInfo).toBe(false);
     expect(NO_DATA_COLLECTION.cookies).toBe(false);

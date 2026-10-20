@@ -14,14 +14,21 @@ import { ComingUpSection } from '../components/insights/ComingUpSection';
 import { InsightsQuestions, type InsightsSection } from '../components/insights/InsightsQuestions';
 import { LookAtSection } from '../components/insights/LookAtSection';
 import { PaidRegularlySection } from '../components/insights/PaidRegularlySection';
+import { WithPeopleSection } from '../components/insights/WithPeopleSection';
+import { useAskForMoney } from '../components/people/AskForMoney';
+import { BillPickerSheet } from '../components/people/BillPickerSheet';
 import {
-  accountsApi, insightsApi, onboardingApi, recurringApi, reportsApi, usageApi,
-  type AckKind, type InsightAcknowledgement, type RecurringItem,
+  accountsApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi, usageApi,
+  type AckKind, type InsightAcknowledgement, type PeopleSuggestion, type RecurringItem,
 } from '../api/endpoints';
 import { withBypass } from '../lib/changeSync';
-import { fmtCurrency, monthDateRange, monthLabel, monthLabelLong, toLocalDateString } from '../lib/format';
+import {
+  fmtCurrency, fromLocalDateString, monthDateRange, monthLabel, monthLabelLong, toLocalDateString, withSep,
+} from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
-import { ackEntry, buildToLookAt, comingUp, paidRegularly, type LookAtRow } from '../lib/insightsFeed';
+import {
+  ackEntry, buildToLookAt, comingUp, expectedSharesIn, paidRegularly, withPeople, type LookAtRow,
+} from '../lib/insightsFeed';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -79,6 +86,13 @@ export function InsightsScreen() {
   const acksQ = useQuery({
     queryKey: ['insight-acknowledgements'], queryFn: () => insightsApi.acknowledgements(), retry: false,
   });
+  // Shared payments and loans. Optional on an older server: a failure shows none of it, never an error.
+  const peopleSuggestionsQ = useQuery({
+    queryKey: ['people', 'suggestions'], queryFn: () => peopleApi.suggestions(), retry: false,
+  });
+  const peopleQ = useQuery({ queryKey: ['people'], queryFn: () => peopleApi.list(), retry: false });
+  // The built-in Paid back kind, which "Always do this for <person>" remembers the sender with.
+  const kindsQ = useQuery({ queryKey: ['inflow-kinds'], queryFn: () => inflowApi.kinds(), retry: false });
   const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
   const accountsQ = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list() });
 
@@ -98,9 +112,19 @@ export function InsightsScreen() {
     [acksQ.data],
   );
   const lookAt = useMemo(
-    () => buildToLookAt({ insights: insightsQ.data, recurring, changed: changedQ.data ?? [], acks }),
-    [insightsQ.data, recurring, changedQ.data, acks],
+    () => buildToLookAt({
+      insights: insightsQ.data, recurring, changed: changedQ.data ?? [], acks, people: peopleSuggestionsQ.data?.items ?? [],
+    }),
+    [insightsQ.data, recurring, changedQ.data, acks, peopleSuggestionsQ.data],
   );
+  const expectedIn = useMemo(() => expectedSharesIn(peopleSuggestionsQ.data?.expected ?? []), [peopleSuggestionsQ.data]);
+  const people = useMemo(() => withPeople(peopleQ.data ?? []), [peopleQ.data]);
+  const peopleCount = people.owedToYou.length + people.youOwe.length;
+  const paidBackKindId = (kindsQ.data ?? []).find((k) => k.builtIn === 'PAID_BACK')?.id ?? null;
+  const today = toLocalDateString(new Date());
+  // "Yes, pick the bill": the credit whose bill is being picked.
+  const [picking, setPicking] = useState<PeopleSuggestion | null>(null);
+  const { ask: askForMoney, prompt: askPrompt } = useAskForMoney();
   const upcoming = useMemo(() => comingUp(recurring, toLocalDateString(new Date())), [recurring]);
   const regular = useMemo(() => paidRegularly(recurring), [recurring]);
   const latestStatementEnd = useMemo(() => {
@@ -221,14 +245,32 @@ export function InsightsScreen() {
 
   function ack(row: LookAtRow) {
     if (row.kind === 'new-recurring') return;
+    if (row.kind === 'people') {
+      acknowledge.mutate({ kind: row.item.kind, itemKey: row.item.ackKey });
+      return;
+    }
     acknowledge.mutate({ kind: row.ackKind as AckKind, itemKey: row.ackItemKey });
+  }
+
+  // Not tracked: a person's page is not a navigation-taxonomy destination, and trackNavigation
+  // drops anything outside it.
+  function openPerson(personKey: string) {
+    navigation.navigate('More', { screen: 'Person', params: { personKey } });
+  }
+
+  // "Paid for something": that day's payments, to give this one a category. By date alone: the
+  // person's name is the server's label, not words the payment's own text is known to contain.
+  function openPayment(item: PeopleSuggestion) {
+    if (!item.date) return;
+    const day = withSep(fromLocalDateString(item.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
+    openTransactions({ dateFrom: item.date, dateTo: item.date, label: `${item.label} · ${day}` });
   }
 
   function refresh() {
     // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
     withBypass(() => {
       for (const key of [['insights'], ['recurring'], ['recurring-changed-amounts'], ['insight-acknowledgements'],
-        ['report-months'], ['report', 'trend'], ['accounts']]) {
+        ['report-months'], ['report', 'trend'], ['accounts'], ['people']]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
     });
@@ -327,7 +369,10 @@ export function InsightsScreen() {
             <>
               <View style={styles.section}>
                 <InsightsQuestions
-                  counts={{ lookAt: lookAt.length, comingUp: upcoming.rows.length, paidRegularly: regular.rows.length }}
+                  counts={{
+                    lookAt: lookAt.length, comingUp: upcoming.rows.length + expectedIn.length,
+                    paidRegularly: regular.rows.length, withPeople: peopleCount,
+                  }}
                   onJump={jumpTo}
                   onOpenReports={openReports}
                 />
@@ -337,10 +382,26 @@ export function InsightsScreen() {
                   <Text style={[typography.bodyM, { color: c.mutedInk }]}>Couldn't load what needs a look. Pull down to try again.</Text>
                 </Card>
               ) : (
-                <LookAtSection rows={lookAt} monthLong={monthLong} onOpenRow={openRow} onAck={ack} onUpload={openImport} />
+                <LookAtSection
+                  rows={lookAt}
+                  monthLong={monthLong}
+                  onOpenRow={openRow}
+                  onAck={ack}
+                  onUpload={openImport}
+                  today={today}
+                  paidBackKindId={paidBackKindId}
+                  onPickBill={setPicking}
+                  onAsk={(item) => askForMoney({ label: item.label, owed: item.owed ?? item.amount })}
+                  onOpenPayment={openPayment}
+                />
               ))}
-              {upcoming.rows.length > 0 ? section('comingUp', (
-                <ComingUpSection rows={upcoming.rows} stillToGoOut={upcoming.stillToGoOut} latestStatementEnd={latestStatementEnd} />
+              {upcoming.rows.length > 0 || expectedIn.length > 0 ? section('comingUp', (
+                <ComingUpSection
+                  rows={upcoming.rows}
+                  stillToGoOut={upcoming.stillToGoOut}
+                  latestStatementEnd={latestStatementEnd}
+                  expected={expectedIn}
+                />
               )) : null}
               {regular.rows.length > 0 ? section('paidRegularly', (
                 <PaidRegularlySection
@@ -349,6 +410,13 @@ export function InsightsScreen() {
                   yearlyTotal={regular.yearlyTotal}
                   olderMonthPicked={olderMonthPicked}
                   onDismiss={(merchant) => dismissRecurring.mutate(merchant)}
+                />
+              )) : null}
+              {peopleCount > 0 ? section('withPeople', (
+                <WithPeopleSection
+                  owedToYou={people.owedToYou}
+                  youOwe={people.youOwe}
+                  onOpenPerson={(p) => openPerson(p.personKey)}
                 />
               )) : null}
               <Pressable onPress={openReports} accessibilityRole="button" accessibilityLabel="See the full month in Reports" style={styles.reportsLink}>
@@ -375,6 +443,15 @@ export function InsightsScreen() {
         }}
         onClose={() => setMonthPickerOpen(false)}
       />
+      {picking && picking.txnId ? (
+        <BillPickerSheet
+          mode="bill"
+          credit={{ txnId: picking.txnId, label: picking.label, amount: picking.amount, date: picking.date ?? today }}
+          options={picking.bills}
+          onClose={() => setPicking(null)}
+        />
+      ) : null}
+      {askPrompt}
     </>
   );
 }

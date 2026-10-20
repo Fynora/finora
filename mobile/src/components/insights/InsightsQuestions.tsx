@@ -3,10 +3,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../Card';
 import { spacing, typography, useTheme } from '../../theme';
 
-export type InsightsSection = 'lookAt' | 'comingUp' | 'paidRegularly';
+export type InsightsSection = 'lookAt' | 'comingUp' | 'paidRegularly' | 'withPeople';
 
 interface Props {
-  counts: { lookAt: number; comingUp: number; paidRegularly: number };
+  counts: { lookAt: number; comingUp: number; paidRegularly: number; withPeople: number };
   onJump: (section: InsightsSection) => void;
   onOpenReports: () => void;
 }
@@ -18,10 +18,11 @@ interface Props {
  */
 export function InsightsQuestions({ counts, onJump, onOpenReports }: Props) {
   const c = useTheme();
-  const questions: { section: InsightsSection; text: string; count?: number }[] = [
+  const questions: { section: InsightsSection; text: string; count?: number; unit?: [string, string] }[] = [
     { section: 'lookAt', text: 'What needs a look?', count: counts.lookAt },
     { section: 'comingUp', text: "What's coming up?" },
     { section: 'paidRegularly', text: 'What do I pay regularly?' },
+    { section: 'withPeople', text: 'Who owes me?', count: counts.withPeople, unit: ['person', 'people'] },
   ];
   const shown = questions.filter((q) => counts[q.section] > 0);
   return (
@@ -31,7 +32,9 @@ export function InsightsQuestions({ counts, onJump, onOpenReports }: Props) {
           key={q.section}
           onPress={() => onJump(q.section)}
           accessibilityRole="button"
-          accessibilityLabel={q.count !== undefined ? `${q.text} ${q.count} ${q.count === 1 ? 'thing' : 'things'}` : q.text}
+          accessibilityLabel={q.count !== undefined
+            ? `${q.text} ${q.count} ${(q.unit ?? ['thing', 'things'])[q.count === 1 ? 0 : 1]}`
+            : q.text}
           style={[styles.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
         >
           <Text style={[typography.labelM, styles.text, { color: c.ink }]}>{q.text}</Text>

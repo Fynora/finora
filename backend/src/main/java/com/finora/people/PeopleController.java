@@ -49,6 +49,13 @@ public class PeopleController {
         return ApiResponse.ok(people.person(currentUser.id(), key));
     }
 
+    /** The person a transaction was with, for its details to open their page. 422 when its payee
+     *  key does not name one person. */
+    @GetMapping("/of-transaction/{txnId}")
+    public ApiResponse<PeopleDtos.PersonRefDto> peoplePersonOf(@PathVariable UUID txnId) {
+        return ApiResponse.ok(people.personOf(currentUser.id(), txnId));
+    }
+
     @PutMapping("/person/settings")
     public ApiResponse<Void> peoplePersonSettings(@Valid @RequestBody PeopleDtos.PersonSettingsRequest request) {
         people.setPersonSettings(currentUser.id(), request);

@@ -1,5 +1,5 @@
-import type { ChangedAmountItem, InsightsData, RecurringItem } from '../api/endpoints';
-import { ackKey, buildToLookAt, comingUp, paidRegularly } from './insightsFeed';
+import type { ChangedAmountItem, ExpectedShare, InsightsData, PeopleSuggestion, RecurringItem } from '../api/endpoints';
+import { ackKey, buildToLookAt, comingUp, expectedSharesIn, paidRegularly, withPeople } from './insightsFeed';
 
 // Every name and amount here is invented.
 
@@ -153,6 +153,79 @@ describe('buildToLookAt: card statement missing', () => {
   });
 });
 
+function suggestion(overrides: Partial<PeopleSuggestion> = {}): PeopleSuggestion {
+  return {
+    kind: 'SHARE_CHECK', ackKey: 't-1', txnId: 't-1', relatedTxnId: null, personKey: 'vpa:flatmate.a',
+    label: 'Flatmate A', amount: 9000, date: '2026-10-04', category: 'Rent', bills: [], owed: null,
+    ...overrides,
+  };
+}
+
+describe('buildToLookAt: money with people', () => {
+  it('lists the server rows after the card statement and before repeating payments, in server order', () => {
+    const rows = buildToLookAt({
+      insights: insights({ unlinkedCardBills: { month: '2026-09', total: 1, count: 1, cardName: null, cardLast4: null } }),
+      recurring: [recurring({ state: 'NEEDS_ANSWER' })],
+      changed: [],
+      acks: none,
+      people: [suggestion({ ackKey: 'a' }), suggestion({ kind: 'LENT_CHECK', ackKey: 'b', txnId: 'b' })],
+    });
+    expect(rows.map((r) => r.kind)).toEqual(['card-statement', 'people', 'people', 'new-recurring']);
+    const people = rows.filter((r) => r.kind === 'people');
+    expect(people.map((r) => r.kind === 'people' && r.item.ackKey)).toEqual(['a', 'b']);
+  });
+
+  it('hides a row marked "Got it" under its own kind and key, at once', () => {
+    const rows = buildToLookAt({
+      recurring: [], changed: [], acks: new Set(['SHARE_CHECK|a']),
+      people: [suggestion({ ackKey: 'a' }), suggestion({ kind: 'LENT_CHECK', ackKey: 'a' })],
+    });
+    expect(rows.map((r) => r.kind === 'people' && r.item.kind)).toEqual(['LENT_CHECK']);
+  });
+
+  it('shows none when the server sends none, or an older server has no such endpoint', () => {
+    expect(buildToLookAt({ recurring: [], changed: [], acks: none, people: [] })).toEqual([]);
+    expect(buildToLookAt({ recurring: [], changed: [], acks: none })).toEqual([]);
+  });
+});
+
+describe('withPeople', () => {
+  it('splits balances into owed to you and you owe, largest first, never a family person or a zero', () => {
+    const { owedToYou, youOwe } = withPeople([
+      { personKey: 'a', label: 'A', owedToUser: 500, since: '2026-09-03', family: false },
+      { personKey: 'b', label: 'B', owedToUser: 1200, since: '2026-09-10', family: false },
+      { personKey: 'c', label: 'C', owedToUser: -800, since: '2026-09-12', family: false },
+      { personKey: 'd', label: 'D', owedToUser: 3000, since: '2026-09-01', family: true },
+      { personKey: 'e', label: 'E', owedToUser: 0, since: null, family: false },
+    ]);
+    expect(owedToYou.map((p) => p.personKey)).toEqual(['b', 'a']);
+    expect(youOwe.map((p) => p.personKey)).toEqual(['c']);
+  });
+});
+
+describe('expectedSharesIn', () => {
+  const share = (overrides: Partial<ExpectedShare> = {}): ExpectedShare => ({
+    personKey: 'vpa:flatmate.a', label: 'Flatmate A', usualAmount: 9000, usualDay: 4, late: false, ruleId: 'r1',
+    ...overrides,
+  });
+
+  it('says whose share, around which day, and marks one already late', () => {
+    expect(expectedSharesIn([share(), share({ ruleId: 'r2', label: 'Flatmate B', usualDay: 21, late: true })]))
+      .toEqual([
+        { key: 'r1', title: "Flatmate A's share", when: 'around the 4th', amount: 9000, late: false },
+        { key: 'r2', title: "Flatmate B's share", when: 'late, usually around the 21st', amount: 9000, late: true },
+      ]);
+  });
+
+  it('names the day with its English ending', () => {
+    const when = (day: number) => expectedSharesIn([share({ usualDay: day })])[0].when;
+    expect([1, 2, 3, 11, 12, 13, 22, 23, 30].map(when)).toEqual([
+      'around the 1st', 'around the 2nd', 'around the 3rd', 'around the 11th', 'around the 12th',
+      'around the 13th', 'around the 22nd', 'around the 23rd', 'around the 30th',
+    ]);
+  });
+});
+
 describe('comingUp', () => {
   const today = '2026-10-16';
 
@@ -179,6 +252,15 @@ describe('comingUp', () => {
 });
 
 describe('paidRegularly', () => {
+  it('counts the user\'s own share of a bill other people share, never the full amount paid', () => {
+    const { rows, monthlyTotal } = paidRegularly([
+      recurring({ merchant: 'sample owner', averageAmount: 36000, yourShare: 9000, sharedWith: 3 }),
+      recurring({ merchant: 'sample gym', averageAmount: 1500 }),
+    ]);
+    expect(rows.map((r) => [r.item.merchant, r.monthly])).toEqual([['sample owner', 9000], ['sample gym', 1500]]);
+    expect(monthlyTotal).toBe(10500);
+  });
+
   it('turns each cadence into a monthly amount and totals the month and the year', () => {
     const weekly = recurring({ merchant: 'milk', label: 'Weekly', averageAmount: 100 });
     const quarterly = recurring({ merchant: 'insurance', label: 'Quarterly', averageAmount: 900 });

@@ -4,6 +4,7 @@ import com.finora.entity.LoanEntry;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -54,7 +55,13 @@ public final class PeopleDtos {
 
     public record PersonSettingsRequest(@NotBlank @Size(max = 200) String personKey, boolean family) {}
 
-    public record PreferencesRequest(@Size(max = 100) String ownUpiId) {}
+    /** {@code ownUpiId}: name@bank, or null to forget it. It goes into a payment request the user
+     *  shares, so nothing else is kept -- no spaces, no '&' to add to the request. */
+    public record PreferencesRequest(
+            @Size(max = 100) @Pattern(regexp = "^[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}$") String ownUpiId) {}
 
     public record PreferencesDto(String ownUpiId) {}
+
+    /** The person on the other side of one transaction. */
+    public record PersonRefDto(String personKey, String label) {}
 }

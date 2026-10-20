@@ -1,16 +1,18 @@
 import { render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { insightsApi, recurringApi } from '../api/endpoints';
+import { insightsApi, peopleApi, recurringApi } from '../api/endpoints';
 import { useInsightsLookAtCount } from './useInsightsLookAtCount';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn(), acknowledgements: jest.fn() },
   recurringApi: { list: jest.fn(), changedAmounts: jest.fn() },
+  peopleApi: { suggestions: jest.fn() },
 }));
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
+const people = peopleApi as jest.Mocked<typeof peopleApi>;
 
 function Probe() {
   return <Text testID="count">{String(useInsightsLookAtCount())}</Text>;
@@ -30,11 +32,30 @@ beforeEach(() => {
   insights.acknowledgements.mockReset().mockResolvedValue([]);
   recurring.list.mockReset().mockResolvedValue([]);
   recurring.changedAmounts.mockReset().mockResolvedValue([]);
+  people.suggestions.mockReset().mockResolvedValue({ items: [], expected: [] });
 });
 
 describe('useInsightsLookAtCount', () => {
   it('counts the rows "To look at" shows', async () => {
     show();
+    await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('2'));
+  });
+
+  it('counts the questions about money with people too, less one marked "Got it"', async () => {
+    const row = {
+      kind: 'SHARE_CHECK' as const, ackKey: 't-1', txnId: 't-1', relatedTxnId: null, personKey: 'vpa:flatmate.a',
+      label: 'Flatmate A', amount: 9000, date: '2026-10-04', category: 'Rent', bills: [], owed: null,
+    };
+    people.suggestions.mockResolvedValue({ items: [row, { ...row, kind: 'LENT_CHECK', ackKey: 't-2', txnId: 't-2' }], expected: [] });
+    insights.acknowledgements.mockResolvedValue([{ kind: 'LENT_CHECK', itemKey: 't-2' }]);
+    show();
+    await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('3'));
+  });
+
+  it('still counts the other rows when the people rows cannot be fetched', async () => {
+    people.suggestions.mockRejectedValue(new Error('older server'));
+    show();
+    await waitFor(() => expect(people.suggestions).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('2'));
   });
 

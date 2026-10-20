@@ -12,6 +12,20 @@ jest.mock('../RecurringQuestion', () => {
   };
 });
 
+// The people row has its own tests; a stand-in that shows its kind and hands back its callbacks.
+jest.mock('./PeopleLookAtRow', () => {
+  const { Pressable: MockPressable, Text: MockText } = jest.requireActual('react-native');
+  return {
+    PeopleLookAtRow: ({ item, onAck, onPickBill }: { item: { kind: string; label: string }; onAck: () => void; onPickBill: (i: unknown) => void }) => (
+      <>
+        <MockText>{`people ${item.kind} ${item.label}`}</MockText>
+        <MockPressable accessibilityRole="button" accessibilityLabel={`ack ${item.label}`} onPress={onAck} />
+        <MockPressable accessibilityRole="button" accessibilityLabel={`pick ${item.label}`} onPress={() => onPickBill(item)} />
+      </>
+    ),
+  };
+});
+
 const card: LookAtRow = {
   kind: 'card-statement', month: '2026-09', total: 21400, count: 2, cardName: 'Sample Card', cardLast4: '0001',
   ackKind: 'CARD_STATEMENT_MISSING', ackItemKey: '2026-09',
@@ -30,13 +44,33 @@ const newOne: LookAtRow = {
   item: { merchant: 'sample gym', label: 'Monthly', averageAmount: 1500, occurrences: 3, lastDate: '2026-09-05', nextEstimate: '2026-10-05', state: 'NEEDS_ANSWER' },
 };
 
+const share: LookAtRow = {
+  kind: 'people',
+  item: {
+    kind: 'SHARE_CHECK', ackKey: 't-1', txnId: 't-1', relatedTxnId: null, personKey: 'vpa:flatmate.a',
+    label: 'Flatmate A', amount: 9000, date: '2026-10-04', category: 'Rent', bills: [], owed: null,
+  },
+};
+
 function show(rows: LookAtRow[]) {
-  const handlers = { onOpenRow: jest.fn(), onAck: jest.fn(), onUpload: jest.fn() };
-  render(<LookAtSection rows={rows} monthLong="September 2026" {...handlers} />);
+  const handlers = {
+    onOpenRow: jest.fn(), onAck: jest.fn(), onUpload: jest.fn(),
+    onPickBill: jest.fn(), onAsk: jest.fn(), onOpenPayment: jest.fn(),
+  };
+  render(<LookAtSection rows={rows} monthLong="September 2026" today="2026-10-20" paidBackKindId="k" {...handlers} />);
   return handlers;
 }
 
 describe('LookAtSection', () => {
+  it('shows a people row, acknowledges it as that row, and passes the bill picker through', () => {
+    const { onAck, onPickBill } = show([share]);
+    expect(screen.getByText('people SHARE_CHECK Flatmate A')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'ack Flatmate A' }));
+    expect(onAck).toHaveBeenCalledWith(share);
+    fireEvent.press(screen.getByRole('button', { name: 'pick Flatmate A' }));
+    expect(onPickBill).toHaveBeenCalledWith(share.kind === 'people' && share.item);
+  });
+
   it('names the card when it is known, and offers the upload', () => {
     const { onUpload, onAck } = show([card]);
     expect(screen.getByText('You paid ₹21,400 toward your Sample Card ending 0001 in September 2026 with no card statement uploaded for it. Upload it to see what you bought.')).toBeTruthy();
@@ -94,8 +128,11 @@ describe('LookAtSection', () => {
   });
 
   it('names no month in the empty line when it has none', () => {
-    const handlers = { onOpenRow: jest.fn(), onAck: jest.fn(), onUpload: jest.fn() };
-    render(<LookAtSection rows={[]} monthLong="" {...handlers} />);
+    const handlers = {
+      onOpenRow: jest.fn(), onAck: jest.fn(), onUpload: jest.fn(),
+      onPickBill: jest.fn(), onAsk: jest.fn(), onOpenPayment: jest.fn(),
+    };
+    render(<LookAtSection rows={[]} monthLong="" today="2026-10-20" paidBackKindId={null} {...handlers} />);
     expect(screen.getByText('Nothing new to look at.')).toBeTruthy();
   });
 

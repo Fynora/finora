@@ -10,6 +10,8 @@ interface Props {
   stillToGoOut: number;
   /** The newest statement period end across the user's accounts (YYYY-MM-DD), or null. */
   latestStatementEnd: string | null;
+  /** Shares expected in from people with a split rule (lib/insightsFeed expectedSharesIn). */
+  expected?: { key: string; title: string; when: string; amount: number; late: boolean }[];
 }
 
 /** "5 Oct": a day and a short month, Sep never Sept. */
@@ -27,9 +29,9 @@ function monthName(date: string): string {
  * statement, so a date already past may have been paid: it reads "expected around", is greyed, is
  * left out of what is still to go out, and the note says which statement would settle it.
  */
-export function ComingUpSection({ rows, stillToGoOut, latestStatementEnd }: Props) {
+export function ComingUpSection({ rows, stillToGoOut, latestStatementEnd, expected = [] }: Props) {
   const c = useTheme();
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && expected.length === 0) return null;
   const firstPast = rows.find((r) => r.past);
   return (
     <View>
@@ -56,10 +58,29 @@ export function ComingUpSection({ rows, stillToGoOut, latestStatementEnd }: Prop
             </View>
           );
         })}
-        <View style={[styles.total, { borderTopColor: c.border }]}>
-          <Text style={[typography.bodyM, styles.text, { color: c.mutedInk }]}>Still to go out this month</Text>
-          <Text style={[typography.numberS, { color: c.ink }]}>{fmtCurrency(stillToGoOut)}</Text>
-        </View>
+        {expected.map((e, i) => (
+          <View
+            key={`in-${e.key}`}
+            accessible
+            accessibilityLabel={`${e.title}, ${fmtCurrency(e.amount)} coming in, ${e.when}`}
+            style={[styles.row, (rows.length > 0 || i > 0) && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
+          >
+            <View style={[styles.icon, { backgroundColor: e.late ? c.warningBg : c.primaryLight }]}>
+              <Ionicons name="arrow-down" size={16} color={e.late ? c.warningInk : c.primary} />
+            </View>
+            <View style={styles.text}>
+              <Text style={[typography.labelM, { color: c.ink }]}>{e.title}</Text>
+              <Text style={[typography.bodyS, { color: e.late ? c.warningInk : c.mutedInk }]}>{e.when}</Text>
+            </View>
+            <Text style={[typography.numberS, { color: c.successInk }]}>{`+${fmtCurrency(e.amount)}`}</Text>
+          </View>
+        ))}
+        {rows.length > 0 ? (
+          <View style={[styles.total, { borderTopColor: c.border }]}>
+            <Text style={[typography.bodyM, styles.text, { color: c.mutedInk }]}>Still to go out this month</Text>
+            <Text style={[typography.numberS, { color: c.ink }]}>{fmtCurrency(stillToGoOut)}</Text>
+          </View>
+        ) : null}
       </Card>
       {firstPast ? (
         <Text style={[typography.bodyS, styles.note, { color: c.mutedInk }]}>

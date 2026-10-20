@@ -2,6 +2,20 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
 import type { Transaction } from '../types';
 
+// The people part has its own tests; a stand-in that hands back the sheet's callbacks.
+jest.mock('../components/people/PeopleTransactionSection', () => {
+  const { Pressable: MockPressable } = jest.requireActual('react-native');
+  return {
+    PeopleTransactionSection: (p: { onShareOfABill: () => void; onSplit: () => void; onOpenPerson: (k: string) => void }) => (
+      <>
+        <MockPressable accessibilityRole="button" accessibilityLabel="people: share of a bill" onPress={p.onShareOfABill} />
+        <MockPressable accessibilityRole="button" accessibilityLabel="people: split" onPress={p.onSplit} />
+        <MockPressable accessibilityRole="button" accessibilityLabel="people: person" onPress={() => p.onOpenPerson('vpa:friend.k')} />
+      </>
+    ),
+  };
+});
+
 const TXN: Transaction = {
   id: 't-1',
   accountId: 'a-1',
@@ -37,6 +51,9 @@ function callbacks() {
     onUnmarkTransfer: jest.fn(),
     onViewCorrection: jest.fn(),
     onDelete: jest.fn(),
+    onShareOfABill: jest.fn(),
+    onSplit: jest.fn(),
+    onOpenPerson: jest.fn(),
   };
 }
 
@@ -54,6 +71,16 @@ function renderSheet(transaction: Transaction = TXN, overrides: Partial<{ unmark
 }
 
 describe('TransactionDetailSheet', () => {
+  it('hands the people answers to its host', () => {
+    const cb = renderSheet();
+    fireEvent.press(screen.getByRole('button', { name: 'people: share of a bill' }));
+    fireEvent.press(screen.getByRole('button', { name: 'people: split' }));
+    fireEvent.press(screen.getByRole('button', { name: 'people: person' }));
+    expect(cb.onShareOfABill).toHaveBeenCalledTimes(1);
+    expect(cb.onSplit).toHaveBeenCalledTimes(1);
+    expect(cb.onOpenPerson).toHaveBeenCalledWith('vpa:friend.k');
+  });
+
   // The list titles a row with rowTitle; the sheet it opens used to lead with the bank's raw
   // narration instead, so the same payment had two different names a tap apart.
   it('is titled as its list row is, with the bank text under the title', () => {

@@ -118,6 +118,10 @@ export const FINANCIAL_QUERY_KEYS = [
   'sender-inflow-rules',
   'unresolved-inflows',
   'counts-as',
+  // Shared payments and loans: who owes whom, the To look at rows about people, one person's page
+  // and a bill's shares. Every share, loan entry or rule moves both the figures and these, and
+  // another device's answer arrives through the transactions section of the change stamp.
+  'people',
 ] as const;
 
 /** Refreshes the financial queries and nothing else. */

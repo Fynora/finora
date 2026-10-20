@@ -11,6 +11,8 @@ import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
 import { RecurringQuestion } from '../components/RecurringQuestion';
+import { PeopleQuestionsCard } from '../components/people/PeopleQuestionsCard';
+import { WithPeopleCard } from '../components/people/WithPeopleCard';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 
 function fmt(n: number) {
@@ -169,6 +171,12 @@ export default function Insights() {
   const reloadRecurring = () => {
     recurringApi.list().then(setRecurring).catch(() => {});
   };
+  // A share, a loan or a rule moves the month's figures and a repeating bill's share, both of which
+  // this page keeps in local state (see above): re-read them, as an answer elsewhere would not.
+  const reloadAfterPeopleAnswer = () => {
+    insightsApi.get().then(setData).catch(() => {});
+    reloadRecurring();
+  };
 
   useEffect(() => {
     insightsApi.get()
@@ -304,6 +312,8 @@ export default function Insights() {
         )}
       </FinoraCard>
 
+      <PeopleQuestionsCard onChanged={reloadAfterPeopleAnswer} />
+
       <FinoraCard>
         <SectionHeader title="Recurring Payments & Subscriptions" />
         {recurringLoading ? (
@@ -328,7 +338,12 @@ export default function Insights() {
                 <CategoryIcon icon={Repeat} color={COLOR_HEX.blue} />
                 <span className="flex-1 min-w-0 capitalize truncate">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
                 <span className="flex items-center gap-3 text-xs text-muted flex-shrink-0">
-                  <span>{fmt(r.averageAmount)} · {r.occurrences}x seen</span>
+                  {/* A bill other people share counts at the user's share, as every figure does. */}
+                  <span>
+                    {r.yourShare != null && r.sharedWith != null
+                      ? `Your share ${fmt(r.yourShare)} of ${fmt(r.averageAmount)} · split with ${r.sharedWith} · ${r.occurrences}x seen`
+                      : `${fmt(r.averageAmount)} · ${r.occurrences}x seen`}
+                  </span>
                   <span>next ~{r.nextEstimate}</span>
                   <button
                     type="button"
@@ -374,6 +389,8 @@ export default function Insights() {
           </div>
         )}
       </FinoraCard>
+
+      <WithPeopleCard />
 
       <FinoraCard>
         <SectionHeader title="Category Movers vs. Recent Average" />

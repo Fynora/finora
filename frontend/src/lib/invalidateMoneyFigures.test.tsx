@@ -45,6 +45,12 @@ describe('money figures refresh after an inflow-kind change (web caches them for
     ]));
   });
 
+  // Shared payments and loans: a share, a loan entry or a rule moves the same figures, a repeating
+  // bill's share, and the people rows; an inflow kind on a sender also stops the questions about it.
+  it('covers the people rows and repeating payments too', () => {
+    expect(MONEY_FIGURE_KEYS).toEqual(expect.arrayContaining(['people', 'recurring']));
+  });
+
   it('after a choice in "Counts as"', async () => {
     vi.mocked(inflowApi.setChoice).mockResolvedValue({ ...unresolved, kind: family, appliedBy: 'ROW' });
     const keys = renderWithClient(<CountsAsSection transactionId="t1" />);

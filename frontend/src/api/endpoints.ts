@@ -984,6 +984,10 @@ export interface RecurringItem {
   latestAmount?: number | null;
   answer?: string | null;
   state?: RecurringQuestionState;
+  // Shared payments: the user's average share once other people's shares come off, and how many
+  // people share it. Null when nobody does; absent on an older backend.
+  yourShare?: number | null;
+  sharedWith?: number | null;
 }
 /** A saved answer whose payee's latest payment left the saved range (backend ChangedAmountDto). */
 export interface ChangedAmountItem {
@@ -1018,6 +1022,164 @@ export const insightsApi = {
   // InsightsController.narration doc. Callers should catch and render nothing on failure, not an
   // error message; this is a nice-to-have gloss on data the page already shows numerically.
   narration: () => api.get<{ narration: string }>('/insights/narration').then((r) => r.data.narration),
+  // The rows this user marked "Got it", on any device (V277). Mirrors mobile.
+  acknowledgements: () =>
+    api.get<InsightAcknowledgement[]>('/insights/acknowledgements').then((r) => r.data),
+  acknowledge: (kind: AckKind, itemKey: string) =>
+    api.post<void>('/insights/acknowledgements', { kind, itemKey }).then((r) => r.data),
+};
+
+/** What an Insights "Got it" names (V277, V281); the people kinds carry their key from the server. */
+export type AckKind = 'CATEGORY_HIGH' | 'AMOUNT_CHANGED' | 'CARD_STATEMENT_MISSING' | PeopleSuggestionKind;
+export interface InsightAcknowledgement {
+  kind: AckKind;
+  itemKey: string;
+}
+
+// Ported from mobile/src/api/endpoints.ts, which has the same shapes and the same server check.
+// ---- Shared payments and loans (docs/superpowers/specs/2026-10-18-shared-payments-and-loans-design.md).
+// Amounts are rupees; dates are "YYYY-MM-DD". Each shape is checked against the generated API types
+// below, so a field renamed on the server fails the type check here.
+
+/** The To look at rows about people (spec §6 A-G); each is also the "Got it" kind (V281). */
+export type PeopleSuggestionKind =
+  | 'SHARE_CHECK' | 'LEFTOVER_CHECK' | 'PAYBACK_CHECK' | 'EVERY_MONTH' | 'ALWAYS_PERSON' | 'LENT_CHECK' | 'SETTLE';
+export interface BillOption {
+  billId: string;
+  category: string | null;
+  payeeLabel: string;
+  date: string;
+  amount: number;
+  /** What is left of the bill after the shares already on it. */
+  remaining: number;
+}
+export interface PeopleSuggestion {
+  kind: PeopleSuggestionKind;
+  /** The item key a "Got it" saves under this kind. */
+  ackKey: string;
+  /** The payment asked about; null for SETTLE, which is about a person. */
+  txnId: string | null;
+  /** PAYBACK_CHECK: the earlier payment to mark as lent. EVERY_MONTH: the bill the rule is made from. */
+  relatedTxnId: string | null;
+  personKey: string;
+  label: string;
+  amount: number;
+  date: string | null;
+  category: string | null;
+  /** SHARE_CHECK: the bills it could be a share of, best first. */
+  bills: BillOption[];
+  /** What the person owes the user, when they owe. */
+  owed: number | null;
+}
+export interface ExpectedShare {
+  personKey: string;
+  label: string;
+  usualAmount: number;
+  usualDay: number;
+  late: boolean;
+  ruleId: string;
+}
+export interface PeopleSuggestions {
+  items: PeopleSuggestion[];
+  expected: ExpectedShare[];
+}
+/** Positive owedToUser: they owe the user; negative: the user owes them. */
+export interface PersonBalance {
+  personKey: string;
+  label: string;
+  owedToUser: number;
+  since: string | null;
+  family: boolean;
+}
+export type LoanDirection = 'LENT' | 'PAID_BACK' | 'BORROWED' | 'REPAID' | 'CASH_SETTLED' | 'LET_GO';
+export interface PersonTimelineItem {
+  date: string;
+  /** A loan entry's direction, or SHARE for a share they paid toward a bill. */
+  kind: LoanDirection | 'SHARE';
+  amount: number;
+  txnId: string | null;
+}
+export interface SplitRule {
+  id: string;
+  senderKey: string;
+  billCategoryId: string;
+  billCategory: string | null;
+  billPayeeKey: string | null;
+  billMerchant: string | null;
+}
+export interface PersonDetail extends PersonBalance {
+  timeline: PersonTimelineItem[];
+  rules: SplitRule[];
+}
+export interface BillShare {
+  creditId: string;
+  billId: string;
+  label: string;
+  date: string;
+  amount: number;
+  fromRule: boolean;
+}
+/** The person on the other side of one transaction. */
+export interface PersonRef {
+  personKey: string;
+  label: string;
+}
+export interface LoanEntry {
+  id: string;
+  personKey: string;
+  txnId: string | null;
+  direction: LoanDirection;
+  amount: number;
+}
+
+// Every field above exists on the server's schema of the same shape.
+type FieldsOf<T, S> = Exclude<keyof T, keyof S> extends never ? true : Exclude<keyof T, keyof S>;
+const _peopleShapesMatchTheServer: [
+  FieldsOf<BillOption, GeneratedSchemas['BillOption']>,
+  FieldsOf<PeopleSuggestion, GeneratedSchemas['Suggestion']>,
+  FieldsOf<ExpectedShare, GeneratedSchemas['ExpectedShare']>,
+  FieldsOf<PersonBalance, GeneratedSchemas['PersonDto']>,
+  FieldsOf<PersonTimelineItem, GeneratedSchemas['TimelineItem']>,
+  FieldsOf<SplitRule, GeneratedSchemas['SplitRuleDto']>,
+  FieldsOf<PersonDetail, GeneratedSchemas['PersonDetailDto']>,
+  FieldsOf<BillShare, GeneratedSchemas['ShareDto']>,
+  FieldsOf<LoanEntry, GeneratedSchemas['EntryDto']>,
+  FieldsOf<PersonRef, GeneratedSchemas['PersonRefDto']>,
+] = [true, true, true, true, true, true, true, true, true, true];
+void _peopleShapesMatchTheServer;
+
+export const peopleApi = {
+  /** Everyone with an open balance, both directions. */
+  list: () => api.get<PersonBalance[]>('/people').then((r) => r.data),
+  /** The To look at rows about people, and the shares expected in for Coming up. */
+  suggestions: () => api.get<PeopleSuggestions>('/people/suggestions').then((r) => r.data),
+  /** The person a transaction was with; fails (422) when its payee does not name one person. */
+  personOf: (txnId: string) =>
+    api.get<PersonRef>(`/people/of-transaction/${txnId}`).then((r) => r.data),
+  person: (personKey: string) =>
+    api.get<PersonDetail>('/people/person', { params: { key: personKey } }).then((r) => r.data),
+  setFamily: (personKey: string, family: boolean) =>
+    api.put<void>('/people/person/settings', { personKey, family }).then(() => undefined),
+  /** Without an amount: as much as fits, of what is left of the credit and of the bill. */
+  link: (creditId: string, billId: string, amount?: number) =>
+    api.post<BillShare>('/people/shares', { creditId, billId, amount }).then((r) => r.data),
+  unlink: (creditId: string, billId: string) =>
+    api.delete<void>('/people/shares', { params: { creditId, billId } }).then(() => undefined),
+  billShares: (billId: string) => api.get<BillShare[]>(`/people/bills/${billId}/shares`).then((r) => r.data),
+  /** Without an amount: the payment's full amount. With one: only the part of a credit left over
+   *  after its shares. */
+  addEntry: (txnId: string, direction: 'LENT' | 'PAID_BACK' | 'BORROWED' | 'REPAID', amount?: number) =>
+    api.post<LoanEntry>('/people/entries', { txnId, direction, amount }).then((r) => r.data),
+  deleteEntry: (id: string) => api.delete<void>(`/people/entries/${id}`).then(() => undefined),
+  settle: (personKey: string, how: 'CASH' | 'LET_GO') =>
+    api.post<void>('/people/settle', { personKey, how }).then(() => undefined),
+  /** "Every month": a rule from this credit's sender and this bill's category and payee. */
+  addSplitRule: (creditId: string, billId: string) =>
+    api.post<SplitRule>('/people/split-rules', { creditId, billId }).then((r) => r.data),
+  removeSplitRule: (id: string) => api.delete<void>(`/people/split-rules/${id}`).then(() => undefined),
+  preferences: () => api.get<{ ownUpiId: string | null }>('/people/preferences').then((r) => r.data),
+  setOwnUpiId: (ownUpiId: string) =>
+    api.put<{ ownUpiId: string | null }>('/people/preferences', { ownUpiId }).then((r) => r.data),
 };
 
 export type FynFeedback = 'HELPFUL' | 'NOT_HELPFUL';

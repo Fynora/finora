@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { Route, Routes, useLocation, MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Ledger from './Ledger';
-import { transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi } from '../api/endpoints';
+import { peopleApi, transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 
 // Ledger has no prior test file -- this covers only what this change adds (the "Why this
@@ -43,6 +43,13 @@ vi.mock('../api/endpoints', () => ({
     }),
     kinds: vi.fn(), setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn(),
   },
+  // Shared payments: no shares and no person unless a test says so.
+  peopleApi: {
+    billShares: vi.fn().mockResolvedValue([]),
+    personOf: vi.fn().mockRejectedValue(new Error('422')),
+    link: vi.fn(), suggestions: vi.fn().mockResolvedValue({ items: [], expected: [] }), addEntry: vi.fn(),
+  },
+  insightsApi: { acknowledge: vi.fn() },
 }));
 
 // Safe defaults for every test in this file -- most tests care about transactions/categories
@@ -270,13 +277,16 @@ describe('Ledger — Status column', () => {
 
     // Exhaustive within the ROW, not a name-pattern guess: an OK row's only buttons are "Why
     // this category?" (the category cell's icon), Mark as transfer (Phase 6 -- offered exactly
-    // for OK rows, see Ledger.tsx's own comment on why), and the two row actions -- anything
+    // for OK rows, see Ledger.tsx's own comment on why), money with people (any plain expense can be
+    // split), and the two row actions -- anything
     // beyond that set IS a Status badge, whatever it happens to be labelled. A regex over the six
     // known non-OK labels would pass even if OK itself grew a badge, since "OK"/"Ordinary"
     // wouldn't match that pattern. Scoped to the row (not the whole page) since the redesign added
     // page-level buttons (category chips, numbered pagination) this assertion isn't about.
     const buttonNames = within(row).getAllByRole('button').map((b) => b.getAttribute('title') ?? b.getAttribute('aria-label'));
-    expect(buttonNames).toEqual(['Why this category?', 'Mark as transfer', 'Edit transaction', 'Delete transaction']);
+    expect(buttonNames).toEqual([
+      'Why this category?', 'Mark as transfer', 'Shared with people, lent or paid back', 'Edit transaction', 'Delete transaction',
+    ]);
   });
 
   it('shows a human label, not the raw enum, for a flagged transaction', async () => {
@@ -1519,5 +1529,66 @@ describe('Ledger — a link from Reports (category and date range)', () => {
 
     await waitFor(() => expect(searched()).toContainEqual(expect.objectContaining({ keyword: 'swiggy' })));
     expect(searched().every((r) => r.categoryId === undefined && r.dateFrom === undefined)).toBe(true);
+  });
+});
+
+describe('Ledger — money with people', () => {
+  const credit = () => txn({
+    id: 'c-1', description: 'UPI FLATMATE A', merchant: 'Flatmate share', type: 'INCOME', amount: 9000, date: '2026-10-04',
+    counterpartyType: 'PERSON', categoryName: 'Rent',
+  });
+
+  function Where() {
+    const location = useLocation();
+    return <p data-testid="where">{location.pathname}</p>;
+  }
+
+  function renderWithWhere() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/app/transactions']}>
+          <Routes><Route path="*" element={<><Ledger /><Where /></>} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [credit()], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(transactionsApi.needsReview).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  });
+
+  it('"Share of a bill" closes the window and opens the bill picker on the bills around the credit', async () => {
+    const user = userEvent.setup();
+    renderWithWhere();
+    await user.click(await screen.findByRole('button', { name: 'Money with people: Flatmate share' }));
+    await user.click(await screen.findByRole('button', { name: 'Share of a bill' }));
+    expect(await screen.findByRole('heading', { name: 'Share of which bill?' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'With people' })).toBeNull();
+    await waitFor(() => expect(transactionsApi.search).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'EXPENSE', dateFrom: '2026-09-20', dateTo: '2026-10-18',
+    })));
+  });
+
+  it('"See <person>" opens their page', async () => {
+    const user = userEvent.setup();
+    vi.mocked(peopleApi.personOf).mockResolvedValueOnce({ personKey: 'vpa:flatmate.a', label: 'Flatmate A' });
+    renderWithWhere();
+    await user.click(await screen.findByRole('button', { name: 'Money with people: Flatmate share' }));
+    await user.click(await screen.findByRole('button', { name: 'See Flatmate A' }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/app/people/vpa%3Aflatmate.a');
+  });
+
+  it('offers nothing about people on a transfer', async () => {
+    vi.mocked(transactionsApi.search).mockResolvedValue({
+      content: [txn({ reconciliationStatus: 'TRANSFER' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    });
+    renderWithWhere();
+    await screen.findByText('Amazon');
+    expect(screen.queryByRole('button', { name: /^Money with people/ })).toBeNull();
   });
 });

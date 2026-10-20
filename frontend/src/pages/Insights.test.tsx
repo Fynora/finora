@@ -3,15 +3,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import Insights from './Insights';
-import { insightsApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
+import { insightsApi, peopleApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
   // Default resolves to '' (falsy, renders nothing) rather than being left unmocked -- every
   // existing test in this file exercises paths unrelated to Fyn's narration and would otherwise
   // throw on the unmocked call; vi.clearAllMocks() below clears call history, not this resolved
   // value, so it stays the default for every test that doesn't override it.
-  insightsApi: { get: vi.fn(), narration: vi.fn().mockResolvedValue('') },
+  insightsApi: {
+    get: vi.fn(), narration: vi.fn().mockResolvedValue(''),
+    acknowledgements: vi.fn().mockResolvedValue([]), acknowledge: vi.fn().mockResolvedValue(undefined),
+  },
+  // Shared payments and loans: nothing to ask and nobody owing unless a test says so.
+  peopleApi: {
+    suggestions: vi.fn().mockResolvedValue({ items: [], expected: [] }), list: vi.fn().mockResolvedValue([]),
+    addEntry: vi.fn(), settle: vi.fn(), addSplitRule: vi.fn(), link: vi.fn(), preferences: vi.fn(), setOwnUpiId: vi.fn(),
+  },
+  inflowApi: { kinds: vi.fn().mockResolvedValue([]), setChoice: vi.fn() },
+  transactionsApi: { search: vi.fn(), updateCategory: vi.fn() },
   recurringApi: { list: vi.fn(), dismiss: vi.fn(), confirm: vi.fn(), categorize: vi.fn(), changedAmounts: vi.fn().mockResolvedValue([]) },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no VIEW_INSIGHTS item in
   // the response" so it never fires in tests that don't care about it; the dwell-timer's own
@@ -63,7 +74,9 @@ function renderInsights() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Insights />
+      <MemoryRouter>
+        <Insights />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -444,12 +457,55 @@ describe('Insights — Fyn narration', () => {
     render(
       <StrictMode>
         <QueryClientProvider client={queryClient}>
-          <Insights />
+          <MemoryRouter>
+            <Insights />
+          </MemoryRouter>
         </QueryClientProvider>
       </StrictMode>
     );
 
     await screen.findByText(/Narrated once/);
     expect(insightsApi.narration).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Insights: money with people', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+  });
+
+  it('asks about money with people, and re-reads its figures once an answer is saved', async () => {
+    vi.mocked(peopleApi.suggestions).mockResolvedValue({
+      items: [{
+        kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', relatedTxnId: null, personKey: 'vpa:friend.k', label: 'Friend K',
+        amount: 2000, date: '2026-08-03', category: null, bills: [], owed: null,
+      }],
+      expected: [],
+    });
+    vi.mocked(peopleApi.addEntry).mockResolvedValue({} as never);
+    renderInsights();
+    expect(await screen.findByRole('heading', { name: 'Money with people' })).toBeInTheDocument();
+    expect(insightsApi.get).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Lent to Friend K' }));
+    await waitFor(() => expect(insightsApi.get).toHaveBeenCalledTimes(2));
+    expect(recurringApi.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('lists who owes whom under With people', async () => {
+    vi.mocked(peopleApi.list).mockResolvedValue([
+      { personKey: 'vpa:friend.k', label: 'Friend K', owedToUser: 500, since: '2026-08-03', family: false },
+    ]);
+    renderInsights();
+    expect(await screen.findByRole('link', { name: 'Friend K owes you ₹500' })).toBeInTheDocument();
+  });
+
+  it('shows a repeating bill other people share at the user\'s share, and how many share it', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([
+      recurringItem({ merchant: 'sample owner', averageAmount: 36000, yourShare: 9000, sharedWith: 3 }),
+    ]);
+    renderInsights();
+    expect(await screen.findByText('Your share ₹9,000 of ₹36,000 · split with 3 · 4x seen')).toBeInTheDocument();
   });
 });

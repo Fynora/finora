@@ -68,7 +68,8 @@ public final class PeopleSuggestions {
     /** {@code acknowledged}: "KIND|ackKey" for every row the user marked "Got it". */
     public record Input(PeopleLedger ledger, Collection<Transaction> rows, Map<UUID, String> categoryNames,
                         Set<String> acknowledged, Set<String> familyKeys, Collection<SplitRule> rules,
-                        Collection<LoanEntry> entries, Set<String> repaymentKeys, LocalDate today) {}
+                        Collection<LoanEntry> entries, Set<String> repaymentKeys, LocalDate today,
+                        Set<String> kindSenderKeys) {}
 
     private PeopleSuggestions() {}
 
@@ -90,6 +91,8 @@ public final class PeopleSuggestions {
         for (Transaction c : live) {
             if (!PeopleLedger.isCredit(c) || !isPerson(c) || in.familyKeys().contains(c.getCounterpartyKey())) continue;
             if (ChronoUnit.DAYS.between(c.getTxnDate(), in.today()) > ASK_WITHIN_DAYS) continue;
+            // The user already said what this money is: a kind on the payment, or on its sender.
+            if (c.getInflowKindId() != null || in.kindSenderKeys().contains(c.getCounterpartyKey())) continue;
             // D. the part of a credit left over after the bills it is linked to: they owed you, or borrowed?
             if (sharedCredits.contains(c.getId()) && !entryTxns.contains(c.getId())
                     && CounterpartyIdentity.identifiesOnePayee(c.getCounterpartyKey())) {

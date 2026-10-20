@@ -37,6 +37,7 @@ class PeopleSuggestionsTest {
     private final Set<String> acks = new HashSet<>();
     private final Set<String> family = new HashSet<>();
     private final Set<String> repaymentKeys = new HashSet<>();
+    private final Set<String> kindSenderKeys = new HashSet<>();
     private final Map<UUID, String> categories = new HashMap<>(Map.of(
             RENT, "Rent", FOOD, "Food", REPAY, "Friend Repayment", TRANSFER, "Personal Transfer"));
 
@@ -74,7 +75,7 @@ class PeopleSuggestionsTest {
     private PeopleSuggestions.PeopleSuggestionsResult build() {
         PeopleLedger ledger = PeopleLedger.build(rows, links, rules, entries, repaymentKeys);
         return PeopleSuggestions.build(new PeopleSuggestions.Input(ledger, rows, categories, acks, family,
-                rules, entries, repaymentKeys, TODAY));
+                rules, entries, repaymentKeys, TODAY, kindSenderKeys));
     }
 
     private List<String> kinds() {
@@ -121,6 +122,18 @@ class PeopleSuggestionsTest {
         debit(500, TODAY.minusDays(20), "vpa:friend.k", TRANSFER);
         credit(500, TODAY.minusDays(2), "vpa:friend.k", REPAY);
         assertThat(kinds()).doesNotContain("SHARE_CHECK");
+    }
+
+    /** Money the user already said what it is (a kind on the payment or on its sender) is not asked about. */
+    @Test
+    void noQuestionAboutACreditTheUserGaveAKind() {
+        Transaction row = row(Transaction.Type.INCOME, 800, TODAY.minusDays(1), "vpa:mother.m", null, false);
+        row.setDescription("UPI/vpa:mother.m/rent");
+        kindSenderKeys.add("vpa:mother.m");
+        assertThat(kinds()).isEmpty();
+        kindSenderKeys.clear();
+        row.setInflowKindId(UUID.randomUUID());
+        assertThat(kinds()).isEmpty();
     }
 
     @Test

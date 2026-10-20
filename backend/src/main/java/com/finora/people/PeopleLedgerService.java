@@ -84,6 +84,14 @@ public class PeopleLedgerService {
         return PeopleLedger.build(live, links, rules, entries, repaymentKeys);
     }
 
+    /** Every sender the user gave a kind (any kind): what their money is, the user already said. */
+    @Transactional(readOnly = true)
+    public Set<String> senderKeysWithAKind(UUID userId) {
+        Set<String> keys = new HashSet<>();
+        for (SenderInflowRule r : senderRules.findByUserId(userId)) keys.add(r.getCounterpartyKey());
+        return keys;
+    }
+
     /** Senders the user said always pay them back (a sender rule on the built-in Paid back kind). */
     Set<String> repaymentSenderKeys(UUID userId) {
         Set<UUID> paidBackKinds = new HashSet<>();

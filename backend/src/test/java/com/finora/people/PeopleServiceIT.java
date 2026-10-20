@@ -265,6 +265,42 @@ class PeopleServiceIT extends AbstractIntegrationTest {
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_NOTHING_LEFT));
     }
 
+    @Test
+    void theLeftoverAnswerSurvivesRelinkingAndCountsAgainstTheCredit() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 1000, "vpa:owner.b", rent.getId());
+        Transaction other = txn(Transaction.Type.EXPENSE, 800, "vpa:shop.x", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        people.addEntry(userId, new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("500")));
+        // A second tap on the same link keeps the leftover answer...
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        assertThat(people.person(userId, "vpa:friend.k").timeline()).anySatisfy(i -> {
+            assertThat(i.kind()).isEqualTo("PAID_BACK");
+            assertThat(i.amount()).isEqualByComparingTo("500");
+        });
+        // ...and nothing of the credit is left for another bill: 1000 shared + 500 answered.
+        assertThatThrownBy(() -> people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), other.getId(), null)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_NOTHING_LEFT));
+    }
+
+    @Test
+    void aPartialAnswerNeedsSharesBesideIt() {
+        Transaction credit = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", null);
+        assertThatThrownBy(() -> people.addEntry(userId,
+                new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("500"))))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+    }
+
+    @Test
+    void unlinkingTheLastShareDropsTheLeftoverAnswer() {
+        Transaction bill = txn(Transaction.Type.EXPENSE, 1000, "vpa:owner.b", rent.getId());
+        Transaction credit = txn(Transaction.Type.INCOME, 1500, "vpa:friend.k", rent.getId());
+        people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
+        people.addEntry(userId, new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("500")));
+        people.unlink(userId, credit.getId(), bill.getId());
+        assertThat(people.person(userId, "vpa:friend.k").timeline()).isEmpty();
+    }
+
     // ---- a double tap never fails (fix everything, 2026-10-19) ----
 
     @Test

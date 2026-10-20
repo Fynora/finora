@@ -108,7 +108,7 @@ public class PeopleService {
                 users.findById(userId).map(com.finora.entity.User::getTimezone).orElse(null)));
         return PeopleSuggestions.build(new PeopleSuggestions.Input(ledgers.forUser(userId), rows, categoryNames, acked,
                 familyKeys(userId), splitRules.findByUserId(userId), loanEntries.findByUserId(userId),
-                ledgers.repaymentSenderKeys(userId), today));
+                ledgers.repaymentSenderKeys(userId), today, ledgers.senderKeysWithAKind(userId)));
     }
 
     // ---- shares ----
@@ -126,13 +126,20 @@ public class PeopleService {
         if (!loanEntries.findByUserIdAndTxnId(userId, bill.getId()).isEmpty()) {
             throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         }
-        loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, credit.getId()));
+        // A whole-credit answer gives way to the share; a leftover answer (part of the credit,
+        // beside its shares) stays, and what it covers is not free for this link.
+        List<LoanEntry> creditAnswers = loanEntries.findByUserIdAndTxnId(userId, credit.getId());
+        loanEntries.deleteAll(creditAnswers.stream().filter(e -> !isLeftover(e, credit)).toList());
+        BigDecimal answeredLeftover = creditAnswers.stream().filter(e -> isLeftover(e, credit))
+                .map(LoanEntry::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        loanEntries.flush();
         PeopleLedger ledger = ledgers.forUser(userId);
         // This pair's own earlier link (a second tap, or a changed amount) is replaced, not added to.
         BigDecimal ownEarlier = ledger.sharesOf(bill.getId()).stream()
                 .filter(s -> s.creditId().equals(credit.getId()) && !s.fromRule())
                 .map(PeopleLedger.Share::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal creditLeft = credit.getAmount().subtract(ledger.sharedFromCredit(credit.getId())).add(ownEarlier);
+        BigDecimal creditLeft = credit.getAmount().subtract(ledger.sharedFromCredit(credit.getId())).add(ownEarlier)
+                .subtract(answeredLeftover);
         BigDecimal billLeft = bill.getAmount().subtract(ledger.sharedByBillId().getOrDefault(bill.getId(), BigDecimal.ZERO))
                 .add(ownEarlier);
         BigDecimal cap = creditLeft.min(billLeft);
@@ -149,6 +156,21 @@ public class PeopleService {
         oneWriteAtATime(userId);
         shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, creditId).stream()
                 .filter(l -> l.getBillTxnId().equals(billId)).toList());
+        shareLinks.flush();
+        // With no share left on the credit, a leftover answer has nothing left over from: it would
+        // read the whole credit as paid back while only part of it was answered.
+        transactions.findById(creditId).filter(c -> userId.equals(c.getUserId())).ifPresent(credit -> {
+            if (ledgers.forUser(userId).sharedFromCredit(creditId).signum() == 0) {
+                loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, creditId).stream()
+                        .filter(e -> isLeftover(e, credit)).toList());
+            }
+        });
+    }
+
+    /** An answer on part of a credit: the leftover beside its shares. */
+    private static boolean isLeftover(LoanEntry e, Transaction credit) {
+        return (e.getDirection() == LoanEntry.Direction.PAID_BACK || e.getDirection() == LoanEntry.Direction.BORROWED)
+                && e.getAmount().compareTo(credit.getAmount()) < 0;
     }
 
     @Transactional(readOnly = true)
@@ -188,6 +210,9 @@ public class PeopleService {
             // Only part of the payment: on a credit, the part left over after the bills it is linked
             // to, which keeps its share links.
             BigDecimal shared = out ? BigDecimal.ZERO : ledgers.forUser(userId).sharedFromCredit(t.getId());
+            // Only the leftover beside a credit's shares can be answered in part: anywhere else the
+            // rest of the payment would read as answered too.
+            if (shared.signum() == 0) throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
             if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_LEFT);
             amount = req.amount();
         } else if (!out) {

@@ -171,4 +171,10 @@ describe('invalidateFinancialData covers every query the app runs', () => {
   it.each(['networth', 'recurring'])('refreshes %s after a write', (key) => {
     expect(declared.has(key)).toBe(true);
   });
+
+  // Shared payments and loans: a share, a loan entry or a rule changes the figures AND the people
+  // rows, so every people query refreshes with them (['people'] is a prefix of all four keys).
+  it('refreshes the people queries after a write', () => {
+    expect(declared.has('people')).toBe(true);
+  });
 });

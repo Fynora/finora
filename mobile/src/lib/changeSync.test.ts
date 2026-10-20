@@ -117,6 +117,10 @@ describe('refreshChanged', () => {
     }
   });
 
+  it('refreshes the people rows when the transactions section moves (shares and loans are stamped there)', () => {
+    expect(refreshFor(['transactions'])).toContain('people');
+  });
+
   it('refreshes categories and the financial queries (whose rows carry category names) for a category change', () => {
     const keys = refreshFor(['categories']);
     expect(keys).toContain('categories');

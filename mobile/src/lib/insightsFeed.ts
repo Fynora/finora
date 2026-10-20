@@ -1,4 +1,6 @@
-import type { AckKind, ChangedAmountItem, InsightsData, RecurringItem, UnlinkedCardBills } from '../api/endpoints';
+import type {
+  AckKind, ChangedAmountItem, InsightsData, PeopleSuggestionKind, RecurringItem, UnlinkedCardBills,
+} from '../api/endpoints';
 
 /**
  * The Insights screen's rows, built from what the server already sends: what needs a look, what is
@@ -39,9 +41,10 @@ export type LookAtRow =
     } & Dismissible)
   | ({ kind: 'running-high'; category: string; current: number; priorAverage: number; month: string } & Dismissible);
 
-/** The key an acknowledgement is stored under for each kind, exactly as V277 documents it. */
+/** The key an acknowledgement is stored under for each kind, exactly as V277 documents it. The
+ *  people kinds (V281) carry their key from the server instead. */
 export function ackKey(
-  kind: AckKind,
+  kind: Exclude<AckKind, PeopleSuggestionKind>,
   parts: { category?: string; month?: string; merchant?: string; date?: string },
 ): string {
   switch (kind) {

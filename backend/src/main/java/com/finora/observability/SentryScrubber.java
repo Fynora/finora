@@ -201,8 +201,9 @@ public final class SentryScrubber {
             event.setRequest(safe);
         }
 
-        // Identity. sendDefaultPii=false already prevents most of this; setting it to null as well
-        // means a future default flip cannot quietly reintroduce it.
+        // Identity. MonitoringConfig already switches user-info collection off (userInfo=false in its
+        // data collection settings); setting it to null as well means a future default flip cannot
+        // quietly reintroduce it.
         event.setUser(null);
         event.setServerName(null);
 

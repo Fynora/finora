@@ -42,7 +42,9 @@ public final class FlowClassifier {
     //    choosing the "Paid back to me" kind.
     // 8: a person's UPI note no longer makes their money income: for a person, the cashback/reward,
     //    interest and dividend words are read outside the note (#2029, 2026-10-05).
-    public static final short VERSION = 8;
+    // 9: a credit the user linked to a bill as a share, or said they borrowed, reads as that
+    //    (shared payments and loans, PeopleLedger), ahead of their kind.
+    public static final short VERSION = 9;
 
     public enum FlowClass { INCOME, EXPENSE, REFUND, TRANSFER, INVESTMENT, LIABILITY, ADJUSTMENT, UNRESOLVED }
 
@@ -54,6 +56,9 @@ public final class FlowClassifier {
         OWN_ACCOUNT_TRANSFER, USER_OWN_MONEY, CARD_PAYMENT_RECEIVED,
         INVESTMENT_CONTRIBUTION, INVESTMENT_WITHDRAWAL,
         LOAN_DRAWDOWN,
+        // Shared payments and loans (PeopleLedger): a credit the user linked to a bill as someone's
+        // share, and money the user borrowed from a person.
+        SHARE_OF_BILL, BORROWED,
         PERSON_INFLOW, CARD_UNEXPLAINED_CREDIT, CASH_DEPOSIT, MERCHANT_CREDIT, UNKNOWN_SENDER
     }
 
@@ -122,8 +127,15 @@ public final class FlowClassifier {
 
     public static FlowDecision classify(Transaction t, Account.Type accountType, CategoryRole categoryRole,
                                         InflowKind chosen) {
+        return classify(t, accountType, categoryRole, chosen, null);
+    }
+
+    /** {@code confirmed}: what the user said about this credit in the people ledger (a share of a
+     *  bill, paid back, borrowed), or null. It outranks their kind; a reconciliation pairing outranks it. */
+    public static FlowDecision classify(Transaction t, Account.Type accountType, CategoryRole categoryRole,
+                                        InflowKind chosen, FlowDecision confirmed) {
         return t.getTxnType() == Transaction.Type.EXPENSE
-                ? outflow(t) : inflow(t, accountType, categoryRole == null ? CategoryRole.NONE : categoryRole, chosen);
+                ? outflow(t) : inflow(t, accountType, categoryRole == null ? CategoryRole.NONE : categoryRole, chosen, confirmed);
     }
 
     private static FlowDecision outflow(Transaction t) {
@@ -135,7 +147,7 @@ public final class FlowClassifier {
     }
 
     private static FlowDecision inflow(Transaction t, Account.Type accountType, CategoryRole categoryRole,
-                                       InflowKind chosen) {
+                                       InflowKind chosen, FlowDecision confirmed) {
         if (t.isTransfer()) return of(FlowClass.TRANSFER, FlowReason.OWN_ACCOUNT_TRANSFER);
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REFUND) {
             return of(FlowClass.REFUND, FlowReason.LINKED_REFUND);
@@ -143,6 +155,9 @@ public final class FlowClassifier {
         if (t.getReconciliationStatus() == Transaction.ReconciliationStatus.REVERSAL) {
             return of(FlowClass.ADJUSTMENT, FlowReason.REVERSAL);
         }
+        // A share, a repayment or a borrowing the user confirmed (PeopleLedger) names this exact
+        // credit, so it outranks their kind, which may only name its sender.
+        if (confirmed != null) return confirmed;
         // The user's own answer outranks every rule below -- but not a pairing reconciliation made
         // above, which has its own undo ("not a transfer").
         if (chosen != null) return byKind(chosen);
@@ -257,7 +272,7 @@ public final class FlowClassifier {
 
     /** A person, or a rule or pattern learned from them, put the row in its category -- not a global
      *  rule or the AI fallback, which can guess Salary for a person's transfer. */
-    private static boolean categoryIsTheUsersChoice(Transaction t) {
+    public static boolean categoryIsTheUsersChoice(Transaction t) {
         if (t.isCategoryManuallySet()) return true;
         Transaction.DecisionSource source = t.getDecisionSource();
         return source == Transaction.DecisionSource.MANUAL

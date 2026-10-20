@@ -39,6 +39,15 @@ public enum ErrorCode {
             "This kind is still used. Move those payments and senders to another kind first."),
     INFLOW_KIND_NAME_TAKEN("TXN_006", HttpStatus.CONFLICT, "You already have a kind with this name."),
 
+    // Shared payments and loans (com.finora.people) -- each message is shown to the user as-is.
+    PEOPLE_NOT_ONE_PAYEE("TXN_007", HttpStatus.UNPROCESSABLE_ENTITY,
+            "Fynora can't tell this sender apart from others, so it can't keep this for them."),
+    PEOPLE_WRONG_DIRECTION("TXN_008", HttpStatus.UNPROCESSABLE_ENTITY, "That doesn't fit this payment."),
+    PEOPLE_NOTHING_LEFT("TXN_009", HttpStatus.UNPROCESSABLE_ENTITY, "Nothing is left of this bill or this payment to link."),
+    PEOPLE_NOTHING_OWED("TXN_010", HttpStatus.UNPROCESSABLE_ENTITY, "Nothing is owed here."),
+    PEOPLE_BILL_HAS_NO_CATEGORY("TXN_011", HttpStatus.UNPROCESSABLE_ENTITY,
+            "Give this bill a category first, so Fynora knows which bills to link every month."),
+
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),
     IMPORT_ACCOUNT_REQUIRED("IMPORT_002", HttpStatus.BAD_REQUEST, "Choose an existing account or provide details for a new one"),

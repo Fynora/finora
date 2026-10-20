@@ -68,6 +68,12 @@ public class InsightsService {
      *  performed no calendar resolution at all. */
     private final UserRepository userRepository;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
     /** Phase 3 of docs/proposals/statement-continuity-and-coverage-integrity-proposal.md (§8) --
      *  Insights consumes coverage, it doesn't own it: {@link StatementCoverageAnalyzer} stays a
      *  pure function with no repository of its own, so this is the same repository call Phase 1's
@@ -90,6 +96,7 @@ public class InsightsService {
         this.budgetRepository = budgetRepository;
         this.userRepository = userRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
         this.statementImportRepository = statementImportRepository;
     }
 
@@ -148,12 +155,25 @@ public class InsightsService {
         for (String m : priorMonths) {
             groupByCategory(moverTxns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
         }
-        int priorCount = Math.max(priorMonths.size(), 1);
+        // A category's usual month starts at the first month it has any spend in the user's history:
+        // a regular payment that began partway through the window is not "running high" because the
+        // months before it began read as zero (shared payments spec §7). Months after it first
+        // appeared still count, as zero when nothing was spent.
+        Map<String, String> firstMonthByCat = new HashMap<>();
+        for (Transaction t : moverTxns) {
+            if (refunds.spendAmount(t).signum() <= 0) continue;
+            String key = categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized";
+            String seen = YearMonth.from(t.getTxnDate()).toString();
+            firstMonthByCat.merge(key, seen, (a, b) -> a.compareTo(b) <= 0 ? a : b);
+        }
 
         List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
             BigDecimal priorTotal = priorByCat.getOrDefault(e.getKey(), BigDecimal.ZERO);
-            BigDecimal priorAvg = priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
+            String first = firstMonthByCat.getOrDefault(e.getKey(), currentMonth);
+            long priorCount = priorMonths.stream().filter(m -> m.compareTo(first) >= 0).count();
+            BigDecimal priorAvg = priorCount == 0 ? BigDecimal.ZERO
+                    : priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
             Double pct = priorAvg.compareTo(BigDecimal.ZERO) > 0
                     ? current.subtract(priorAvg).divide(priorAvg, 6, RoundingMode.HALF_UP).doubleValue() * 100
                     : null;
@@ -391,7 +411,7 @@ public class InsightsService {
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
-        RefundNetting refunds = RefundNetting.from(all);
+        RefundNetting refunds = reportRows.netting(userId, all);
         // excludingInvestmentTransfers applies here (unlike DashboardService/ReportService, which
         // keep a separate category-breakdown list): every number this whole method produces --
         // the headline "total spend" sentence, the category movers, the top-merchant callout -- is
@@ -399,7 +419,7 @@ public class InsightsService {
         // category" or a spend-trend mover would contradict the very point of this exclusion. See
         // RefundNetting.excludingInvestmentTransfers's own comment on the narrower, budget-safe cut.
         List<Transaction> reportable = RefundNetting.excludingInvestmentTransfers(
-                RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all)));
+                reportRows.reportable(userId, all));
         // Spend rows: every purchase plus the refunds and card adjustments reconciliation could
         // not link to one, which give spend back in their own month and category -- the same rule
         // the dashboard and reports use (RefundNetting.withUnlinkedOffsets). Price with

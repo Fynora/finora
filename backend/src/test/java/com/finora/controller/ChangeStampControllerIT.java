@@ -65,6 +65,10 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
     @Autowired private ReferralGrantRepository referralGrantRepository;
     @Autowired private com.finora.repository.InflowKindRepository inflowKindRepository;
     @Autowired private com.finora.repository.SenderInflowRuleRepository senderInflowRuleRepository;
+    @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
+    @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
+    @Autowired private com.finora.repository.LoanEntryRepository loanEntryRepository;
+    @Autowired private com.finora.repository.PersonSettingRepository personSettingRepository;
 
     private User user;
     private Account account;
@@ -183,6 +187,32 @@ class ChangeStampControllerIT extends AbstractIntegrationTest {
         rule.setInflowKindId(kind.getId());
         senderInflowRuleRepository.save(rule);
         assertMovedOnly(afterKind, stampOf(user), "transactions");
+    }
+
+    /** Shared payments and loans (V281): a share, a split rule, a loan entry or a person's family
+     *  switch changes what the figures count without touching a transaction row. */
+    @Test
+    void movesOnlyTransactionsWhenAShareRuleEntryOrPersonSettingChanges() {
+        Transaction bill = newTransaction("Rent to owner");
+        Transaction credit = newTransaction("Share from flatmate");
+        Map<String, String> before = stampOf(user);
+
+        com.finora.entity.ShareLink link = new com.finora.entity.ShareLink(user.getId(), credit.getId(), bill.getId(), BigDecimal.valueOf(100));
+        shareLinkRepository.save(link);
+        Map<String, String> afterLink = stampOf(user);
+        assertMovedOnly(before, afterLink, "transactions");
+
+        splitRuleRepository.save(new com.finora.entity.SplitRule(user.getId(), "vpa:flatmate.a", category.getId(), "vpa:owner.b", null));
+        Map<String, String> afterRule = stampOf(user);
+        assertMovedOnly(afterLink, afterRule, "transactions");
+
+        loanEntryRepository.save(new com.finora.entity.LoanEntry(user.getId(), "vpa:friend.k", bill.getId(),
+                com.finora.entity.LoanEntry.Direction.LENT, BigDecimal.valueOf(500)));
+        Map<String, String> afterEntry = stampOf(user);
+        assertMovedOnly(afterRule, afterEntry, "transactions");
+
+        personSettingRepository.save(new com.finora.entity.PersonSetting(user.getId(), "vpa:friend.k", true));
+        assertMovedOnly(afterEntry, stampOf(user), "transactions");
     }
 
     @Test

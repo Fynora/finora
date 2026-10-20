@@ -94,6 +94,15 @@ class InsightAcknowledgementsIT extends AbstractIntegrationTest {
         assertThat(list(someoneElse)).isEmpty();
     }
 
+    /** Shared payments and loans (V281): each suggestion kind can be marked "Got it". */
+    @Test
+    void acceptsPeopleKinds() {
+        User user = createUser();
+        for (String kind : java.util.List.of("SHARE_CHECK", "LENT_CHECK", "PAYBACK_CHECK", "SETTLE", "EVERY_MONTH", "ALWAYS_PERSON", "LEFTOVER_CHECK")) {
+            assertThat(post(user, kind, "k-" + kind).getStatusCode()).as(kind).isEqualTo(HttpStatus.OK);
+        }
+    }
+
     @Test
     void unknownKind_is400() {
         assertThat(post(createUser(), "SOMETHING_ELSE", "x").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);

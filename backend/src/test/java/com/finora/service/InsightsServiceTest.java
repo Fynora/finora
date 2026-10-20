@@ -188,6 +188,55 @@ class InsightsServiceTest {
         assertThat(result.sentences()).anyMatch(s -> s.contains("Dining spend was 100% more than your recent average"));
     }
 
+    // --- The usual month starts when a category first appears (shared payments spec §7) -----
+
+    private Double moverPct(InsightsDto result, String category) {
+        return result.movers().stream().filter(m -> m.category().equals(category)).findFirst().orElseThrow().pctChange();
+    }
+
+    /** The usual month is the 3 before (PRIOR_MONTHS_WINDOW - 1). A regular payment that started in
+     *  August is not "running high" in October because July, inside that window, had none. */
+    @Test
+    void moverAverageStartsAtCategorysFirstMonth() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (int m = 7; m <= 10; m++) txns.add(expense(LocalDate.of(2026, m, 3), BigDecimal.valueOf(500), groceries, "Mart"));
+        for (int m = 8; m <= 10; m++) txns.add(expense(LocalDate.of(2026, m, 1), BigDecimal.valueOf(9000), dining, "Owner"));
+        givenTransactions(txns);
+
+        var result = insightsService.build(userId, "2026-10");
+
+        assertThat(moverPct(result, "Dining")).isEqualTo(0.0);
+        assertThat(result.sentences()).noneMatch(s -> s.contains("Dining spend was"));
+    }
+
+    /** Seen once, then absent: the months after it first appeared still count, as zero. */
+    @Test
+    void occasionalCategoryStillAveragesItsZeroMonthsAfterFirstSeen() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (int m = 7; m <= 10; m++) txns.add(expense(LocalDate.of(2026, m, 3), BigDecimal.valueOf(500), groceries, "Mart"));
+        txns.add(expense(LocalDate.of(2026, 7, 10), BigDecimal.valueOf(900), dining, "Cafe"));
+        txns.add(expense(LocalDate.of(2026, 10, 10), BigDecimal.valueOf(900), dining, "Cafe"));
+        givenTransactions(txns);
+
+        var result = insightsService.build(userId, "2026-10");
+
+        // 900 over July, August and September is 300 a month: October's 900 is 200% more.
+        assertThat(moverPct(result, "Dining")).isCloseTo(200.0, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    /** A category that first appears this month has no usual month to compare with. */
+    @Test
+    void moverWithNoPriorMonthsStaysQuiet() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (int m = 6; m <= 10; m++) txns.add(expense(LocalDate.of(2026, m, 3), BigDecimal.valueOf(500), groceries, "Mart"));
+        txns.add(expense(LocalDate.of(2026, 10, 10), BigDecimal.valueOf(1000), dining, "Cafe"));
+        givenTransactions(txns);
+
+        var result = insightsService.build(userId, "2026-10");
+
+        assertThat(moverPct(result, "Dining")).isNull();
+    }
+
     // --- Explicit month param (mobile Spending tab's month picker) --------------------------
 
     @Test

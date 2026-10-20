@@ -99,6 +99,18 @@ public final class RefundNetting {
         return identity.isEmpty() ? this : new RefundNetting(refundedByExpenseId, ids, identity);
     }
 
+    /**
+     * This netting plus the shares other people paid toward the user's bills (PeopleLedger), netted
+     * off each bill exactly as a linked refund is: in the bill's period and category, never below
+     * zero. Used only through ReportRows.netting.
+     */
+    public RefundNetting withShares(Map<UUID, BigDecimal> sharedByBillId) {
+        if (sharedByBillId == null || sharedByBillId.isEmpty()) return this;
+        Map<UUID, BigDecimal> merged = new HashMap<>(refundedByExpenseId);
+        sharedByBillId.forEach((id, v) -> merged.merge(id, v, BigDecimal::add));
+        return new RefundNetting(merged, offsetIds, offsetRows);
+    }
+
     /** Whether this row takes part in a spend total: every expense, plus the unlinked offsets. */
     public boolean countsAsSpend(Transaction t) {
         return t.getTxnType() == Transaction.Type.EXPENSE || isOffset(t);

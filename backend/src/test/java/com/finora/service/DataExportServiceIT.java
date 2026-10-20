@@ -96,6 +96,13 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate activationJdbc;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    @Autowired private com.finora.repository.TransactionRepository transactionRepository;
+    @Autowired private com.finora.repository.CategoryRepository categoryRepository;
+    @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
+    @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
+    @Autowired private com.finora.repository.LoanEntryRepository loanEntryRepository;
+    @Autowired private com.finora.repository.PersonSettingRepository personSettingRepository;
+    @Autowired private com.finora.repository.PeoplePreferenceRepository peoplePreferenceRepository;
     @Autowired private DataExportService service;
 
     private UUID userId;
@@ -605,6 +612,48 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(acks.get(0).get("kind").asText()).isEqualTo("CARD_STATEMENT_MISSING");
         assertThat(acks.get(0).get("itemKey").asText()).isEqualTo("2026-09");
         assertThat(acks.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("kind", "itemKey", "acknowledgedAt");
+    }
+
+    /** Shared payments and loans (V281): one entry with the user's shares, split rules, loan
+     *  entries, people settings and own UPI id -- only this user's. */
+    @Test
+    void exportIncludesPeopleTables() throws Exception {
+        UUID accountId = accountRepository.findByUserId(userId).get(0).getId();
+        com.finora.entity.Transaction bill = exportTxn(accountId, com.finora.entity.Transaction.Type.EXPENSE, 3000);
+        com.finora.entity.Transaction credit = exportTxn(accountId, com.finora.entity.Transaction.Type.INCOME, 1000);
+        shareLinkRepository.save(new com.finora.entity.ShareLink(userId, credit.getId(), bill.getId(), BigDecimal.valueOf(1000)));
+        com.finora.entity.Category rent = new com.finora.entity.Category();
+        rent.setUserId(userId);
+        rent.setName("People Rent");
+        rent = categoryRepository.save(rent);
+        splitRuleRepository.save(new com.finora.entity.SplitRule(userId, "vpa:flatmate.a", rent.getId(), "vpa:owner.b", null));
+        loanEntryRepository.save(new com.finora.entity.LoanEntry(userId, "vpa:friend.k", null,
+                com.finora.entity.LoanEntry.Direction.CASH_SETTLED, BigDecimal.valueOf(500)));
+        personSettingRepository.save(new com.finora.entity.PersonSetting(userId, "vpa:friend.k", true));
+        peoplePreferenceRepository.save(new com.finora.entity.PeoplePreference(userId, "someone@upi"));
+
+        JsonNode people = new ObjectMapper().readTree(export().get("shared_payments.json"));
+        assertThat(people.get("shares")).hasSize(1);
+        assertThat(people.get("shares").get(0).get("amount").decimalValue()).isEqualByComparingTo("1000");
+        assertThat(people.get("splitRules")).hasSize(1);
+        assertThat(people.get("splitRules").get(0).get("senderKey").asText()).isEqualTo("vpa:flatmate.a");
+        assertThat(people.get("loanEntries")).hasSize(1);
+        assertThat(people.get("loanEntries").get(0).get("direction").asText()).isEqualTo("CASH_SETTLED");
+        assertThat(people.get("people")).hasSize(1);
+        assertThat(people.get("people").get(0).get("family").asBoolean()).isTrue();
+        assertThat(people.get("ownUpiId").asText()).isEqualTo("someone@upi");
+    }
+
+    private com.finora.entity.Transaction exportTxn(UUID accountId, com.finora.entity.Transaction.Type type, int amount) {
+        com.finora.entity.Transaction t = new com.finora.entity.Transaction();
+        t.setUserId(userId);
+        t.setAccountId(accountId);
+        t.setTxnDate(LocalDate.of(2026, 9, 1));
+        t.setAmount(BigDecimal.valueOf(amount));
+        t.setTxnType(type);
+        t.setDescription("people export row");
+        t.setSource(com.finora.entity.Transaction.Source.MANUAL);
+        return transactionRepository.save(t);
     }
 
     /**

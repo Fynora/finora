@@ -348,8 +348,21 @@ class FlowClassifierTest {
         assertThat(chosen(t, null)).isEqualTo(new FlowDecision(FlowClass.UNRESOLVED, FlowReason.PERSON_INFLOW));
     }
 
-    @Test void versionIsEight() {
-        assertThat(FlowClassifier.VERSION).isEqualTo((short) 8);
+    @Test void versionIsNine() {
+        assertThat(FlowClassifier.VERSION).isEqualTo((short) 9);
+    }
+
+    @Test void aConfirmedReadingOutranksTheChosenKindButNotAPairing() {
+        Transaction t = credit("UPI-ASHA VERMA-asha@okbank-111111111111-UPI");
+        t.setCounterpartyType(CounterpartyType.PERSON);
+        FlowDecision share = new FlowDecision(FlowClass.ADJUSTMENT, FlowReason.SHARE_OF_BILL);
+        InflowKind income = new InflowKind();
+        income.setCountsAsIncome(true);
+        income.setBuiltIn(InflowKind.BuiltIn.INCOME);
+        assertThat(FlowClassifier.classify(t, Account.Type.SAVINGS, FlowClassifier.CategoryRole.NONE, income, share)).isEqualTo(share);
+        t.setTransfer(true);
+        assertThat(FlowClassifier.classify(t, Account.Type.SAVINGS, FlowClassifier.CategoryRole.NONE, income, share).flowClass())
+                .isEqualTo(FlowClass.TRANSFER);
     }
 
     // ---- coverage (classifier v6): shapes the corpus showed landing in the wrong class ----

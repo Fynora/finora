@@ -26,6 +26,12 @@ public class ReportService {
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
 
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
     private final InflowChoiceService inflowChoices;
@@ -47,6 +53,7 @@ public class ReportService {
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
     }
 
     @Transactional(readOnly = true)
@@ -76,14 +83,13 @@ public class ReportService {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
         FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoriesById.values());
-        RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
-                : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+        RefundNetting refunds = liveAccountIds.isEmpty() ? reportRows.netting(userId, List.of())
+                : reportRows.netting(userId, transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, java.util.List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
                         liveAccountIds));
         List<Transaction> monthTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> txns = RefundNetting.reportable(
-                monthTxns, transactionGraphService.ccPaymentFromTransactionIds(monthTxns));
+        List<Transaction> txns = reportRows.reportable(userId, monthTxns);
         // Narrower than `txns` -- see RefundNetting.excludingInvestmentTransfers's own comment.
         // Only the cross-category income/expense totals below use this; `byCategory` keeps reading
         // `txns` so an Investments line still shows up in the report's own category table.
@@ -308,14 +314,13 @@ public class ReportService {
         List<com.finora.entity.Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(com.finora.entity.Account::getId).toList();
         FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
-        RefundNetting refunds = liveAccountIds.isEmpty() ? RefundNetting.from(List.of())
-                : RefundNetting.from(transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
+        RefundNetting refunds = liveAccountIds.isEmpty() ? reportRows.netting(userId, List.of())
+                : reportRows.netting(userId, transactionRepository.findByUserIdAndReconciliationStatusInAndAccountIdIn(
                         userId, List.of(Transaction.ReconciliationStatus.REFUND, Transaction.ReconciliationStatus.REVERSAL),
                         liveAccountIds));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> txns = RefundNetting.reportable(
-                rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns));
+        List<Transaction> txns = reportRows.reportable(userId, rangeTxns);
         List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
         // Spend netting: linked refunds against their purchases, unlinked ones in this period.
         RefundNetting spend = refunds.withUnlinkedOffsets(txns, flow);
@@ -344,8 +349,7 @@ public class ReportService {
         FlowTotals.Context flow = inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(RefundNetting.reportable(
-                rangeTxns, transactionGraphService.ccPaymentFromTransactionIds(rangeTxns)));
+        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(reportRows.reportable(userId, rangeTxns));
         return new UnresolvedRows(txnsForTotals.stream().filter(t -> FlowTotals.isUnresolvedInflow(t, flow)).toList(), accounts);
     }
 

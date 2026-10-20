@@ -39,6 +39,12 @@ public class DashboardService {
     private final UserRepository userRepository;
     private final com.finora.repository.StatementImportRepository statementImportRepository;
     private final TransactionGraphService transactionGraphService;
+    /** Shares and loans reach every figure through this (ReportRowsGuardTest); the default is for
+     *  unit tests that build this service by hand, Spring injects the real one. */
+    private com.finora.people.ReportRows reportRows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportRows(com.finora.people.ReportRows reportRows) { this.reportRows = reportRows; }
     private final HealthScoreSnapshotRepository healthScoreSnapshotRepository;
 
     /** Built into every FlowTotals.Context here -- the user's inflow kinds (Plan 2). */
@@ -63,6 +69,7 @@ public class DashboardService {
         this.userRepository = userRepository;
         this.statementImportRepository = statementImportRepository;
         this.transactionGraphService = transactionGraphService;
+        this.reportRows = com.finora.people.ReportRows.withoutPeople(transactionGraphService);
         this.healthScoreSnapshotRepository = healthScoreSnapshotRepository;
     }
 
@@ -93,8 +100,8 @@ public class DashboardService {
         // Transaction::getAmount directly is what the bug was.
         List<Transaction> all = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
-        RefundNetting refunds = RefundNetting.from(all);
-        List<Transaction> active = RefundNetting.reportable(all, transactionGraphService.ccPaymentFromTransactionIds(all));
+        RefundNetting refunds = reportRows.netting(userId, all);
+        List<Transaction> active = reportRows.reportable(userId, all);
         // A further, narrower cut ON TOP of `active` -- for cross-category totals (income,
         // expense, savings rate, health score) only. Deliberately not folded into `active` itself:
         // `active` also feeds every category-level map below (spendByCategory, spendByCategoryId,

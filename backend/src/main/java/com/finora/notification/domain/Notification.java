@@ -177,7 +177,7 @@ public class Notification {
     }
 
     /**
-     * Ends a campaign push that has nobody to deliver to, without calling it a failure -- see
+     * Ends a push that has nobody to deliver to, without calling it a failure -- see
      * {@link NotificationStatus#SKIPPED}. No-op on a terminal row. The reason is redacted like every
      * other stored error.
      */

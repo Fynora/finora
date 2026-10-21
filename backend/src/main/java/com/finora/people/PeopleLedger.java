@@ -299,6 +299,14 @@ public final class PeopleLedger {
                 && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED;
     }
 
-    static boolean isCredit(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.INCOME; }
-    static boolean isBill(Transaction t) { return t != null && t.getTxnType() == Transaction.Type.EXPENSE; }
+    /** Money in or out that is just that: not matched as a transfer, a refund, a reversal or an
+     *  investment transfer. Only such a row can be a share, a bill, a loan or a repayment -- a paired
+     *  row is not spending, so a share against it would take the credit out of every figure while
+     *  lowering nothing. */
+    static boolean isPlain(Transaction t) {
+        return t != null && t.getReconciliationStatus() == Transaction.ReconciliationStatus.OK;
+    }
+
+    static boolean isCredit(Transaction t) { return isPlain(t) && t.getTxnType() == Transaction.Type.INCOME; }
+    static boolean isBill(Transaction t) { return isPlain(t) && t.getTxnType() == Transaction.Type.EXPENSE; }
 }

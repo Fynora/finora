@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Pencil, Trash2, X, ChevronLeft, ChevronRight, HelpCircle, Loader2,
-  Wallet, Receipt, Tag, PiggyBank, FilterX, Sparkles, ArrowLeftRight, type LucideIcon,
+  Wallet, Receipt, Tag, PiggyBank, FilterX, Sparkles, ArrowLeftRight, Users, type LucideIcon,
 } from 'lucide-react';
 import transactionsHero from '../assets/hero/transactions-hero.webp';
 import {
@@ -34,6 +34,9 @@ import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 import { formatForeignAmount } from '../lib/foreignAmount';
 import { CARD_INSTALMENT_LABEL, CARD_INSTALMENT_NOTE } from '../lib/cardInstalment';
 import { CountsAsSection } from '../components/inflow/CountsAsSection';
+import { BillPickerModal } from '../components/people/BillPickerModal';
+import { PeopleModal, qualifiesForPeople } from '../components/people/PeopleModal';
+import { personPath } from '../components/people/WithPeopleCard';
 import { withSep } from '../utils/date';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -296,6 +299,11 @@ export default function Ledger() {
   // Phase 6. markingTransfer opens the paired-transaction picker; unmarkingId tracks an in-flight
   // unmark for its own row's loading state, same convention as deletingId above.
   const [markingTransfer, setMarkingTransfer] = useState<Transaction | null>(null);
+  // Shared payments and loans: a row's money with people, then the bill picker it can open --
+  // one window at a time, the people window closing before the picker opens.
+  const [peopleFor, setPeopleFor] = useState<Transaction | null>(null);
+  const [pickingShare, setPickingShare] = useState<{ mode: 'bill' | 'credit'; transaction: Transaction } | null>(null);
+  const navigate = useNavigate();
   const [unmarkingId, setUnmarkingId] = useState<string | null>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
@@ -1016,6 +1024,15 @@ export default function Ledger() {
                             onClick={() => setMarkingTransfer(t)}
                           />
                         ) : null}
+                        {qualifiesForPeople(t) && (
+                          <IconButton
+                            size="sm"
+                            icon={<Users size={13} />}
+                            aria-label={`Money with people: ${t.merchant || t.description}`}
+                            title="Shared with people, lent or paid back"
+                            onClick={() => setPeopleFor(t)}
+                          />
+                        )}
                         <IconButton
                           size="sm"
                           icon={<Pencil size={13} />}
@@ -1126,6 +1143,25 @@ export default function Ledger() {
           onAcknowledged={() => { setCorrecting(null); invalidateEverything(); }}
         />
       )}
+
+      {peopleFor && (
+        <PeopleModal
+          transaction={peopleFor}
+          onClose={() => { setPeopleFor(null); invalidateEverything(); }}
+          onShareOfABill={() => { setPeopleFor(null); setPickingShare({ mode: 'bill', transaction: peopleFor }); }}
+          onSplit={() => { setPeopleFor(null); setPickingShare({ mode: 'credit', transaction: peopleFor }); }}
+          onOpenPerson={(personKey) => { setPeopleFor(null); void navigate(personPath(personKey)); }}
+        />
+      )}
+
+      {pickingShare && (() => {
+        const t = pickingShare.transaction;
+        const payment = { txnId: t.id, label: t.merchant || t.description, amount: Math.abs(t.amount), date: t.date };
+        const close = () => { setPickingShare(null); invalidateEverything(); };
+        return pickingShare.mode === 'bill'
+          ? <BillPickerModal mode="bill" credit={payment} options={null} onClose={close} />
+          : <BillPickerModal mode="credit" bill={{ ...payment, category: t.categoryName || null }} onClose={close} />;
+      })()}
 
       {markingTransfer && (
         <MarkTransferModal

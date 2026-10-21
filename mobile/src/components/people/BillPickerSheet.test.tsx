@@ -148,6 +148,21 @@ describe('BillPickerSheet: which bill', () => {
     expect(screen.getByRole('button', { name: /^Travel, 10 Oct/ })).toBeTruthy();
   });
 
+  it('never offers a transfer, refund or reversal: it is not spending, and the server refuses it', async () => {
+    search.mockResolvedValue({
+      content: [
+        txn({ id: 'e-1', date: '2026-10-02' }),
+        txn({ id: 'tr', date: '2026-10-03', categoryName: 'Transfer', reconciliationStatus: 'TRANSFER' }),
+        txn({ id: 'rv', date: '2026-10-05', categoryName: 'Rent', reconciliationStatus: 'REVERSAL' }),
+      ],
+      page: 0, size: 50, totalElements: 3, totalPages: 1,
+    });
+    show({ options: null });
+    expect(await screen.findByRole('button', { name: /^Food, 2 Oct/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Transfer, 3 Oct/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Rent, 5 Oct/ })).toBeNull();
+  });
+
   it('"Something else" searches every expense and links the one picked', async () => {
     search.mockResolvedValue({
       content: [txn({ id: 'dep', date: '2026-03-01', categoryName: 'Rent', amount: 72000, merchant: 'sample owner', description: 'DEPOSIT' })],

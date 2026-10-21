@@ -205,6 +205,26 @@ class PeopleSuggestionsTest {
         assertThat(kinds()).containsExactly("LENT_CHECK");
     }
 
+    /** A transfer, refund or reversal is not money spent on or sent to someone: never asked about,
+     *  never offered as a bill (the server would refuse to link it). */
+    @Test
+    void pairedRowsAreNeverAskedAboutNorOfferedAsBills() {
+        Transaction transfer = debit(2000, TODAY.minusDays(40), "vpa:friend.k", null);
+        transfer.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        Transaction refund = credit(7500, TODAY.minusDays(3), "vpa:flatmate.a", RENT);
+        refund.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        assertThat(kinds()).isEmpty();
+
+        rows.clear();
+        Transaction pairedBill = debit(30000, TODAY.minusDays(5), "vpa:owner.b", RENT);
+        pairedBill.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
+        Transaction realBill = debit(30000, TODAY.minusDays(6), "vpa:owner.b", RENT);
+        credit(7500, TODAY.minusDays(3), "vpa:flatmate.a", RENT);
+        PeopleSuggestions.Suggestion s = build().items().get(0);
+        assertThat(s.kind()).isEqualTo("SHARE_CHECK");
+        assertThat(s.bills()).extracting(PeopleSuggestions.BillOption::billId).containsExactly(realBill.getId());
+    }
+
     @Test
     void atMostTwoLentChecksAtOnce() {
         for (int i = 0; i < 4; i++) debit(2000, TODAY.minusDays(31 + i), "vpa:friend." + i, null);

@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Pressable, Share, StyleSheet, Text, TextInput } f
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { peopleApi } from '../../api/endpoints';
+import { useAuth } from '../../context/AuthContext';
 import { AppModal } from '../AppModal';
 import { Button } from '../Button';
 import { GlassSurface } from '../GlassSurface';
@@ -13,9 +14,12 @@ import { radius, spacing, typography, useTheme } from '../../theme';
 /** name@bank: a handle, then the bank's short name. The same rule the server applies. */
 export const UPI_ID = /^[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}$/;
 
-/** A UPI request for what is owed, paid to the user's own UPI id. */
-export function upiRequestUrl(ownUpiId: string, owed: number): string {
-  return `upi://pay?pa=${ownUpiId}&am=${owed.toFixed(2)}&cu=INR`;
+/** A UPI request for what is owed, paid to the user's own UPI id. The NPCI UPI Linking
+ *  Specification (1.6) makes the payee's name (pn) mandatory beside their address (pa): the user's
+ *  own name, or the handle of their UPI id when the account has none. */
+export function upiRequestUrl(ownUpiId: string, name: string | null, owed: number): string {
+  const payee = name?.trim() || ownUpiId.split('@')[0];
+  return `upi://pay?pa=${ownUpiId}&pn=${encodeURIComponent(payee)}&am=${owed.toFixed(2)}&cu=INR`;
 }
 
 interface Ask {
@@ -30,6 +34,8 @@ interface Ask {
  */
 export function useAskForMoney(): { ask: (who: Ask) => void; prompt: ReactNode } {
   const queryClient = useQueryClient();
+  // The payee's name the request carries: the user's own.
+  const { fullName } = useAuth();
   const [asking, setAsking] = useState<Ask | null>(null);
   const opening = useRef(false);
 
@@ -40,7 +46,7 @@ export function useAskForMoney(): { ask: (who: Ask) => void; prompt: ReactNode }
       const saved = await queryClient.fetchQuery({
         queryKey: ['people', 'preferences'], queryFn: () => peopleApi.preferences(), staleTime: 60_000,
       }).catch(() => null);
-      if (saved?.ownUpiId) await Share.share({ message: upiRequestUrl(saved.ownUpiId, who.owed) });
+      if (saved?.ownUpiId) await Share.share({ message: upiRequestUrl(saved.ownUpiId, fullName, who.owed) });
       else setAsking(who);
     } finally {
       opening.current = false;
@@ -57,7 +63,7 @@ export function useAskForMoney(): { ask: (who: Ask) => void; prompt: ReactNode }
           queryClient.setQueryData(['people', 'preferences'], { ownUpiId });
           const who = asking;
           setAsking(null);
-          await Share.share({ message: upiRequestUrl(ownUpiId, who.owed) });
+          await Share.share({ message: upiRequestUrl(ownUpiId, fullName, who.owed) });
         }}
       />
     ) : null,

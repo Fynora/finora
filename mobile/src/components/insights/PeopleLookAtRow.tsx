@@ -9,7 +9,8 @@ import { hapticError, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { radius, spacing, typography, useTheme } from '../../theme';
 
-/** The system category a lent payment the user calls a gift goes under (spec §5, "Let it go"). */
+/** The system category a lent payment the user calls a gift goes under (spec §5, "Let it go"). For
+ *  this payment only: one gift says nothing about the person's other payments, so nothing is learned. */
 const GIFT_CATEGORY = 'Gifts & Donations';
 
 interface Props {
@@ -128,7 +129,7 @@ export function PeopleLookAtRow({
       chips = [
         { text: `Lent to ${label}`, primary: true, write: (() => peopleApi.addEntry(txnId, 'LENT')) },
         { text: 'Paid for something', onPress: () => { onOpenPayment(item); onAck(); } },
-        { text: 'Gift', write: (async () => { await transactionsApi.updateCategory(txnId, GIFT_CATEGORY); onAck(); }) },
+        { text: 'Gift', write: (async () => { await transactionsApi.updateCategory(txnId, GIFT_CATEGORY, 'ONLY_THIS'); onAck(); }) },
         gotIt(),
       ];
       break;

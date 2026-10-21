@@ -10,6 +10,9 @@ import { useQueryClient } from '@tanstack/react-query';
 export const MONEY_FIGURE_KEYS = [
   'dashboard-summary', 'dashboard-range-summary', 'report', 'report-months', 'insights', 'budgets',
   'transactions', 'recent-transactions',
+  // Shared payments and loans: a share, a loan entry or a rule also moves a repeating bill's share and
+  // who owes whom, and a kind on a sender stops the questions about its money.
+  'people', 'recurring',
 ] as const;
 
 export function useInvalidateMoneyFigures() {

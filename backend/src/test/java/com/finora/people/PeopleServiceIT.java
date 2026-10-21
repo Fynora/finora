@@ -225,6 +225,30 @@ class PeopleServiceIT extends AbstractIntegrationTest {
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
     }
 
+    /** A transfer, refund or reversal is not spending: a share against it would take the credit out of
+     *  every figure while lowering nothing, and a loan answer on it would move money that was never spent. */
+    @Test
+    void aPairedRowTakesNoShareAndNoLoanAnswer() {
+        Transaction transfer = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        transfer.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        transactionRepository.save(transfer);
+        Transaction credit = txn(Transaction.Type.INCOME, 1000, "vpa:flatmate.a", rent.getId());
+        assertThatThrownBy(() -> people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), transfer.getId(), null)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+        assertThatThrownBy(() -> people.addEntry(userId, new PeopleDtos.EntryRequest(transfer.getId(), LoanEntry.Direction.LENT)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+
+        Transaction refund = txn(Transaction.Type.INCOME, 1000, "vpa:flatmate.a", rent.getId());
+        refund.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        transactionRepository.save(refund);
+        Transaction bill = txn(Transaction.Type.EXPENSE, 4000, "vpa:owner.b", rent.getId());
+        assertThatThrownBy(() -> people.link(userId, new PeopleDtos.LinkShareRequest(refund.getId(), bill.getId(), null)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+        assertThatThrownBy(() -> people.addEntry(userId, new PeopleDtos.EntryRequest(refund.getId(), LoanEntry.Direction.PAID_BACK)))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_WRONG_DIRECTION));
+        assertThat(people.billShares(userId, transfer.getId())).isEmpty();
+    }
+
     @Test
     void lettingGoAgainAfterAPartLetGoNeverFails() {
         Transaction first = txn(Transaction.Type.EXPENSE, 2000, "vpa:friend.k", null);

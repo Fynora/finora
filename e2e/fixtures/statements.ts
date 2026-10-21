@@ -67,13 +67,51 @@ export const CONSISTENT_BALANCE_STATEMENT: Row[] = [
   { date: '2026-06-04', description: 'RENT PAYMENT', amount: 18000.0, type: 'DEBIT', balance: 35800.0 },
 ];
 
-/** The same statement with one balance wrong, so the chain breaks at a known row. The engine
- *  should say WHERE, not merely that something is off. */
+/** The same statement with the LAST balance wrong: its rows do not add up to its own closing
+ *  balance (35,800 expected, 30,000 shown).
+ *
+ *  Since #2254 that is a hold condition -- a statement imports only once its amounts are confirmed
+ *  -- so this one is held for an accuracy check and never reaches the review screen. Use it to test
+ *  the hold. For a chain break that still reaches review with a warning, use
+ *  {@link CHAIN_BREAK_STATEMENT}. */
 export const BROKEN_BALANCE_STATEMENT: Row[] = [
   { date: '2026-06-02', description: 'AMAZON PAY 7781', amount: 1200.0, type: 'DEBIT', balance: 3800.0 },
   { date: '2026-06-03', description: 'SALARY CREDIT', amount: 50000.0, type: 'CREDIT', balance: 53800.0 },
   { date: '2026-06-04', description: 'RENT PAYMENT', amount: 18000.0, type: 'DEBIT', balance: 30000.0 },
 ];
+
+/** Where {@link CHAIN_BREAK_STATEMENT}'s one wrong balance is, as a zero-based row index. */
+export const CHAIN_BREAK_ROW_INDEX = 5;
+
+/**
+ * Twelve rows whose running balance chains from 100,000, except that one balance in the middle is
+ * 5,000 too high. The chain breaks at that row, and the closing balance still agrees with the rows.
+ *
+ * That last part is what keeps it out of the hold: measured against the real backend, a break in
+ * the middle of a long enough statement is a WARNING (BALANCE_CHAIN) with STATEMENT_TOTALS
+ * verified, and the rows go to review. Three rows with the same kind of break are held instead,
+ * because two of the two links are broken, which is systematic rather than one bad row -- so do
+ * not shorten this to make the fixture smaller.
+ */
+export const CHAIN_BREAK_STATEMENT: Row[] = (() => {
+  const rows: Row[] = [];
+  let balance = 100_000;
+  for (let i = 0; i < 12; i++) {
+    const debit = i % 3 !== 0;
+    const amount = 100 + i * 7;
+    balance += debit ? -amount : amount;
+    const date = new Date('2026-06-01');
+    date.setDate(date.getDate() + i);
+    rows.push({
+      date: date.toISOString().slice(0, 10),
+      description: `CHAIN TEST MERCHANT ${i}`,
+      amount,
+      type: debit ? 'DEBIT' : 'CREDIT',
+      balance: i === CHAIN_BREAK_ROW_INDEX ? balance + 5_000 : balance,
+    });
+  }
+  return rows;
+})();
 
 /** N distinct merchants, for the large-statement and large-queue phases. Distinct descriptions on
  *  purpose -- a hundred copies of one merchant measures something quite different from a hundred

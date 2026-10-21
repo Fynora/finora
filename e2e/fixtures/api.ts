@@ -98,6 +98,8 @@ export class Api {
     return (await response.json()) as Envelope<{
       sessionId: string;
       multiAccount: boolean;
+      /** Set when the accuracy check held the statement: the job the client follows instead of reviewing. */
+      heldForReviewJobId?: string | null;
       staging: {
         rows: StagedRow[];
         totalParsed: number;

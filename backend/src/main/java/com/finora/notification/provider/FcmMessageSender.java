@@ -11,7 +11,8 @@ public interface FcmMessageSender {
      *             (not part of the displayed notification), read by the mobile client to route a
      *             tap to the right screen -- see {@link FirebaseFcmMessageSender} for where it's
      *             attached to the outgoing {@code Message}.
-     * @return {@link FcmSendOutcome#ACCEPTED}, {@link FcmSendOutcome#TOKEN_DEAD}, or
+     * @return {@link FcmSendOutcome#ACCEPTED}, {@link FcmSendOutcome#TOKEN_DEAD},
+     *         {@link FcmSendOutcome#TOKEN_INVALID}, or
      *         {@link FcmSendOutcome#TRANSIENT_FAILURE} -- never the token, never an SDK
      *         exception's message. The return type carries no message slot at all: that is what
      *         keeps this seam structurally incapable of leaking token material back to a caller,

@@ -23,6 +23,7 @@ import com.finora.notification.provider.FcmPushProvider;
 import com.finora.notification.provider.NotificationChannelProvider;
 import com.finora.notification.repository.NotificationLogRepository;
 import com.finora.notification.repository.NotificationRepository;
+import com.finora.observability.PushTokenRevocations;
 import com.finora.observability.WorkerObservability;
 import com.finora.repository.UserRepository;
 import java.util.List;
@@ -52,6 +53,7 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
     @Autowired private NotificationRepository notificationRepository;
     @Autowired private NotificationLogRepository logRepository;
     @Autowired private DeviceTokenService deviceTokenService;
+    @Autowired private PushTokenRevocations revocations;
     @Autowired private WorkerObservability observability;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private UserRepository userRepository;
@@ -104,7 +106,8 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
         when(email.channel()).thenReturn(NotificationChannel.EMAIL);
         when(email.isConfigured()).thenReturn(true);
         when(email.send(any())).thenReturn(ChannelSendResult.success("resend", "ok"));
-        FcmPushProvider push = new FcmPushProvider(deviceTokenService, mock(FcmMessageSender.class));
+        FcmPushProvider push = new FcmPushProvider(deviceTokenService, mock(FcmMessageSender.class),
+                revocations);
         NotificationDispatcher dispatcher = new NotificationDispatcher(notificationRepository,
                 logRepository, List.of(push, email), observability, transactionManager);
 

@@ -6,6 +6,7 @@ import com.finora.notification.provider.FcmPushProvider;
 import com.finora.notification.provider.FirebaseFcmMessageSender;
 import com.finora.notification.provider.NoOpPushProvider;
 import com.finora.notification.provider.NotificationChannelProvider;
+import com.finora.observability.PushTokenRevocations;
 import com.google.firebase.FirebaseApp;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
@@ -47,10 +48,11 @@ public class PushConfig {
 
     @Bean
     public NotificationChannelProvider pushNotificationProvider(
-            DeviceTokenService deviceTokenService, ObjectProvider<FcmMessageSender> messageSender) {
+            DeviceTokenService deviceTokenService, ObjectProvider<FcmMessageSender> messageSender,
+            PushTokenRevocations revocations) {
         FcmMessageSender sender = messageSender.getIfAvailable();
         if (sender != null) {
-            return new FcmPushProvider(deviceTokenService, sender);
+            return new FcmPushProvider(deviceTokenService, sender, revocations);
         }
         // No FirebaseApp bean -- GOOGLE_APPLICATION_CREDENTIALS unset/invalid, same condition
         // FirebasePhoneVerificationProvider.isConfigured() already reports false for.

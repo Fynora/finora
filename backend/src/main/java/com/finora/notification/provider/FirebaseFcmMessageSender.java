@@ -62,8 +62,9 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Error-code mapping to {@link FcmSendOutcome}</h2>
  *
- * <p>Only {@link MessagingErrorCode#UNREGISTERED} and {@link MessagingErrorCode#INVALID_ARGUMENT}
- * map to {@link FcmSendOutcome#TOKEN_DEAD}:
+ * <p>Only {@link MessagingErrorCode#UNREGISTERED} ({@link FcmSendOutcome#TOKEN_DEAD}) and
+ * {@link MessagingErrorCode#INVALID_ARGUMENT} ({@link FcmSendOutcome#TOKEN_INVALID}) mean the token
+ * is revoked. They are separate outcomes so the second can raise an alert, for the reason below:
  * <ul>
  *   <li>{@code UNREGISTERED} is FCM's own documented signal that this exact token will never work
  *       again -- the app was uninstalled, the token expired, or it was rotated by a reinstall.
@@ -71,7 +72,9 @@ import org.slf4j.LoggerFactory;
  *       message), but in this codebase the message shape is fixed -- title/body are always plain
  *       strings rendered by {@code NotificationTemplate}, never user-controlled or variable in
  *       structure -- so the only part of a request that actually varies per call is the token
- *       itself. A malformed/corrupted token is the realistic cause here.
+ *       itself. A malformed/corrupted token is the realistic cause here. If that reasoning ever
+ *       stops holding -- a change that makes the message itself malformed -- every device a push
+ *       reaches is unregistered, which is why this outcome alerts.
  * </ul>
  *
  * <p>Every other code (including {@code INTERNAL}, {@code UNAVAILABLE}, {@code QUOTA_EXCEEDED},
@@ -122,10 +125,7 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
             // Error code only (e.g. UNREGISTERED, INVALID_ARGUMENT) -- never getMessage(), which
             // can include the rejected token in its description.
             log.warn("FCM rejected a device token: {}", code);
-            if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
-                return FcmSendOutcome.TOKEN_DEAD;
-            }
-            return FcmSendOutcome.TRANSIENT_FAILURE;
+            return outcomeFor(code);
         } catch (RuntimeException e) {
             // Defensive: FcmMessageSender's contract is "must not throw." Class name only, for the
             // same reason as above -- an unexpected SDK exception's message is not trusted either.
@@ -133,5 +133,19 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
             log.warn("Unexpected error sending an FCM push: {}", e.getClass().getSimpleName());
             return FcmSendOutcome.TRANSIENT_FAILURE;
         }
+    }
+
+    /**
+     * The error-code mapping described in this class's doc. Separate from {@link #send} so it can
+     * be tested without building a {@link FirebaseMessagingException}.
+     */
+    static FcmSendOutcome outcomeFor(MessagingErrorCode code) {
+        if (code == MessagingErrorCode.UNREGISTERED) {
+            return FcmSendOutcome.TOKEN_DEAD;
+        }
+        if (code == MessagingErrorCode.INVALID_ARGUMENT) {
+            return FcmSendOutcome.TOKEN_INVALID;
+        }
+        return FcmSendOutcome.TRANSIENT_FAILURE;
     }
 }

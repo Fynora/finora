@@ -95,7 +95,9 @@ class CsvColumnAmbiguityTest {
         StagingResponse response = viaCsv(csv);
 
         assertThat(ambiguityOf(response).outcome()).isEqualTo("VERIFIED");
-        // Every other rule gets exactly the inputs the CSV path always gave it.
+        // Every other rule gets exactly the inputs the CSV path always gave it, except row
+        // accounting, which now gets the same located rows as this one (CsvRowEvidenceTest): its
+        // counts change and its outcome does not.
         ImportVerifier verifier = verifier();
         ImportDto.VerificationReport withoutRows = verifier.verify(response.rows(),
                 response.detectedAccount() == null ? null : response.detectedAccount().openingBalance(),
@@ -105,6 +107,13 @@ class CsvColumnAmbiguityTest {
             ImportDto.VerificationFinding before = withoutRows.findings().get(i);
             if (ColumnAmbiguityValidator.RULE.equals(before.rule())) {
                 assertThat(before.outcome()).as("what every CSV used to get").isEqualTo("NOT_APPLICABLE");
+                continue;
+            }
+            if (RowAccountingValidator.RULE.equals(before.rule())) {
+                ImportDto.VerificationFinding after = response.verification().findings().get(i);
+                assertThat(before.details()).as("what every CSV used to get").containsEntry("locatedRowCount", 0);
+                assertThat(after.outcome()).isEqualTo(before.outcome());
+                assertThat(after.details()).containsEntry("locatedRowCount", 2);
                 continue;
             }
             assertThat(response.verification().findings().get(i)).isEqualTo(before);

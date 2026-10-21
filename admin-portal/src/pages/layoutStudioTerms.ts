@@ -155,10 +155,12 @@ export function isPasswordFailure(code: string | null): boolean {
 }
 
 const UNPARSEABLE_PREFIX = 'UNANCHORED_DATE_UNPARSEABLE:';
+const AMOUNT_UNPARSEABLE_PREFIX = 'UNANCHORED_AMOUNT_UNPARSEABLE:';
 
 /**
- * Why a line could not be matched to a transaction. Reasons come from
- * PdfTableLocator.anchorFailureReason; the unparseable one carries the value's SHAPE (digits → 9,
+ * Why a line could not be matched to a transaction. PDF reasons come from
+ * PdfTableLocator.anchorFailureReason; CSV reasons from TransactionNormalizer.failureReasonKey and
+ * PreviewGenerator. The two "not understood" reasons carry the value's SHAPE (digits → 9,
  * letters → X), never the value itself.
  */
 export function describeReason(reason: string): Term {
@@ -170,7 +172,44 @@ export function describeReason(reason: string): Term {
         + `Shown as a shape, not the real text: 9 = a digit, X = a letter (e.g. 99/99/9999).`,
     };
   }
+  if (reason.startsWith(AMOUNT_UNPARSEABLE_PREFIX)) {
+    const shape = reason.slice(AMOUNT_UNPARSEABLE_PREFIX.length);
+    return {
+      label: `Amount not understood: ${shape}`,
+      meaning: `Something was in an amount column but it is not a number format the engine knows. `
+        + `Shown as a shape, not the real text: 9 = a digit, X = a letter (e.g. 9,999.99/-).`,
+    };
+  }
   switch (reason) {
+    case 'UNANCHORED_NO_HEADER_ROW':
+      return {
+        label: 'No column header found',
+        meaning: 'No line of the file was recognised as the row of column names, so none of its '
+          + 'lines could be read. Each line of the file is counted once here.',
+      };
+    case 'UNANCHORED_NO_AMOUNT_COLUMN':
+      return {
+        label: 'No amount column',
+        meaning: 'The line has a date, but the file has no column the engine recognises as an amount '
+          + 'or a balance.',
+      };
+    case 'UNANCHORED_AMOUNT_COLUMN_EMPTY':
+      return {
+        label: 'Amount columns empty',
+        meaning: 'The line has a date, but every amount and balance column on it was blank.',
+      };
+    case 'UNANCHORED_UNRECOGNIZED_COLUMN_VALUE':
+      return {
+        label: 'Value in an unknown column',
+        meaning: 'The line had nothing in any amount column, but had a value under a column the '
+          + 'engine does not recognise, so it could not tell whether the line was a transaction.',
+      };
+    case 'UNANCHORED_REJECTED_AFTER_PARSE':
+      return {
+        label: 'Read, then refused',
+        meaning: 'The date and the amount were both read, and the line was still not accepted as a '
+          + 'transaction.',
+      };
     case 'UNANCHORED_DATE_COLUMN_EMPTY':
       return {
         label: 'Date column empty',
@@ -284,7 +323,8 @@ export const GLOSSARY: Term[] = [
       + 'because they had no usable date and came after too many date-less lines in a row to be the '
       + 'wrapped description of the transaction above. They are kept aside, not merged. They are not '
       + 'necessarily lost transactions — headers, footers and summary text also end up here — so read '
-      + 'them next to Transactions found.',
+      + 'them next to Transactions found. For a CSV file, these are the lines under the header that '
+      + 'could not be read as a transaction.',
   },
   {
     label: 'Reasons',

@@ -52,6 +52,17 @@ public class PreviewGenerator {
      *  {@link StagingResponse} {@link #generate} has always returned. */
     public record CsvGenerationResult(StagingResponse response, DocumentContext documentContext) {}
 
+    // Parse-diagnostics reasons for the rows this class refuses itself, beside the ones
+    // TransactionNormalizer.failureReasonKey gives for a row it could not normalise. Every
+    // unparseable row records exactly one reason, so the histogram's total is the unparseable count.
+    // Until these were recorded, only the PDF locator wrote to that histogram, and every CSV reported
+    // "0 unmatched lines" in Layout Studio however many of its rows failed to stage.
+
+    /** No line of the file was recognised as a column header, so no line could be read. */
+    static final String REASON_NO_HEADER_ROW = "UNANCHORED_NO_HEADER_ROW";
+    /** A value under a column this parser does not recognise, and no transactional amount. */
+    static final String REASON_UNRECOGNIZED_COLUMN_VALUE = "UNANCHORED_UNRECOGNIZED_COLUMN_VALUE";
+
     /** Same as {@link #generate}, but also returns the {@link DocumentContext} built while
      *  parsing -- the entry point {@code ImportService} uses when it needs to persist that
      *  context (a fresh CSV upload); {@link #generate} stays the plain, context-discarding
@@ -82,6 +93,7 @@ public class PreviewGenerator {
                 Map<String, String> raw = new LinkedHashMap<>();
                 for (int c = 0; c < cells.length; c++) raw.put("column " + (c + 1), cells[c]);
                 unparseable.add(new UnparseableRow(raw, "No column header row was recognized anywhere in this file"));
+                ctx.recordUnanchored(REASON_NO_HEADER_ROW);
             }
             DetectedAccountInfo empty = statementValidator.buildDetectedAccountInfo(filename, allRows, -1, staged, signals);
             ctx.recordUnparseable(unparseable);
@@ -152,6 +164,7 @@ public class PreviewGenerator {
                             "Row has a value in an unrecognized column and no recognized transactional "
                                     + "amount column, so it could not be confidently classified as a transaction "
                                     + "or excluded as a balance marker"));
+                    ctx.recordUnanchored(REASON_UNRECOGNIZED_COLUMN_VALUE);
                 } else if (transactionNormalizer.hasUnparseableRecognizedAmount(row)) {
                     // Third fix pass -- see TransactionNormalizer.hasUnparseableRecognizedAmount's
                     // own doc comment. This row's column NAMES are all recognized, but a real
@@ -166,9 +179,11 @@ public class PreviewGenerator {
                             "Row has a value in a recognized transactional amount column that could not be "
                                     + "parsed as a number, so it could not be confidently classified as a "
                                     + "transaction or excluded as a balance marker"));
+                    ctx.recordUnanchored(transactionNormalizer.unparseableRecognizedAmountReasonKey(row));
                 }
             } else {
                 unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
+                ctx.recordUnanchored(transactionNormalizer.failureReasonKey(row));
             }
 
             // Account-level signals are scanned on every row regardless of whether it parsed as

@@ -148,7 +148,7 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         f.statement().setStatementPeriodEnd(DUE.minusDays(20));
         statementImportRepository.save(f.statement());
         Transaction payment = save(txn(f.userId(), f.savings(), DUE.minusDays(13), "2500.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
 
         reconciliationService.reconcileForUser(f.userId());
 
@@ -183,9 +183,9 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         f.statement().setStatementPeriodEnd(DUE.minusDays(20));
         statementImportRepository.save(f.statement());
         Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(15), "1000.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
         Transaction second = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1500.00",
-                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@sampleb/"));
 
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), second.getId());
@@ -207,7 +207,7 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         java.util.List<UUID> parts = new java.util.ArrayList<>();
         for (int i = 0; i < 21; i++) {
             parts.add(save(txn(f.userId(), f.savings(), DUE.minusDays(1 + i % 15), i < 20 ? "120.00" : "100.00",
-                    "UPI/DR/1000000000" + String.format("%02d", i) + "/CRED Clu/UTIB/cred.club@axisb/")).getId());
+                    "UPI/DR/1000000000" + String.format("%02d", i) + "/CRED Clu/UTIB/cred.club@sampleb/")).getId());
         }
 
         reconciliationService.reconcileForUser(f.userId());
@@ -231,9 +231,9 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         f.statement().setStatementPeriodEnd(DUE.minusDays(20));
         statementImportRepository.save(f.statement());
         Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1500.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
         Transaction smallPart = save(txn(f.userId(), f.savings(), DUE.minusDays(15), "60.00",
-                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@sampleb/"));
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), smallPart.getId());
 
@@ -247,7 +247,7 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
 
         // A new first payment arrives: the small part links again beside it.
         Transaction newFirst = save(txn(f.userId(), f.savings(), DUE.minusDays(3), "1400.00",
-                "UPI/DR/100000000003/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000003/CRED Clu/UTIB/cred.club@sampleb/"));
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(newFirst.getId(), smallPart.getId());
     }
@@ -258,7 +258,7 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         f.statement().setStatementPeriodEnd(DUE.minusDays(20));
         statementImportRepository.save(f.statement());
         Transaction part = save(txn(f.userId(), f.savings(), DUE.minusDays(5), "1000.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactly(part.getId());
 
@@ -286,9 +286,9 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         Account otherCard = account(f.userId(), Account.Type.CREDIT_CARD, "XXXXXXXXXXXX9876");
         Transaction otherCharge = save(txn(f.userId(), otherCard, DUE.minusDays(25), "900.00", "SHOP"));
         Transaction first = save(txn(f.userId(), f.savings(), DUE.minusDays(6), "1000.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
         Transaction second = save(txn(f.userId(), f.savings(), DUE.minusDays(4), "1500.00",
-                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@sampleb/"));
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactlyInAnyOrder(first.getId(), second.getId());
 
@@ -320,7 +320,7 @@ class CcPaymentReconciliationIT extends AbstractIntegrationTest {
         f.statement().setStatementPeriodEnd(DUE.minusDays(20));
         statementImportRepository.save(f.statement());
         Transaction payment = save(txn(f.userId(), f.savings(), DUE.minusDays(10), "1500.00",
-                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"));
+                "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"));
         reconciliationService.reconcileForUser(f.userId());
         assertThat(livePaymentsFor(f)).containsExactly(payment.getId());
 

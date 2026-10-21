@@ -3334,7 +3334,7 @@ class ReconciliationServiceTest {
                 ccStatement(UUID.randomUUID(), cardAccountId, new BigDecimal("2500.00"), LocalDate.of(2026, 10, 12));
         statement.setStatementPeriodEnd(LocalDate.of(2026, 9, 22));
         Transaction payment = txn(UUID.randomUUID(), UUID.randomUUID(), LocalDate.of(2026, 9, 29), new BigDecimal("2500.00"),
-                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/",
+                Transaction.Type.EXPENSE, "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/",
                 Instant.parse("2026-09-29T10:00:00Z"));
         Transaction charge = txn(UUID.randomUUID(), cardAccountId, LocalDate.of(2026, 9, 10),
                 new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-09-10T10:00:00Z"));
@@ -3417,13 +3417,13 @@ class ReconciliationServiceTest {
     void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsUpiHandle() {
         // Money sent TO the bill-payment app is a card bill: every such savings debit in production
         // that a person categorised was put under "Credit Card bill".
-        assertThat(ccEdgesForPartPaymentNarrated("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"))
+        assertThat(ccEdgesForPartPaymentNarrated("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"))
                 .singleElement().satisfies(e -> assertThat(e.explanation()).containsEntry("paymentStatus", "PARTIAL"));
     }
 
     @Test
     void reconcileForUser_linksAPartPaymentSentToTheBillPaymentApp_byItsName() {
-        assertThat(ccEdgesForPartPaymentNarrated("CRED Club UPI20260929000000001 100000000001")).hasSize(1);
+        assertThat(ccEdgesForPartPaymentNarrated("CRED Club UPI10000000000000001 100000000001")).hasSize(1);
     }
 
     @Test
@@ -3450,7 +3450,7 @@ class ReconciliationServiceTest {
         for (String[] part : parts) {
             n++;
             rows.add(txn(UUID.randomUUID(), savingsAccountId, LocalDate.parse(part[0]), new BigDecimal(part[1]),
-                    Transaction.Type.EXPENSE, "UPI/DR/10000000000" + n + "/CRED Clu/UTIB/cred.club@axisb/",
+                    Transaction.Type.EXPENSE, "UPI/DR/10000000000" + n + "/CRED Clu/UTIB/cred.club@sampleb/",
                     Instant.parse(part[0] + "T10:00:00Z").plusSeconds(n)));
         }
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(rows);
@@ -3580,7 +3580,7 @@ class ReconciliationServiceTest {
         // It could be paying either card, or a third whose statement is not here: linking it to one
         // would be a guess, and a wrong guess would hide which card's statement is missing.
         assertThat(cardsPaidWithTwoCards(
-                new String[]{"2026-10-01", "1000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                new String[]{"2026-10-01", "1000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"}))
                 .containsExactly("-");
     }
 
@@ -3594,15 +3594,15 @@ class ReconciliationServiceTest {
     void reconcileForUser_withTwoCards_partsAddingUpToOneCardsBill_areLinkedToThatCard() {
         // The exact total names the bill even though no part names the card.
         assertThat(cardsPaidWithTwoCards(
-                new String[]{"2026-10-01", "1800.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"},
-                new String[]{"2026-10-02", "1200.00", "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/"}))
+                new String[]{"2026-10-01", "1800.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"},
+                new String[]{"2026-10-02", "1200.00", "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@sampleb/"}))
                 .containsExactly("A", "A");
     }
 
     @Test
     void reconcileForUser_withTwoCards_theExactAmountOfOneBill_isLinkedToThatBill() {
         assertThat(cardsPaidWithTwoCards(
-                new String[]{"2026-10-01", "2000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/"}))
+                new String[]{"2026-10-01", "2000.00", "UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/"}))
                 .containsExactly("B");
     }
 
@@ -3627,7 +3627,7 @@ class ReconciliationServiceTest {
         Transaction partOfA = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 1), new BigDecimal("1000.00"),
                 Transaction.Type.EXPENSE, "CC BILLPAY XXXXXXXXXXXX1111", Instant.parse("2026-10-01T10:00:00Z"));
         Transaction exactlyB = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 10, 2), new BigDecimal("2000.00"),
-                Transaction.Type.EXPENSE, "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@axisb/", Instant.parse("2026-10-02T10:00:00Z"));
+                Transaction.Type.EXPENSE, "UPI/DR/100000000002/CRED Clu/UTIB/cred.club@sampleb/", Instant.parse("2026-10-02T10:00:00Z"));
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any()))
                 .thenReturn(List.of(chargeA, chargeB, partOfA, exactlyB));
         when(statementImportRepository.findByUserIdAndTotalAmountDueIsNotNull(userId)).thenReturn(List.of(billA, billB));

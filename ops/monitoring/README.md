@@ -13,7 +13,7 @@ This file is how to run it.
 | File | Purpose |
 |---|---|
 | `prometheus.yml` | Scrape config. No credential — it reaches the backend's private management port. |
-| `alerts.yml` | 10 alert rules, every one on a sustained condition. |
+| `alerts.yml` | 11 alert rules, every one on a sustained condition. |
 | `alertmanager/` | Where those alerts go: Alertmanager, emailing them through Resend. |
 | `grafana/dashboards/worker-health.json` | Worker + queue + infrastructure dashboard. |
 | `grafana/dashboards/reconciliation.json` | Reconciliation transfer-matching and duplicate-override counters (measurement only, no alerts yet). |

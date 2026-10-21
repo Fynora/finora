@@ -4,6 +4,7 @@ import com.finora.notification.api.ActiveDeviceToken;
 import com.finora.notification.api.DeviceTokenService;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
+import com.finora.observability.PushTokenRevocations;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -43,7 +44,10 @@ import org.slf4j.LoggerFactory;
  * <h2>Dead tokens are revoked, transient failures are not</h2>
  *
  * <p>{@link FcmMessageSender#send} reports {@link FcmSendOutcome#TOKEN_DEAD} when FCM says a token
- * will never work again (app uninstalled, token expired/rotated). This class revokes exactly that
+ * will never work again (app uninstalled, token expired/rotated), and
+ * {@link FcmSendOutcome#TOKEN_INVALID} when FCM rejected it as an invalid argument; both are revoked,
+ * and every revocation is reported to {@link PushTokenRevocations}, which alerts on the second kind
+ * because a malformed message of ours produces it too. This class revokes exactly that
  * token via {@link DeviceTokenService#revoke} so it stops being retried on every future
  * notification -- without this, a single-device user who uninstalled the app would burn every
  * retry and dead-letter on every subsequent push forever, with no way back. A
@@ -69,10 +73,13 @@ public class FcmPushProvider implements NotificationChannelProvider {
 
     private final DeviceTokenService deviceTokenService;
     private final FcmMessageSender messageSender;
+    private final PushTokenRevocations revocations;
 
-    public FcmPushProvider(DeviceTokenService deviceTokenService, FcmMessageSender messageSender) {
+    public FcmPushProvider(DeviceTokenService deviceTokenService, FcmMessageSender messageSender,
+            PushTokenRevocations revocations) {
         this.deviceTokenService = deviceTokenService;
         this.messageSender = messageSender;
+        this.revocations = revocations;
     }
 
     @Override
@@ -144,14 +151,34 @@ public class FcmPushProvider implements NotificationChannelProvider {
             }
             if (outcome == FcmSendOutcome.ACCEPTED) {
                 accepted++;
-            } else if (outcome == FcmSendOutcome.TOKEN_DEAD) {
+            } else if (outcome == FcmSendOutcome.TOKEN_DEAD || outcome == FcmSendOutcome.TOKEN_INVALID) {
                 dead++;
                 revokeDeadToken(notification.getUserId(), deviceToken.token(), notification.getId());
+                recordRevocation(outcome, notification.getId());
             }
             // TRANSIENT_FAILURE: not accepted, not revoked -- retried on the notification's own
             // backoff the next time this user gets a push.
         }
         return new SendCounts(accepted, dead);
+    }
+
+    /**
+     * Counts the revocation, and alerts on an {@link FcmSendOutcome#TOKEN_INVALID} one -- see
+     * {@link PushTokenRevocations} for why that one alerts. Recorded from FCM's answer, whether or
+     * not the revoke itself succeeded: the alert is about what FCM said. Contained like
+     * {@link #revokeDeadToken}: a metrics or Sentry failure must not cost the remaining devices.
+     */
+    private void recordRevocation(FcmSendOutcome outcome, UUID notificationId) {
+        try {
+            if (outcome == FcmSendOutcome.TOKEN_INVALID) {
+                revocations.invalidArgument(notificationId);
+            } else {
+                revocations.unregistered();
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not record a device token revocation for notification {} ({})",
+                    notificationId, e.getClass().getSimpleName());
+        }
     }
 
     /** How many devices accepted the push, and how many FCM reported as permanently dead. */

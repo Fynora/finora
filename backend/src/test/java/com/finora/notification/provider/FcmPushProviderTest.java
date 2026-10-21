@@ -17,6 +17,7 @@ import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
+import com.finora.observability.PushTokenRevocations;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -44,13 +45,15 @@ class FcmPushProviderTest {
 
     private DeviceTokenService deviceTokenService;
     private FcmMessageSender messageSender;
+    private PushTokenRevocations revocations;
     private FcmPushProvider provider;
 
     @BeforeEach
     void setUp() {
         deviceTokenService = mock(DeviceTokenService.class);
         messageSender = mock(FcmMessageSender.class);
-        provider = new FcmPushProvider(deviceTokenService, messageSender);
+        revocations = mock(PushTokenRevocations.class);
+        provider = new FcmPushProvider(deviceTokenService, messageSender, revocations);
     }
 
     private Notification notification(UUID userId) {
@@ -317,6 +320,84 @@ class FcmPushProviderTest {
         ChannelSendResult result = provider.send(notification(userId));
 
         // The revoke failure for the dead token must not prevent delivery to the live one.
+        assertThat(result.success()).isTrue();
+        assertThat(result.detail()).isEqualTo("1 of 2 devices accepted");
+    }
+
+    // ---- revocations are counted, and an INVALID_ARGUMENT one alerts
+
+    @Test
+    void send_countsAnUnregisteredRevocation_withoutAlerting() {
+        UUID userId = UUID.randomUUID();
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(
+                List.of(new ActiveDeviceToken("goneToken", "ANDROID")));
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_DEAD);
+
+        provider.send(notification(userId));
+
+        verify(revocations).unregistered();
+        verify(revocations, never()).invalidArgument(any());
+    }
+
+    @Test
+    void send_revokesAnInvalidArgumentToken_andAlertsWithTheNotificationId() {
+        // Revoked as before; the alert is the only new behaviour.
+        UUID userId = UUID.randomUUID();
+        Notification push = notification(userId);
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(
+                List.of(new ActiveDeviceToken("rejectedToken", "IOS")));
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_INVALID);
+
+        ChannelSendResult result = provider.send(push);
+
+        verify(deviceTokenService).revoke(userId, "rejectedToken");
+        verify(revocations).invalidArgument(push.getId());
+        verify(revocations, never()).unregistered();
+        assertThat(result.permanent()).isTrue();
+        assertThat(result.detail()).isEqualTo("all 1 devices unregistered");
+    }
+
+    @Test
+    void send_recordsNoRevocationForATransientFailureOrAnAcceptedPush() {
+        UUID userId = UUID.randomUUID();
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(List.of(
+                new ActiveDeviceToken("flaky", "ANDROID"), new ActiveDeviceToken("live", "ANDROID")));
+        when(messageSender.send(eq("flaky"), any(), any(), any())).thenReturn(FcmSendOutcome.TRANSIENT_FAILURE);
+        when(messageSender.send(eq("live"), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+
+        provider.send(notification(userId));
+
+        verify(revocations, never()).unregistered();
+        verify(revocations, never()).invalidArgument(any());
+    }
+
+    @Test
+    void send_alertsEvenWhenTheRevokeItselfFails() {
+        // The alert is about what FCM said, not about whether our own write worked.
+        UUID userId = UUID.randomUUID();
+        Notification push = notification(userId);
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(
+                List.of(new ActiveDeviceToken("rejectedToken", "ANDROID")));
+        when(messageSender.send(any(), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_INVALID);
+        doThrow(new RuntimeException("db down")).when(deviceTokenService).revoke(any(), any());
+
+        provider.send(push);
+
+        verify(revocations).invalidArgument(push.getId());
+    }
+
+    @Test
+    void send_deliversToRemainingDevicesWhenRecordingARevocationThrows() {
+        UUID userId = UUID.randomUUID();
+        when(deviceTokenService.activeTokensFor(userId)).thenReturn(List.of(
+                new ActiveDeviceToken("rejectedToken", "ANDROID"),
+                new ActiveDeviceToken("liveToken", "ANDROID")));
+        when(messageSender.send(eq("rejectedToken"), any(), any(), any())).thenReturn(FcmSendOutcome.TOKEN_INVALID);
+        when(messageSender.send(eq("liveToken"), any(), any(), any())).thenReturn(FcmSendOutcome.ACCEPTED);
+        doThrow(new IllegalStateException("registry closed")).when(revocations).invalidArgument(any());
+
+        ChannelSendResult result = provider.send(notification(userId));
+
         assertThat(result.success()).isTrue();
         assertThat(result.detail()).isEqualTo("1 of 2 devices accepted");
     }

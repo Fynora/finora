@@ -169,3 +169,26 @@ groups:
           summary: "JVM heap is over 90% used"
           description: >-
             Sustained heap pressure precedes the OOM kills that show up later as recovered jobs.
+
+  - name: finora-push
+    rules:
+
+      - alert: PushTokensRevokedAsInvalid
+        # FCM's INVALID_ARGUMENT revokes a device token, on the reasoning that the message shape is
+        # fixed and a corrupt token is the realistic cause. FCM raises the same code for a malformed
+        # message, and then every device a push reaches is unregistered -- silently, because a push
+        # to a user with no device left ends SKIPPED, not dead-lettered. One corrupt token is
+        # already a Sentry error; this rule is for the many-at-once case. 3 in an hour is a
+        # starting point (see ALERT PHILOSOPHY): the normal rate is expected to be zero.
+        expr: >-
+          sum(increase(finora_push_device_token_revoked_total{reason="invalid_argument"}[1h])) >= 3
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          runbook_url: "https://github.com/siddharth705/finora/blob/main/docs/engineering/observability.md#pushtokensrevokedasinvalid"
+          summary: "FCM is rejecting pushes as INVALID_ARGUMENT and devices are being unregistered"
+          description: >-
+            Several device tokens revoked on INVALID_ARGUMENT within an hour. Suspect a malformed
+            push message before suspecting the tokens. Each one is in Sentry tagged
+            outcome=token-revoked-invalid-argument with the notification id as jobId.

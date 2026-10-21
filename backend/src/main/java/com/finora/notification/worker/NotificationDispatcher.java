@@ -3,7 +3,6 @@ package com.finora.notification.worker;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationLog;
-import com.finora.notification.domain.NotificationType;
 import com.finora.notification.provider.ChannelSendResult;
 import com.finora.notification.provider.NotificationChannelProvider;
 import com.finora.notification.repository.NotificationLogRepository;
@@ -220,10 +219,16 @@ public class NotificationDispatcher {
             // "user account deleted"/"no address on file". Retrying five times over the backoff
             // window cannot fix any of these; go straight to the terminal path on this first
             // attempt instead of burning the whole retry budget to land on the same DEAD_LETTER.
-            if (notification.getType() == NotificationType.CUSTOM_PUSH) {
-                // An admin campaign reaches people whose app was uninstalled as a matter of course;
-                // that is not "a user's action silently did not take effect", so it is not a dead
-                // letter (counted, alerted on, sent to Sentry) -- see NotificationStatus#SKIPPED.
+            if (notification.getChannel() == NotificationChannel.PUSH) {
+                // A push's only permanent failures are "no registered device" and "every device
+                // unregistered": the user has no phone to send it to. That is routine, not "a
+                // user's action silently did not take effect", so it is not a dead letter (counted,
+                // alerted on, sent to Sentry) -- see NotificationStatus#SKIPPED. Campaign pushes
+                // reach uninstalled apps as a matter of course, and every other push is requested
+                // alongside an email. Seen in production on 2026-10-21: a user who only uses the
+                // web had three statements held, got all three emails, and each push dead-lettered
+                // into a Sentry error. Owner's decision the same day: skip it even when the user
+                // switched that email off.
                 skipUndeliverable(execution, notification, result);
             } else {
                 failTerminally(execution, notification, result.providerName(), result.detail());
@@ -288,8 +293,8 @@ public class NotificationDispatcher {
     }
 
     /**
-     * A campaign push with nobody to deliver to ends SKIPPED, not DEAD_LETTER. Same shape and the same
-     * outer catch as {@link #recordSuccess}, and it reports through {@code completed}: the row was
+     * A push with nobody to deliver to ends SKIPPED, not DEAD_LETTER. Same shape and the same outer
+     * catch as {@link #recordSuccess}, and it reports through {@code completed}: the row was
      * processed to its natural end, which is not a failure and must not move the dead-letter or
      * failure counters. The attempt is still logged, as an unsuccessful one, so the reason is visible
      * on the notification.

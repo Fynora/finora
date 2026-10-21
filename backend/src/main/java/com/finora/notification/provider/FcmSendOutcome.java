@@ -20,10 +20,19 @@ public enum FcmSendOutcome {
     /** FCM accepted the message for delivery to this token. */
     ACCEPTED,
     /**
-     * The token is permanently invalid and will never accept a message again -- the caller should
-     * revoke it via {@link com.finora.notification.api.DeviceTokenService#revoke}.
+     * FCM's {@code UNREGISTERED}: the app was uninstalled, or the token expired or was rotated. It
+     * will never accept a message again -- the caller should revoke it via
+     * {@link com.finora.notification.api.DeviceTokenService#revoke}. Routine.
      */
     TOKEN_DEAD,
+    /**
+     * FCM's {@code INVALID_ARGUMENT}: revoked the same way as {@link #TOKEN_DEAD}, because the message
+     * shape is fixed and a corrupt token is the realistic cause. But FCM raises the same code for a
+     * malformed message, and then every device a push reaches would be unregistered. So it is kept
+     * apart from {@link #TOKEN_DEAD}, and the caller raises an alert for it (see
+     * {@link com.finora.observability.PushTokenRevocations}). Expected to be near zero.
+     */
+    TOKEN_INVALID,
     /**
      * A retryable failure: an outage, a rate limit, or -- deliberately -- anything this sender is
      * not confident is permanent. Revoking a live device on an ambiguous signal is worse than

@@ -423,19 +423,71 @@ class NotificationDispatcherTest {
     }
 
     @Test
-    void drainOnce_stillDeadLettersAnyOtherNotificationWithNowhereToGo() {
-        // The exemption is for campaign pushes only: a password-changed or import-ready push that cannot
-        // be delivered is exactly what the dead-letter alert is for.
-        Notification ordinary = pushNotification(NotificationType.IMPORT_STATEMENT_READY);
+    void drainOnce_skipsAnyPushWithNoDevice_notOnlyACampaignOne() {
+        // Production, 2026-10-21: a web-only user had three statements held; each email was sent
+        // and each push dead-lettered into a Sentry error. A user with no phone is routine.
+        Notification held = pushNotification(NotificationType.IMPORT_STATEMENT_HELD);
         WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(ordinary));
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(held));
         NotificationDispatcher d = pushDispatcher(execution,
                 ChannelSendResult.permanentFailure("fcm", "no registered device"));
 
         d.drainOnce();
 
-        assertThat(ordinary.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
+        assertThat(held.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        assertThat(held.getLastError()).isEqualTo("no registered device");
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any(), any());
+        verify(execution).completed(held.getId());
+        ArgumentCaptor<NotificationLog> log = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(logRepository).save(log.capture());
+        assertThat(log.getValue().isSuccess()).isFalse();
+    }
+
+    @Test
+    void drainOnce_skipsAnyPushWhoseEveryDeviceIsUnregistered() {
+        Notification ready = pushNotification(NotificationType.IMPORT_STATEMENT_READY);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(ready));
+        NotificationDispatcher d = pushDispatcher(execution,
+                ChannelSendResult.permanentFailure("fcm", "all 2 devices unregistered"));
+
+        d.drainOnce();
+
+        assertThat(ready.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+    }
+
+    @Test
+    void drainOnce_stillDeadLettersAPush_whenNoPushProviderIsConfigured() {
+        // A misconfigured push service is a real problem, not a user without a phone.
+        Notification held = pushNotification(NotificationType.IMPORT_STATEMENT_HELD);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(held));
+        NotificationChannelProvider push = mock(NotificationChannelProvider.class);
+        when(push.channel()).thenReturn(NotificationChannel.PUSH);
+        when(push.isConfigured()).thenReturn(false);
+        WorkerObservability obs = mock(WorkerObservability.class);
+        when(obs.begin(any(), any())).thenReturn(execution);
+        NotificationDispatcher d = new NotificationDispatcher(repository, logRepository, List.of(push),
+                obs, transactionManager);
+
+        d.drainOnce();
+
+        assertThat(held.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
         verify(execution).deadLettered(any(), anyInt(), any());
+    }
+
+    @Test
+    void drainOnce_stillDeadLettersAnEmailWithNoAddress() {
+        // The exemption is for pushes only: an email that cannot go anywhere is still a dead letter.
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(emailProvider.send(any()))
+                .thenReturn(ChannelSendResult.permanentFailure("resend", "no email address on file"));
+
+        dispatcher.drainOnce();
+
+        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
     }
 
     @Test

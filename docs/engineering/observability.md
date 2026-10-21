@@ -618,6 +618,36 @@ and capture a heap dump *out of band* — the actuator heapdump endpoint is deli
 
 ---
 
+### PushTokensRevokedAsInvalid
+
+**What happened.** FCM rejected several pushes with `INVALID_ARGUMENT`, and each rejected device
+token was revoked. The same section covers a single Sentry error tagged
+`outcome=token-revoked-invalid-argument`, which is raised for every one of them.
+
+**Severity: critical.** `INVALID_ARGUMENT` revokes a token because the push message's shape is fixed,
+so a corrupt token is the usual cause. But FCM raises the same code for a malformed message. If the
+message is at fault, every device a push reaches is unregistered, and those users stop getting
+pushes until they open the app again. Nothing else shows it: since 2026-10-21 a push to a user with
+no device left ends `SKIPPED`, not as a dead letter.
+
+**Check first.** Whether anything changed how push messages are built: `FirebaseFcmMessageSender`
+(title, body, data), the notification templates, or the Firebase SDK version. One event is
+probably one corrupt token; several in a short time, across different users, points at the message.
+
+**Metrics.** `finora_push_device_token_revoked_total` by `reason`. `invalid_argument` is expected
+to be near zero. Compare with `unregistered`, which rises with uninstalls and is routine.
+
+**Logs.** `FCM rejected a device token: INVALID_ARGUMENT` from `FirebaseFcmMessageSender`. Take the
+notification id from the Sentry `jobId` tag; the admin Notifications page shows that notification
+and its attempt log.
+
+**Recovery.** Fix the message and deploy. A revoked token comes back the next time its user brings
+the app to the foreground signed in: the app registers its device on every foreground
+(`AuthContext.tsx`), and registering a revoked token reactivates its row (`DeviceTokenService`).
+Nothing needs restoring by hand; a user who never reopens the app stays without pushes.
+
+---
+
 ### Nothing is arriving at all
 
 Not an alert — the absence of one.

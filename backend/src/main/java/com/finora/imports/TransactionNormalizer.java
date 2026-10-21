@@ -90,7 +90,12 @@ public class TransactionNormalizer {
     // and trailing punctuation -- it leaves interior spacing alone, so "Dr / Cr" and "Dr/Cr" reach
     // this list as genuinely different strings. (The already-covered "Type (DR/CR)" spelling still
     // matches "type": there the parenthetical is what gets stripped.)
-    private static final String[] TYPE_HINTS = {"type", "dr / cr", "dr/cr", "cr / dr", "cr/dr"};
+    //
+    // "billingamountsign" is ICICI Bank's credit-card CSV export: one "Amount(in Rs)" column and a
+    // separate BillingAmountSign column marking a payment or refund with CR and leaving a purchase
+    // blank. Unread, every payment to the card staged as an EXPENSE -- found on a real upload whose
+    // header set this layout's fingerprint pins (IciciCardCsvPreviewGeneratorTest).
+    private static final String[] TYPE_HINTS = {"type", "dr / cr", "dr/cr", "cr / dr", "cr/dr", "billingamountsign"};
     // Bug fix, verified against a real SBI credit-card statement. PDFBox's extraction renders that
     // document's "Amount (₹)" sub-column literally as "( ` )" -- the same font-substitution quirk
     // CsvParser.parseNumeric's own "Rupee-as-C" comment describes, here landing on a column HEADER

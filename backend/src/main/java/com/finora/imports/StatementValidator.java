@@ -102,7 +102,12 @@ public class StatementValidator {
             String dueRaw = CsvParser.firstNonBlank(row, "due date", "payment due date");
             if (dueRaw != null) acc.dueDate = CsvParser.parseDate(dueRaw.trim());
         }
-        if (CsvParser.hasHeaderMatch(row, "card number", "minimum due", "minimum amount due")) {
+        // "reward point header" and "billingamountsign" are columns of ICICI Bank's credit-card CSV
+        // export, which prints no card number or dues. Without them that export was suggested as a
+        // SAVINGS account, and the review screen then preselected the user's one existing ICICI
+        // savings account to import the card's transactions into (matchExistingAccount).
+        if (CsvParser.hasHeaderMatch(row, "card number", "minimum due", "minimum amount due",
+                "reward point header", "billingamountsign")) {
             acc.creditCardSignals = true;
         }
     }

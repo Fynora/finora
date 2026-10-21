@@ -191,6 +191,9 @@ public class PeopleService {
     public PeopleDtos.EntryDto addEntry(UUID userId, PeopleDtos.EntryRequest req) {
         oneWriteAtATime(userId);
         Transaction t = owned(userId, req.txnId());
+        // A transfer, refund or reversal is no loan and no repayment (and isBill below would read a
+        // paired expense as money in).
+        if (!PeopleLedger.isPlain(t)) throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
         boolean out = PeopleLedger.isBill(t);
         boolean fits = switch (req.direction()) {
             case LENT, REPAID -> out;

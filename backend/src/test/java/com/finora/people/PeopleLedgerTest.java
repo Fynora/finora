@@ -243,6 +243,30 @@ class PeopleLedgerTest {
         assertThat(l.droppedIds()).containsExactly(bill.getId());
     }
 
+    /** A row matched as a transfer, refund or reversal after a share was linked (or that a rule would
+     *  reach) takes no share: it is not spending, so the credit would leave every figure for nothing. */
+    @Test
+    void pairedRowsTakeNoShare() {
+        Transaction pairedBill = bill(30000, d(9, 1));
+        Transaction credit = share(7500, d(9, 4));
+        pairedBill.setReconciliationStatus(Transaction.ReconciliationStatus.TRANSFER);
+        PeopleLedger linked = build(List.of(link(credit, pairedBill, "7500")), List.of(), List.of(), Set.of());
+        assertThat(linked.sharesOf(pairedBill.getId())).isEmpty();
+        assertThat(linked.droppedIds()).doesNotContain(credit.getId());
+
+        rows.clear();
+        Transaction realBill = bill(30000, d(9, 1));
+        Transaction reversal = bill(30000, d(9, 2));
+        reversal.setReconciliationStatus(Transaction.ReconciliationStatus.REVERSAL);
+        Transaction refundCredit = share(7500, d(9, 4));
+        refundCredit.setReconciliationStatus(Transaction.ReconciliationStatus.REFUND);
+        Transaction plainCredit = share(7500, d(9, 5));
+        PeopleLedger ruled = build(List.of(), List.of(rentRule()), List.of(), Set.of());
+        assertThat(ruled.sharesOf(reversal.getId())).isEmpty();
+        assertThat(ruled.droppedIds()).doesNotContain(refundCredit.getId()).contains(plainCredit.getId());
+        assertThat(ruled.sharesOf(realBill.getId())).extracting(PeopleLedger.Share::creditId).containsExactly(plainCredit.getId());
+    }
+
     @Test
     void weakKeyGetsNoRuleMatch() {
         row(Transaction.Type.EXPENSE, 30000, d(9, 1), OWNER, RENT);

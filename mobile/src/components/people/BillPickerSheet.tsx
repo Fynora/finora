@@ -113,12 +113,14 @@ export function BillPickerSheet(props: Props) {
   });
 
   const options: Option[] = useMemo(() => {
-    if (searching) return (searchQ.data?.content ?? []).filter((t) => t.id !== anchor.txnId).map(fromTransaction);
+    // A transfer, refund or reversal is not spending: the server refuses a share on it, so never offer one.
+    const plain = (t: Transaction) => t.id !== anchor.txnId && t.reconciliationStatus === 'OK';
+    if (searching) return (searchQ.data?.content ?? []).filter(plain).map(fromTransaction);
     if (given) {
       return given.map((b) => ({ id: b.billId, category: b.category, payee: b.payeeLabel, date: b.date, amount: b.amount, remaining: b.remaining }));
     }
     const rows = (windowQ.data?.content ?? [])
-      .filter((t) => t.id !== anchor.txnId)
+      .filter(plain)
       // A share comes from a person; a bill can be paid to anyone.
       .filter((t) => props.mode === 'bill' || t.counterpartyType === 'PERSON');
     return nearestFirst(rows.map(fromTransaction), anchor.date);

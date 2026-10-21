@@ -9,6 +9,8 @@ jest.mock('../../api/endpoints', () => ({
   peopleApi: { preferences: jest.fn(), setOwnUpiId: jest.fn() },
 }));
 jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
+// The UPI request names the user (the payee).
+jest.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
 
 const preferences = peopleApi.preferences as jest.Mock;
 const setOwnUpiId = peopleApi.setOwnUpiId as jest.Mock;
@@ -43,9 +45,20 @@ beforeEach(() => {
 afterEach(() => share.mockRestore());
 
 describe('upiRequestUrl', () => {
-  it('asks for the amount owed, to the user\'s own UPI id, in rupees', () => {
-    expect(upiRequestUrl('user.sample@okbank', 500)).toBe('upi://pay?pa=user.sample@okbank&am=500.00&cu=INR');
-    expect(upiRequestUrl('user.sample@okbank', 1234.5)).toBe('upi://pay?pa=user.sample@okbank&am=1234.50&cu=INR');
+  // NPCI UPI Linking Specification 1.6: pa and pn (the payee's name) are mandatory.
+  it('asks for the amount owed, to the user\'s own UPI id and name, in rupees', () => {
+    expect(upiRequestUrl('user.sample@okbank', 'Sample User', 500))
+      .toBe('upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=500.00&cu=INR');
+    expect(upiRequestUrl('user.sample@okbank', 'Sample User', 1234.5))
+      .toBe('upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=1234.50&cu=INR');
+  });
+
+  it('names the payee by the UPI handle when the account has no name', () => {
+    expect(upiRequestUrl('user.sample@okbank', null, 500)).toBe('upi://pay?pa=user.sample@okbank&pn=user.sample&am=500.00&cu=INR');
+  });
+
+  it('keeps a name\'s own characters from changing the request', () => {
+    expect(upiRequestUrl('user.sample@okbank', 'A&B=C', 500)).toBe('upi://pay?pa=user.sample@okbank&pn=A%26B%3DC&am=500.00&cu=INR');
   });
 });
 
@@ -54,7 +67,7 @@ describe('useAskForMoney', () => {
     preferences.mockResolvedValue({ ownUpiId: 'user.sample@okbank' });
     show();
     fireEvent.press(screen.getByRole('button', { name: 'ask' }));
-    await waitFor(() => expect(share).toHaveBeenCalledWith({ message: 'upi://pay?pa=user.sample@okbank&am=500.00&cu=INR' }));
+    await waitFor(() => expect(share).toHaveBeenCalledWith({ message: 'upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=500.00&cu=INR' }));
     expect(setOwnUpiId).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('Your UPI id')).toBeNull();
   });
@@ -68,7 +81,7 @@ describe('useAskForMoney', () => {
     fireEvent.changeText(input, ' user.sample@okbank ');
     fireEvent.press(screen.getByRole('button', { name: 'Save and share' }));
     await waitFor(() => expect(setOwnUpiId).toHaveBeenCalledWith('user.sample@okbank'));
-    await waitFor(() => expect(share).toHaveBeenCalledWith({ message: 'upi://pay?pa=user.sample@okbank&am=500.00&cu=INR' }));
+    await waitFor(() => expect(share).toHaveBeenCalledWith({ message: 'upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=500.00&cu=INR' }));
     await waitFor(() => expect(screen.queryByLabelText('Your UPI id')).toBeNull());
   });
 

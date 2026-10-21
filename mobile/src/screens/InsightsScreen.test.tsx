@@ -28,6 +28,8 @@ jest.mock('../api/endpoints', () => ({
   },
 }));
 jest.mock('../lib/trackNavigation', () => ({ trackNavigation: jest.fn() }));
+// The UPI request names the user; the screen sits inside AuthProvider in the app.
+jest.mock('../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;

@@ -39,6 +39,8 @@ vi.mock('../api/endpoints', () => ({
   // already built into Insights.tsx's iconFor/colorFor, same as a real failed fetch would.
   categoriesApi: { list: vi.fn().mockResolvedValue([]) },
 }));
+// The UPI request names the user; every page sits inside AuthProvider in the app.
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));;
 
 function insights(overrides: Partial<InsightsData> = {}): InsightsData {
   return {

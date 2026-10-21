@@ -17,6 +17,8 @@ vi.mock('../../api/endpoints', () => ({
   inflowApi: { kinds: vi.fn(), setChoice: vi.fn() },
   transactionsApi: { search: vi.fn(), updateCategory: vi.fn() },
 }));
+// The UPI request names the user; every page sits inside AuthProvider in the app.
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));;
 
 const shareCheck: PeopleSuggestion = {
   kind: 'SHARE_CHECK', ackKey: 'c-1', txnId: 'c-1', relatedTxnId: null, personKey: 'vpa:flatmate.a', label: 'Flatmate A',

@@ -53,9 +53,21 @@ describe('dates', () => {
 });
 
 describe('the UPI request', () => {
-  it('asks for the amount owed, to the user\'s own UPI id, in rupees', () => {
-    expect(upiRequestUrl('user.sample@okbank', 500)).toBe('upi://pay?pa=user.sample@okbank&am=500.00&cu=INR');
-    expect(upiRequestUrl('user.sample@okbank', 1234.5)).toBe('upi://pay?pa=user.sample@okbank&am=1234.50&cu=INR');
+  // NPCI UPI Linking Specification 1.6: pa and pn (the payee's name) are mandatory.
+  it('asks for the amount owed, to the user\'s own UPI id and name, in rupees', () => {
+    expect(upiRequestUrl('user.sample@okbank', 'Sample User', 500))
+      .toBe('upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=500.00&cu=INR');
+    expect(upiRequestUrl('user.sample@okbank', 'Sample User', 1234.5))
+      .toBe('upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=1234.50&cu=INR');
+  });
+
+  it('names the payee by the UPI handle when the account has no name', () => {
+    expect(upiRequestUrl('user.sample@okbank', null, 500)).toBe('upi://pay?pa=user.sample@okbank&pn=user.sample&am=500.00&cu=INR');
+    expect(upiRequestUrl('user.sample@okbank', '  ', 500)).toBe('upi://pay?pa=user.sample@okbank&pn=user.sample&am=500.00&cu=INR');
+  });
+
+  it('keeps a name\'s own characters from changing the request', () => {
+    expect(upiRequestUrl('user.sample@okbank', 'A&B=C', 500)).toBe('upi://pay?pa=user.sample@okbank&pn=A%26B%3DC&am=500.00&cu=INR');
   });
 
   it('keeps only name@bank, the same rule the server applies', () => {

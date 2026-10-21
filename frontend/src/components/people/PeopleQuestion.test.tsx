@@ -111,10 +111,10 @@ describe('PeopleQuestion: lent?', () => {
     expect(addEntry).not.toHaveBeenCalled();
   });
 
-  it('"Gift" files the payment under Gifts & Donations', async () => {
+  it('"Gift" files this payment under Gifts & Donations, and teaches nothing about the person\'s other payments', async () => {
     const { onAck } = show(lent);
     await press('Gift');
-    await waitFor(() => expect(updateCategory).toHaveBeenCalledWith('t-1', 'Gifts & Donations'));
+    await waitFor(() => expect(updateCategory).toHaveBeenCalledWith('t-1', 'Gifts & Donations', 'ONLY_THIS'));
     await waitFor(() => expect(onAck).toHaveBeenCalledTimes(1));
   });
 });

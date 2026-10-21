@@ -9,9 +9,10 @@ import { useAskForMoney } from './AskForMoney';
 vi.mock('../../api/endpoints', () => ({
   peopleApi: { preferences: vi.fn(), setOwnUpiId: vi.fn() },
 }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
 const preferences = vi.mocked(peopleApi.preferences);
 const setOwnUpiId = vi.mocked(peopleApi.setOwnUpiId);
-const URL = 'upi://pay?pa=user.sample@okbank&am=500.00&cu=INR';
+const URL = 'upi://pay?pa=user.sample@okbank&pn=Sample%20User&am=500.00&cu=INR';
 
 function Host() {
   const { ask, prompt } = useAskForMoney();
@@ -64,6 +65,34 @@ describe('useAskForMoney', () => {
     await userEvent.click(screen.getByRole('button', { name: 'ask' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(URL));
     expect(await screen.findByText('Copied the UPI request. Send it to Friend K yourself.')).toBeInTheDocument();
+  });
+
+  it('copies the request instead when the browser refuses the share sheet', async () => {
+    share!.mockRejectedValue(Object.assign(new Error('no activation'), { name: 'NotAllowedError' }));
+    preferences.mockResolvedValue({ ownUpiId: 'user.sample@okbank' });
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'ask' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(URL));
+    expect(await screen.findByText('Copied the UPI request. Send it to Friend K yourself.')).toBeInTheDocument();
+  });
+
+  it('does nothing more when the user closes the share sheet', async () => {
+    share!.mockRejectedValue(Object.assign(new Error('closed'), { name: 'AbortError' }));
+    preferences.mockResolvedValue({ ownUpiId: 'user.sample@okbank' });
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'ask' }));
+    await waitFor(() => expect(share).toHaveBeenCalled());
+    expect(writeText).not.toHaveBeenCalled();
+    expect(screen.queryByText(/UPI request/)).toBeNull();
+  });
+
+  it('shows the request to copy by hand when the clipboard is not allowed either', async () => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    writeText.mockRejectedValue(new Error('denied'));
+    preferences.mockResolvedValue({ ownUpiId: 'user.sample@okbank' });
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'ask' }));
+    expect(await screen.findByText(`Copy this UPI request and send it to Friend K yourself: ${URL}`)).toBeInTheDocument();
   });
 
   it('asks once for the UPI id, saves it, then shares', async () => {

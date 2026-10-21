@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { peopleApi } from '../../api/endpoints';
+import { useAuth } from '../../context/AuthContext';
 import { Button, useDialogA11y } from '../../design-system';
 import { UPI_ID, rupees, serverMessage, upiRequestUrl } from '../../lib/people';
 
@@ -17,25 +18,38 @@ interface Ask {
  */
 export function useAskForMoney(): { ask: (who: Ask) => void; prompt: ReactNode } {
   const queryClient = useQueryClient();
+  // The payee's name the request carries: the user's own.
+  const { fullName } = useAuth();
   const [asking, setAsking] = useState<Ask | null>(null);
-  const [copiedFor, setCopiedFor] = useState<string | null>(null);
+  // What the page says once the request is handed over: copied, or (no clipboard either) the
+  // request itself to copy by hand. Null after the share sheet, which says it all.
+  const [notice, setNotice] = useState<string | null>(null);
   const opening = useRef(false);
 
   async function hand(ownUpiId: string, who: Ask) {
-    const url = upiRequestUrl(ownUpiId, who.owed);
+    const url = upiRequestUrl(ownUpiId, fullName, who.owed);
     if (typeof navigator.share === 'function') {
-      // A closed share sheet rejects: that is the user's choice, not a failure to report.
-      await navigator.share({ text: url }).catch(() => {});
-      return;
+      try {
+        await navigator.share({ text: url });
+        return;
+      } catch (err) {
+        // A closed share sheet is the user's choice. Anything else -- the browser refusing it, as it
+        // does once the click is a few awaits behind -- falls through to copying.
+        if ((err as { name?: string } | null)?.name === 'AbortError') return;
+      }
     }
-    await navigator.clipboard.writeText(url);
-    setCopiedFor(who.label);
+    try {
+      await navigator.clipboard.writeText(url);
+      setNotice(`Copied the UPI request. Send it to ${who.label} yourself.`);
+    } catch {
+      setNotice(`Copy this UPI request and send it to ${who.label} yourself: ${url}`);
+    }
   }
 
   async function ask(who: Ask) {
     if (opening.current) return;
     opening.current = true;
-    setCopiedFor(null);
+    setNotice(null);
     try {
       const saved = await queryClient.fetchQuery({
         queryKey: ['people', 'preferences'], queryFn: () => peopleApi.preferences(), staleTime: 60_000,
@@ -51,9 +65,7 @@ export function useAskForMoney(): { ask: (who: Ask) => void; prompt: ReactNode }
     ask: (who) => void ask(who),
     prompt: (
       <>
-        {copiedFor && (
-          <p role="status" className="text-xs text-success">{`Copied the UPI request. Send it to ${copiedFor} yourself.`}</p>
-        )}
+        {notice && <p role="status" className="text-xs text-success break-all">{notice}</p>}
         {asking && (
           <UpiIdPrompt
             who={asking}

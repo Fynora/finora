@@ -54,9 +54,12 @@ export function withPeople(balances: PersonBalance[]): { owedToYou: PersonBalanc
 /** name@bank: a handle, then the bank's short name. The same rule the server applies. */
 export const UPI_ID = /^[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}$/;
 
-/** A UPI request for what is owed, paid to the user's own UPI id. */
-export function upiRequestUrl(ownUpiId: string, owed: number): string {
-  return `upi://pay?pa=${ownUpiId}&am=${owed.toFixed(2)}&cu=INR`;
+/** A UPI request for what is owed, paid to the user's own UPI id. The NPCI UPI Linking
+ *  Specification (1.6) makes the payee's name (pn) mandatory beside their address (pa): the user's
+ *  own name, or the handle of their UPI id when the account has none. */
+export function upiRequestUrl(ownUpiId: string, name: string | null, owed: number): string {
+  const payee = name?.trim() || ownUpiId.split('@')[0];
+  return `upi://pay?pa=${ownUpiId}&pn=${encodeURIComponent(payee)}&am=${owed.toFixed(2)}&cu=INR`;
 }
 
 /** "₹9,000": whole rupees, as the rest of this site's lists. */

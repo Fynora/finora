@@ -423,20 +423,71 @@ class NotificationDispatcherTest {
     }
 
     @Test
-    void drainOnce_stillDeadLettersAnyOtherNotificationWithNowhereToGo() {
-        // Outside campaigns, a push that cannot be delivered and was not also queued on another
-        // channel is exactly what the dead-letter alert is for. (This key has no ":PUSH" suffix, so
-        // no sibling can be looked up; the sibling cases are in the tests below.)
-        Notification ordinary = pushNotification(NotificationType.IMPORT_STATEMENT_READY);
+    void drainOnce_skipsAnyPushWithNoDevice_notOnlyACampaignOne() {
+        // Production, 2026-10-21: a web-only user had three statements held; each email was sent
+        // and each push dead-lettered into a Sentry error. A user with no phone is routine.
+        Notification held = pushNotification(NotificationType.IMPORT_STATEMENT_HELD);
         WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(ordinary));
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(held));
         NotificationDispatcher d = pushDispatcher(execution,
                 ChannelSendResult.permanentFailure("fcm", "no registered device"));
 
         d.drainOnce();
 
-        assertThat(ordinary.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
+        assertThat(held.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        assertThat(held.getLastError()).isEqualTo("no registered device");
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any(), any());
+        verify(execution).completed(held.getId());
+        ArgumentCaptor<NotificationLog> log = ArgumentCaptor.forClass(NotificationLog.class);
+        verify(logRepository).save(log.capture());
+        assertThat(log.getValue().isSuccess()).isFalse();
+    }
+
+    @Test
+    void drainOnce_skipsAnyPushWhoseEveryDeviceIsUnregistered() {
+        Notification ready = pushNotification(NotificationType.IMPORT_STATEMENT_READY);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(ready));
+        NotificationDispatcher d = pushDispatcher(execution,
+                ChannelSendResult.permanentFailure("fcm", "all 2 devices unregistered"));
+
+        d.drainOnce();
+
+        assertThat(ready.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
+        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
+    }
+
+    @Test
+    void drainOnce_stillDeadLettersAPush_whenNoPushProviderIsConfigured() {
+        // A misconfigured push service is a real problem, not a user without a phone.
+        Notification held = pushNotification(NotificationType.IMPORT_STATEMENT_HELD);
+        WorkerExecution execution = mock(WorkerExecution.class);
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(held));
+        NotificationChannelProvider push = mock(NotificationChannelProvider.class);
+        when(push.channel()).thenReturn(NotificationChannel.PUSH);
+        when(push.isConfigured()).thenReturn(false);
+        WorkerObservability obs = mock(WorkerObservability.class);
+        when(obs.begin(any(), any())).thenReturn(execution);
+        NotificationDispatcher d = new NotificationDispatcher(repository, logRepository, List.of(push),
+                obs, transactionManager);
+
+        d.drainOnce();
+
+        assertThat(held.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
         verify(execution).deadLettered(any(), anyInt(), any());
+    }
+
+    @Test
+    void drainOnce_stillDeadLettersAnEmailWithNoAddress() {
+        // The exemption is for pushes only: an email that cannot go anywhere is still a dead letter.
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(emailProvider.send(any()))
+                .thenReturn(ChannelSendResult.permanentFailure("resend", "no email address on file"));
+
+        dispatcher.drainOnce();
+
+        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
     }
 
     @Test
@@ -452,117 +503,5 @@ class NotificationDispatcherTest {
 
         assertThat(campaignPush.getStatus()).isEqualTo(NotificationStatus.RETRYING);
         verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
-    }
-
-    // ---- a push with no device, when the same event also went by email or SMS
-
-    private Notification heldPush(String requestKey) {
-        return Notification.create(UUID.randomUUID(), NotificationType.IMPORT_STATEMENT_HELD,
-                NotificationCategory.FINANCIAL, NotificationChannel.PUSH, NotificationPriority.NORMAL,
-                requestKey + ":PUSH", "Checking your statement", "Body", Instant.now());
-    }
-
-    @Test
-    void drainOnce_skipsAPushWithNoDevice_whenTheSameEventWasAlsoQueuedByEmail() {
-        // Production, 2026-10-21: a web-only user had three statements held; each email was sent and
-        // each push dead-lettered into a Sentry error, though the user had been told every time.
-        Notification push = heldPush("IMPORT_HELD_job-1");
-        WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(push));
-        when(repository.existsByNotificationKey("IMPORT_HELD_job-1:EMAIL")).thenReturn(true);
-        NotificationDispatcher d = pushDispatcher(execution,
-                ChannelSendResult.permanentFailure("fcm", "no registered device"));
-
-        d.drainOnce();
-
-        assertThat(push.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
-        assertThat(push.getLastError()).isEqualTo("no registered device");
-        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
-        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any(), any());
-        verify(execution).completed(push.getId());
-        ArgumentCaptor<NotificationLog> log = ArgumentCaptor.forClass(NotificationLog.class);
-        verify(logRepository).save(log.capture());
-        assertThat(log.getValue().isSuccess()).isFalse();
-    }
-
-    @Test
-    void drainOnce_skipsAPushWhoseEveryDeviceIsUnregistered_whenTheSameEventWentBySms() {
-        Notification push = heldPush("IMPORT_HELD_job-2");
-        WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(push));
-        when(repository.existsByNotificationKey("IMPORT_HELD_job-2:SMS")).thenReturn(true);
-        NotificationDispatcher d = pushDispatcher(execution,
-                ChannelSendResult.permanentFailure("fcm", "all 2 devices unregistered"));
-
-        d.drainOnce();
-
-        assertThat(push.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
-        verify(execution, org.mockito.Mockito.never()).deadLettered(any(), anyInt(), any());
-    }
-
-    @Test
-    void drainOnce_stillDeadLettersAPushWithNoDevice_whenNothingElseWasQueued() {
-        // The user switched email off for this category, so the push was the only way they would
-        // hear about it: that is still a dead letter. Both other channels are looked up.
-        Notification push = heldPush("IMPORT_HELD_job-3");
-        WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(push));
-        NotificationDispatcher d = pushDispatcher(execution,
-                ChannelSendResult.permanentFailure("fcm", "no registered device"));
-
-        d.drainOnce();
-
-        assertThat(push.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
-        verify(execution).deadLettered(any(), anyInt(), any());
-        verify(repository).existsByNotificationKey("IMPORT_HELD_job-3:EMAIL");
-        verify(repository).existsByNotificationKey("IMPORT_HELD_job-3:SMS");
-        verify(repository, org.mockito.Mockito.never()).existsByNotificationKey("IMPORT_HELD_job-3:PUSH");
-    }
-
-    @Test
-    void drainOnce_deadLettersAndCarriesOn_whenTheSiblingLookupFails() {
-        // Unsure means today's behaviour, and the failure must not abort the rest of the batch.
-        Notification first = heldPush("IMPORT_HELD_job-4");
-        Notification second = heldPush("IMPORT_HELD_job-5");
-        WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(first, second));
-        when(repository.existsByNotificationKey("IMPORT_HELD_job-4:EMAIL"))
-                .thenThrow(new IllegalStateException("connection reset"));
-        when(repository.existsByNotificationKey("IMPORT_HELD_job-5:EMAIL")).thenReturn(true);
-        NotificationDispatcher d = pushDispatcher(execution,
-                ChannelSendResult.permanentFailure("fcm", "no registered device"));
-
-        d.drainOnce();
-
-        assertThat(first.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
-        assertThat(second.getStatus()).isEqualTo(NotificationStatus.SKIPPED);
-    }
-
-    @Test
-    void drainOnce_stillRetriesAPushThatFailedTransiently_evenWithAnEmailSibling() {
-        // An FCM outage is not "no device": it retries, never skips.
-        Notification push = heldPush("IMPORT_HELD_job-6");
-        WorkerExecution execution = mock(WorkerExecution.class);
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(push));
-        when(repository.existsByNotificationKey("IMPORT_HELD_job-6:EMAIL")).thenReturn(true);
-        NotificationDispatcher d = pushDispatcher(execution, ChannelSendResult.failure("fcm", "FCM 503"));
-
-        d.drainOnce();
-
-        assertThat(push.getStatus()).isEqualTo(NotificationStatus.RETRYING);
-    }
-
-    @Test
-    void drainOnce_stillDeadLettersAnEmailWithNoAddress_evenWithAPushSibling() {
-        // The exemption is for pushes only: an email that cannot go anywhere is still a dead letter,
-        // whatever happened to its push.
-        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
-        when(repository.existsByNotificationKey("K1:PUSH")).thenReturn(true);
-        when(emailProvider.send(any()))
-                .thenReturn(ChannelSendResult.permanentFailure("resend", "no email address on file"));
-
-        dispatcher.drainOnce();
-
-        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.DEAD_LETTER);
     }
 }

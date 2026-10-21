@@ -16,6 +16,11 @@ package com.finora.notification.provider;
  *     {@code NotificationDispatcher} routes a permanent failure straight to its terminal
  *     (dead-letter) path instead of the ordinary retry-scheduling one. Always {@code false} on a
  *     success -- see the compact constructor.
+ *     <p><b>On PUSH, permanent means "this user has no device to send to"</b>, and the dispatcher
+ *     ends it SKIPPED, with no dead letter, no alert and no Sentry event (decided 2026-10-21). A
+ *     push failure that should alert -- a bad FCM credential, a misconfigured project -- must be
+ *     returned as an ordinary {@link #failure}, which retries and dead-letters if it never
+ *     recovers, never as a permanent one.
  */
 public record ChannelSendResult(boolean success, String providerName, String detail,
         boolean permanent) {

@@ -129,7 +129,7 @@ public class NotificationService {
                 if (!preferenceResolver.isEnabled(request.userId(), request.category(), channel)) {
                     continue;
                 }
-                String key = channelKey(request.notificationKey(), channel);
+                String key = truncateKey(request.notificationKey() + ":" + channel.name());
                 if (repository.existsByNotificationKey(key)) {
                     log.debug("Notification {} already requested, skipping duplicate", key);
                     continue;
@@ -183,16 +183,6 @@ public class NotificationService {
             return value;
         }
         return value.substring(0, maxLength);
-    }
-
-    /**
-     * The stored {@code notification_key} of one channel's row for a request: the caller's key, a
-     * colon, and the channel name, truncated by {@link #truncateKey}. Public so that
-     * {@code NotificationDispatcher} can find a push's sibling rows (the same event's email or SMS)
-     * by the exact key this method wrote them under, rather than by a second copy of the rule.
-     */
-    public static String channelKey(String requestKey, NotificationChannel channel) {
-        return truncateKey(requestKey + ":" + channel.name());
     }
 
     /**

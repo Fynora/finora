@@ -186,33 +186,6 @@ class NotificationServiceTest {
     }
 
     /**
-     * {@code NotificationDispatcher} finds a push's email or SMS sibling through
-     * {@link NotificationService#channelKey}, so it must name exactly the key {@code request}
-     * stored, for an ordinary key and for one long enough to be truncated.
-     */
-    @Test
-    void channelKey_isExactlyTheKeyRequestStoresForEachChannel() {
-        for (String requestKey : new String[] {"IMPORT_HELD_job-1", "K".repeat(250)}) {
-            for (NotificationChannel channel : NotificationChannel.values()) {
-                NotificationRepository repo = mock(NotificationRepository.class);
-                when(repo.insertIfAbsent(any(), anyString(), anyString(), anyString(), anyString(),
-                        anyString(), anyString(), anyString(), any(), any()))
-                        .thenReturn(Optional.of(UUID.randomUUID()));
-                NotificationService svc = new NotificationService(repo, templateRenderer,
-                        preferenceResolver, dispatcher, new ObjectMapper());
-
-                svc.request(request(Set.of(channel), requestKey));
-
-                ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-                verify(repo).insertIfAbsent(any(), keyCaptor.capture(), anyString(), anyString(),
-                        anyString(), anyString(), anyString(), anyString(), any(), any());
-                assertThat(NotificationService.channelKey(requestKey, channel))
-                        .isEqualTo(keyCaptor.getValue());
-            }
-        }
-    }
-
-    /**
      * Blocker fix: a blind {@code substring(0, 200)} truncation would make two DIFFERENT
      * over-length keys that happen to share their first 200 characters collide into the identical
      * stored value -- {@code insertIfAbsent}'s {@code ON CONFLICT DO NOTHING} then silently drops

@@ -30,8 +30,7 @@ const PAGE_SIZE = 25;
  */
 
 // CANCELLED: withdrawn by an admin before delivery (push campaigns). SKIPPED: a push whose person has
-// no working device, when it was a campaign push or the same update also went by email or SMS --
-// routine, deliberately not a dead letter.
+// no working device (web-only, or the app uninstalled) -- routine, deliberately not a dead letter.
 const STATUSES = ['DEAD_LETTER', 'RETRYING', 'SENT', 'PROCESSING', 'QUEUED', 'CREATED', 'CANCELLED', 'SKIPPED'] as const;
 
 function statusTone(status: NotificationAdminRow['status']) {

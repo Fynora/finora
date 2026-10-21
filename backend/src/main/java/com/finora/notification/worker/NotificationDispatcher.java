@@ -1,10 +1,8 @@
 package com.finora.notification.worker;
 
-import com.finora.notification.api.NotificationService;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationLog;
-import com.finora.notification.domain.NotificationType;
 import com.finora.notification.provider.ChannelSendResult;
 import com.finora.notification.provider.NotificationChannelProvider;
 import com.finora.notification.repository.NotificationLogRepository;
@@ -221,20 +219,16 @@ public class NotificationDispatcher {
             // "user account deleted"/"no address on file". Retrying five times over the backoff
             // window cannot fix any of these; go straight to the terminal path on this first
             // attempt instead of burning the whole retry budget to land on the same DEAD_LETTER.
-            if (notification.getType() == NotificationType.CUSTOM_PUSH) {
-                // An admin campaign reaches people whose app was uninstalled as a matter of course;
-                // that is not "a user's action silently did not take effect", so it is not a dead
-                // letter (counted, alerted on, sent to Sentry) -- see NotificationStatus#SKIPPED.
-                skipUndeliverable(execution, notification, result);
-            } else if (notification.getChannel() == NotificationChannel.PUSH
-                    && toldAnotherWay(notification)) {
+            if (notification.getChannel() == NotificationChannel.PUSH) {
                 // A push's only permanent failures are "no registered device" and "every device
-                // unregistered": nowhere to send it. When the same event also queued an email or
-                // SMS, the user is told there -- and that row's own failure, if any, is a dead
-                // letter of its own. So this push is not "a user's action silently did not take
-                // effect" either. Seen in production on 2026-10-21: a user who only uses the web
-                // had three statements held, got all three emails, and each push dead-lettered
-                // into a Sentry error.
+                // unregistered": the user has no phone to send it to. That is routine, not "a
+                // user's action silently did not take effect", so it is not a dead letter (counted,
+                // alerted on, sent to Sentry) -- see NotificationStatus#SKIPPED. Campaign pushes
+                // reach uninstalled apps as a matter of course, and every other push is requested
+                // alongside an email. Seen in production on 2026-10-21: a user who only uses the
+                // web had three statements held, got all three emails, and each push dead-lettered
+                // into a Sentry error. Owner's decision the same day: skip it even when the user
+                // switched that email off.
                 skipUndeliverable(execution, notification, result);
             } else {
                 failTerminally(execution, notification, result.providerName(), result.detail());
@@ -299,47 +293,9 @@ public class NotificationDispatcher {
     }
 
     /**
-     * Whether the event behind this push also queued a row on another channel (email or SMS), so the
-     * user is told about it even though the push has nowhere to go.
-     *
-     * <p>Sibling rows share the caller's key and differ only in the channel suffix -- see
-     * {@link NotificationService#channelKey}. They are written together in the caller's own
-     * transaction, and this dispatcher only claims committed rows, so a sibling that was queued at
-     * all is already visible here. A sibling the user switched off by preference was never written,
-     * and so does not count.
-     *
-     * <p>Answers {@code false} whenever it cannot be sure, which keeps today's dead letter: a key
-     * that does not end in the push suffix (one {@code channelKey} had to truncate, whose request
-     * key is no longer recoverable), or a failed lookup. A lookup failure is caught here because an
-     * exception out of {@link #deliverOne} would abort the rest of the drain pass.
-     */
-    private boolean toldAnotherWay(Notification push) {
-        String key = push.getNotificationKey();
-        String suffix = ":" + NotificationChannel.PUSH.name();
-        if (key == null || !key.endsWith(suffix)) {
-            return false;
-        }
-        String requestKey = key.substring(0, key.length() - suffix.length());
-        try {
-            for (NotificationChannel other : NotificationChannel.values()) {
-                if (other != NotificationChannel.PUSH
-                        && repository.existsByNotificationKey(
-                                NotificationService.channelKey(requestKey, other))) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (RuntimeException e) {
-            log.error("Could not look up sibling notifications for push {}", push.getId(), e);
-            return false;
-        }
-    }
-
-    /**
-     * A push with nobody to deliver to ends SKIPPED, not DEAD_LETTER, when it is a campaign push or
-     * its event was also queued on another channel (see {@link #toldAnotherWay}). Same shape and the
-     * same outer catch as {@link #recordSuccess}, and it reports through {@code completed}: the row
-     * was processed to its natural end, which is not a failure and must not move the dead-letter or
+     * A push with nobody to deliver to ends SKIPPED, not DEAD_LETTER. Same shape and the same outer
+     * catch as {@link #recordSuccess}, and it reports through {@code completed}: the row was
+     * processed to its natural end, which is not a failure and must not move the dead-letter or
      * failure counters. The attempt is still logged, as an unsuccessful one, so the reason is visible
      * on the notification.
      */

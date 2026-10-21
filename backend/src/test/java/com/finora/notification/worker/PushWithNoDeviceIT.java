@@ -71,9 +71,8 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void theSamePushStillDeadLetters_whenTheUserSwitchedStatementEmailsOff() {
-        // No email row is written, so the push was the only way this user would hear: that is
-        // still what the dead-letter alert is for.
+    void theSamePushIsSkipped_evenWhenTheUserSwitchedStatementEmailsOff() {
+        // Owner's decision, 2026-10-21: no phone is routine, whether or not an email also went out.
         UUID userId = userRepository.save(newUser()).getId();
         preferenceService.set(userId, NotificationCategory.FINANCIAL, NotificationChannel.EMAIL, false);
         String requestKey = "IMPORT_HELD_" + UUID.randomUUID();
@@ -81,9 +80,9 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
         requestHeldNotice(userId, requestKey);
         deliverUntilSettled(requestKey);
 
-        assertThat(notificationRepository.existsByNotificationKey(
-                NotificationService.channelKey(requestKey, NotificationChannel.EMAIL))).isFalse();
-        assertThat(statusOf(requestKey, NotificationChannel.PUSH)).isEqualTo(NotificationStatus.DEAD_LETTER);
+        assertThat(notificationRepository.findByNotificationKey(key(requestKey, NotificationChannel.EMAIL)))
+                .isEmpty();
+        assertThat(statusOf(requestKey, NotificationChannel.PUSH)).isEqualTo(NotificationStatus.SKIPPED);
     }
 
     /** The exact request {@code StatementStatusNotifier.notifyHeld} makes, in a transaction as there. */
@@ -122,9 +121,14 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
     }
 
     private Notification row(String requestKey, NotificationChannel channel) {
-        String key = NotificationService.channelKey(requestKey, channel);
+        String key = key(requestKey, channel);
         return notificationRepository.findByNotificationKey(key)
                 .orElseThrow(() -> new AssertionError("no notification row for " + key));
+    }
+
+    /** How {@code NotificationService.request} stores each channel's row (short keys are not truncated). */
+    private static String key(String requestKey, NotificationChannel channel) {
+        return requestKey + ":" + channel.name();
     }
 
     private User newUser() {

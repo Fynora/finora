@@ -670,7 +670,7 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("UPI/DR/100000000001/Domino s/YESB/paytm-000000001/")).isEqualTo("Dining");
         assertThat(CategoryRules.suggestCategory("UPI-BBNOW-bbnow.sample@hdfcbank-XXXX0MERUPI-100000000001-PAYMENT FROM PHONE")) // synthetic-ok
                 .isEqualTo("Groceries");
-        assertThat(CategoryRules.suggestCategory("UPI/MEESHO/meesho1sample.gpay@okpaysample/")).isEqualTo("Shopping");
+        assertThat(CategoryRules.suggestCategory("UPI/MEESHO/meesho0sample.gpay@okpaysample/")).isEqualTo("Shopping");
         assertThat(CategoryRules.suggestCategory("UPI-TATA CLIQ-paytm-00000001@ptybl-100000000001-TATA CLIQ ORDER")).isEqualTo("Shopping");
         assertThat(CategoryRules.suggestCategory("UPI-MR DIY-mrdiy.00000001@hdfcbank-XXXX0MERUPI-100000000001-UPI")) // synthetic-ok
                 .isEqualTo("Shopping");
@@ -699,10 +699,10 @@ class CategoryRulesTest {
         // App-store spend, in each shape printed: a mandate, the store's own UPI id (with its ₹2
         // autopay check and refund), and a card line. Apple's store is already Subscriptions.
         assertThat(CategoryRules.suggestCategory("UPI/RRN 100000000001/MandateExe cute  Google Play 1")).isEqualTo("Subscriptions");
-        assertThat(CategoryRules.suggestCategory("UPI/100000000001/11:22:57/UPI/playstore1.sample@sampleb")).isEqualTo("Subscriptions");
+        assertThat(CategoryRules.suggestCategory("UPI/100000000001/11:22:57/UPI/playstore0.sample@sampleb")).isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("GOOGLE*PLAYSUPPORT.GO")).isEqualTo("Subscriptions");
         // A recharge collected through the payments app's recharge id.
-        assertThat(CategoryRules.suggestCategory("UPI/100000000001/ SAMPLE SERVICES INDIA PVT LTD/GPAYRECHARGE2@OKSAMPLE 000/UPI/"))
+        assertThat(CategoryRules.suggestCategory("UPI/100000000001/ SAMPLE SERVICES INDIA PVT LTD/GPAYRECHARGE0@OKSAMPLE 000/UPI/"))
                 .isEqualTo("Utilities");
         assertThat(CategoryRules.suggestCategory("INDFITPASS httpsfitpa IN")).isEqualTo("Health");
         assertThat(CategoryRules.suggestCategory("UPI/URBAN COMPANY LIMITED/urbancompany000000.rz")).isEqualTo("Personal Care");

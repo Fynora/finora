@@ -186,7 +186,9 @@ recorded (§5.5).
    need to, make sure, it's a good idea, advise. Also no sentence that opens with a bare verb (an
    instruction).
 8. No product words: invest, mutual fund, SIP, stock, equity, share price, portfolio, NAV, returns,
-   insurance, policy, loan, credit card offer, FD, fixed deposit, gold, crypto. These are safe to ban
+   insurance, policy, loan, credit card offer, FD, fixed deposit, gold, crypto, ELSS, 80C, tax saving. The
+   last three come from SEBI's own investment adviser FAQ (Q16). It treats advising a client to invest in
+   ELSS during tax planning as investment advice. These are safe to ban
    because category names are never written by the model (rule 3).
 9. No future or predictive phrasing (will, going to, next month, expect, likely, forecast). Forecasts belong
    to project 3.
@@ -415,7 +417,12 @@ app. Mobile 1.0.0 is unaffected.
   - what is sent to Anthropic: built-in category names, amounts, counts and dates. Never payee or people's
     names, the names of categories the user created, account details or narrations;
   - that the AI describes history and doesn't advise;
-  - what is stored, and that it is deleted with the account.
+  - what is stored, and that it is deleted with the account;
+  - under Anthropic's standard commercial terms: Anthropic doesn't train on it, and deletes it within
+    30 days, or keeps it up to 2 years if it is flagged for misuse (§9).
+
+  The existing sentence about the Insights summary changes from "your category names" to "built-in
+  category names".
 
   The paragraph merges before the server's audience is set to `all`.
 
@@ -430,8 +437,25 @@ app. Mobile 1.0.0 is unaffected.
 - The migration takes the next free version number, checked against `origin/main` at build time (V281 is
   the latest today).
 - Prod is read-only. Any prod check is a query Sid runs.
-- **Before `all`, Sid confirms** that Anthropic's current commercial API terms on data retention and
-  training match what the Privacy page says. This needs Sid's account and can't be checked from the repo.
+- **Anthropic's terms, checked 2026-10-22:**
+  - The Commercial Terms (effective 17 Jun 2025) say: "Anthropic may not train models on Customer Content
+    from Services". The customer owns the outputs, and the Data Processing Addendum applies.
+  - The Privacy Center article (updated 1 Jul 2026) says API inputs and outputs are deleted within 30 days.
+    Content flagged under the Usage Policy may be kept for up to 2 years.
+  - These are the standard terms. The Privacy paragraph (§8.4) says "under Anthropic's standard commercial
+    terms" and states the 30 days, the 2 years and no training. If Fynora's Anthropic account has any
+    separate agreement, Sid says so and the wording follows it.
+  - The current Privacy page states none of these terms. It also says the Insights summary is sent "your
+    category names", which becomes "built-in category names only".
+- **SEBI reading, checked 2026-10-22, for the month story and "Why?":**
+  - Reg 2(1)(l) covers advice on dealing in securities, plus financial planning.
+  - Reg 2(1)(h) defines financial planning as three things together: analysing the situation, identifying
+    goals, and recommending strategies to reach them.
+  - The story and "Why?" describe past spending only. They name no security, identify no goal and
+    recommend no strategy, and §5.2's checks reject any reply that does.
+  - No SEBI regulation, FAQ or circular found addresses spending-history apps either way, so this is a
+    reading of the text, not a ruling. Sid's 2026-10-22 decision stands: a lawyer reviews only the deferred
+    planning-like features (budget suggestions, salary-day plan, what-if).
 
 ## 10. Delivery
 
@@ -452,7 +476,8 @@ app. Mobile 1.0.0 is unaffected.
 2. **Mobile PR.** The story, server rows with the local fallback, "Why?", label, basis, thumbs with
    reasons, accessibility, and the release-build check. Ships with 1.1.0.
 3. **Website PR.** The story with label, basis and thumbs; the pricing and privacy copy.
-4. **Before `all`.** The launch gate (§7.2), the provider-terms check (§9), and Privacy merged.
+4. **Before `all`.** The launch gate (§7.2), and the Privacy change merged. The provider terms were checked
+   on 2026-10-22 (§9).
 
 ## 11. Calls I made (Sid skipped the questions; check these)
 

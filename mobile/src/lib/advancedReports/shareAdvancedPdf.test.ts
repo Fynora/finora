@@ -47,6 +47,8 @@ describe('shareAdvancedPdf', () => {
 
     // A4 at expo-print's 72 PPI, not its US Letter default.
     expect(printToFileAsync.mock.calls[0][0]).toMatchObject({ width: 595, height: 842 });
+    // iOS takes its page margins from here (Android from the page's @page rule): 16/18/14 mm at 72 PPI.
+    expect(printToFileAsync.mock.calls[0][0]).toMatchObject({ margins: { top: 45, bottom: 51, left: 40, right: 40 } });
     const html = printToFileAsync.mock.calls[0][0].html as string;
     expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
     expect(html).toContain('Apr 2026 – Sep 2026');

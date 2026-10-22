@@ -104,10 +104,17 @@ describe('advancedPrintBody: the charts', () => {
     expect(html).not.toContain('Infinity');
   });
 
-  it('splits spending into one bar, a segment per category and one for the rest', () => {
+  it('draws the kept line across the cover from every month', () => {
+    const html = body();
+    expect(count(html, 'class="art"')).toBe(1);
+    expect(html).not.toContain('NaN');
+  });
+
+  it('splits spending into one ring, an arc per category and one for the rest, with the total inside', () => {
     const html = body();
     const categories = html.slice(html.indexOf('Where the money went'), html.indexOf('Who you paid most'));
-    expect(count(categories, 'class="seg"')).toBe(5);
+    expect(count(categories, 'class="arc"')).toBe(5);
+    expect(categories).toContain('₹2,40,000');
     expect(html).toContain('Food &amp; Dining');
     expect(html).toContain('+₹20,000');
     expect(html).toContain('-₹10,000');
@@ -155,15 +162,42 @@ describe('advancedPrintBody: the sections', () => {
     expect(body()).toContain('Income came in during 6 of 6 months. Among whole months the highest was Sep 2026 (₹1,10,000) and the lowest Apr 2026 (₹95,000), 86% of the highest.');
   });
 
-  it('prints the key insights in the words the server wrote', () => {
+  it('leads with the key insights, in the words the server wrote', () => {
     const html = body();
     expect(html).toContain('What stood out');
     expect(html).toContain('Your spending is 20% higher');
     expect(html).toContain('You spent ₹40,000 more than in the previous 6 months');
+    // Read first: before the month-by-month detail.
+    expect(html.indexOf('What stood out')).toBeLessThan(html.indexOf('Money in and out, month by month'));
   });
 
-  it('says when and from what it was prepared', () => {
-    expect(body()).toContain('Prepared by Fynora on 23 Oct 2026');
+  it('says when it was prepared, on the masthead and at the end', () => {
+    const html = body();
+    expect(count(html, '23 Oct 2026')).toBe(2);
+    expect(html).toContain('Prepared by Fynora on 23 Oct 2026');
+  });
+
+  it('explains how its figures are made, by the rules the server applies', () => {
+    const html = body();
+    expect(html).toContain('About this report');
+    expect(html).toContain('at least three times the typical purchase in its category');
+    expect(html).toContain('at least five other purchases');
+    expect(html).toContain('at least 5% of the period');
+    expect(html).toContain('Transfers to your own investments are not counted');
+  });
+
+  it('names the report and numbers the pages in the page margin', () => {
+    const html = body();
+    expect(html).toMatch(/@bottom-left \{[^}]*content: "Fynora Advanced report, Apr 2026 – Sep 2026"/);
+    expect(html).toMatch(/@bottom-right \{[^}]*counter\(page\)[^}]*counter\(pages\)/);
+    // Claimed empty, so Chrome's default print header (date and time) does not sit above the masthead.
+    expect(html).toContain('@top-left { content: ""; }');
+  });
+
+  it('keeps a name with a quote or backslash from breaking the page-margin text', () => {
+    // The period span is all the margin text carries; it is built from months, but escape it regardless.
+    const html = body();
+    expect(html).not.toMatch(/content: "[^"]*\\(?!["\\])/);
   });
 });
 
@@ -171,8 +205,8 @@ describe('ADVANCED_PRINT_CSS', () => {
   // On web the sheet sits inside the app, whose Tailwind reset makes headings plain text and drops list
   // bullets; browser defaults cannot be leaned on, so the sheet sets them itself.
   it('sets heading weight and list markers itself rather than relying on browser defaults', () => {
-    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h1 \{[^}]*font-weight: 800/);
-    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h2 \{[^}]*font-weight: 700/);
+    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h1 \{[^}]*font-weight: \d00/);
+    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h2 \{[^}]*font-weight: \d00/);
     expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar ul \{[^}]*list-style: disc/);
   });
 

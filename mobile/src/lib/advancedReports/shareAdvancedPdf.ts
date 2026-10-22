@@ -8,8 +8,13 @@ import { advancedPdfName, advancedPrintDocument } from './advancedPrint';
  *  (save to Files, mail, print). The file is deleted afterwards whether or not the share went through,
  *  the same route Reports' sharePdf takes. */
 export async function shareAdvancedPdf(report: AdvancedReport): Promise<void> {
-  // A4 (595 x 842 at expo-print's 72 PPI) rather than its US Letter default: the paper size here.
-  const { uri } = await Print.printToFileAsync({ html: advancedPrintDocument(report), width: 595, height: 842 });
+  // A4 (595 x 842 at expo-print's 72 PPI) rather than its US Letter default: the paper size here. iOS takes
+  // its page margins from `margins`; Android ignores them (expo-print sets none) and uses the page's own
+  // @page rule, which carries the same 16/18/14 mm.
+  const { uri } = await Print.printToFileAsync({
+    html: advancedPrintDocument(report), width: 595, height: 842,
+    margins: { top: 45, bottom: 51, left: 40, right: 40 },
+  });
   const name = advancedPdfName(report);
   const file = new File(uri);
   giveName(file, name);

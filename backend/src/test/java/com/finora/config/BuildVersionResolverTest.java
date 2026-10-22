@@ -77,4 +77,55 @@ class BuildVersionResolverTest {
                 .isEqualTo("77bbfe493cf230ce3e4624dfaa41fe617c8ae127");
         assertThat(new BuildVersionResolver(withoutGit, " ").currentFullCommit()).isNull();
     }
+
+    /**
+     * Production on 2026-10-22: GIT_COMMIT was set but empty (the Dockerfile always declares it, and
+     * the Railway variable referencing RAILWAY_GIT_COMMIT_SHA resolved to an empty string), while
+     * RAILWAY_GIT_COMMIT_SHA itself is a separate variable. A placeholder default only applies when a
+     * property is absent, not when it is blank, so "${GIT_COMMIT:${RAILWAY_GIT_COMMIT_SHA:}}" read
+     * "" and the build reported no version: Platform Diagnostics showed "Not available" and the
+     * statement-refresh dry run, which needs the version, checked nothing.
+     */
+    @Test
+    void aBlankConfiguredCommitFallsThroughToThePlatformCommit() {
+        ObjectProvider<GitProperties> withoutGit = mock(ObjectProvider.class);
+        when(withoutGit.getIfAvailable()).thenReturn(null);
+        BuildVersionResolver resolver = new BuildVersionResolver(withoutGit, "",
+                "77bbfe493cf230ce3e4624dfaa41fe617c8ae127");
+
+        assertThat(resolver.currentCommit()).isEqualTo("77bbfe4");
+        assertThat(resolver.currentFullCommit()).isEqualTo("77bbfe493cf230ce3e4624dfaa41fe617c8ae127");
+    }
+
+    @Test
+    void aSetConfiguredCommitStillWinsOverThePlatformCommit() {
+        ObjectProvider<GitProperties> withoutGit = mock(ObjectProvider.class);
+        when(withoutGit.getIfAvailable()).thenReturn(null);
+        BuildVersionResolver resolver = new BuildVersionResolver(withoutGit, "1234567", "77bbfe4");
+
+        assertThat(resolver.currentCommit()).isEqualTo("1234567");
+    }
+
+    @Test
+    void bothBlankStillMeansNoVersion() {
+        ObjectProvider<GitProperties> withoutGit = mock(ObjectProvider.class);
+        when(withoutGit.getIfAvailable()).thenReturn(null);
+        BuildVersionResolver resolver = new BuildVersionResolver(withoutGit, " ", "");
+
+        assertThat(resolver.currentCommit()).isNull();
+        assertThat(resolver.currentFullCommit()).isNull();
+    }
+    /** Spring builds it through the three-source constructor, reading the two properties apart. */
+    @Test
+    void springWiresBothConfiguredSources() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                    "deployment", java.util.Map.of("app.build.commit", "",
+                            "app.build.platform-commit", "77bbfe493cf230ce3e4624dfaa41fe617c8ae127")));
+            context.register(BuildVersionResolver.class);
+            context.refresh();
+
+            assertThat(context.getBean(BuildVersionResolver.class).currentCommit()).isEqualTo("77bbfe4");
+        }
+    }
 }

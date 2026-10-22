@@ -28,10 +28,28 @@ public class BuildVersionResolver {
     private final ObjectProvider<GitProperties> gitProperties;
     private final String configuredCommit;
 
+    /**
+     * Two configured sources, read separately: GIT_COMMIT (app.build.commit), then Railway's own
+     * RAILWAY_GIT_COMMIT_SHA (app.build.platform-commit), first non-blank wins. They used to be one
+     * nested placeholder, "${GIT_COMMIT:${RAILWAY_GIT_COMMIT_SHA:}}", but a placeholder default
+     * applies only when a property is absent, never when it is blank -- and the Dockerfile always
+     * declares GIT_COMMIT, empty unless a build argument fills it. So on every deployment the empty
+     * GIT_COMMIT won, Platform Diagnostics showed "Not available", and the statement-refresh dry run,
+     * which needs a version, checked nothing (production, found 2026-10-22).
+     */
+    @org.springframework.beans.factory.annotation.Autowired
     public BuildVersionResolver(ObjectProvider<GitProperties> gitProperties,
-                                 @Value("${app.build.commit:}") String configuredCommit) {
+                                 @Value("${app.build.commit:}") String configuredCommit,
+                                 @Value("${app.build.platform-commit:}") String platformCommit) {
         this.gitProperties = gitProperties;
-        this.configuredCommit = configuredCommit;
+        this.configuredCommit = configuredCommit != null && !configuredCommit.isBlank()
+                ? configuredCommit.trim()
+                : (platformCommit == null || platformCommit.isBlank() ? null : platformCommit.trim());
+    }
+
+    /** One configured source only -- for callers with no platform commit to offer. */
+    public BuildVersionResolver(ObjectProvider<GitProperties> gitProperties, String configuredCommit) {
+        this(gitProperties, configuredCommit, null);
     }
 
     /** The running build's short commit id, or null if it cannot be determined at all (no git

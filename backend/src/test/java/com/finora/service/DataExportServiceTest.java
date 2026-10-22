@@ -388,7 +388,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .contains("spending_tracking.json");
     }
 
-    /** V282: the AI month stories and "Why?" answers written for the user, and the thumbs they gave,
+    /** V283: the AI month stories and "Why?" answers written for the user, and the thumbs they gave,
      *  are the user's own data; the Free allowance counter is listed as excluded. */
     @Test
     void writeZip_exportsTheAiInsightTexts() throws IOException {

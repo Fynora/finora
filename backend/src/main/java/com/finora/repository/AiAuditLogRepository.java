@@ -22,7 +22,7 @@ public interface AiAuditLogRepository extends JpaRepository<AiAuditLog, UUID> {
     @Query("SELECT COALESCE(SUM(a.cost), 0) FROM AiAuditLog a WHERE a.createdAt >= :since")
     BigDecimal sumCostSince(@Param("since") Instant since);
 
-    // AI insights' Free budget slice (V282 plan_code): spend under one plan, same COALESCE reasoning.
+    // AI insights' Free budget slice (V283 plan_code): spend under one plan, same COALESCE reasoning.
     @Query("SELECT COALESCE(SUM(a.cost), 0) FROM AiAuditLog a WHERE a.planCode = :planCode AND a.createdAt >= :since")
     BigDecimal sumCostByPlanSince(@Param("planCode") String planCode, @Param("since") Instant since);
 

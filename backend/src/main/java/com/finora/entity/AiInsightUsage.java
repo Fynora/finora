@@ -8,7 +8,7 @@ import jakarta.persistence.Table;
 import java.util.UUID;
 
 /**
- * The Free plan's monthly AI insights allowance (V282; spec §6): "Why?" answers used and stories
+ * The Free plan's monthly AI insights allowance (V283; spec §6): "Why?" answers used and stories
  * generated, per user per calendar month in the user's timezone -- one row per (user, month).
  * Changed only through {@code AiInsightUsageRepository}'s conditional updates, never by loading and
  * saving.

@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * One AI text attempt for the AI insights foundation (V282; docs/superpowers/specs/
+ * One AI text attempt for the AI insights foundation (V283; docs/superpowers/specs/
  * 2026-10-22-ai-insights-foundation-design.md §5.4): the month story or a "Why?" answer, with the
  * fact sheet it was written from. Rows are created by {@code AiInsightTextRepository#insertPending}
  * (the single-flight insert), never by {@code save} of a new entity, so the id is assigned there.

@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The numeric Insights endpoint, and {@code /api/v1/insights/narration}, which since the AI insights
- * foundation (V282) serves the AI month story: FYN_INSIGHTS is granted to every plan, so a Free user
+ * foundation (V283) serves the AI month story: FYN_INSIGHTS is granted to every plan, so a Free user
  * is no longer refused by plan. With no ANTHROPIC_API_KEY under test, Fyn is unavailable and the
  * endpoint answers 404 (no narration), which the website shows as "nothing to add". The story itself
  * is covered by AiInsightControllerIT with a stub model.

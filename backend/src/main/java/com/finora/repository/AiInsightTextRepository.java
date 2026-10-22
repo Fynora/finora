@@ -11,7 +11,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/** AI insight texts (V282; spec §5.4). Every write that decides who calls the model is one SQL
+/** AI insight texts (V283; spec §5.4). Every write that decides who calls the model is one SQL
  *  statement, so two requests can never both believe they won. */
 public interface AiInsightTextRepository extends JpaRepository<AiInsightText, UUID> {
 

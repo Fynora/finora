@@ -838,7 +838,7 @@ public class AccountPurgeSweepService {
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);
-            // V282: AI insight texts and the Free allowance, same anonymize-not-delete trap.
+            // V283: AI insight texts and the Free allowance, same anonymize-not-delete trap.
             aiInsightTextRepository.deleteByUserId(userId);
             aiInsightUsageRepository.deleteByUserId(userId);
             // chat_messages first: it carries no user_id of its own, only conversation_id, so its

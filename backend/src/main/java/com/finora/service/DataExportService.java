@@ -522,7 +522,7 @@ public class DataExportService {
                         .map(a -> new com.finora.dto.DataExportDto.InsightAcknowledgementExportDto(
                                 a.getKind(), a.getItemKey(), a.getAcknowledgedAt()))
                         .toList();
-        // V282: the AI texts written for the user, in the purge scope, so exported.
+        // V283: the AI texts written for the user, in the purge scope, so exported.
         List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights =
                 aiInsightTextRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
                         .map(t -> new com.finora.dto.DataExportDto.AiInsightTextExportDto(

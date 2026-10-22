@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 
 /**
- * The Free plan's monthly AI insights allowance (V282; spec §6). A reservation is one conditional
+ * The Free plan's monthly AI insights allowance (V283; spec §6). A reservation is one conditional
  * UPDATE after the row exists: Postgres re-checks {@code why_used < :limit} on the row it locks, so
  * parallel taps queue on that row and never pass the limit. A use is given back with release* when
  * the attempt ends without an AI text shown.

@@ -301,7 +301,7 @@ class AccountPurgeSweepServiceTest {
         // this test file already caught twice before (user_roles, support/feedback tables) --
         // a table with its own user_id column is easy to add and forget to wire into the purge.
         verify(timelineEventRepository).deleteByUserId(userId);
-        // V282: AI insight texts and the Free allowance -- the cascade never fires here (the users row
+        // V283: AI insight texts and the Free allowance -- the cascade never fires here (the users row
         // is anonymized), so both need their own call.
         verify(aiInsightTextRepository).deleteByUserId(userId);
         verify(aiInsightUsageRepository).deleteByUserId(userId);

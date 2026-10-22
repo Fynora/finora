@@ -119,7 +119,7 @@ Since 2026-10-22 the shards are split by Spring context configuration, not alpha
 balanced by measured class time (`scripts/shard-integration-tests.py`). Booting contexts had been
 about 40% of each shard's test time.
 - **Boots:** 92 → 61 across the three shards.
-- **Slowest shard's test phase:** 299s → 265s, on runners of similar speed.
+- **Slowest shard's test phase:** 299s → 249–265s, over two runs on runners of similar speed.
 
 On the private runners, the first `full-ci` run (a change to `ci.yml`, so every area ran) billed
 65 minutes. A by-hand (`workflow_dispatch`) or weekly run always runs everything, so budget ~65

@@ -141,10 +141,13 @@ function AdvancedReportsContent() {
   const report = reportQ.data ?? null;
   const period = report?.period ?? null;
   const busy = reportQ.isFetching && report !== null;
+  // While a new period loads, `period` is still the one on screen: its months and its ways to compare
+  // belong to the old choice, so they are not shown beside the new one.
+  const current = period !== null && period.range === range ? period : null;
 
   const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label ?? 'Last 12 months';
-  const compareOptions = period?.compareOptions ?? [];
-  const compareLabel = period && period.compare ? compareOptionLabel(period.compare, period) : null;
+  const compareOptions = current?.compareOptions ?? [];
+  const compareLabel = current && current.compare ? compareOptionLabel(current.compare, current) : null;
   const monthsNewestFirst = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
   const monthLabelToRaw = useMemo(() => new Map(monthsNewestFirst.map((m) => [monthLabelLong(m), m])), [monthsNewestFirst]);
 
@@ -204,7 +207,7 @@ function AdvancedReportsContent() {
           pickers are not offered there. */}
       {tab !== 'categorisation' ? (
         <Card style={styles.section}>
-          <PickerField label="Period" value={rangeLabel} onPress={() => setPicker('range')} hint={period && range !== 'CUSTOM' ? periodSpan(period) : null} testID="period-field" />
+          <PickerField label="Period" value={rangeLabel} onPress={() => setPicker('range')} hint={current && range !== 'CUSTOM' ? periodSpan(current) : null} testID="period-field" />
           {range === 'CUSTOM' ? (
             <View style={styles.pair}>
               <View style={styles.half}><PickerField label="From" value={startMonth ? monthLabelLong(startMonth) : 'Choose'} onPress={() => setPicker('start')} testID="start-field" /></View>
@@ -242,7 +245,7 @@ function AdvancedReportsContent() {
           <Text style={[typography.bodyS, { color: c.mutedInk }]}>{copy.desc}</Text>
         </Card>
       ) : report ? (
-        <View style={styles.stack}>
+        <View style={[styles.stack, busy && styles.busy]} accessibilityState={{ busy }}>
           <PeriodNotice report={report} />
           {tab === 'overview' ? (
             <>
@@ -274,9 +277,9 @@ function AdvancedReportsContent() {
         onSelect={(label) => { chooseRange(label); setPicker(null); }} onClose={() => setPicker(null)}
       />
       <OptionPickerModal
-        visible={picker === 'compare'} title="Compare with" options={compareOptions.map((o) => compareOptionLabel(o, period!))} selected={compareLabel}
+        visible={picker === 'compare'} title="Compare with" options={compareOptions.map((o) => compareOptionLabel(o, current!))} selected={compareLabel}
         onSelect={(label) => {
-          const next = compareOptions.find((o) => compareOptionLabel(o, period!) === label);
+          const next = compareOptions.find((o) => compareOptionLabel(o, current!) === label);
           if (next) setCompare(next);
           setPicker(null);
         }}
@@ -335,4 +338,6 @@ const styles = StyleSheet.create({
   },
   exportButton: { minHeight: 44, borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   disabled: { opacity: 0.5 },
+  // The figures on screen are the old period's while another loads: dimmed so they are not read as the new choice's.
+  busy: { opacity: 0.5 },
 });

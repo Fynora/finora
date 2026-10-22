@@ -28,7 +28,10 @@ const PLOT_H = HEIGHT - TOP - BOTTOM;
  */
 export function FlowChart({ months, incompleteNote }: { months: AdvancedMonth[]; incompleteNote: string | null }) {
   const c = useTheme();
-  const [grain, setGrain] = useState<'monthly' | 'yearly'>(months.length > YEARLY_ABOVE_MONTHS ? 'yearly' : 'monthly');
+  // The reader's own choice, or none: what the period suggests is worked out each time, so moving from a
+  // short period to a long one draws years even though a short one was on screen before.
+  const [chosenGrain, setGrain] = useState<'monthly' | 'yearly' | null>(null);
+  const grain = chosenGrain ?? (months.length > YEARLY_ABOVE_MONTHS ? 'yearly' : 'monthly');
   const [asList, setAsList] = useState(false);
   if (months.length === 0) return null;
   const yearly = months.length > YEARLY_ABOVE_MONTHS && grain === 'yearly';

@@ -69,7 +69,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   entitlements.mine.mockResolvedValue(PLUS);
   reports.availableMonths.mockResolvedValue(['2025-01', '2025-02', '2026-08', '2026-09']);
-  analytics.advanced.mockResolvedValue(fixtureReport());
+  // Like the server, answer with the range that was asked for.
+  analytics.advanced.mockImplementation(async ({ range }) => {
+    const base = fixtureReport();
+    return fixtureReport({ period: { ...base.period, range } });
+  });
   analytics.categoryConfidence.mockResolvedValue([{ category: 'Food', avgConfidence: 88, merchantCount: 4 }]);
   analytics.learningGrowth.mockResolvedValue([{ month: '2026-08', learnedCount: 10, correctedCount: 2 }]);
 });
@@ -202,6 +206,32 @@ describe('AdvancedReportsScreen for an entitled user', () => {
     fireEvent.press(screen.getByLabelText(/Compare with: Previous 6 months/));
     fireEvent.press(screen.getByText('Same months a year earlier'));
     await waitFor(() => expect(lastRequest()).toEqual({ range: 'LAST_12_MONTHS', compare: 'SAME_PERIOD_LAST_YEAR' }));
+  });
+
+  it('does not show the old period\'s months or ways to compare beside a period still loading', async () => {
+    renderScreen();
+    await loaded();
+    expect(screen.getByText('Apr 2026 – Sep 2026')).toBeTruthy();
+    analytics.advanced.mockReturnValue(new Promise(() => {}));
+
+    fireEvent.press(screen.getByLabelText(/Period: Last 12 months/));
+    fireEvent.press(screen.getByText('Last 3 months'));
+
+    await waitFor(() => expect(lastRequest()).toEqual({ range: 'LAST_3_MONTHS' }));
+    expect(screen.queryByText('Apr 2026 – Sep 2026')).toBeNull();
+    expect(screen.queryByTestId('compare-field')).toBeNull();
+  });
+
+  it('never shows the old period\'s figures under a new period when the new request fails', async () => {
+    renderScreen();
+    await loaded();
+    analytics.advanced.mockRejectedValueOnce(new Error('boom'));
+
+    fireEvent.press(screen.getByLabelText(/Period: Last 12 months/));
+    fireEvent.press(screen.getByText('Last 3 months'));
+
+    expect(await screen.findByText(/Couldn't load Advanced Reports/)).toBeTruthy();
+    expect(screen.queryByTestId('kpi-income')).toBeNull();
   });
 
   it('has no compare picker when the period has a single comparison', async () => {
@@ -428,6 +458,21 @@ describe('AdvancedReportsScreen for an entitled user', () => {
       await loaded();
       expect(screen.getByTestId('flow-partial-note')).toHaveTextContent(text('Only part of the month is in'));
       expect(screen.getByText(/May 2026 is only part of a month/)).toBeTruthy();
+    });
+
+    it('draws a long period by year even after a short one was on screen', async () => {
+      renderScreen();
+      await loaded();
+      const months = Array.from({ length: 30 }, (_, i) => fixtureMonth(`${2024 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`));
+      analytics.advanced.mockImplementation(async ({ range }) => {
+        const base = fixtureReport();
+        return fixtureReport({ months, period: { ...base.period, range, monthCount: 30, startMonth: '2024-01', endMonth: '2026-06' } });
+      });
+
+      fireEvent.press(screen.getByLabelText(/Period: Last 12 months/));
+      fireEvent.press(screen.getByText('All time'));
+
+      expect(await screen.findByLabelText(/^2024: income/)).toBeTruthy();
     });
 
     it('draws a period longer than a year one calendar year at a time, and says so', async () => {

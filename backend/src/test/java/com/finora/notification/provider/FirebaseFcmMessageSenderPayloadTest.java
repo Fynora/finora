@@ -43,6 +43,17 @@ class FirebaseFcmMessageSenderPayloadTest {
         assertThat(payload().at("/android/notification/sound").asText()).isEqualTo("default");
     }
 
+    /**
+     * On Android 8+ the channel on the phone decides sound and vibration, not the message. This id
+     * must equal PUSH_CHANNEL_ID in mobile/src/lib/systemNotification.ts, where the channel is
+     * created with sound and vibration on. Pinned as a literal here so changing it on one side
+     * only fails this test instead of silently putting pushes on a channel that does not exist.
+     */
+    @Test
+    void androidPushNamesTheChannelTheAppCreatesWithSoundAndVibration() throws Exception {
+        assertThat(payload().at("/android/notification/channel_id").asText()).isEqualTo("pushes");
+    }
+
     @Test
     void titleBodyAndTypeStillTravelWithThePush() throws Exception {
         JsonNode json = payload();

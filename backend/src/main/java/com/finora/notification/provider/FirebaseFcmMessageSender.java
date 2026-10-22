@@ -50,7 +50,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Every push carries an {@code ApnsConfig} with {@code aps.sound = "default"} and
  * {@code apns-priority = 10}, and an {@code AndroidConfig} with HIGH priority and the default
- * sound. Left unset, iOS delivered the banner silently and Android did not treat the push as
+ * sound, posted on the {@link #ANDROID_CHANNEL_ID} channel. Left unset, iOS delivered the banner silently and Android did not treat the push as
  * high priority. Badge counts are still not set: there is no unread-count feature to compute one
  * from, and a guessed value would be worse than none.
  *
@@ -91,6 +91,13 @@ import org.slf4j.LoggerFactory;
 public class FirebaseFcmMessageSender implements FcmMessageSender {
 
     private static final Logger log = LoggerFactory.getLogger(FirebaseFcmMessageSender.class);
+
+    /**
+     * The Android channel pushes are posted on. The app creates it with sound and vibration on
+     * (PUSH_CHANNEL_ID in mobile/src/lib/systemNotification.ts) -- keep the two equal. A phone that
+     * has not created it yet is not an error: FCM posts to its own default channel instead.
+     */
+    static final String ANDROID_CHANNEL_ID = "pushes";
 
     private final FirebaseMessaging messaging;
 
@@ -140,7 +147,10 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
                         .build())
                 .setAndroidConfig(AndroidConfig.builder()
                         .setPriority(AndroidConfig.Priority.HIGH)
-                        .setNotification(AndroidNotification.builder().setSound("default").build())
+                        .setNotification(AndroidNotification.builder()
+                                .setSound("default")
+                                .setChannelId(ANDROID_CHANNEL_ID)
+                                .build())
                         .build())
                 .build();
     }

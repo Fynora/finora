@@ -24,9 +24,21 @@ function logPushFailure(context: string, error: unknown): void {
 // inside the try when the native side is missing, but under this repo's Jest setup (vm-modules) a
 // dynamic import() bypasses jest.mock and loads the real library, so it could not be tested.
 
-/** The Android channel campaign messages use. HIGH importance is what makes it slide in at the top. */
-export const CAMPAIGN_CHANNEL_ID = 'campaigns';
-const CAMPAIGN_CHANNEL_NAME = 'Announcements';
+/**
+ * The Android channel every push uses, both the ones the phone draws itself while the app is closed
+ * (the backend names this id in its FCM message) and the ones drawn here while the app is open.
+ *
+ * A channel decides sound and vibration on Android 8+, and a channel created with no `sound` plays
+ * none -- which is what the old "campaigns" channel did. Channel settings cannot be changed once a
+ * channel exists on a phone, so this is a new id rather than an edit of the old one. HIGH importance
+ * is also what makes it slide in at the top.
+ *
+ * The backend sends this exact string (FirebaseFcmMessageSender.ANDROID_CHANNEL_ID); keep the two
+ * equal. A phone that does not have the channel yet is handled by FCM itself, which falls back to
+ * its own default channel, so deploying the backend before this reaches a phone loses nothing.
+ */
+export const PUSH_CHANNEL_ID = 'pushes';
+const PUSH_CHANNEL_NAME = 'Notifications';
 
 type NotifyKit = typeof import('react-native-notify-kit');
 
@@ -39,6 +51,17 @@ function loadNotifyKit(): NotifyKit | null {
     logPushFailure('react-native-notify-kit is not available in this build', error);
     return null;
   }
+}
+
+/** Idempotent: creating a channel that already exists leaves it as it is. */
+async function ensurePushChannel(kit: NotifyKit): Promise<string> {
+  return kit.default.createChannel({
+    id: PUSH_CHANNEL_ID,
+    name: PUSH_CHANNEL_NAME,
+    importance: kit.AndroidImportance.HIGH,
+    sound: 'default',
+    vibration: true,
+  });
 }
 
 /**
@@ -62,15 +85,7 @@ export async function showSystemNotification(title: string, body: string, id?: s
       return false;
     }
 
-    let channelId: string | undefined;
-    if (Platform.OS === 'android') {
-      // Idempotent: creating a channel that already exists leaves it as it is.
-      channelId = await notifee.createChannel({
-        id: CAMPAIGN_CHANNEL_ID,
-        name: CAMPAIGN_CHANNEL_NAME,
-        importance: kit.AndroidImportance.HIGH,
-      });
-    }
+    const channelId = Platform.OS === 'android' ? await ensurePushChannel(kit) : undefined;
 
     await notifee.displayNotification({
       id,
@@ -98,6 +113,9 @@ export async function registerSystemNotificationEvents(): Promise<void> {
   try {
     const kit = loadNotifyKit();
     kit?.default.onBackgroundEvent(async () => {});
+    // Before any push can arrive, so a push drawn by the phone itself lands on a channel that
+    // makes sound and vibrates. A failure here must not stop the handler registered above.
+    if (kit && Platform.OS === 'android') await ensurePushChannel(kit);
   } catch (error) {
     logPushFailure('registerSystemNotificationEvents failed', error);
   }

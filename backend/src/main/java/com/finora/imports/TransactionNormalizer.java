@@ -731,6 +731,14 @@ public class TransactionNormalizer {
             isIncome = true;
         } else if (creditRaw != null) {
             isIncome = true;
+        } else if (CsvParser.isSignedCardExport(row)) {
+            // ICICI Bank's credit-card export with no CR marker. One real upload (2026-10-21) put
+            // the signed amount itself in BillingAmountSign instead of CR or a blank -- a spend
+            // positive, a payment or refund negative -- so the type hint above read no direction
+            // and the fallback below read each credit as a spend. Scoped to the export's own
+            // columns: on a bank export a minus sign would mean money out, so the sign alone says
+            // nothing about direction there, and other layouts keep their reading.
+            isIncome = parsedAmount.signum() < 0;
         } else {
             Boolean signFromAmount = CsvParser.detectSignFromRawAmount(amountRaw);
             if (ctx != null && signFromAmount != null) {

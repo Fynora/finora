@@ -187,7 +187,8 @@ public class CsvParser {
      *  PNB ONE's end every transaction line with a trailing comma, i.e. one more field than
      *  there are header columns, which the strict header-aware reader rejects outright. */
     public List<String[]> readAll(InputStream contentStream) throws IOException {
-        try (CSVReader reader = new CSVReader(new InputStreamReader(contentStream, StandardCharsets.UTF_8))) {
+        try (CSVReader reader = new CSVReader(withoutByteOrderMark(
+                new InputStreamReader(contentStream, StandardCharsets.UTF_8)))) {
             return reader.readAll();
         } catch (com.opencsv.exceptions.CsvException | com.opencsv.exceptions.CsvMalformedLineException e) {
             // CsvMalformedLineException is an IOException, not a CsvException, so naming only the
@@ -195,6 +196,23 @@ public class CsvParser {
             // worker, a bare 500 on the synchronous endpoint. Both are a damaged file: a curated 422.
             throw new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_MALFORMED_CSV);
         }
+    }
+
+    /**
+     * The reader with a leading UTF-8 byte-order mark (U+FEFF) skipped.
+     *
+     * <p>Spreadsheet programs write the mark when they save "CSV UTF-8", and Java's UTF-8 decoder
+     * keeps it as a character. It then sat at the start of the first cell: a header on the file's
+     * first line began "&#92;uFEFFDate", matched no date column, and the whole file failed as
+     * having no header (two real uploads on 2026-10-21, a card export and a combined ledger). A
+     * header further down was unaffected, which is why a bank export with a preamble imported fine
+     * with the same mark. Only the first character is checked: a mark anywhere else is content.
+     */
+    static java.io.Reader withoutByteOrderMark(java.io.Reader in) throws IOException {
+        java.io.PushbackReader reader = new java.io.PushbackReader(in, 1);
+        int first = reader.read();
+        if (first != -1 && first != '\uFEFF') reader.unread(first);
+        return reader;
     }
 
     /** First row containing both a recognizable date column and a recognizable amount column,
@@ -314,6 +332,19 @@ public class CsvParser {
             }
         }
         return false;
+    }
+
+    /**
+     * ICICI Bank's credit-card transaction export, recognised by two of its own column names
+     * together: "Reward Point Header" and "BillingAmountSign". Seen on a real upload (2026-10-21):
+     * Date, Sr.No., Transaction Details, Reward Point Header, Intl.Amount, Amount(in Rs),
+     * BillingAmountSign. In that file the amount is signed -- a spend positive, a payment or refund
+     * to the card negative -- and BillingAmountSign repeats it rather than holding CR (the form
+     * TransactionNormalizer's type hints read). Read by TransactionNormalizer for direction when no
+     * CR/DR marker is present.
+     */
+    public static boolean isSignedCardExport(Map<String, String> row) {
+        return row != null && hasHeaderMatch(row, "reward point header") && hasHeaderMatch(row, "billingamountsign");
     }
 
     // Case-insensitive on purpose: header text arrives verbatim from whatever bank/card portal

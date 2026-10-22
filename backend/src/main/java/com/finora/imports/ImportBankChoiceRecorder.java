@@ -4,6 +4,8 @@ import com.finora.dto.ImportDto.DetectedAccountInfo;
 import com.finora.util.BankRegistry;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -27,6 +29,11 @@ public class ImportBankChoiceRecorder {
      * @param chosenBankId the bank the created account actually has (after the account service
      *                     resolved whatever the client sent), never the raw request value
      */
+    // Its own transaction: ImportService calls this from afterCommit, and Spring's contract for
+    // afterCommit is that data access there must declare a new transaction, since the finished
+    // transaction's resources can still be bound. (Measured 2026-10-23: in this app the row also
+    // persisted without it; the contract, not that observation, is what this relies on.)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(String layoutFingerprint, DetectedAccountInfo detected, String chosenBankId) {
         String detectedBank = detected == null || detected.bank() == null ? BankRegistry.UNKNOWN_ID : detected.bank().id();
         String source = detected == null ? DetectedAccountInfo.BANK_SOURCE_NONE

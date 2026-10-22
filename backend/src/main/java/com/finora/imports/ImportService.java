@@ -148,13 +148,37 @@ public class ImportService {
 
     /** Records the bank of an account this section's confirm created, read back from the account
      *  itself so it is what the account really got, not what the client sent. Nothing for an
-     *  import into an existing account. */
+     *  import into an existing account.
+     *
+     *  <p>Written only after the import commits, and never allowed to throw: it is a count for
+     *  admins, and a failure to write it must never cost the user their import (in the same
+     *  transaction, even a caught SQL error would leave PostgreSQL's transaction aborted). An import
+     *  that rolls back records nothing. */
     private void recordBankChoice(String layoutFingerprint, DetectedAccountInfo staged, ConfirmRequest sectionRequest,
                                   List<String> accountsCreated, UUID accountId) {
         if (bankChoiceRecorder == null || sectionRequest.newAccount() == null
                 || accountsCreated == null || accountsCreated.isEmpty() || accountId == null) return;
-        accountRepository.findById(accountId)
-                .ifPresent(account -> bankChoiceRecorder.record(layoutFingerprint, staged, account.getBankId()));
+        String chosenBankId = accountRepository.findById(accountId).map(Account::getBankId).orElse(null);
+        if (chosenBankId == null) return;
+        ImportBankChoiceRecorder recorder = bankChoiceRecorder;
+        Runnable write = () -> {
+            try {
+                recorder.record(layoutFingerprint, staged, chosenBankId);
+            } catch (RuntimeException e) {
+                log.warn("Could not record the bank choice for a confirmed import; the import itself is unaffected", e);
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            write.run();
+                        }
+                    });
+        } else {
+            write.run();
+        }
     }
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,

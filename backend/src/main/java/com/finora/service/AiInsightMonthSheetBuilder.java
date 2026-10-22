@@ -101,9 +101,11 @@ public class AiInsightMonthSheetBuilder {
             }
         }
 
-        List<LookAtRowDto> lookAt = lookAtService.rows(userId, built);
-        long toAnswer = lookAt.stream().filter(r -> "new-recurring".equals(r.kind())).count();
-        long amountChanges = lookAt.stream().filter(r -> "amount-changed".equals(r.kind())).count();
+        // Counted before "Got it" takes rows away: an acknowledged row is still a fact of the month, and
+        // a tap must not change the facts (and so rewrite the story) -- spec §5.4.
+        LookAtService.Rows lookAt = lookAtService.rowsWithAll(userId, built);
+        long toAnswer = lookAt.all().stream().filter(r -> "new-recurring".equals(r.kind())).count();
+        long amountChanges = lookAt.all().stream().filter(r -> "amount-changed".equals(r.kind())).count();
         if (toAnswer > 0) {
             facts.add(AiInsightFacts.fact("month", "recurring_to_answer", Period.THIS_MONTH, Unit.COUNT,
                     BigDecimal.valueOf(toAnswer), "repeating payment"));
@@ -129,7 +131,7 @@ public class AiInsightMonthSheetBuilder {
         }
 
         List<Row> rows = new ArrayList<>();
-        for (LookAtRowDto r : lookAt) {
+        for (LookAtRowDto r : lookAt.shown()) {
             String subjectId = "running-high".equals(r.kind()) ? subjects.forName(r.category()).id() : AiInsightFacts.MONTH.id();
             rows.add(new Row("row_" + (rows.size() + 1), r.key(), r.kind(), subjectId));
         }

@@ -55,9 +55,15 @@ class AiInsightMonthSheetBuilderTest {
         lookAtService = mock(LookAtService.class);
         builder = new AiInsightMonthSheetBuilder(insightsService, dashboardService, peopleService, lookAtService);
         when(peopleService.people(userId)).thenReturn(List.of());
-        when(lookAtService.rows(eq(userId), any(InsightsService.Built.class))).thenReturn(List.of());
+        givenRows(List.of());
         DashboardSummaryDto september = dashboard("2026-09", "40000", "25000", 12.0);
         when(dashboardService.summarize(userId)).thenReturn(september);
+    }
+
+    /** The rows shown, and the same rows before "Got it" took any away -- here no acknowledgements. */
+    private void givenRows(List<LookAtRowDto> rows) {
+        when(lookAtService.rowsWithAll(eq(userId), any(InsightsService.Built.class)))
+                .thenReturn(new LookAtService.Rows(rows, rows));
     }
 
     private static DashboardSummaryDto dashboard(String month, String in, String out, Double outDelta) {
@@ -135,7 +141,7 @@ class AiInsightMonthSheetBuilderTest {
         given(List.of(mover("Friend K rent", "12000", "9000", 33.3)), Map.of("Friend K rent", 3));
         when(peopleService.people(userId)).thenReturn(List.of(
                 new PeopleDtos.PersonDto("vpa:flatmate.a", "Friend K", new BigDecimal("4000"), LocalDate.parse("2026-08-01"), false)));
-        when(lookAtService.rows(eq(userId), any(InsightsService.Built.class))).thenReturn(List.of(
+        givenRows(List.of(
                 LookAtRowDto.amountChanged("vpa:flatmate.a", "Rent", new BigDecimal("649"), "2026-09-12", "vpa:flatmate.a|2026-09-12"),
                 LookAtRowDto.runningHigh("Friend K rent", new BigDecimal("12000"), new BigDecimal("9000"), "2026-09",
                         "Friend K rent|2026-09", true)));
@@ -186,7 +192,7 @@ class AiInsightMonthSheetBuilderTest {
                 new InsightsDto.UnlinkedCardBills("2026-09", new BigDecimal("21400"), 2, "Sample Card", "0001"));
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
                 dto, Map.of(), new BigDecimal("25000"), List.of(), null));
-        when(lookAtService.rows(eq(userId), any(InsightsService.Built.class))).thenReturn(List.of(
+        givenRows(List.of(
                 LookAtRowDto.newRecurring(null, "sample gym"), LookAtRowDto.newRecurring(null, "sample tv")));
 
         FactSheet sheet = builder.build(userId, "2026-09").orElseThrow();
@@ -203,5 +209,27 @@ class AiInsightMonthSheetBuilderTest {
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
                 new InsightsDto(List.of(), List.of(), null, null, null, null, true, null), Map.of(), null, List.of(), null));
         assertThat(builder.build(userId, "2026-09")).isEqualTo(Optional.empty());
+    }
+
+    // Spec §5.4: marking a row "Got it" must not change the facts, or the story would be rewritten (and
+    // a Free user's monthly story allowance spent) for a tap.
+    @Test
+    void gotItOnARowDoesNotChangeTheFacts() {
+        given(List.of(), Map.of());
+        LookAtRowDto change = LookAtRowDto.amountChanged("Sample TV", "Subscriptions", new BigDecimal("649"), "2026-09-12",
+                "sample tv|2026-09-12");
+        LookAtRowDto question = LookAtRowDto.newRecurring(null, "sample gym");
+        givenRows(List.of(change, question));
+        FactSheet before = builder.build(userId, "2026-09").orElseThrow();
+
+        // Both rows marked "Got it": no longer shown, still facts of the month.
+        when(lookAtService.rowsWithAll(eq(userId), any(InsightsService.Built.class)))
+                .thenReturn(new LookAtService.Rows(List.of(), List.of(change, question)));
+        FactSheet after = builder.build(userId, "2026-09").orElseThrow();
+
+        assertThat(after.hash()).isEqualTo(before.hash());
+        assertThat(after.fact("month.amount_changes").value()).isEqualByComparingTo("1");
+        assertThat(after.fact("month.recurring_to_answer").value()).isEqualByComparingTo("1");
+        assertThat(after.rows()).isEmpty();
     }
 }

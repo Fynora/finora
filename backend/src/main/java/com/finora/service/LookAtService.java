@@ -61,14 +61,25 @@ public class LookAtService {
         return rows(userId, insightsService.buildDetailed(userId, month));
     }
 
-    /** The rows for a month whose insights are already built -- AI insights' month sheet passes its
-     *  own, so the transactions are loaded once per request. */
+    /** The rows for a month whose insights are already built, in rules order. */
     public List<LookAtRowDto> rows(UUID userId, InsightsService.Built built) {
+        return rowsWithAll(userId, built).shown();
+    }
+
+    /** {@code shown}: the rows the user sees. {@code all}: the same rows before "Got it" took any away
+     *  -- what AI insights count as facts of the month, so marking a row "Got it" never changes them
+     *  (spec §5.4). People rows are already left out by PeopleService when acknowledged, in both. */
+    public record Rows(List<LookAtRowDto> shown, List<LookAtRowDto> all) {}
+
+    /** Both lists for a month whose insights are already built: the sources are read once. */
+    public Rows rowsWithAll(UUID userId, InsightsService.Built built) {
         Set<String> acks = acknowledgementService.list(userId).stream()
                 .map(LookAtService::ackEntry).collect(Collectors.toSet());
-        return build(built.dto(), recurringService.detectForUser(userId),
-                recurringAnswerService.changedAmounts(userId), acks,
-                peopleService.suggestions(userId).items(), built.baselineMonths());
+        List<RecurringDto> recurring = recurringService.detectForUser(userId);
+        List<ChangedAmountDto> changed = recurringAnswerService.changedAmounts(userId);
+        List<PeopleSuggestions.Suggestion> people = peopleService.suggestions(userId).items();
+        return new Rows(build(built.dto(), recurring, changed, acks, people, built.baselineMonths()),
+                build(built.dto(), recurring, changed, Set.of(), people, built.baselineMonths()));
     }
 
     private static String ackEntry(InsightAcknowledgementDto a) {

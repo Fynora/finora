@@ -1,33 +1,43 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Bar, Line } from 'react-chartjs-2';
+import { useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { BarChart3, Crown, Loader2, Lock } from 'lucide-react';
 import {
-  Chart as ChartJS, BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler,
-} from 'chart.js';
-import { Crown, Lock, Store, Tags, Brain, Globe, TrendingUp as TrendingUpIcon } from 'lucide-react';
-import { analyticsApi, reportsApi, type InternationalSpend } from '../api/endpoints';
-import { FinoraCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, Skeleton, useChartColors } from '../design-system';
+  analyticsApi, type AdvancedRange, type AdvancedReport, type AdvancedReportParams,
+} from '../api/endpoints';
+import { Button, EmptyState, FinoraCard, Skeleton } from '../design-system';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
-import { formatForeignAmount } from '../lib/foreignAmount';
+import { useDelayedLoading } from '../hooks/useDelayedLoading';
+import { downloadBlob, toCsv } from '../lib/download';
 import { trackNavigation } from '../lib/trackNavigation';
+import { advancedCsvRows, advancedExportName } from './advancedReports/advancedExport';
+import { incompleteNote, noDataCopy, RANGE_OPTIONS } from './advancedReports/advancedFormat';
+import { CashFlowChart } from './advancedReports/CashFlowChart';
+import { CategoriesPanel } from './advancedReports/CategoriesPanel';
+import { CategorisationPanel } from './advancedReports/CategorisationPanel';
+import { CategoryTrend } from './advancedReports/CategoryTrend';
+import { IncomePanel } from './advancedReports/IncomePanel';
+import { InsightsList } from './advancedReports/InsightsList';
+import { InternationalCard } from './advancedReports/InternationalCard';
+import { KpiRow } from './advancedReports/KpiRow';
+import { MerchantsPanel } from './advancedReports/MerchantsPanel';
+import { PeriodControls, type PeriodChoice } from './advancedReports/PeriodControls';
+import { PeriodNotice } from './advancedReports/PeriodNotice';
+import { UnusualSpends } from './advancedReports/UnusualSpends';
+import { PaymentMethods } from './reportSections/PaymentMethods';
+import { methodBreakdown } from './reportSections/methodBreakdown';
 
-ChartJS.register(BarElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
+type TabId = 'overview' | 'spending' | 'income' | 'merchants' | 'categorisation';
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'spending', label: 'Spending' },
+  { id: 'income', label: 'Income' },
+  { id: 'merchants', label: 'Merchants' },
+  { id: 'categorisation', label: 'Category insights' },
+];
 
-function fmt(n: number) {
-  // Negative amounts render as "-₹500", not "₹-500" -- same convention as every other page's fmt.
-  return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
-}
-
-function monthLabel(monthStr: string) {
-  const [y, m] = monthStr.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-}
-
-function monthLabelLong(monthStr: string) {
-  const [y, m] = monthStr.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
+const DEFAULT_RANGE: AdvancedRange = 'LAST_12_MONTHS';
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** The upgrade prompt shown in place of the whole page for a Free user -- more context than
  *  PremiumFeatureGate's own generic default, since this gates an entire page rather than one
@@ -42,7 +52,7 @@ function UpgradePrompt() {
         iconBg="bg-primary-light"
         iconColor="text-primary"
         title="Advanced Reports is a Plus & Premium feature"
-        desc="Top merchants, spend trends, category confidence, and how the categorization engine is learning your habits -- all built from your own transaction history."
+        desc="How your income, spending, categories and merchants have changed over months and years, compared with the period before -- all built from your own transaction history."
         cta={
           <Link
             to="/app/billing" onClick={() => trackNavigation('subscription', 'contextual')}
@@ -56,395 +66,215 @@ function UpgradePrompt() {
   );
 }
 
-/** A "top N" bar list -- label, a bar sized relative to the largest value in THIS list (not a
- *  running total), and the amount. Same visual language as Reports.tsx's "Where your money went"
- *  rows, adapted for a ranked list rather than a share-of-total. */
-function RankedBarList({
-  rows, empty,
-}: {
-  rows: { label: string; sub: string; value: number }[];
-  empty: { icon: typeof Store; title: string; desc: string };
-}) {
-  if (rows.length === 0) {
-    return <EmptyState icon={empty.icon} iconBg="bg-primary-light" iconColor="text-primary" title={empty.title} desc={empty.desc} />;
-  }
-  const max = Math.max(...rows.map((r) => r.value), 1);
+function BodySkeleton() {
   return (
-    <div className="space-y-3">
-      {rows.map((r) => (
-        <div key={r.label} className="grid grid-cols-[1fr_90px] items-center gap-3 text-sm">
-          <div className="min-w-0">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-ink font-medium truncate">{r.label}</span>
-              <span className="text-2xs text-muted flex-shrink-0">{r.sub}</span>
-            </div>
-            <div className="h-1.5 bg-black/10 rounded overflow-hidden mt-1">
-              <div className="h-full bg-primary" style={{ width: `${(r.value / max) * 100}%` }} />
+    <Skeleton.Region label="Loading advanced reports">
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }, (_, i) => <Skeleton.Card key={i} />)}
+        </div>
+        <FinoraCard><Skeleton.Chart className="h-64" /></FinoraCard>
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <FinoraCard><Skeleton.Block className="h-48 w-full" /></FinoraCard>
+          <FinoraCard><Skeleton.Block className="h-48 w-full" /></FinoraCard>
+        </div>
+      </div>
+    </Skeleton.Region>
+  );
+}
+
+function tabPanel(tab: TabId, report: AdvancedReport, goTo: (t: TabId) => void) {
+  const { period } = report;
+  const methods = methodBreakdown(report.paymentMethods);
+  const partial = incompleteNote(period);
+  switch (tab) {
+    case 'overview':
+      return (
+        <div className="space-y-6">
+          <PeriodNotice report={report} />
+          <KpiRow report={report} />
+          <CashFlowChart months={report.months} incompleteNoteText={partial} />
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <InsightsList insights={report.insights} />
+            <CategoriesPanel report={report} limit={5} onViewAll={() => goTo('spending')} />
+          </div>
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            <MerchantsPanel report={report} limit={5} onViewAll={() => goTo('merchants')} />
+            <PaymentMethods breakdown={methods} />
+          </div>
+        </div>
+      );
+    case 'spending':
+      return (
+        <div className="space-y-6">
+          <PeriodNotice report={report} />
+          <div className="grid items-start gap-6 lg:grid-cols-5">
+            <div className="lg:col-span-3"><CategoriesPanel report={report} /></div>
+            <div className="space-y-6 lg:col-span-2">
+              <PaymentMethods breakdown={methods} />
+              <UnusualSpends items={report.unusualSpends} />
             </div>
           </div>
-          <span className="text-right font-medium">{fmt(r.value)}</span>
+          <CategoryTrend months={report.months} categories={report.categories.rows} />
+          <InternationalCard data={report.international} />
         </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Spend the statements themselves marked international (an "International Transactions" table),
- * split into foreign-currency purchases and everything else (GST, FX markup, anything billed in
- * rupees -- never labelled "fees", since a rupee-billed purchase lands there too), with purchases
- * grouped by the currency they were made in. Rupee figures are what was billed.
- */
-function InternationalSpendCard({ data, loading }: { data: InternationalSpend | undefined; loading: boolean }) {
-  return (
-    <FinoraCard padding="lg">
-      <SectionHeader title="International Spend" />
-      {loading ? <ListSkeleton /> : !data || data.transactionCount === 0 ? (
-        <EmptyState
-          icon={Globe}
-          iconBg="bg-primary-light"
-          iconColor="text-primary"
-          title="No international spend"
-          desc="Card transactions your statement lists under International Transactions will appear here."
-        />
-      ) : (
-        <div className="space-y-5">
-          <dl className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <dt className="text-2xs uppercase text-muted">Total</dt>
-              <dd className="text-ink font-semibold">{fmt(data.totalSpend)}</dd>
-              <dd className="text-2xs text-muted">{data.transactionCount} txns</dd>
-            </div>
-            <div>
-              <dt className="text-2xs uppercase text-muted">Foreign purchases</dt>
-              <dd className="text-ink font-semibold">{fmt(data.purchasesSpend)}</dd>
-            </div>
-            <div>
-              <dt className="text-2xs uppercase text-muted">Other charges</dt>
-              <dd className="text-ink font-semibold">{fmt(data.otherChargesSpend)}</dd>
-            </div>
-          </dl>
-          <p className="text-2xs text-muted">
-            Other charges are international rows with no foreign amount printed: GST, FX markup, and anything billed in rupees.
-          </p>
-          {data.byCurrency.length > 0 && (
-            <RankedBarList
-              rows={data.byCurrency.map((c) => ({
-                label: c.currency,
-                sub: `${formatForeignAmount(c.currency, c.foreignTotal)} · ${c.transactionCount} txns`,
-                value: c.rupeeTotal,
-              }))}
-              empty={{ icon: Globe, title: '', desc: '' }}
-            />
-          )}
+      );
+    case 'income':
+      return (
+        <div className="space-y-6">
+          <PeriodNotice report={report} />
+          <IncomePanel report={report} />
         </div>
-      )}
-    </FinoraCard>
-  );
-}
-
-function ListSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 5 }, (_, i) => (
-        <div key={i} className="grid grid-cols-[1fr_90px] items-center gap-3">
-          <Skeleton.Block className="h-6 w-full" />
-          <Skeleton.Text width="w-full" className="h-2.5" />
+      );
+    case 'merchants':
+      return (
+        <div className="space-y-6">
+          <PeriodNotice report={report} />
+          <MerchantsPanel report={report} />
         </div>
-      ))}
-    </div>
-  );
+      );
+    case 'categorisation':
+      return null;
+  }
 }
 
 /** The gated content -- only ever rendered once PremiumFeatureGate has confirmed ADVANCED_REPORTS
- *  is granted, so none of these queries fire for a Free user. */
+ *  is granted, so none of these queries fire for a Free user. The tab, period and comparison live in
+ *  the URL, so a link or a reload lands on the same view. */
 function AdvancedReportsContent() {
-  const [month, setMonth] = useState<string>(''); // '' = all-time
-  const colors = useChartColors();
+  const [params, setParams] = useSearchParams();
+  const rawRange = params.get('range') as AdvancedRange | null;
+  const range: AdvancedRange = RANGE_OPTIONS.some((o) => o.value === rawRange) ? rawRange! : DEFAULT_RANGE;
+  const rawTab = params.get('tab') as TabId | null;
+  const tab: TabId = TABS.some((t) => t.id === rawTab) ? rawTab! : 'overview';
+  const start = MONTH.test(params.get('start') ?? '') ? params.get('start')! : '';
+  const end = MONTH.test(params.get('end') ?? '') ? params.get('end')! : '';
+  const compare = params.get('compare') === 'SAME_PERIOD_LAST_YEAR' ? 'SAME_PERIOD_LAST_YEAR'
+    : params.get('compare') === 'PREVIOUS_PERIOD' ? 'PREVIOUS_PERIOD' : null;
+  const lastPeriod = useRef<AdvancedReport['period'] | null>(null);
 
-  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
-  const topMerchantsQ = useQuery({
-    queryKey: ['advanced-reports-top-merchants', month],
-    queryFn: () => analyticsApi.topMerchants(month || undefined),
+  const customReady = range !== 'CUSTOM' || (start !== '' && end !== '' && start <= end);
+  const request: AdvancedReportParams = {
+    range,
+    ...(range === 'CUSTOM' ? { startMonth: start, endMonth: end } : {}),
+    ...(compare ? { compare } : {}),
+  };
+  const reportQ = useQuery({
+    queryKey: ['advanced-report', request],
+    queryFn: () => analyticsApi.advanced(request),
+    // Nothing to ask until a custom run has both months; the categorisation tab does not use the period.
+    enabled: customReady && tab !== 'categorisation',
+    placeholderData: keepPreviousData,
   });
-  const topCategoriesQ = useQuery({
-    queryKey: ['advanced-reports-top-categories', month],
-    queryFn: () => analyticsApi.topCategories(month || undefined),
-  });
-  const internationalQ = useQuery({
-    queryKey: ['advanced-reports-international', month],
-    queryFn: () => analyticsApi.international(month || undefined),
-  });
-  const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
-  const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
-  const learningQ = useQuery({ queryKey: ['advanced-reports-learning-growth'], queryFn: () => analyticsApi.learningGrowth() });
-  const [comparisonMode, setComparisonMode] = useState<'full' | 'ytd'>('full');
-  const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
-  const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
-  const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
-  const multiYearCategoriesQ = useQuery({ queryKey: ['multi-year-categories'], queryFn: () => analyticsApi.multiYearCategories() });
+  const report = reportQ.data ?? null;
+  if (report) lastPeriod.current = report.period;
 
-  const months = monthsQ.data ?? [];
+  const showSkeleton = useDelayedLoading(reportQ.isLoading);
+  const refreshing = reportQ.isFetching && report !== null;
 
-  const categoryYears = comparisonMode === 'full'
-    ? (multiYearCategoriesQ.data?.fullYears ?? [])
-    : (multiYearCategoriesQ.data?.thisYearSoFar.years ?? []);
-  // Ranked once across every shown year (not per-year), so a category doesn't jump in and out of
-  // the top 5 as the bars redraw -- same "stable ranking" reasoning as Top Merchants/Categories,
-  // just applied across years instead of within one month.
-  const categoryTotals = new Map<string, number>();
-  for (const y of categoryYears) {
-    for (const c of y.categories) categoryTotals.set(c.categoryName, (categoryTotals.get(c.categoryName) ?? 0) + c.totalSpend);
+  function update(next: Record<string, string | null>) {
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(next)) {
+      if (v === null || v === '') p.delete(k);
+      else p.set(k, v);
+    }
+    setParams(p, { replace: true });
   }
-  const topCategoryNames = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name]) => name);
+
+  const choice: PeriodChoice = { range, startMonth: start, endMonth: end, compare };
+  function onChoice(next: PeriodChoice) {
+    // Moving to a custom run starts from the months already on screen, so the pickers are never empty.
+    const seeded = next.range === 'CUSTOM' && (!next.startMonth || !next.endMonth) && lastPeriod.current
+      ? { startMonth: lastPeriod.current.startMonth ?? '', endMonth: lastPeriod.current.endMonth ?? '' }
+      : { startMonth: next.startMonth, endMonth: next.endMonth };
+    update({
+      range: next.range === DEFAULT_RANGE ? null : next.range,
+      start: next.range === 'CUSTOM' ? seeded.startMonth : null,
+      end: next.range === 'CUSTOM' ? seeded.endMonth : null,
+      // A comparison choice belongs to one period shape; changing the range starts from its default.
+      compare: next.range !== range ? null : next.compare,
+    });
+  }
+
+  function exportCsv() {
+    if (!report || !report.period.hasData) return;
+    downloadBlob(new Blob([toCsv(advancedCsvRows(report))], { type: 'text/csv' }), advancedExportName(report));
+  }
+
+  const period = report?.period ?? null;
+  const copy = period && !period.hasData ? noDataCopy(period) : null;
 
   return (
     <div className="space-y-6">
-      <FinoraCard padding="sm" className="flex flex-wrap items-end gap-3 justify-between">
-        <div>
-          <label htmlFor="advanced-reports-month" className="block text-xs uppercase text-muted mb-1">Period</label>
-          <select
-            id="advanced-reports-month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="bg-card text-ink border rounded px-2 py-1.5 text-sm"
+      {/* The categorisation tab describes Fynora's learning, not a period of your money, so the period
+          pickers are not offered there. */}
+      {tab !== 'categorisation' && <FinoraCard padding="sm" className="relative">
+        {refreshing && (
+          <div className="absolute top-2 right-3 flex items-center gap-1 text-2xs uppercase text-primary">
+            <Loader2 size={11} className="animate-spin" aria-hidden="true" /> Refreshing…
+          </div>
+        )}
+        <PeriodControls
+          choice={choice} period={period} onChange={onChoice} onExport={exportCsv}
+          exportDisabled={!report || !report.period.hasData || refreshing}
+        />
+      </FinoraCard>}
+
+      <div role="tablist" aria-label="Advanced Reports sections" className="flex gap-1 overflow-x-auto border-b border-border">
+        {TABS.map((t) => (
+          <button
+            key={t.id} type="button" role="tab" id={`advanced-tab-${t.id}`} aria-selected={tab === t.id}
+            aria-controls="advanced-panel" tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => update({ tab: t.id === 'overview' ? null : t.id })}
+            onKeyDown={(e) => {
+              const i = TABS.findIndex((x) => x.id === tab);
+              const next = e.key === 'ArrowRight' ? TABS[(i + 1) % TABS.length] : e.key === 'ArrowLeft' ? TABS[(i + TABS.length - 1) % TABS.length] : null;
+              if (next) {
+                e.preventDefault();
+                update({ tab: next.id === 'overview' ? null : next.id });
+                document.getElementById(`advanced-tab-${next.id}`)?.focus();
+              }
+            }}
+            className={`-mb-px flex-shrink-0 border-b-2 px-3 py-2 text-sm font-medium ${tab === t.id ? 'border-primary text-ink' : 'border-transparent text-muted hover:text-ink'}`}
           >
-            <option value="">All time</option>
-            {[...months].reverse().map((m) => <option key={m} value={m}>{monthLabelLong(m)}</option>)}
-          </select>
-        </div>
-        <p className="text-2xs text-muted max-w-xs">Applies to Top Merchants, Top Categories and International Spend below. Spend Trend, Category Confidence and Learning Growth always cover your full history.</p>
-      </FinoraCard>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <FinoraCard padding="lg">
-          <SectionHeader title="Top Merchants" />
-          {topMerchantsQ.isLoading ? <ListSkeleton /> : (
-            <RankedBarList
-              rows={(topMerchantsQ.data ?? []).map((m) => ({ label: m.merchantName, sub: `${m.transactionCount} txns`, value: m.totalSpend }))}
-              empty={{ icon: Store, title: 'No merchant spend yet', desc: 'Import a statement or add transactions to see your top merchants.' }}
-            />
-          )}
-        </FinoraCard>
-
-        <FinoraCard padding="lg">
-          <SectionHeader title="Top Categories" />
-          {topCategoriesQ.isLoading ? <ListSkeleton /> : (
-            <RankedBarList
-              rows={(topCategoriesQ.data ?? []).map((c) => ({ label: c.categoryName, sub: `${c.transactionCount} txns`, value: c.totalSpend }))}
-              empty={{ icon: Tags, title: 'No categorized spend yet', desc: 'Your top spending categories will appear here.' }}
-            />
-          )}
-        </FinoraCard>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <InternationalSpendCard data={internationalQ.data} loading={internationalQ.isLoading} />
-
-      <FinoraCard padding="lg">
-        <SectionHeader title="Spend Trend" />
-        <p className="text-xs text-muted -mt-2 mb-4">Merchant-attributed spend over your trailing 6 months.</p>
-        <ChartContainer
-          height={260}
-          loading={trendQ.isLoading}
-          loadingLabel="Loading spend trend"
-          isEmpty={(trendQ.data ?? []).every((p) => p.totalSpend === 0)}
-          emptyState={
-            <EmptyState icon={TrendingUpIcon} iconBg="bg-primary-light" iconColor="text-primary" title="No trend yet" desc="Once you have a few months of spend, the trend appears here." />
-          }
-        >
-          <Line
-            data={{
-              labels: (trendQ.data ?? []).map((p) => monthLabel(p.month)),
-              datasets: [{
-                label: 'Spend', data: (trendQ.data ?? []).map((p) => p.totalSpend),
-                borderColor: colors.blue, backgroundColor: colors.blue + '14', fill: true, tension: 0.3,
-              }],
-            }}
-            options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
-          />
-        </ChartContainer>
-      </FinoraCard>
-
-      <FinoraCard padding="lg">
-        <SectionHeader title="Multi-Year Comparison" />
-        <p className="text-xs text-muted -mt-2 mb-4">Income, spend, and how much of your income spend is eating, year over year.</p>
-        <div className="flex gap-2 mb-4">
-          <button
-            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'full' ? 'bg-primary text-on-primary' : 'bg-card border'}`}
-            onClick={() => setComparisonMode('full')}
-          >
-            Full Years
-          </button>
-          <button
-            className={`text-xs px-3 py-1 rounded ${comparisonMode === 'ytd' ? 'bg-primary text-on-primary' : 'bg-card border'}`}
-            onClick={() => setComparisonMode('ytd')}
-          >
-            This Year So Far
-          </button>
-        </div>
-        <ChartContainer
-          height={260}
-          loading={multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading}
-          loadingLabel="Loading multi-year comparison"
-          isEmpty={
-            comparisonMode === 'full'
-              ? (multiYearIncomeQ.data?.fullYears ?? []).length === 0
-              : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).length === 0
-          }
-          emptyState={
+      {/* While another period loads, the figures on screen are the old period's: dimmed and marked busy so
+          they are not read as the new choice's. */}
+      <div
+        role="tabpanel" id="advanced-panel" aria-labelledby={`advanced-tab-${tab}`} aria-busy={refreshing}
+        className={refreshing ? 'opacity-50 transition-opacity' : 'transition-opacity'}
+      >
+        {tab === 'categorisation' ? (
+          <CategorisationPanel />
+        ) : !customReady ? (
+          <FinoraCard padding="lg">
+            <EmptyState icon={BarChart3} iconBg="bg-surface" iconColor="text-ink" title="Choose a start and an end month" desc="A custom period needs both, with the start not after the end." />
+          </FinoraCard>
+        ) : reportQ.isLoading ? (
+          showSkeleton ? <BodySkeleton /> : null
+        ) : reportQ.isError && !report ? (
+          <FinoraCard padding="lg" className="text-center">
+            <p className="text-sm text-muted">Couldn’t load Advanced Reports — please try again.</p>
+            <Button variant="secondary" onClick={() => void reportQ.refetch()} className="mt-3">Try again</Button>
+          </FinoraCard>
+        ) : report && copy ? (
+          <FinoraCard padding="lg" className="max-w-lg mx-auto">
             <EmptyState
-              icon={TrendingUpIcon}
-              iconBg="bg-primary-light"
-              iconColor="text-primary"
-              title="Not enough history yet"
-              desc={
-                comparisonMode === 'full'
-                  ? 'Once you have a full calendar year of data, it appears here.'
-                  : 'This mode compares the same months across years -- once a prior year fully covers the months you have so far this year, it appears here.'
-              }
+              icon={BarChart3} iconBg="bg-surface" iconColor="text-ink" title={copy.title} desc={copy.desc}
+              cta={report.period.noDataReason === 'NO_TRANSACTIONS' ? (
+                <Link to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')} className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
+                  Import Statement
+                </Link>
+              ) : undefined}
             />
-          }
-        >
-          <Bar
-            data={{
-              labels: comparisonMode === 'full'
-                ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => String(p.year))
-                : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => String(p.year)),
-              datasets: [
-                {
-                  label: 'Income',
-                  data: comparisonMode === 'full'
-                    ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => p.total)
-                    : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => p.total),
-                  backgroundColor: colors.success,
-                },
-                {
-                  label: 'Spend',
-                  data: comparisonMode === 'full'
-                    ? (multiYearSpendQ.data?.fullYears ?? []).map((p) => p.total)
-                    : (multiYearSpendQ.data?.thisYearSoFar.years ?? []).map((p) => p.total),
-                  backgroundColor: colors.orange,
-                },
-              ],
-            }}
-            options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
-          />
-        </ChartContainer>
-        {/* Coverage is rendered as real, visible text -- not left inside the chart's own labels
-            -- so a partial year's badge is unavoidable, not a hover-only or canvas-only detail. */}
-        {comparisonMode === 'full' && (
-          <ul className="text-xs text-muted mt-2 space-y-0.5">
-            {(multiYearIncomeQ.data?.fullYears ?? []).map((p) => (
-              <li key={p.year}>{p.year}: {p.isComplete ? 'full year' : `${p.coverageMonths}/12 months`}</li>
-            ))}
-          </ul>
-        )}
-      </FinoraCard>
-
-      <FinoraCard padding="lg">
-        <SectionHeader title="Category Trends" />
-        <p className="text-xs text-muted -mt-2 mb-4">Your top spending categories, year over year.</p>
-        <ChartContainer
-          height={260}
-          loading={multiYearCategoriesQ.isLoading}
-          loadingLabel="Loading category trends"
-          isEmpty={categoryYears.length === 0 || topCategoryNames.length === 0}
-          emptyState={
-            <EmptyState icon={Tags} iconBg="bg-primary-light" iconColor="text-primary" title="No category history yet" desc="Once you have year-over-year category spend, it appears here." />
-          }
-        >
-          <Bar
-            data={{
-              labels: categoryYears.map((y) => String(y.year)),
-              datasets: topCategoryNames.map((name, i) => ({
-                label: name,
-                // sum, not find(): a deleted category always reports as "Uncategorized" (see
-                // AnalyticsService#toBreakdownList), so a year can legitimately hold more than one
-                // entry with that same name -- find() would silently drop every entry but the first.
-                data: categoryYears.map((y) => y.categories
-                  .filter((c) => c.categoryName === name)
-                  .reduce((sum, c) => sum + c.totalSpend, 0)),
-                backgroundColor: colors.series[i % colors.series.length],
-              })),
-            }}
-            options={{ ...baseChartOptions, scales: { y: { ticks: { callback: (v) => fmt(Number(v)) } } } }}
-          />
-        </ChartContainer>
-      </FinoraCard>
-
-      {multiYearLifestyleQ.data && (
-        comparisonMode === 'full'
-          ? multiYearLifestyleQ.data.fullYears.length > 0
-          : multiYearLifestyleQ.data.thisYearSoFar.years.length > 0
-      ) && (
-        <FinoraCard padding="lg">
-          <SectionHeader title="Lifestyle Inflation" />
-          <p className="text-xs text-muted -mt-2 mb-4">Spend as a share of income, per year — a rising number means spend is growing faster than income.</p>
-          <ul className="text-sm space-y-1">
-            {comparisonMode === 'full'
-              ? multiYearLifestyleQ.data.fullYears.map((p) => (
-                  <li key={p.year} className="flex justify-between">
-                    <span>{p.year}{!p.isComplete && ` (${p.coverageMonths}/12 months)`}</span>
-                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
-                  </li>
-                ))
-              : multiYearLifestyleQ.data.thisYearSoFar.years.map((p) => (
-                  <li key={p.year} className="flex justify-between">
-                    <span>{p.year} (so far)</span>
-                    <span>{p.ratio === null ? '—' : `${(p.ratio * 100).toFixed(0)}%`}</span>
-                  </li>
-                ))}
-          </ul>
-        </FinoraCard>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <FinoraCard padding="lg">
-          <SectionHeader title="Category Confidence" />
-          <p className="text-xs text-muted -mt-2 mb-4">How sure the categorization engine is about each category, on average, across your merchants.</p>
-          <ChartContainer
-            height={260}
-            loading={confidenceQ.isLoading}
-            loadingLabel="Loading category confidence"
-            isEmpty={(confidenceQ.data ?? []).length === 0}
-            emptyState={
-              <EmptyState icon={Brain} iconBg="bg-primary-light" iconColor="text-primary" title="Nothing learned yet" desc="Confirm a few categorizations and this fills in." />
-            }
-          >
-            <Bar
-              data={{
-                labels: (confidenceQ.data ?? []).map((c) => c.category),
-                datasets: [{ label: 'Avg. confidence', data: (confidenceQ.data ?? []).map((c) => c.avgConfidence), backgroundColor: colors.blue }],
-              }}
-              options={{ ...baseChartOptions, scales: { y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } } } }}
-            />
-          </ChartContainer>
-        </FinoraCard>
-
-        <FinoraCard padding="lg">
-          <SectionHeader title="Learning Growth" />
-          <p className="text-xs text-muted -mt-2 mb-4">Categorizations the engine learned on its own vs. ones you corrected, per month.</p>
-          <ChartContainer
-            height={260}
-            loading={learningQ.isLoading}
-            loadingLabel="Loading learning growth"
-            isEmpty={(learningQ.data ?? []).length === 0}
-            emptyState={
-              <EmptyState icon={Brain} iconBg="bg-primary-light" iconColor="text-primary" title="No learning history yet" desc="This fills in as you confirm categorizations over time." />
-            }
-          >
-            <Bar
-              data={{
-                labels: (learningQ.data ?? []).map((p) => monthLabel(p.month)),
-                datasets: [
-                  { label: 'Learned', data: (learningQ.data ?? []).map((p) => p.learnedCount), backgroundColor: colors.success },
-                  { label: 'Corrected', data: (learningQ.data ?? []).map((p) => p.correctedCount), backgroundColor: colors.orange },
-                ],
-              }}
-              options={baseChartOptions}
-            />
-          </ChartContainer>
-        </FinoraCard>
+          </FinoraCard>
+        ) : report ? (
+          tabPanel(tab, report, (t) => update({ tab: t }))
+        ) : null}
       </div>
     </div>
   );
@@ -457,7 +287,7 @@ export default function AdvancedReports() {
         <h1 className="text-xl font-bold text-ink flex items-center gap-2">
           <Crown size={18} className="text-primary" /> Advanced Reports
         </h1>
-        <p className="text-sm text-muted mt-0.5">Deeper analysis of your spending, built from the same engine behind your Dashboard.</p>
+        <p className="text-sm text-muted mt-0.5">How your income, spending and savings have changed over time, and what is behind it.</p>
       </div>
       <PremiumFeatureGate featureKey="ADVANCED_REPORTS" fallback={<UpgradePrompt />}>
         <AdvancedReportsContent />

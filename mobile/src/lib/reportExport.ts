@@ -27,7 +27,7 @@ import { shareFileAndCleanUp } from './shareFile';
  * or not. Mirrors frontend/src/lib/download.ts's csvCell.
  */
 
-function csvCell(value: string): string {
+export function csvCell(value: string): string {
   const isPlainNumber = value.trim() !== '' && Number.isFinite(Number(value));
   const needsFormulaGuard = !isPlainNumber && /^[=+\-@\t\r]/.test(value.replace(/^ +/, ''));
   const guarded = needsFormulaGuard ? `'${value}` : value;

@@ -114,7 +114,9 @@ header, three KPIs and "Key insights" cards. This is built, with these differenc
   period, with the same rule as the monthly card for when it is too unidentified to show.
 - "Compare with" offers the previous period and the same period a year earlier. For a 12-month
   period they are the same window, so the picker offers one.
-- Export (CSV on both, PDF on mobile as Reports does) comes after the screens.
+- Export is CSV on both platforms, carrying the same caveats as the page as rows. A PDF was not made:
+  Reports' PDF is a printable page of one month's figures, and a faithful printable period (charts
+  and tables) is its own piece of work.
 
 ### Colour
 

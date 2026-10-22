@@ -13,11 +13,13 @@
 -- the summary's total still equals the sum of its reasons. Only the "reasons" object changes;
 -- columnSignatures and total are kept.
 --
--- A key whose quoted part is already a shape (only 9, X and ASCII punctuation or space) is left
--- alone: it carries no value, and it may be a summary written after #2299 deployed. A summary that
--- is not valid JSON, has no reasons object, or has a non-numeric count is skipped -- it is not
--- readable by CapabilityCoverageService either, and failing boot over one malformed metrics row
--- would be the wrong trade.
+-- Only a key whose quoted part is nothing but ASCII punctuation and spaces (a lone "-", say) is left
+-- alone. A shape written after #2299 deployed ("99/99/9999") is redacted too: in an old row a 9 or
+-- an X is a real character -- a cell of "999" is somebody's figure -- and the two cannot be told
+-- apart here, so the newer rows give up their format detail rather than risk keeping a value. A
+-- summary that is not valid JSON, has no reasons object, or has a non-numeric count is skipped --
+-- it is not readable by CapabilityCoverageService either (which also re-masks every key it reports),
+-- and failing boot over one malformed metrics row would be the wrong trade.
 --
 -- Applied twice to the same data it changes nothing the second time.
 
@@ -38,7 +40,7 @@ entries AS (
 rekeyed AS (
     SELECT id, key, value,
            CASE WHEN cell IS NOT NULL
-                 AND translate(cell, '9X ~!"#$%&''()*+,-./:<=>?@[\]^_`{|}', '') <> ''
+                 AND translate(cell, ' ~!"#$%&''()*+,-./:<=>?@[\]^_`{|}', '') <> ''
                 THEN CASE WHEN key LIKE 'Date value %'
                           THEN 'Date value "(redacted)" didn''t match any known date format'
                           ELSE 'Amount value "(redacted)" didn''t match any known numeric format' END
@@ -81,7 +83,7 @@ entries AS (
 rekeyed AS (
     SELECT id, key, value,
            CASE WHEN cell IS NOT NULL
-                 AND translate(cell, '9X ~!"#$%&''()*+,-./:<=>?@[\]^_`{|}', '') <> ''
+                 AND translate(cell, ' ~!"#$%&''()*+,-./:<=>?@[\]^_`{|}', '') <> ''
                 THEN CASE WHEN key LIKE 'Date value %'
                           THEN 'Date value "(redacted)" didn''t match any known date format'
                           ELSE 'Amount value "(redacted)" didn''t match any known numeric format' END

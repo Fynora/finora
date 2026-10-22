@@ -154,18 +154,30 @@ class V282RedactUnparseableSummaryCellsIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void keysThatAreAlreadyShapesAndRowsWithoutCellsAreLeftExactlyAsTheyWere() throws Exception {
+    void aCellOfNinesAndXsIsRedactedBecauseInAnOldRowThoseAreRealCharacters() throws Exception {
+        // "999" in an old row is somebody's figure, and a shape written after #2299 looks the same,
+        // so both are redacted: the newer row loses format detail, the older one keeps no value.
+        UUID id = statementImport(account(), legacy(dateReason("999"), "1", dateReason("99-XXX-9999 99:99"), "2",
+                amountReason("9,999/-"), "1"));
+
+        runV282();
+
+        UnparseableRowSummary summary = objectMapper.readValue(statementSummary(id), UnparseableRowSummary.class);
+        assertThat(summary.reasons()).containsOnly(entry(DATE_MARKER, 3), entry(AMOUNT_MARKER, 1));
+    }
+
+    @Test
+    void punctuationOnlyCellsAndRowsWithoutCellsAreLeftExactlyAsTheyWere() throws Exception {
         Account account = account();
-        // Written after #2299: the quoted part is a shape, which carries no value.
-        String shaped = legacy(dateReason("99-XXX-9999 99:99"), "2", amountReason("9,999/-"), "1", NO_DATE, "1");
+        String dashOnly = legacy(dateReason("-"), "2", amountReason(" -- "), "1", NO_DATE, "1");
         String fixedOnly = legacy(NO_DATE, "4");
-        UUID shapedId = statementImport(account, shaped);
+        UUID dashId = statementImport(account, dashOnly);
         UUID fixedId = statementImport(account, fixedOnly);
         UUID noneId = statementImport(account, null);
 
         runV282();
 
-        assertThat(statementSummary(shapedId)).isEqualTo(shaped);
+        assertThat(statementSummary(dashId)).isEqualTo(dashOnly);
         assertThat(statementSummary(fixedId)).isEqualTo(fixedOnly);
         assertThat(statementSummary(noneId)).isNull();
     }

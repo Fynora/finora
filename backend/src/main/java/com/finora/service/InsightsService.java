@@ -112,10 +112,13 @@ public class InsightsService {
         return buildDetailed(userId, month).dto();
     }
 
-    /** {@link #build}'s result, plus how many usual months each mover category's baseline holds --
-     *  the prior months from the category's first month with spend, gap months left out. AI insights
-     *  compare a category with its usual month only when that is at least 2 (spec §4.3). */
-    public record Built(InsightsDto dto, Map<String, Integer> baselineMonths) {}
+    /** {@link #build}'s result, plus what AI insights' fact sheet needs from the same pipeline
+     *  (spec §4.2-4.3): how many usual months each mover category's baseline holds (the prior months
+     *  from the category's first month with spend, gap months left out -- a comparison is offered only
+     *  with at least 2), the month's total spend (the figure in the first sentence; null when there is
+     *  no reportable month), and the user's categories (to tell built-in from user-created). */
+    public record Built(InsightsDto dto, Map<String, Integer> baselineMonths, BigDecimal monthTotal,
+                        List<Category> categories) {}
 
     @Transactional(readOnly = true)
     public Built buildDetailed(UUID userId, String month) {
@@ -136,7 +139,8 @@ public class InsightsService {
             boolean requestedIsCurrent = month == null
                     || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
             return new Built(new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null), Map.of());
+                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null), Map.of(),
+                    null, List.of());
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -304,7 +308,7 @@ public class InsightsService {
 
         return new Built(new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
                 currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds)),
-                Map.copyOf(baselineMonths));
+                Map.copyOf(baselineMonths), total, List.copyOf(categoriesById.values()));
     }
 
     /**

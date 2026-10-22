@@ -58,7 +58,12 @@ public class LookAtService {
 
     /** The rows for {@code month} ({@code yyyy-MM}, or null for the newest reporting month), in rules order. */
     public List<LookAtRowDto> rows(UUID userId, String month) {
-        InsightsService.Built built = insightsService.buildDetailed(userId, month);
+        return rows(userId, insightsService.buildDetailed(userId, month));
+    }
+
+    /** The rows for a month whose insights are already built -- AI insights' month sheet passes its
+     *  own, so the transactions are loaded once per request. */
+    public List<LookAtRowDto> rows(UUID userId, InsightsService.Built built) {
         Set<String> acks = acknowledgementService.list(userId).stream()
                 .map(LookAtService::ackEntry).collect(Collectors.toSet());
         return build(built.dto(), recurringService.detectForUser(userId),

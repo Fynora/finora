@@ -675,6 +675,8 @@ class InsightsServiceTest {
 
         assertThat(built.dto().reportingMonth()).isEqualTo("2026-07");
         assertThat(built.baselineMonths()).containsEntry("Dining", 3).containsEntry("Groceries", 1);
+        assertThat(built.monthTotal()).isEqualByComparingTo("2900");
+        assertThat(built.categories()).containsExactlyInAnyOrder(dining, groceries);
         // The same InsightsDto build(...) returns.
         assertThat(built.dto()).isEqualTo(insightsService.build(userId, null));
     }

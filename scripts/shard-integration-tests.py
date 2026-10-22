@@ -83,9 +83,13 @@ def all_it_classes():
     return sorted(classes)
 
 
+_JAVA_TOKENS = re.compile(r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|/\*[\s\S]*?\*/|//[^\n]*')
+
+
 def _strip_comments(src):
-    src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
-    return re.sub(r"//[^\n]*", " ", src)
+    # String-aware: a property value such as "...redirect-uri=http://localhost/callback" (one IT has
+    # that) or a "*/*" media type must not be taken for the start of a comment.
+    return _JAVA_TOKENS.sub(lambda m: " " if m.group(0).startswith("/") else m.group(0), src)
 
 
 def _annotation_args(text, start):
@@ -115,9 +119,9 @@ def bundle_key(fqcn):
     header = src[:decl.start()]
     parts = []
     for m in re.finditer(r"@(?:[\w.]+\.)?(\w+)", header):
-        if m.group(1) in CONTEXT_ANNOTATIONS:
+        if m.group(1) in CONTEXT_ANNOTATIONS or m.group(1).startswith("AutoConfigure"):
             parts.append(m.group(1) + re.sub(r"\s+", "", _annotation_args(header, m.end())))
-    fields = re.findall(r"@(MockitoBean|MockitoSpyBean)\s*(\([^)]*\))?\s+(?:(?:private|protected|public|final)\s+)*"
+    fields = re.findall(r"@(MockitoBean|MockitoSpyBean|TestBean)\s*(\([^)]*\))?\s+(?:(?:private|protected|public|final)\s+)*"
                         r"([\w.<>?, \[\]]+?)\s+\w+\s*[;=]", src[decl.end():])
     parts += sorted({f"{a}{re.sub(chr(32), '', args)}:{re.sub(r'[ ]', '', t)}" for a, args, t in fields})
     return "shared:" + "|".join(parts)
@@ -217,6 +221,11 @@ def check_reports(report_dir):
     if missing or twice:
         print("BLOCKED: the shards did not run every *IT class exactly once.")
         return 1
+    untimed = sorted(expected - load_timings().keys())
+    if untimed:
+        print(f"::notice::{len(untimed)} *IT class(es) have no recorded time and were balanced as the "
+              "median class. Refresh with: python3 scripts/shard-integration-tests.py --update-timings "
+              "<this run's backend-it-reports-* artifacts, downloaded into one directory>")
     return 0
 
 
@@ -225,10 +234,16 @@ def self_test(shards):
     if not classes:
         print("self-test FAILED: no *IT classes found under", TEST_ROOT)
         return 1
+    problems = []
+    # The comment stripper must not mistake a URL or a media type inside a string for a comment.
+    for src, want in (('"a=http://x/y", // tail', '"a=http://x/y",  '),
+                      ('accept("*/*"); @MockitoBean Foo f;', 'accept("*/*"); @MockitoBean Foo f;'),
+                      ('/** @Bean */ class A', '  class A')):
+        if _strip_comments(src) != want:
+            problems.append(f"_strip_comments({src!r}) gave {_strip_comments(src)!r}")
     assignment, bundles, loads = plan(classes, shards)
     parts = [shard(classes, shards, i) for i in range(1, shards + 1)]
     flat = [c for p in parts for c in p]
-    problems = []
     if sorted(flat) != classes:
         problems.append("the shards' union is not exactly the full class list")
     if len(flat) != len(set(flat)):
@@ -242,9 +257,17 @@ def self_test(shards):
         print("self-test FAILED: " + "; ".join(problems))
         return 1
     shared = sum(1 for k in bundles if k.startswith("shared:"))
+    contexts = [sum(1 for k, m in bundles.items() if not k.startswith("standalone:") and assignment[m[0]] == s)
+                for s in range(shards)]
     print(f"self-test ok: {len(classes)} classes, {len(bundles)} bundles ({shared} on the shared "
           f"base class), {shards} shards of {', '.join(str(len(p)) for p in parts)} classes, "
-          f"estimated {', '.join(f'{l:.0f}s' for l in loads)}.")
+          f"{', '.join(map(str, contexts))} contexts, estimated {', '.join(f'{l:.0f}s' for l in loads)}.")
+    # Spring keeps at most 32 test contexts per JVM (spring.test.context.cache.maxSize, not set
+    # here) and rebuilds an evicted one when it is needed again: slower, not wrong.
+    for s, n in enumerate(contexts, 1):
+        if n > 32:
+            print(f"::warning::shard {s} needs {n} Spring contexts, more than the cache's 32 -- some "
+                  "will be evicted and booted again. Consider another shard.")
     return 0
 
 

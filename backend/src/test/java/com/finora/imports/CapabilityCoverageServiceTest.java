@@ -114,6 +114,28 @@ class CapabilityCoverageServiceTest {
     }
 
     @Test
+    void aStoredKeyThatStillQuotesACellIsMaskedBeforeTheReportShowsIt() throws Exception {
+        // A summary written before keys were masked (or by an older instance mid-deploy) must not
+        // reach the admin report as it was stored. It joins the same bucket a new summary of that
+        // format lands in.
+        var legacyReasons = new java.util.LinkedHashMap<String, Integer>();
+        legacyReasons.put(UnparseableReasons.dateUnreadable("05-Sept-2026"), 2);
+        legacyReasons.put(UnparseableReasons.dateUnreadable("(redacted)"), 1);
+        String legacy = objectMapper.writeValueAsString(
+                new UnparseableRowSummary(legacyReasons, Map.of("date", 3), 3));
+        String current = objectMapper.writeValueAsString(UnparseableRowSummary.of(List.of(new UnparseableRow(
+                Map.of("date", "17-Sept-2026"), UnparseableReasons.dateUnreadable("17-Sept-2026")))));
+
+        var map = service.aggregate(List.of(importWith(null, legacy), importWith(null, current)));
+
+        assertThat(map.unparseableReasons()).containsOnly(
+                entry("Date value \"99-XXXX-9999\" didn't match any known date format", 3),
+                entry("Date value \"(redacted)\" didn't match any known date format", 1));
+        assertThat(objectMapper.writeValueAsString(map)).doesNotContain("Sept");
+        assertThat(map.rowsLost()).isEqualTo(4);
+    }
+
+    @Test
     void summariesStoredBeforeTheFixStillAggregate() {
         // Rows written before this change are keyed by the review-screen reason; the report must
         // keep reading them rather than skipping them as unreadable. Whether those rows are

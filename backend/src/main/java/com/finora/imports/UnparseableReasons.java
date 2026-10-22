@@ -68,9 +68,18 @@ public final class UnparseableReasons {
     /** Any reason that is not one of this class's texts. Its own text is never kept. */
     public static final String UNCLASSIFIED = "unclassified (reason text not recorded)";
 
+    /**
+     * What migration V282 put in place of the cell in summaries stored before this class existed.
+     * Not a cell, so a key carrying it is kept as it is.
+     */
+    public static final String REDACTED_CELL = "(redacted)";
+
+    // UNSPECIFIED and UNCLASSIFIED are summaryKey's own outputs: listed so that applying it to a key
+    // it already produced changes nothing, which is what lets the coverage report apply it again.
     private static final Set<String> FIXED = Set.of(
             NO_HEADER_ROW, NO_TRANSACTION_TABLE, UNRECOGNIZED_COLUMN_VALUE, UNPARSEABLE_RECOGNIZED_AMOUNT,
-            BALANCE_MOVED_WITHOUT_AN_AMOUNT, NO_DATE_COLUMN, NO_AMOUNT_COLUMN, REJECTED_AFTER_PARSE);
+            BALANCE_MOVED_WITHOUT_AN_AMOUNT, NO_DATE_COLUMN, NO_AMOUNT_COLUMN, REJECTED_AFTER_PARSE,
+            UNSPECIFIED, UNCLASSIFIED);
 
     /** The review-screen reason for a date cell no format accepts. Quotes the cell as given. */
     public static String dateUnreadable(String cell) {
@@ -89,14 +98,18 @@ public final class UnparseableReasons {
      *
      * <p>The cell is everything between the template's fixed prefix and suffix, so a cell that itself
      * contains quotes is still masked whole.
+     *
+     * <p>Applying it to a key it produced returns the same key: a shape's shape is itself, and the
+     * fallbacks and V282's {@link #REDACTED_CELL} are kept. That is what makes it safe to apply to
+     * stored keys of any age when they are read.
      */
     public static String summaryKey(String reason) {
         if (reason == null) return UNSPECIFIED;
         if (FIXED.contains(reason)) return reason;
         String cell = between(reason, DATE_UNREADABLE_PREFIX, DATE_UNREADABLE_SUFFIX);
-        if (cell != null) return dateUnreadable(ValueShape.of(cell.trim()));
+        if (cell != null) return dateUnreadable(REDACTED_CELL.equals(cell) ? cell : ValueShape.of(cell.trim()));
         cell = between(reason, AMOUNT_UNREADABLE_PREFIX, AMOUNT_UNREADABLE_SUFFIX);
-        if (cell != null) return amountUnreadable(ValueShape.of(cell.trim()));
+        if (cell != null) return amountUnreadable(REDACTED_CELL.equals(cell) ? cell : ValueShape.of(cell.trim()));
         return UNCLASSIFIED;
     }
 

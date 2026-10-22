@@ -84,6 +84,35 @@ class UnparseableReasonsTest {
     }
 
     @Test
+    void applyingItToAKeyItAlreadyProducedChangesNothing() {
+        // The coverage report applies it to stored keys of any age; a key that is already safe must
+        // come back exactly as it went in, or old and new summaries would stop grouping together.
+        List<String> reasons = List.of(
+                UnparseableReasons.dateUnreadable("05-Sept-2026"),
+                UnparseableReasons.amountUnreadable("1,500/-"),
+                UnparseableReasons.dateUnreadable("THIS IS A SAMPLE NOTICE LINE THAT LANDED IN THE DATE COLUMN"),
+                UnparseableReasons.dateUnreadable("राम 🎂 ₹½"),
+                UnparseableReasons.NO_DATE_COLUMN,
+                "something the allowlist does not know",
+                "");
+        for (String reason : reasons) {
+            String once = UnparseableReasons.summaryKey(reason);
+            assertThat(UnparseableReasons.summaryKey(once)).as("summaryKey of a key it produced").isEqualTo(once);
+        }
+        assertThat(UnparseableReasons.summaryKey(null)).isEqualTo(UnparseableReasons.UNSPECIFIED);
+        assertThat(UnparseableReasons.summaryKey(UnparseableReasons.UNSPECIFIED)).isEqualTo(UnparseableReasons.UNSPECIFIED);
+    }
+
+    @Test
+    void theMarkerMigrationV282LeftIsKeptAsItIs() {
+        String redactedDate = "Date value \"(redacted)\" didn't match any known date format";
+        String redactedAmount = "Amount value \"(redacted)\" didn't match any known numeric format";
+
+        assertThat(UnparseableReasons.summaryKey(redactedDate)).isEqualTo(redactedDate);
+        assertThat(UnparseableReasons.summaryKey(redactedAmount)).isEqualTo(redactedAmount);
+    }
+
+    @Test
     void theReviewScreenReasonsTheNormaliserGivesAreAllOnTheAllowlist() {
         // explainFailure is the source of the quoting reasons; every verdict it can reach must map to
         // a named key, not fall through to UNCLASSIFIED.

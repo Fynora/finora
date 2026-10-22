@@ -388,8 +388,58 @@ public class ImportDto {
             BigDecimal maturityAmount,
             BigDecimal installmentAmount,
             Integer installmentsPaid,
-            Integer installmentsTotal
-    ) {}
+            Integer installmentsTotal,
+
+            // Where {@code bank} came from (V285): "FILE" (the file's name or its own rows named it),
+            // "PROFILE" (the file named none; the layout's profile has a bank, see
+            // com.finora.imports.ProfileBankFiller), or "NONE" (unknown -- the user chooses). Null
+            // only on a session staged before this field existed; read it as FILE or NONE from
+            // {@code bank}, the same derivation the constructor below makes.
+            String bankSource
+    ) {
+        public static final String BANK_SOURCE_FILE = "FILE";
+        public static final String BANK_SOURCE_PROFILE = "PROFILE";
+        public static final String BANK_SOURCE_NONE = "NONE";
+
+        /** Every detector builds through this: the bank it found came from the file, or there was
+         *  none. Only ProfileBankFiller produces PROFILE, via {@link #withProfileBank}. */
+        public DetectedAccountInfo(
+                String suggestedName, String suggestedAccountType, BigDecimal openingBalance,
+                BigDecimal closingBalance, LocalDate statementPeriodStart, LocalDate statementPeriodEnd,
+                String accountNumberMasked, BigDecimal creditLimit, BigDecimal totalAmountDue,
+                LocalDate paymentDueDate, String accountHolderName, String branchName, String ifscCode,
+                AccountDto.BankDto bank, String detectedProduct, double productConfidence,
+                boolean productNeedsReview, List<String> productEvidence, String productIdentityHash,
+                BigDecimal principalAmount, BigDecimal interestRate, LocalDate maturityDate,
+                BigDecimal maturityAmount, BigDecimal installmentAmount, Integer installmentsPaid,
+                Integer installmentsTotal) {
+            this(suggestedName, suggestedAccountType, openingBalance, closingBalance, statementPeriodStart,
+                    statementPeriodEnd, accountNumberMasked, creditLimit, totalAmountDue, paymentDueDate,
+                    accountHolderName, branchName, ifscCode, bank, detectedProduct, productConfidence,
+                    productNeedsReview, productEvidence, productIdentityHash, principalAmount, interestRate,
+                    maturityDate, maturityAmount, installmentAmount, installmentsPaid, installmentsTotal,
+                    sourceOf(bank));
+        }
+
+        /** FILE when a bank was found, NONE when it was not. */
+        public static String sourceOf(AccountDto.BankDto bank) {
+            return bank == null || com.finora.util.BankRegistry.UNKNOWN_ID.equals(bank.id())
+                    ? BANK_SOURCE_NONE : BANK_SOURCE_FILE;
+        }
+
+        /** A copy whose bank comes from the layout's profile. The suggested name follows the bank, as
+         *  it does for a detected one. The product identity key is dropped: it was built for the
+         *  unknown bank, and the full number it needs is not kept here to rebuild it, so matching
+         *  falls back to the masked number with the new bank. */
+        public DetectedAccountInfo withProfileBank(AccountDto.BankDto profileBank) {
+            return new DetectedAccountInfo(profileBank.officialName(), suggestedAccountType, openingBalance,
+                    closingBalance, statementPeriodStart, statementPeriodEnd, accountNumberMasked, creditLimit,
+                    totalAmountDue, paymentDueDate, accountHolderName, branchName, ifscCode, profileBank,
+                    detectedProduct, productConfidence, productNeedsReview, productEvidence, null,
+                    principalAmount, interestRate, maturityDate, maturityAmount, installmentAmount,
+                    installmentsPaid, installmentsTotal, BANK_SOURCE_PROFILE);
+        }
+    }
 
     /**
      * Whether this import can be proven faithful to the statement it came from, and on what basis.

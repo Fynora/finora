@@ -154,13 +154,60 @@ re-importing, are unchanged.
 - Accounts synced through Account Aggregator: whether their bank may be edited is left to the builder
   to check against how AA sets it. If editing would fight the sync, the field is read-only for them.
 
+### 5. "No bank" never matches "no bank" (web and mobile)
+
+Found while reviewing this design: `matchExistingAccount` (`frontend/src/lib/accountMatch.ts:57`,
+and the mobile copy in `mobile/src/lib/accountMatch.ts:62`) treats two accounts as the same bank when
+both are `OTHER`. A user with one "Other bank" savings account therefore gets every unknown-bank
+savings statement preselected into it, whatever bank it really came from. The backend already
+refuses this: `ProductIdentity` says "OTHER matching OTHER would make every unidentified product
+the same product" and treats OTHER as no institution.
+
+- `OTHER` is not a bank for matching. Neither side may be `OTHER` for a same-bank match.
+- When the user chooses a bank in the new-account form (section 3), and they already have an
+  account of that bank and type, show a one-line hint offering to import into it instead. Nothing is
+  preselected for them.
+- When the bank is filled from a profile, or chosen by the user, the product identity
+  (`productIdentityHash`) must be computed with that bank, not with OTHER. The builder checks where
+  the hash is computed (`ProductIdentity.of(bank.id(), ...)` in `StatementValidator` and
+  `PdfPreviewGenerator`) and how the client sends it on confirm, and makes them agree.
+
+### 6. Users' choices as a hint for admins (backend + admin portal)
+
+When a layout has no profile with a bank, users choose the bank themselves (section 3). The review
+queue shows, per layout, how many confirmed imports chose each bank, for example "HDFC Bank: 3,
+Other bank: 1". Counts only. No user, account, file name or value is shown, in line with Layout
+Intelligence's existing rule.
+
+- It is a hint. Only an admin attaching the layout to a profile changes what future uploads get
+  (decision 2). A layout never gains a bank from users' choices on its own.
+- Stored per layout fingerprint as counts, recorded at confirm time.
+
+### 7. One-time prompt on accounts that have no bank (web and mobile)
+
+Accounts created before this ships, and accounts where the user chose "Other bank", have no bank.
+
+- Accounts with bank `OTHER` that came from a statement import show a small "Which bank is this?"
+  prompt that opens the edit-bank control from section 4.
+- Dismissing it hides it for that account for good. Choosing "Other bank" again counts as an answer.
+- Manually created accounts and Account Aggregator accounts do not show it.
+
+### 8. Measuring whether it worked (admin portal)
+
+Layout Intelligence shows, per week, how many new accounts were created from imports, split into
+bank from the file, from a profile, chosen by the user, and "Other bank". The aim is the "Other bank"
+share going down, and the "from a profile" share showing which layouts still need attaching. Counts
+only.
+
 ## Rollout and order
 
 Suggested as three PRs, each releasable alone:
 
-1. Backend + admin portal: profile bank, the fill rule, `bankSource`, conflict flag.
-2. Web: required bank on import review, and the new edit-account option.
-3. Mobile: the same two pieces. This ships in a new app binary, not an OTA update, if it needs any
+1. Backend + admin portal: profile bank, the fill rule, `bankSource`, conflict flag, the product
+   identity fix (section 5), recording users' choices (section 6), and the weekly counts (section 8).
+2. Web: required bank on import review, the matching fix and hint, the new edit-account option, and
+   the one-time prompt.
+3. Mobile: the same pieces as web. This ships in a new app binary, not an OTA update, if it needs any
    native change; otherwise the normal mobile release rules apply.
 
 Until PR 2 and 3 ship, clients that ignore `bankSource` keep today's behaviour, and the filled bank
@@ -176,6 +223,8 @@ empty. Known one: "ICICI Bank — Credit Card" (created 2026-10-21 for FP-1-6D8F
 - The profile bank can be any bank in `GET /api/v1/banks`, including admin-added ones.
 - The web edit-account screen covers name and bank only.
 - `bankSource` is added to `DetectedAccountInfo` so the clients can word the hint.
+- Sections 5 to 8 (Sid: "do whatever is good"): the matching fix, the admin hint from users' choices,
+  the one-time prompt on bankless accounts, and the weekly counts.
 
 ## Verification (per repo CLAUDE.md)
 

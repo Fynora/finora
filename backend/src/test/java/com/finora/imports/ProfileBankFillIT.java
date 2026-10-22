@@ -170,6 +170,67 @@ class ProfileBankFillIT extends AbstractIntegrationTest {
         assertThat(stored.bankSource()).isEqualTo("PROFILE");
     }
 
+    /** Columns many banks share, so nothing about the layout itself names a bank. */
+    private static byte[] genericCsv(String extraColumn) {
+        String csv = "Date,Description,Debit,Credit,Balance," + extraColumn + "\n"
+                + "01/04/25,SYNTHETIC SHOP,100.00,,1900.00,x\n"
+                + "03/04/25,SYNTHETIC CREDIT,,5000.00,6900.00,y\n";
+        return csv.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private DetectedAccountInfo stagedBy(String fileName, byte[] csv) throws Exception {
+        return importService.parseAndStageWithSession(user("USER").getId(), fileName, csv).staging().detectedAccount();
+    }
+
+    @Test
+    void oneUsersFileNameNeverLabelsSomeoneElsesFile() throws Exception {
+        byte[] csv = genericCsv(extraColumn());
+
+        // The file name is the only thing naming a bank; the layout is grouped under it automatically.
+        assertThat(stagedBy("HDFC_my_export.csv", csv).bank().id()).isEqualTo("HDFC");
+
+        DetectedAccountInfo someoneElse = stagedBy("statement.csv", csv);
+        assertThat(someoneElse.bank().id()).isEqualTo("OTHER");
+        assertThat(someoneElse.bankSource()).isEqualTo("NONE");
+    }
+
+    @Test
+    void twoUploadersAgreeingLetsTheAutomaticGroupFill() throws Exception {
+        byte[] csv = genericCsv(extraColumn());
+        stagedBy("HDFC_my_export.csv", csv);
+        stagedBy("hdfc statement.csv", csv);
+
+        DetectedAccountInfo third = stagedBy("statement.csv", csv);
+
+        assertThat(third.bank().id()).isEqualTo("HDFC");
+        assertThat(third.bankSource()).isEqualTo("PROFILE");
+    }
+
+    @Test
+    void theSameUploaderTwiceIsStillOneWord() throws Exception {
+        byte[] csv = genericCsv(extraColumn());
+        UUID one = user("USER").getId();
+        // Two different files (an identical one would just resume the live session), same person.
+        byte[] nextMonth = (new String(csv, StandardCharsets.UTF_8)
+                + "04/05/25,SYNTHETIC SHOP AGAIN,50.00,,6850.00,z\n").getBytes(StandardCharsets.UTF_8);
+        importService.parseAndStageWithSession(one, "HDFC_my_export.csv", csv);
+        importService.parseAndStageWithSession(one, "HDFC_my_export (1).csv", nextMonth);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_analysis_sessions WHERE user_id = ?",
+                Long.class, one)).as("precondition: both uploads were analysed").isEqualTo(2L);
+
+        assertThat(stagedBy("statement.csv", csv).bankSource()).isEqualTo("NONE");
+    }
+
+    @Test
+    void anUploadNamingAnotherBankStopsTheAutomaticGroupFilling() throws Exception {
+        byte[] csv = genericCsv(extraColumn());
+        stagedBy("HDFC_my_export.csv", csv);
+        stagedBy("hdfc statement.csv", csv);
+        stagedBy("ICICI_export.csv", csv);
+
+        assertThat(stagedBy("statement.csv", csv).bankSource()).isEqualTo("NONE");
+    }
+
     @Test
     void theDebitAndTheCreditStillStageTheirOwnWay() throws Exception {
         byte[] csv = hdfcStyleCsv(extraColumn());

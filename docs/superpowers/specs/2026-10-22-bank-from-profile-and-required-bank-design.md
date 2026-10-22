@@ -42,7 +42,11 @@ Today nothing lets the user fix this:
 2. **Fill the bank from the layout's profile.** When an upload's layout belongs to a profile, and that
    profile has a bank, use that bank when the file itself names none.
 3. **Both kinds of profile link count:** layouts an admin attached by hand, and layouts the system
-   grouped automatically.
+   grouped automatically. **Amended 2026-10-23** after a probe showed one user's file name
+   ("HDFC_my_export.csv") creating an automatic HDFC group that then labelled another user's
+   bankless file: a hand-attached layout fills straight away; an automatically grouped layout fills
+   only once at least 2 different uploaders' files named that bank in the file itself, and no upload
+   of the layout named a different bank.
 4. **Ask the user when the bank is still unknown, and make it required (option B).** On the import
    review, when creating a new account, the user must choose a bank, or "Other bank", before Import
    is enabled.
@@ -104,8 +108,10 @@ Rule, per detected account section:
 
 1. The file names a bank (detection returned anything other than `OTHER`): keep it. The profile is
    not consulted for the bank.
-2. Otherwise, look up the layout's fingerprint in `layout_registry`. If it has a `profile_id` (link
-   source AUTO or MANUAL) and that profile has a `bank_id`, use that bank.
+2. Otherwise, look up the layout's fingerprint in `layout_registry`. If it has a `profile_id` and that
+   profile has a `bank_id`, use that bank: at once for a MANUAL link; for an AUTO link only when
+   `statement_analysis_sessions` shows at least 2 distinct uploaders whose parsed file named that bank
+   and no row for the layout naming another bank (decision 3, amended).
 3. Otherwise the bank stays `OTHER`, and the user is asked (section 3).
 
 When the bank comes from a profile:

@@ -40,8 +40,21 @@ class ProfileBankFillerTest {
         filler = new ProfileBankFiller(jdbc, banks);
     }
 
+    /** The layout is in a profile with {@code bankId}, attached by an admin. */
     private void profileBank(String bankId) {
-        when(jdbc.queryForList(anyString(), eq(String.class), eq(FP))).thenReturn(bankId == null ? List.of() : List.of(bankId));
+        link(bankId, "MANUAL");
+    }
+
+    private void link(String bankId, String source) {
+        when(jdbc.queryForList(anyString(), eq(FP))).thenReturn(bankId == null ? List.of()
+                : List.of(java.util.Map.of("bank_id", bankId, "profile_link_source", source)));
+    }
+
+    /** What earlier uploads of this layout said about their bank: distinct uploaders naming the
+     *  profile's bank, and uploads naming another one. */
+    private void earlierUploads(String bankName, long agreeingUploaders, long disagreeingUploads) {
+        when(jdbc.queryForMap(anyString(), eq(bankName), eq(bankName), eq(FP)))
+                .thenReturn(java.util.Map.of("agree", agreeingUploaders, "disagree", disagreeingUploads));
     }
 
     /** A detected account carrying {@code bankId} and a product identity key, nothing else that matters here. */
@@ -95,6 +108,51 @@ class ProfileBankFillerTest {
         assertThat(filled.value().productIdentityHash()).isNull();
         assertThat(filled.value().accountNumberMasked()).isEqualTo("XXXX0001");
         assertThat(filled.bankConflict()).isFalse();
+    }
+
+    @Test
+    void anAdminAttachedLayoutFillsWithoutEarlierEvidence() {
+        link("HDFC", "MANUAL");
+
+        assertThat(filler.fill(FP, detected("OTHER")).value().bankSource()).isEqualTo("PROFILE");
+    }
+
+    @Test
+    void anAutoGroupedLayoutFillsOnceTwoUploadersAgreed() {
+        link("HDFC", "AUTO");
+        earlierUploads("HDFC Bank", 2, 0);
+
+        var filled = filler.fill(FP, detected("OTHER"));
+
+        assertThat(filled.value().bank().id()).isEqualTo("HDFC");
+        assertThat(filled.value().bankSource()).isEqualTo("PROFILE");
+    }
+
+    @Test
+    void anAutoGroupedLayoutDoesNotFillOnOneUploadersWord() {
+        link("HDFC", "AUTO");
+        earlierUploads("HDFC Bank", 1, 0);
+
+        var filled = filler.fill(FP, detected("OTHER"));
+
+        assertThat(filled.value().bank().id()).isEqualTo("OTHER");
+        assertThat(filled.value().bankSource()).isEqualTo("NONE");
+    }
+
+    @Test
+    void anAutoGroupedLayoutDoesNotFillOnceAnyUploadNamedAnotherBank() {
+        link("HDFC", "AUTO");
+        earlierUploads("HDFC Bank", 5, 1);
+
+        assertThat(filler.fill(FP, detected("OTHER")).value().bankSource()).isEqualTo("NONE");
+    }
+
+    @Test
+    void anUncorroboratedAutoGroupStillReportsAConflictingFile() {
+        link("HDFC", "AUTO");
+        earlierUploads("HDFC Bank", 1, 0);
+
+        assertThat(filler.fill(FP, detected("ICICI")).bankConflict()).isTrue();
     }
 
     @Test

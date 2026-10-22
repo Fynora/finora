@@ -1,6 +1,10 @@
 package com.finora.notification.provider;
 
 import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -42,23 +46,13 @@ import org.slf4j.LoggerFactory;
  * {@code PushConfig} holding any APNs credential. See {@link FcmPushProvider}'s class doc for the
  * fuller account of why a direct-to-Apple client was rejected.
  *
- * <h3>Why no {@code ApnsConfig} is set (yet)</h3>
+ * <h3>Sound and priority (set in {@link #buildMessage})</h3>
  *
- * <p>{@link Message} supports a per-platform {@code ApnsConfig} (APNs {@code aps} fields --
- * sound, badge, {@code content-available}, {@code apns-priority}) alongside the {@code AndroidConfig}
- * this class also does not set. Left unset, FCM derives the APNs {@code aps.alert.title}/
- * {@code aps.alert.body} from the shared {@link Notification} payload automatically, so the push
- * still arrives and displays on iOS -- the one documented gap is that, without an explicit
- * {@code aps.sound}, iOS delivers the banner silently where Android's default channel plays a
- * sound. That asymmetry is deliberately left alone here rather than patched with an iOS-only
- * {@code ApnsConfig.aps.sound("default")}: this class sets no {@code AndroidConfig} either, so
- * every platform-specific delivery knob (sound, badge, priority) is currently at parity in the
- * sense that none of them are configured anywhere, for any platform. Badge counts specifically
- * cannot be set correctly yet regardless -- there is no unread-count feature behind this provider
- * to compute one from, and shipping a hardcoded/guessed badge value would be worse than none. If
- * per-platform sound/badge/priority tuning is wanted, it should be designed for both platforms
- * together (not iOS alone) as its own follow-up, informed by
- * {@link com.finora.notification.domain.NotificationPriority} rather than guessed here.
+ * <p>Every push carries an {@code ApnsConfig} with {@code aps.sound = "default"} and
+ * {@code apns-priority = 10}, and an {@code AndroidConfig} with HIGH priority and the default
+ * sound, posted on the {@link #ANDROID_CHANNEL_ID} channel. Left unset, iOS delivered the banner silently and Android did not treat the push as
+ * high priority. Badge counts are still not set: there is no unread-count feature to compute one
+ * from, and a guessed value would be worse than none.
  *
  * <h2>Error-code mapping to {@link FcmSendOutcome}</h2>
  *
@@ -98,6 +92,13 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
 
     private static final Logger log = LoggerFactory.getLogger(FirebaseFcmMessageSender.class);
 
+    /**
+     * The Android channel pushes are posted on. The app creates it with sound and vibration on
+     * (PUSH_CHANNEL_ID in mobile/src/lib/systemNotification.ts) -- keep the two equal. A phone that
+     * has not created it yet is not an error: FCM posts to its own default channel instead.
+     */
+    static final String ANDROID_CHANNEL_ID = "pushes";
+
     private final FirebaseMessaging messaging;
 
     public FirebaseFcmMessageSender(FirebaseApp firebaseApp) {
@@ -110,15 +111,7 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
             // Message.builder()...build() is inside the try, not just messaging.send() -- an
             // unexpected IllegalArgumentException from a malformed token/title/body must be caught
             // by the same "must not throw" guarantee as a send failure, not escape from above it.
-            Message message = Message.builder()
-                    .setToken(deviceToken)
-                    .setNotification(Notification.builder().setTitle(title).setBody(body).build())
-                    // Phase 5 (Low-Priority Polish). Data only, never in the displayed
-                    // notification -- read by the mobile client's tap handler to route the tap,
-                    // per FcmMessageSender#send's own doc comment on why this is a plain string.
-                    .putData("type", type)
-                    .build();
-            messaging.send(message);
+            messaging.send(buildMessage(deviceToken, title, body, type));
             return FcmSendOutcome.ACCEPTED;
         } catch (FirebaseMessagingException e) {
             MessagingErrorCode code = e.getMessagingErrorCode();
@@ -133,6 +126,33 @@ public class FirebaseFcmMessageSender implements FcmMessageSender {
             log.warn("Unexpected error sending an FCM push: {}", e.getClass().getSimpleName());
             return FcmSendOutcome.TRANSIENT_FAILURE;
         }
+    }
+
+    /** Package-private so the payload can be asserted without a live FCM client. */
+    static Message buildMessage(String deviceToken, String title, String body, String type) {
+        return Message.builder()
+                .setToken(deviceToken)
+                .setNotification(Notification.builder().setTitle(title).setBody(body).build())
+                // Phase 5 (Low-Priority Polish). Data only, never in the displayed
+                // notification -- read by the mobile client's tap handler to route the tap,
+                // per FcmMessageSender#send's own doc comment on why this is a plain string.
+                .putData("type", type)
+                // Without these a push is delivered silently on iOS (no aps.sound) and is not
+                // high priority on Android, so it can wait out a doze window unannounced. Sound
+                // and vibration on Android are finally decided by the notification channel on the
+                // phone; "default" plus HIGH priority is what lets the channel's own settings apply.
+                .setApnsConfig(ApnsConfig.builder()
+                        .setAps(Aps.builder().setSound("default").build())
+                        .putHeader("apns-priority", "10")
+                        .build())
+                .setAndroidConfig(AndroidConfig.builder()
+                        .setPriority(AndroidConfig.Priority.HIGH)
+                        .setNotification(AndroidNotification.builder()
+                                .setSound("default")
+                                .setChannelId(ANDROID_CHANNEL_ID)
+                                .build())
+                        .build())
+                .build();
     }
 
     /**

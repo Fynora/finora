@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { CAMPAIGN_CHANNEL_ID, registerSystemNotificationEvents, showSystemNotification } from './systemNotification';
+import { PUSH_CHANNEL_ID, registerSystemNotificationEvents, showSystemNotification } from './systemNotification';
 
 // The native library is replaced with a fake that records what it was asked, so these tests pin what
 // systemNotification.ts sends to it and what it reports back -- including the old-build case where
@@ -29,7 +29,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   mockNotifee.getNotificationSettings.mockResolvedValue({ authorizationStatus: 1 });
-  mockNotifee.createChannel.mockResolvedValue(CAMPAIGN_CHANNEL_ID);
+  mockNotifee.createChannel.mockResolvedValue(PUSH_CHANNEL_ID);
   mockNotifee.displayNotification.mockResolvedValue('shown');
   setPlatform('android');
 });
@@ -40,22 +40,24 @@ afterEach(() => {
 });
 
 describe('showSystemNotification', () => {
-  it('on Android, creates a HIGH-importance channel and posts the notification on it', async () => {
+  it('on Android, posts on a channel that makes sound and vibrates (a channel with no sound is silent)', async () => {
     const shown = await showSystemNotification('Welcome to Fynora', 'Welcome to Fynora.', 'msg-1');
 
     expect(shown).toBe(true);
-    expect(mockNotifee.createChannel).toHaveBeenCalledWith({ id: CAMPAIGN_CHANNEL_ID, name: 'Announcements', importance: 4 });
+    expect(mockNotifee.createChannel).toHaveBeenCalledWith({
+      id: PUSH_CHANNEL_ID, name: 'Notifications', importance: 4, sound: 'default', vibration: true,
+    });
     expect(mockNotifee.displayNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'msg-1',
         title: 'Welcome to Fynora',
         body: 'Welcome to Fynora.',
-        android: { channelId: CAMPAIGN_CHANNEL_ID, pressAction: { id: 'default' } },
+        android: { channelId: PUSH_CHANNEL_ID, pressAction: { id: 'default' } },
       }),
     );
   });
 
-  it('on iOS, asks the system to show the banner AND keep it in the notification centre', async () => {
+  it('on iOS, asks the system to show the banner, keep it in the notification centre, AND play the sound', async () => {
     setPlatform('ios');
 
     const shown = await showSystemNotification('Welcome to Fynora', 'Welcome to Fynora.');
@@ -64,7 +66,7 @@ describe('showSystemNotification', () => {
     expect(mockNotifee.createChannel).not.toHaveBeenCalled();
     expect(mockNotifee.displayNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        ios: { foregroundPresentationOptions: { banner: true, list: true, sound: false, badge: false } },
+        ios: { sound: 'default', foregroundPresentationOptions: { banner: true, list: true, sound: true, badge: false } },
         android: undefined,
       }),
     );
@@ -111,6 +113,32 @@ describe('showSystemNotification', () => {
 // that throws, which cannot share a file with the working fake above).
 
 describe('registerSystemNotificationEvents', () => {
+  // Pushes that arrive while the app is closed are drawn by the phone itself, on the channel the
+  // backend names -- so the channel has to exist before any push does, not only once a foreground
+  // message happens to call showSystemNotification.
+  it('on Android, creates the sound-and-vibration channel at start-up', async () => {
+    await registerSystemNotificationEvents();
+
+    expect(mockNotifee.createChannel).toHaveBeenCalledWith({
+      id: PUSH_CHANNEL_ID, name: 'Notifications', importance: 4, sound: 'default', vibration: true,
+    });
+  });
+
+  it('on iOS, creates no channel', async () => {
+    setPlatform('ios');
+
+    await registerSystemNotificationEvents();
+
+    expect(mockNotifee.createChannel).not.toHaveBeenCalled();
+  });
+
+  it('does not throw at start-up when the channel cannot be created', async () => {
+    mockNotifee.createChannel.mockRejectedValue(new Error('no channel'));
+
+    await expect(registerSystemNotificationEvents()).resolves.toBeUndefined();
+    expect(mockNotifee.onBackgroundEvent).toHaveBeenCalledTimes(1);
+  });
+
   it('registers a background event handler that does nothing', async () => {
     await registerSystemNotificationEvents();
 

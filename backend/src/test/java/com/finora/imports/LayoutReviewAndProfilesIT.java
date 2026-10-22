@@ -489,6 +489,82 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         assertThat(view.bankId()).isEqualTo("HDFC");
     }
 
+    // ------------------------------------------------------------------ bank counts (V285)
+
+    private void choice(String fingerprint, String detected, String source, String chosen, String createdAt) {
+        jdbc.update("INSERT INTO import_bank_choice (id, layout_fingerprint, detected_bank_id, bank_source, chosen_bank_id, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?::timestamptz)", UUID.randomUUID(), fingerprint, detected, source, chosen, createdAt);
+    }
+
+    @Test
+    void bankChoicesCountsOnlyUnknownBankUploads() {
+        String fp = fingerprint();
+        choice(fp, "OTHER", "NONE", "HDFC", "2026-10-20T10:00:00Z");
+        choice(fp, "OTHER", "NONE", "HDFC", "2026-10-21T10:00:00Z");
+        choice(fp, "OTHER", "NONE", "OTHER", "2026-10-21T11:00:00Z");
+        choice(fp, "HDFC", "PROFILE", "HDFC", "2026-10-21T12:00:00Z");
+
+        var counts = curationService.bankChoices().stream().filter(c -> fp.equals(c.fingerprint())).toList();
+
+        assertThat(counts).extracting(c -> c.bankId() + "=" + c.count()).containsExactly("HDFC=2", "OTHER=1");
+        assertThat(counts.get(0).bankName()).isEqualTo("HDFC Bank");
+        assertThat(counts.get(1).bankName()).isEqualTo("Other bank");
+    }
+
+    @Test
+    void bankOriginsClassifiesEachRow() {
+        // A week long before anything else in the shared database: Monday 2001-01-01.
+        String fp = fingerprint();
+        choice(fp, "HDFC", "FILE", "HDFC", "2001-01-02T10:00:00+05:30");
+        choice(fp, "HDFC", "PROFILE", "HDFC", "2001-01-02T11:00:00+05:30");
+        choice(fp, "OTHER", "NONE", "ICICI", "2001-01-03T10:00:00+05:30");
+        choice(fp, "HDFC", "FILE", "ICICI", "2001-01-04T10:00:00+05:30"); // detected bank changed by the user
+        choice(fp, "OTHER", "NONE", "OTHER", "2001-01-07T23:00:00+05:30"); // Sunday night IST, same week
+
+        var weeks = curationService.bankOrigins(1, java.time.LocalDate.of(2001, 1, 5));
+
+        assertThat(weeks).hasSize(1);
+        var week = weeks.get(0);
+        assertThat(week.weekStart()).isEqualTo(java.time.LocalDate.of(2001, 1, 1));
+        assertThat(List.of(week.fromFile(), week.fromProfile(), week.chosenByUser(), week.otherBank()))
+                .containsExactly(1L, 1L, 2L, 1L);
+    }
+
+    @Test
+    void bankOriginsListsEveryWeekNewestFirst_includingEmptyOnes() {
+        String fp = fingerprint();
+        choice(fp, "HDFC", "FILE", "HDFC", "2001-02-06T10:00:00+05:30");
+
+        var weeks = curationService.bankOrigins(3, java.time.LocalDate.of(2001, 2, 21));
+
+        assertThat(weeks).extracting(w -> w.weekStart().toString())
+                .containsExactly("2001-02-19", "2001-02-12", "2001-02-05");
+        assertThat(weeks.get(2).fromFile()).isEqualTo(1L);
+        assertThat(weeks.get(0).fromFile() + weeks.get(0).fromProfile() + weeks.get(0).chosenByUser()
+                + weeks.get(0).otherBank()).isZero();
+    }
+
+    @Test
+    void bankOriginsWeeksAreClamped() {
+        java.time.LocalDate today = java.time.LocalDate.of(2001, 3, 7);
+        assertThat(curationService.bankOrigins(0, today)).hasSize(1);
+        assertThat(curationService.bankOrigins(500, today)).hasSize(52);
+    }
+
+    @Test
+    void theCountEndpointsNeedTheReadPermission() {
+        User ops = createUser("OPS");
+        User admin = createUser("ADMIN");
+        String base = "/api/v1/admin/imports/layout-registry";
+
+        for (String path : List.of("/bank-choices", "/bank-origins?weeks=4")) {
+            assertThat(restTemplate.exchange(base + path, HttpMethod.GET, new HttpEntity<>(bearerFor(ops)), String.class)
+                    .getStatusCode()).as(path).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(restTemplate.exchange(base + path, HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class)
+                    .getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
+        }
+    }
+
     @Test
     void aUserWithoutTheLayoutPermissionsCannotReadOrWrite() {
         User ops = createUser("OPS");

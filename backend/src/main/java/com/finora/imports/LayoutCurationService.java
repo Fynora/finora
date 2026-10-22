@@ -39,6 +39,7 @@ public class LayoutCurationService {
     private final LayoutProfileBackfill backfill;
     private final jakarta.persistence.EntityManager entityManager;
     private final BankManagementService bankManagementService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public LayoutCurationService(RegisteredLayoutRepository layoutRepository,
                                  LayoutProfileRepository profileRepository,
@@ -46,8 +47,10 @@ public class LayoutCurationService {
                                  LayoutProfileAutoLinker autoLinker,
                                  LayoutProfileBackfill backfill,
                                  jakarta.persistence.EntityManager entityManager,
-                                 BankManagementService bankManagementService) {
+                                 BankManagementService bankManagementService,
+                                 org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.backfill = backfill;
+        this.jdbc = jdbc;
         this.bankManagementService = bankManagementService;
         this.layoutRepository = layoutRepository;
         this.profileRepository = profileRepository;
@@ -75,6 +78,16 @@ public class LayoutCurationService {
 
     /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
      *  engine groups into by bank and account family. */
+    /** How many confirmed imports of a layout whose bank was unknown (no file bank, no profile bank)
+     *  ended with the user choosing {@code bankId}. A hint for attaching the layout to a profile;
+     *  counts only (spec 2026-10-22, section 6). */
+    public record BankChoiceCount(String fingerprint, String bankId, String bankName, long count) {}
+
+    /** One week (Monday, India time) of accounts created by statement imports, by where their bank
+     *  came from (spec 2026-10-22, section 8). */
+    public record BankOriginWeek(java.time.LocalDate weekStart, long fromFile, long fromProfile,
+                                 long chosenByUser, long otherBank) {}
+
     /** {@code bankId}/{@code bankName}: the bank this profile's layouts give an upload whose file names
      *  none (V285), or null when no bank is set yet. */
     public record ProfileView(UUID id, String name, boolean automatic, String bankId, String bankName,
@@ -112,6 +125,61 @@ public class LayoutCurationService {
         }
         views.sort(Comparator.comparing(v -> v.name().toLowerCase(java.util.Locale.ROOT)));
         return views;
+    }
+
+    @Transactional(readOnly = true)
+    public List<BankChoiceCount> bankChoices() {
+        return jdbc.query("""
+                SELECT layout_fingerprint, chosen_bank_id, count(*) AS n FROM import_bank_choice
+                WHERE bank_source = 'NONE' AND layout_fingerprint IS NOT NULL
+                GROUP BY layout_fingerprint, chosen_bank_id
+                ORDER BY layout_fingerprint, n DESC, chosen_bank_id
+                """, (rs, i) -> new BankChoiceCount(rs.getString(1), rs.getString(2), bankNameOf(rs.getString(2)),
+                rs.getLong(3)));
+    }
+
+    private static final java.time.ZoneId WEEK_ZONE = java.time.ZoneId.of("Asia/Kolkata");
+
+    /** The last {@code weeks} weeks (clamped to 1..52) up to and including the current one, newest
+     *  first, empty weeks included as zeros. */
+    @Transactional(readOnly = true)
+    public List<BankOriginWeek> bankOrigins(int weeks) {
+        return bankOrigins(weeks, java.time.LocalDate.now(WEEK_ZONE));
+    }
+
+    List<BankOriginWeek> bankOrigins(int weeks, java.time.LocalDate today) {
+        int span = Math.max(1, Math.min(52, weeks));
+        java.time.LocalDate newest = today.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+        java.time.LocalDate oldest = newest.minusWeeks(span - 1L);
+        // Classification, in order: the account ended with no bank; the user chose it (the bank was
+        // unknown, or they replaced the one we offered); otherwise where the offered bank came from.
+        Map<java.time.LocalDate, long[]> byWeek = new HashMap<>();
+        jdbc.query("""
+                SELECT date_trunc('week', created_at AT TIME ZONE 'Asia/Kolkata')::date AS week,
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND bank_source = 'FILE' AND chosen_bank_id = detected_bank_id),
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND bank_source = 'PROFILE' AND chosen_bank_id = detected_bank_id),
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND (bank_source = 'NONE' OR chosen_bank_id <> detected_bank_id)),
+                       count(*) FILTER (WHERE chosen_bank_id = 'OTHER')
+                FROM import_bank_choice
+                WHERE created_at >= (?::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+                  AND created_at < ((?::date) + 7)::timestamp AT TIME ZONE 'Asia/Kolkata'
+                GROUP BY 1
+                """, rs -> {
+                    byWeek.put(rs.getDate(1).toLocalDate(),
+                            new long[] {rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getLong(5)});
+                }, oldest, newest);
+        List<BankOriginWeek> result = new ArrayList<>(span);
+        for (java.time.LocalDate week = newest; !week.isBefore(oldest); week = week.minusWeeks(1)) {
+            long[] c = byWeek.getOrDefault(week, new long[4]);
+            result.add(new BankOriginWeek(week, c[0], c[1], c[2], c[3]));
+        }
+        return result;
+    }
+
+    private String bankNameOf(String bankId) {
+        if (bankId == null || BankRegistry.UNKNOWN_ID.equals(bankId)) return "Other bank";
+        String name = bankManagementService.resolve(bankId).officialName();
+        return name == null ? bankId : name;
     }
 
     @Transactional

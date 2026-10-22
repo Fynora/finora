@@ -94,6 +94,21 @@ public class AdminLayoutRegistryController {
         return ApiResponse.ok(curationService.profiles());
     }
 
+    /** Counts of the bank users chose for layouts whose bank was unknown. Counts only. */
+    @GetMapping("/bank-choices")
+    @PreAuthorize(READ)
+    public ApiResponse<List<LayoutCurationService.BankChoiceCount>> bankChoices() {
+        return ApiResponse.ok(curationService.bankChoices());
+    }
+
+    /** Accounts created by imports per week, by where their bank came from. {@code weeks} 1..52. */
+    @GetMapping("/bank-origins")
+    @PreAuthorize(READ)
+    public ApiResponse<List<LayoutCurationService.BankOriginWeek>> bankOrigins(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "12") int weeks) {
+        return ApiResponse.ok(curationService.bankOrigins(weeks));
+    }
+
     /** Body: {@code {"name": "...", "bankId": "HDFC"}}. Both required. */
     @PostMapping("/profiles")
     @PreAuthorize(WRITE)

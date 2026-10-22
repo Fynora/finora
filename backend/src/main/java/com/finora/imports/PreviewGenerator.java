@@ -100,6 +100,7 @@ public class PreviewGenerator {
             return new CsvGenerationResult(new StagingResponse(staged, 0, 0, empty, unparseable), ctx);
         }
         String[] headerRow = allRows.get(headerIdx);
+        rejectIfSeveralAccounts(headerRow, allRows, headerIdx);
         ctx.recordTables(1);
         ctx.recordHeaders(List.of(headerRow));
 
@@ -196,5 +197,44 @@ public class PreviewGenerator {
                 located, unparseable, stagedIndexOfLocatedRow.stream().mapToInt(Integer::intValue).toArray());
         return new CsvGenerationResult(
                 new StagingResponse(staged, staged.size(), dupCount, detected, unparseable, verification), ctx);
+    }
+
+    /** Column names that say which of the user's accounts a row belongs to. A Card Number column
+     *  is deliberately not one: a card export can list the primary and an add-on card row by row,
+     *  and both bill to one card account. */
+    private static final java.util.Set<String> ACCOUNT_COLUMNS =
+            java.util.Set.of("account", "your account", "account name", "account number", "account no");
+
+    /**
+     * Refuses a file whose account column names more than one account ({@code
+     * IMPORT_MULTI_ACCOUNT_FILE}). Such a file is a ledger combined from several statements, not a
+     * statement of one account, and an import lands in exactly one account: the other accounts'
+     * rows would be filed under the wrong one, and each of them is already in its own bank's
+     * statement. Seen on a real upload (2026-10-21): one file covering five bank and card accounts,
+     * with a column naming the statement file each row was taken from. Refusing it is Sid's
+     * decision of 2026-10-22, the same call as for a payment app's history.
+     *
+     * <p>Values are compared ignoring case and spacing, so one account printed two ways is still
+     * one account. A blank cell names no account.
+     */
+    static void rejectIfSeveralAccounts(String[] headerRow, List<String[]> allRows, int headerIdx) {
+        List<Integer> accountColumns = new ArrayList<>();
+        for (int c = 0; c < headerRow.length; c++) {
+            if (ACCOUNT_COLUMNS.contains(CsvParser.normalizeHeaderCell(headerRow[c]))) accountColumns.add(c);
+        }
+        if (accountColumns.isEmpty()) return;
+        for (int column : accountColumns) {
+            java.util.Set<String> accounts = new java.util.HashSet<>();
+            for (int i = headerIdx + 1; i < allRows.size(); i++) {
+                String[] cells = allRows.get(i);
+                if (column >= cells.length || cells[column] == null) continue;
+                String account = cells[column].trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+                if (account.isEmpty()) continue;
+                accounts.add(account);
+                if (accounts.size() > 1) {
+                    throw new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_MULTI_ACCOUNT_FILE);
+                }
+            }
+        }
     }
 }

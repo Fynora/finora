@@ -73,6 +73,11 @@ const FAILURE_TERMS: Record<string, Term & { wire?: string }> = {
     label: 'Payment app history, not a statement',
     meaning: 'The upload is a payment app history (Paytm, or a UPI app such as PhonePe) rather than a bank statement.',
   },
+  IMPORT_MULTI_ACCOUNT_FILE: {
+    wire: 'IMPORT_020',
+    label: 'Several accounts in one file',
+    meaning: 'The upload lists transactions from more than one account (a combined ledger), so it cannot be imported into one account.',
+  },
   IMPORT_SYSTEM_BUSY: {
     wire: 'IMPORT_006',
     label: 'System busy',

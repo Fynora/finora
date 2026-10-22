@@ -87,7 +87,10 @@ class ErrorCodeTest {
                         ErrorCode.IMPORT_SESSION_HELD_FOR_REVIEW,
                         // IMPORT_PAYMENT_APP_HISTORY (2026-09-27): the user uploaded a payment
                         // app's history instead of a bank statement, and the fix is theirs.
-                        ErrorCode.IMPORT_PAYMENT_APP_HISTORY);
+                        ErrorCode.IMPORT_PAYMENT_APP_HISTORY,
+                        // IMPORT_MULTI_ACCOUNT_FILE (2026-10-22): a file combining several
+                        // accounts; the fix is the user's, uploading each statement on its own.
+                        ErrorCode.IMPORT_MULTI_ACCOUNT_FILE);
     }
 
     /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */

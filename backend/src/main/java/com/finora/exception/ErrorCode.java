@@ -120,6 +120,17 @@ public enum ErrorCode {
     // statements instead. Never retried: the same bytes are the same kind of document every time.
     IMPORT_PAYMENT_APP_HISTORY("IMPORT_018", HttpStatus.UNPROCESSABLE_ENTITY,
             "This is a payment app history, not a bank statement.", true),
+    // A CSV whose Account column names more than one account -- a ledger someone combined from
+    // several statements, not a statement of one account (seen 2026-10-21: one file spanning five
+    // bank and card accounts, with a column naming the statement each row came from). Refused for
+    // the same reason as IMPORT_PAYMENT_APP_HISTORY, by Sid's decision of 2026-10-22: an import
+    // lands in exactly one account, so the other accounts' rows would land in the wrong one, and
+    // each row is already in its own bank's statement. userActionRequired=true because the fix is
+    // the user's: upload each account's own statement. Never retried: the same bytes are the same
+    // kind of document every time. The message is what the user reads when a held job ends here.
+    IMPORT_MULTI_ACCOUNT_FILE("IMPORT_020", HttpStatus.UNPROCESSABLE_ENTITY,
+            "This file lists transactions from more than one account, so it cannot be imported into a "
+                    + "single account. Please upload each bank or card statement on its own.", true),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

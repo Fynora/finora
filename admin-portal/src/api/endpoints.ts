@@ -230,6 +230,41 @@ export const adminBanksApi = {
   audit: (id: string) => api.get<AuditLogDto[]>(`/admin/banks/${id}/audit`).then((r) => r.data),
 };
 
+/** A checked statement correction waiting for a user (AdminStatementCorrectionController). */
+export interface WaitingCorrection {
+  statementImportId: string;
+  fileName: string | null;
+  accountName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  rowsChanged: number;
+  rowsAdded: number;
+  rowsRemoved: number;
+  factsChanged: number;
+  checkedAt: string;
+}
+
+export interface AppliedCorrection {
+  statementImportId: string;
+  status: string;
+  rowsChanged: number;
+  rowsAdded: number;
+  rowsRemoved: number;
+  factsChanged: number;
+  balanceChange: number | null;
+  reason: string | null;
+  runId: string | null;
+  userNotified: boolean;
+}
+
+export const adminStatementCorrectionsApi = {
+  waiting: (userId: string) =>
+    api.get<WaitingCorrection[]>(`/admin/statement-corrections/users/${userId}`).then((r) => r.data),
+  apply: (statementId: string, reason: string) =>
+    api.post<AppliedCorrection>(`/admin/statement-corrections/statements/${statementId}/apply`, { reason })
+      .then((r) => r.data),
+};
+
 export const adminAccountsApi = {
   list: (userId: string) =>
     api.get<AccountDto[]>(`/admin/users/${userId}/accounts`).then((r) => r.data),

@@ -6028,6 +6028,49 @@
                 }
             }
         },
+        "/api/v1/admin/statement-corrections/statements/{statementId}/apply": {
+            "post": {
+                "tags": [
+                    "admin-statement-correction-controller"
+                ],
+                "operationId": "applyCorrection",
+                "parameters": [
+                    {
+                        "name": "statementId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAppliedCorrection"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/rules": {
             "get": {
                 "tags": [
@@ -11641,6 +11684,37 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseRefreshSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/statement-corrections/users/{userId}": {
+            "get": {
+                "tags": [
+                    "admin-statement-correction-controller"
+                ],
+                "operationId": "waitingCorrections",
+                "parameters": [
+                    {
+                        "name": "userId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListWaitingCorrection"
                                 }
                             }
                         }
@@ -20602,6 +20676,75 @@
                     }
                 }
             },
+            "ApiResponseAppliedCorrection": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AppliedCorrection"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "AppliedCorrection": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "balanceChange": {
+                        "type": "number"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "runId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userNotified": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "TestRequest": {
                 "type": "object",
                 "properties": {
@@ -29069,6 +29212,80 @@
                         "items": {
                             "$ref": "#/components/schemas/RefreshStatusTotals"
                         }
+                    }
+                }
+            },
+            "ApiResponseListWaitingCorrection": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WaitingCorrection"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WaitingCorrection": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "checkedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

@@ -155,6 +155,32 @@ public class StatementRefreshService {
         if (savePassword && !statementPasswordService.enabled()) {
             throw new ApiException(HttpStatus.CONFLICT, "Saving statement passwords is not available yet.");
         }
+        PasswordKeeper keeper = savePassword
+                ? kept -> statementPasswordService.saveForStatement(userId, statementId, kept)
+                : null;
+        return run(userId, statementId, password, keeper, null);
+    }
+
+    /**
+     * The same refresh, started by an admin for the statement's owner -- see
+     * AdminStatementCorrectionService. {@code actingAdminId} is who acted: the STATEMENT_REFRESHED
+     * audit entry, filed under the owner, names them as {@code actorId}, so the trail never says the
+     * user refreshed their own statement when staff did. No password is given and none is ever saved: keeping a
+     * password needs the user's own consent, so this path has no route to it at all.
+     */
+    public StatementRefreshOutcome refreshForOwnerByAdmin(UUID userId, UUID statementId, UUID actingAdminId) {
+        requireEnabled();
+        return run(userId, statementId, null, null, actingAdminId);
+    }
+
+    /** Saves a password the user agreed to keep, once the file has opened with it. */
+    @FunctionalInterface
+    private interface PasswordKeeper {
+        void keep(String password);
+    }
+
+    private StatementRefreshOutcome run(UUID userId, UUID statementId, String password, PasswordKeeper keeper,
+                                        UUID actingAdminId) {
         StatementImport statement = statementImportRepository.findById(statementId)
                 .filter(s -> s.getUserId().equals(userId))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Statement not found"));
@@ -207,17 +233,18 @@ public class StatementRefreshService {
         // The file opened, so the password is right. Saved whatever the refresh then decides: the
         // user agreed to keep it for this statement, not for this outcome. Only a locked PDF has one
         // to keep -- PDFBox ignores a password given for an unlocked file, so it would open anyway.
-        if (savePassword && givenPassword && "PDF".equalsIgnoreCase(statement.getSourceFormat())
+        if (keeper != null && givenPassword && "PDF".equalsIgnoreCase(statement.getSourceFormat())
                 && com.finora.imports.pdf.PdfTextExtractor.needsPassword(new java.io.ByteArrayInputStream(content))) {
-            statementPasswordService.saveForStatement(userId, statementId, password);
+            keeper.keep(password);
         }
 
-        StatementRefreshRun run = writeTransaction.execute(tx -> apply(userId, statementId, version, staging));
+        StatementRefreshRun run = writeTransaction.execute(tx -> apply(userId, statementId, version, staging, actingAdminId));
         return StatementRefreshOutcome.of(run);
     }
 
     /** The refresh proper, under the statement's lock. */
-    private StatementRefreshRun apply(UUID userId, UUID statementId, String version, StagingResponse staging) {
+    private StatementRefreshRun apply(UUID userId, UUID statementId, String version, StagingResponse staging,
+                                      UUID actingAdminId) {
         StatementImport statement = statementImportRepository.findByIdForUpdate(statementId).orElse(null);
         if (statement == null || statement.getSupersededBy() != null) {
             // Deleted or replaced while its file was being read: nothing left to patch, and a run
@@ -326,10 +353,16 @@ public class StatementRefreshService {
             run.balanceChange(balanceAfter.subtract(balanceBefore));
         }
         StatementRefreshRun saved = save(run);
-        auditService.record(userId, "STATEMENT_REFRESHED", "StatementImport", statementId, Map.of(
-                "parserVersion", String.valueOf(version),
-                "rowsChanged", saved.getRowsChanged(), "rowsAdded", saved.getRowsAdded(),
-                "rowsRemoved", saved.getRowsRemoved(), "factsChanged", saved.getFactsChanged()));
+        Map<String, Object> audit = new java.util.LinkedHashMap<>();
+        audit.put("parserVersion", String.valueOf(version));
+        audit.put("rowsChanged", saved.getRowsChanged());
+        audit.put("rowsAdded", saved.getRowsAdded());
+        audit.put("rowsRemoved", saved.getRowsRemoved());
+        audit.put("factsChanged", saved.getFactsChanged());
+        // Filed under the statement's owner, like every other change to their data (AccountService);
+        // when staff started it, actorId says who.
+        if (actingAdminId != null) audit.put("actorId", actingAdminId.toString());
+        auditService.record(userId, "STATEMENT_REFRESHED", "StatementImport", statementId, audit);
         return saved;
     }
 

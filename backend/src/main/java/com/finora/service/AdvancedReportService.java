@@ -261,9 +261,13 @@ public class AdvancedReportService {
         AnalyticsDto.InternationalSpend international = AnalyticsService.internationalSpendOf(
                 now.forTotals().stream().filter(t -> t.getTxnType() == Transaction.Type.EXPENSE).toList(), refunds);
 
+        // The newest month is only worth naming when it is the month this period would otherwise have ended
+        // with. A period that ends earlier (a custom run in 2021, last year) never reached for it, and a
+        // note about it would be about something the reader did not ask for.
+        boolean leftOutApplies = leftOutMonth != null && !period.end().isBefore(anchor);
         AdvancedPeriodInfo info = new AdvancedPeriodInfo(true, null, range.name(), period.start().toString(),
                 period.end().toString(), period.months(), period.requestedMonths(), first.toString(), newest.toString(),
-                leftOutMonth, leftOutReason, incompleteMonths,
+                leftOutApplies ? leftOutMonth : null, leftOutApplies ? leftOutReason : null, incompleteMonths,
                 period.compare() == null ? null : period.compare().name(),
                 period.compareOptions().stream().map(Enum::name).toList(),
                 period.previousStart() == null ? null : period.previousStart().toString(),

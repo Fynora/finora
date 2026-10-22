@@ -213,6 +213,22 @@ class AdvancedReportServiceTest {
     }
 
     @Test
+    void thePartialNewestMonthIsOnlyNamedByAPeriodThatWouldHaveEndedWithIt() {
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 8));
+        spend("2026-09-10", "700", "Food");
+        spend("2026-09-17", "300", "Food");
+
+        // Ends at the last whole month: the left-out month is named.
+        assertThat(build(AdvancedRange.LAST_3_MONTHS).period().leftOutMonth()).isEqualTo("2026-09");
+        // A custom run in the past, and last year, never reached for it: nothing to say about it.
+        AdvancedReportDto past = service.build(userId, AdvancedRange.CUSTOM, YearMonth.of(2025, 3), YearMonth.of(2025, 6), null);
+        assertThat(past.period().endMonth()).isEqualTo("2025-06");
+        assertThat(past.period().leftOutMonth()).isNull();
+        assertThat(past.period().leftOutReason()).isNull();
+        assertThat(build(AdvancedRange.LAST_YEAR).period().leftOutMonth()).isNull();
+    }
+
+    @Test
     void aHistoryThatIsOnlyAPartialMonthHasNothingToCompare() {
         spend("2026-09-10", "700", "Food");
         spend("2026-09-17", "300", "Food");

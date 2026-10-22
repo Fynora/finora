@@ -673,6 +673,69 @@ class TransactionNormalizerTest {
         assertThat(normalizer.explainFailure(row)).contains("not-a-number").contains("didn't match any known numeric format");
     }
 
+    // --- failureReasonKey() -- the same verdict as explainFailure, safe to persist. explainFailure
+    // quotes the cell for the person who uploaded it; this key goes into the admin parse-diagnostics
+    // histogram, so it carries the value's shape (digit -> 9, letter -> X), never the value. ---
+
+    @Test
+    void failureReasonKey_namesAMissingDateColumn() {
+        assertThat(normalizer.failureReasonKey(rowOf("Amount", "500.00", "Description", "Groceries")))
+                .isEqualTo(TransactionNormalizer.REASON_NO_DATE_COLUMN);
+    }
+
+    @Test
+    void failureReasonKey_tellsAnEmptyDateCellFromAMissingDateColumn() {
+        assertThat(normalizer.failureReasonKey(rowOf("Date", " ", "Amount", "500.00")))
+                .isEqualTo(TransactionNormalizer.REASON_DATE_COLUMN_EMPTY);
+    }
+
+    @Test
+    void failureReasonKey_givesTheShapeOfAnUnreadableDate_andNoneOfItsContent() {
+        Map<String, String> row = rowOf("Date", "17-Sept-2026", "Amount", "500.00");
+
+        String key = normalizer.failureReasonKey(row);
+
+        assertThat(key).isEqualTo("UNANCHORED_DATE_UNPARSEABLE:99-XXXX-9999");
+        assertThat(normalizer.explainFailure(row)).contains("17-Sept-2026");
+    }
+
+    @Test
+    void failureReasonKey_namesAMissingAmountColumn() {
+        assertThat(normalizer.failureReasonKey(rowOf("Date", "05/07/2026", "Description", "Groceries")))
+                .isEqualTo(TransactionNormalizer.REASON_NO_AMOUNT_COLUMN);
+    }
+
+    @Test
+    void failureReasonKey_tellsBlankAmountCellsFromAMissingAmountColumn() {
+        assertThat(normalizer.failureReasonKey(rowOf("Date", "05/07/2026", "Debit", "", "Credit", " ")))
+                .isEqualTo(TransactionNormalizer.REASON_AMOUNT_COLUMN_EMPTY);
+    }
+
+    @Test
+    void failureReasonKey_givesTheShapeOfAnUnreadableAmount_andNoneOfItsContent() {
+        Map<String, String> row = rowOf("Date", "05/07/2026", "Amount", "Rs 4,210 only");
+
+        assertThat(normalizer.failureReasonKey(row)).isEqualTo("UNANCHORED_AMOUNT_UNPARSEABLE:XX 9,999 XXXX");
+    }
+
+    @Test
+    void failureReasonKey_cutsALongValue_soANarrationInTheDateColumnCannotLeakThroughItsLength() {
+        Map<String, String> row = rowOf("Date", "UPI payment to a named person for rent", "Amount", "500.00");
+
+        assertThat(normalizer.failureReasonKey(row))
+                .isEqualTo("UNANCHORED_DATE_UNPARSEABLE:XXX XXXXXXX XX X XXXXX X~");
+    }
+
+    @Test
+    void unparseableRecognizedAmountReasonKey_givesTheShapeOfTheCellThatWouldNotParse() {
+        Map<String, String> row = rowOf("Date", "02/07/2026", "Description", "RENT", "Debit", "1500/-",
+                "Credit", "", "Balance", "48500.00");
+
+        assertThat(normalizer.hasUnparseableRecognizedAmount(row)).isTrue();
+        assertThat(normalizer.unparseableRecognizedAmountReasonKey(row))
+                .isEqualTo("UNANCHORED_AMOUNT_UNPARSEABLE:9999/-");
+    }
+
     // --- A zero in the unused column must not shadow the real amount ---------------------------
     //
     // Verified against a real HDFC savings statement. A separate Withdrawals/Deposits layout does

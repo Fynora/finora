@@ -94,11 +94,21 @@ public class ImportVerifier {
      * header. A deposit and a withdrawal both filled in on one line was therefore read one way on a
      * CSV without a word, while the same line in a PDF was reported for checking.
      *
-     * <p>Only that rule gets the rows. Every other rule receives exactly what the three-argument
-     * overload above gives it, so no other CSV outcome moves: the row-accounting and summary rules
-     * read the located-row count and the unparseable rows, and what they would make of a CSV's is a
-     * separate question from this one. The status is re-derived, because a warning here is a
-     * warning about the statement.
+     * <p>The row-accounting rule gets the file's located-row count and its unparseable rows too. It
+     * used to receive the three-argument overload's empty lists, so every CSV's evidence read
+     * "0 located, 0 unparseable" -- a file with 91 data rows and 79 staged said nothing about the
+     * other 12. Its outcome cannot move a CSV's status: that rule warns only on dropped
+     * transaction-shaped rows, a PDF-locator concept a CSV never has (see {@link
+     * RowAccountingValidator}), so the counts change and the verdict does not. The one outcome that
+     * does change is a CSV that staged nothing and had unparseable rows: it now reads VERIFIED
+     * (every row accounted for, as unparseable) instead of NOT_APPLICABLE, exactly as a PDF section
+     * in the same state already does. Neither outcome feeds {@link ImportReliabilityStatusDeriver}
+     * or the trust gate, and such a file is refused for extracting nothing in any case.
+     *
+     * <p>The summary rule still receives what the three-argument overload gives it: a CSV has no
+     * printed summary, and with none that rule never reads the located count.
+     *
+     * <p>The status is re-derived, because a warning here is a warning about the statement.
      *
      * @param locatedRows             the file's non-blank data rows, keyed by header, in file order
      * @param unparseableRows         the rows among them that failed to normalise
@@ -114,9 +124,14 @@ public class ImportVerifier {
         ImportDto.VerificationReport report = verify(rows, openingBalance, closingBalance);
         ImportDto.VerificationFinding ambiguity =
                 columnAmbiguityValidator.check(locatedRows, unparseableRows, displayedPositionOfLocatedRow);
+        // No dropped candidates: a CSV row is either a data row under the header (located) or blank.
+        ImportDto.VerificationFinding rowAccounting = rowAccountingValidator.check(rows, unparseableRows,
+                List.of(), locatedRows == null ? 0 : locatedRows.size());
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
         for (ImportDto.VerificationFinding finding : report.findings()) {
-            findings.add(ColumnAmbiguityValidator.RULE.equals(finding.rule()) ? ambiguity : finding);
+            if (ColumnAmbiguityValidator.RULE.equals(finding.rule())) findings.add(ambiguity);
+            else if (RowAccountingValidator.RULE.equals(finding.rule())) findings.add(rowAccounting);
+            else findings.add(finding);
         }
         List<ImportDto.VerificationFinding> assembled = List.copyOf(findings);
         TextSource textSource = report.textSource() == null ? null : TextSource.valueOf(report.textSource());

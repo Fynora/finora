@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,6 +133,50 @@ class AdminAnalysisServiceIT extends AbstractIntegrationTest {
         var analysis = analysisRepository.findByReference(reference).orElseThrow();
         assertThat(analysis.getOutcome()).isEqualTo(StatementAnalysisSession.Outcome.FAILED);
         assertThat(analysis.getFailureCode()).isNotNull();
+    }
+
+    /**
+     * A CSV's rows that did not stage reach the stored evidence, counted by shape.
+     *
+     * <p>Until this was fixed only the PDF locator wrote to this histogram, so every CSV analysis
+     * stored an empty one and Layout Studio showed "0 unmatched lines" however many rows failed --
+     * a real card export with 91 data rows and 79 staged read as if every line was matched.
+     */
+    @Test
+    void aCsvRecordsItsUnreadableRowsByShapeAndNeverByValue() throws Exception {
+        String csv = CSV
+                + "05-Sept-2026,UPI-ZORBIC TEAHOUSE-0000000004,55.00,,73284.50\n"
+                + "06/07/2026,UPI-QUILLWORTH STATIONERS-0000000005,Rs 75 only,,73209.50\n"
+                + ",CONTINUATION OF THE LINE ABOVE,,,\n";
+        var upload = new MockMultipartFile("file", "synthetic-statement.csv", "text/csv",
+                csv.getBytes(StandardCharsets.UTF_8));
+
+        String reference = adminAnalysisService.analyze(anAdmin(), upload, null);
+
+        var analysis = analysisRepository.findByReference(reference).orElseThrow();
+        assertThat(analysis.getOutcome()).isEqualTo(StatementAnalysisSession.Outcome.PARSED);
+        assertThat(analysis.getRowCount()).isEqualTo(4);
+        Map<String, Integer> reasons = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
+                analysis.getUnanchoredReasonsJson(),
+                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Integer>>() {});
+        assertThat(reasons).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "UNANCHORED_DATE_UNPARSEABLE:99-XXXX-9999", 1,
+                "UNANCHORED_AMOUNT_UNPARSEABLE:XX 99 XXXX", 1,
+                TransactionNormalizer.REASON_DATE_COLUMN_EMPTY, 1));
+        assertThat(analysis.getUnanchoredReasonsJson())
+                .doesNotContain("Sept").doesNotContain("only").doesNotContain("CONTINUATION");
+    }
+
+    @Test
+    void aCsvWithNoRecognisableHeaderRecordsEveryLineItCouldNotRead() throws Exception {
+        var garbage = new MockMultipartFile("file", "not-a-statement.csv", "text/csv",
+                "first line,of nothing\nsecond line,of nothing\n".getBytes(StandardCharsets.UTF_8));
+
+        String reference = adminAnalysisService.analyze(anAdmin(), garbage, null);
+
+        var analysis = analysisRepository.findByReference(reference).orElseThrow();
+        assertThat(analysis.getOutcome()).isEqualTo(StatementAnalysisSession.Outcome.FAILED);
+        assertThat(analysis.getUnanchoredReasonsJson()).isEqualTo("{\"UNANCHORED_NO_HEADER_ROW\":2}");
     }
 
     /**

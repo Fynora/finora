@@ -407,9 +407,56 @@ public class TransactionNormalizer {
      * never drift into reporting a reason that doesn't match what actually gated the row).
      */
     public String explainFailure(Map<String, String> row) {
+        return diagnoseFailure(row).explanation();
+    }
+
+    /**
+     * The same verdict as {@link #explainFailure}, as a key that is safe to persist and count.
+     *
+     * <p>{@link #explainFailure} is written for the person who uploaded the file, so it quotes the
+     * cell it could not read. That is right on their own review screen and wrong anywhere else: the
+     * parse-diagnostics histogram is an engineering table, read by admins and kept indefinitely, and
+     * a quoted cell is a line of somebody's bank statement. This key carries the failing value's
+     * {@link ValueShape} instead -- {@code 99-XXXX-9999}, never the date itself.
+     *
+     * <p>The date keys are the ones {@code PdfTableLocator} already records for a row it could not
+     * anchor, with the same meaning, so one statement format reads the same in Layout Studio
+     * whichever file type it arrived as. The amount keys and {@link #REASON_REJECTED_AFTER_PARSE}
+     * exist only here: the PDF locator never asks about an amount before it anchors a row.
+     */
+    public String failureReasonKey(Map<String, String> row) {
+        return diagnoseFailure(row).reasonKey();
+    }
+
+    /** The row has no column recognised as a date. Same key and meaning as the PDF locator's. */
+    public static final String REASON_NO_DATE_COLUMN = "UNANCHORED_NO_DATE_COLUMN";
+    /** A date column exists but this row left it blank. Same key and meaning as the PDF locator's. */
+    public static final String REASON_DATE_COLUMN_EMPTY = "UNANCHORED_DATE_COLUMN_EMPTY";
+    /** Followed by the date value's {@link ValueShape}. Same key and meaning as the PDF locator's. */
+    public static final String REASON_DATE_UNPARSEABLE_PREFIX = "UNANCHORED_DATE_UNPARSEABLE:";
+    /** The row has no column recognised as an amount or a balance. */
+    public static final String REASON_NO_AMOUNT_COLUMN = "UNANCHORED_NO_AMOUNT_COLUMN";
+    /** An amount or balance column exists but this row left every one of them blank. */
+    public static final String REASON_AMOUNT_COLUMN_EMPTY = "UNANCHORED_AMOUNT_COLUMN_EMPTY";
+    /** Followed by the amount value's {@link ValueShape}. */
+    public static final String REASON_AMOUNT_UNPARSEABLE_PREFIX = "UNANCHORED_AMOUNT_UNPARSEABLE:";
+    /** Date and amount both read, and the row was still refused. */
+    public static final String REASON_REJECTED_AFTER_PARSE = "UNANCHORED_REJECTED_AFTER_PARSE";
+
+    /** What {@link #explainFailure} says and what {@link #failureReasonKey} counts, decided once so
+     *  the two can never describe the same row differently. */
+    private record RowFailure(String explanation, String reasonKey) {}
+
+    private RowFailure diagnoseFailure(Map<String, String> row) {
         String dateRaw = CsvParser.firstNonBlank(row, DATE_HINTS);
-        if (dateRaw == null) return "No column recognized as a date";
-        if (CsvParser.parseDate(dateRaw.trim()) == null) return "Date value \"" + dateRaw + "\" didn't match any known date format";
+        if (dateRaw == null) {
+            return new RowFailure("No column recognized as a date",
+                    hasColumn(row, DATE_HINTS) ? REASON_DATE_COLUMN_EMPTY : REASON_NO_DATE_COLUMN);
+        }
+        if (CsvParser.parseDate(dateRaw.trim()) == null) {
+            return new RowFailure("Date value \"" + dateRaw + "\" didn't match any known date format",
+                    REASON_DATE_UNPARSEABLE_PREFIX + ValueShape.of(dateRaw.trim()));
+        }
 
         String amountRaw = firstNonZeroAmount(row, AMOUNT_HINTS);
         // Falls back so a genuinely zero-amount row still normalizes exactly as before -- the
@@ -417,11 +464,51 @@ public class TransactionNormalizer {
         if (amountRaw == null) amountRaw = firstParseableAmount(row, AMOUNT_HINTS);
         if (amountRaw == null) {
             String anyAmountRaw = CsvParser.firstNonBlank(row, AMOUNT_HINTS);
-            if (anyAmountRaw == null) return "No column recognized as an amount or balance";
-            return "Amount value \"" + anyAmountRaw + "\" didn't match any known numeric format";
+            if (anyAmountRaw == null) {
+                return new RowFailure("No column recognized as an amount or balance",
+                        hasColumn(row, AMOUNT_HINTS) ? REASON_AMOUNT_COLUMN_EMPTY : REASON_NO_AMOUNT_COLUMN);
+            }
+            return new RowFailure("Amount value \"" + anyAmountRaw + "\" didn't match any known numeric format",
+                    REASON_AMOUNT_UNPARSEABLE_PREFIX + ValueShape.of(anyAmountRaw.trim()));
         }
 
-        return "Date and amount both parsed but the row was still rejected";
+        return new RowFailure("Date and amount both parsed but the row was still rejected",
+                REASON_REJECTED_AFTER_PARSE);
+    }
+
+    /** Whether any of the row's column NAMES matches one of {@code hints}, whatever it holds --
+     *  the same header matching {@link CsvParser#firstNonBlank} does, without the value test. */
+    private static boolean hasColumn(Map<String, String> row, String[] hints) {
+        for (Map.Entry<String, String> e : row.entrySet()) {
+            if (e.getKey() == null) continue;
+            String name = CsvParser.normalizeHeaderCell(e.getKey());
+            for (String hint : hints) {
+                if (name.equalsIgnoreCase(hint)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The key for a row {@link #hasUnparseableRecognizedAmount} refused: the first recognised
+     * transactional amount cell that would not parse, as a {@link ValueShape}. Same key family as
+     * {@link #failureReasonKey}'s unreadable amount, because it is the same fault -- an amount
+     * column holding a value no numeric format accepts.
+     */
+    public String unparseableRecognizedAmountReasonKey(Map<String, String> row) {
+        for (String hint : TRANSACTION_AMOUNT_HINTS) {
+            for (Map.Entry<String, String> e : row.entrySet()) {
+                if (e.getKey() != null && CsvParser.normalizeHeaderCell(e.getKey()).equalsIgnoreCase(hint)) {
+                    String v = e.getValue();
+                    if (v != null && !v.isBlank() && CsvParser.parseNumeric(v) == null) {
+                        return REASON_AMOUNT_UNPARSEABLE_PREFIX + ValueShape.of(v.trim());
+                    }
+                }
+            }
+        }
+        // Unreachable for a row hasUnparseableRecognizedAmount accepted; kept total rather than
+        // throwing, because this runs on the staging path, where an exception fails the import.
+        return REASON_AMOUNT_UNPARSEABLE_PREFIX;
     }
 
     /** Returns null when the row doesn't have enough signal to be a transaction (no recognizable

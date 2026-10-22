@@ -3770,25 +3770,9 @@ public class PdfTableLocator {
         return "UNANCHORED_DATE_UNPARSEABLE:" + shapeOf(dateRaw.trim());
     }
 
-    /**
-     * A value's SHAPE with its content removed: digits become 9, letters X, everything else kept.
-     *
-     * <p>"We rejected 97 values in the date column" says a format is unsupported; it does not say
-     * which, and the obvious next step -- print the values -- means putting statement content in a
-     * diagnostic. A shape carries the whole answer and none of the data: {@code 99/99/9999} and
-     * {@code 99-XXX-99 99:99:99} are immediately actionable, and neither is anybody's transaction.
-     *
-     * <p>Truncated, because a mis-bucketed narration line landing in the date column would
-     * otherwise produce a shape as long as the sentence.
-     */
+    /** See {@link com.finora.imports.ValueShape}: shared with the CSV path's unparseable-row reasons. */
     private static String shapeOf(String value) {
-        StringBuilder shape = new StringBuilder();
-        for (int i = 0; i < value.length() && i < 24; i++) {
-            char c = value.charAt(i);
-            shape.append(Character.isDigit(c) ? '9' : Character.isLetter(c) ? 'X' : c);
-        }
-        if (value.length() > 24) shape.append('~');
-        return shape.toString();
+        return com.finora.imports.ValueShape.of(value);
     }
 
     /** Merges a continuation row's non-blank column values into the transaction row above it --

@@ -160,6 +160,16 @@ describe('AdvancedReports', () => {
       await waitFor(() => expect(lastCall()).toEqual({ range: 'LAST_12_MONTHS', compare: 'SAME_PERIOD_LAST_YEAR' }));
     });
 
+    it('starts the comparison from its default again when the period changes', async () => {
+      renderPage();
+      fireEvent.change(await screen.findByLabelText('Compare with'), { target: { value: 'SAME_PERIOD_LAST_YEAR' } });
+      await waitFor(() => expect(lastCall()).toEqual({ range: 'LAST_12_MONTHS', compare: 'SAME_PERIOD_LAST_YEAR' }));
+
+      fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'LAST_3_MONTHS' } });
+
+      await waitFor(() => expect(lastCall()).toEqual({ range: 'LAST_3_MONTHS' }));
+    });
+
     it('has no compare picker when the period has one comparison, or none', async () => {
       const base = fixtureReport();
       vi.mocked(analyticsApi.advanced).mockResolvedValue(fixtureReport({ period: { ...base.period, compareOptions: ['PREVIOUS_PERIOD'] } }));

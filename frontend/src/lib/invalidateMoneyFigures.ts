@@ -8,7 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
  * user returns to still shows the old banner and income.
  */
 export const MONEY_FIGURE_KEYS = [
-  'dashboard-summary', 'dashboard-range-summary', 'report', 'report-months', 'insights', 'budgets',
+  'dashboard-summary', 'dashboard-range-summary', 'report', 'report-months', 'advanced-report', 'insights', 'budgets',
   'transactions', 'recent-transactions',
   // Shared payments and loans: a share, a loan entry or a rule also moves a repeating bill's share and
   // who owes whom, and a kind on a sender stops the questions about its money.

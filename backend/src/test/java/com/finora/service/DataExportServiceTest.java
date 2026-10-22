@@ -135,6 +135,8 @@ class DataExportServiceTest {
             mock(com.finora.activation.ActivationAnswerRepository.class);
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository =
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
+    private final com.finora.repository.SignupAttributionRepository signupAttributionRepository =
+            mock(com.finora.repository.SignupAttributionRepository.class);
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository =
             mock(com.finora.repository.AiInsightTextRepository.class);
     private final com.finora.people.PeopleData peopleData = mock(com.finora.people.PeopleData.class);
@@ -325,7 +327,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, aiInsightTextRepository, peopleData,
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, aiInsightTextRepository, peopleData,
                 statementContentService);
     }
 
@@ -408,6 +410,38 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .contains("Food came to").contains("HELPFUL");
         String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(manifest).contains("ai_insights.json").contains("ai_insight_usage");
+    }
+
+    /** V286: where the website sign-up came from is the user's own data, in the purge scope, so it
+     *  is exported -- one row at most, and no entry content when nothing was captured. */
+    @Test
+    void writeZip_exportsTheSignupSource() throws IOException {
+        java.time.Instant at = java.time.Instant.parse("2026-10-23T10:00:00Z");
+        com.finora.entity.SignupAttribution row = entity(com.finora.entity.SignupAttribution.class,
+                "userId", userId, "referrerHost", "news.example.org", "utmSource", "news", "utmMedium", "article",
+                "utmCampaign", null, "utmContent", null, "createdAt", at);
+        when(signupAttributionRepository.findById(userId)).thenReturn(Optional.of(row));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.signupSource()).singleElement().isEqualTo(
+                new com.finora.dto.DataExportDto.SignupAttributionExportDto(
+                        "news.example.org", "news", "article", null, null, at));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("signup_source.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("news.example.org").contains("article");
+        String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(manifest).contains("signup_source.json");
+    }
+
+    @Test
+    void writeZip_withNoSignupSource_writesAnEmptyEntry() throws IOException {
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.signupSource()).isEmpty();
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("signup_source.json"), java.nio.charset.StandardCharsets.UTF_8).trim())
+                .isEqualTo("[]");
     }
 
     @Test
@@ -1128,7 +1162,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.aiInsights(), b.sharedPayments());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {
@@ -1856,6 +1890,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("importFunnelDayRepository.deleteByUserId", "import_funnel_days.json"),
                 Map.entry("activationAnswerRepository.deleteByUserId", "activation_answers.json"),
                 Map.entry("insightAcknowledgementRepository.deleteByUserId", "insight_acknowledgements.json"),
+                Map.entry("signupAttributionRepository.deleteByUserId", "signup_source.json"),
                 Map.entry("peopleData.deleteByUserId", "shared_payments.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 

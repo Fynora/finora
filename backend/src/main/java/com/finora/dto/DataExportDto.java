@@ -228,6 +228,11 @@ public final class DataExportDto {
     /** V277. One Insights row the user marked "Got it": its kind, key and when. */
     public record InsightAcknowledgementExportDto(String kind, String itemKey, Instant acknowledgedAt) {}
 
+    /** V286. Where the website visit that ended in this sign-up came from: the referring site's host
+     *  name (never its page) and the campaign tags on the link. Absent when nothing was captured. */
+    public record SignupAttributionExportDto(String referrerHost, String utmSource, String utmMedium,
+                                             String utmCampaign, String utmContent, Instant recordedAt) {}
+
     /** V283. One AI month story or "Why?" answer written for the user, and the thumbs they gave it.
      *  The fact sheet it was written from is not repeated: its figures come from the transactions
      *  already in transactions.json. */

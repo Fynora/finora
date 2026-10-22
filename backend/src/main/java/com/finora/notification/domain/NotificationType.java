@@ -52,6 +52,11 @@ public enum NotificationType {
     REFERRAL_REVERSED,
     /** Statement refresh, step 5: an improved parser would change some of the user's statements. */
     STATEMENT_REFRESH_AVAILABLE,
+    // An admin applied a statement correction on the user's behalf -- see
+    // AdminStatementCorrectionService. {{message}} is built from the correction's own counts and
+    // names the account; never an amount or a narration. Templates in V284. Keyed
+    // "STATEMENT_CORRECTED_" + the refresh run id, so one correction is told once.
+    STATEMENT_CORRECTED_BY_SUPPORT,
     // An admin push campaign (com.finora.notification.campaign). Like IMPORT_STATEMENT_RESOLVED the
     // wording is operator-authored: the PUSH template (V261) is {{title}} / {{message}}. PUSH only,
     // no EMAIL row, so a request for any other channel would dead-letter -- the campaign sender

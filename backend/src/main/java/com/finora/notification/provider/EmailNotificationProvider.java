@@ -43,7 +43,9 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
             EnumSet.of(NotificationType.IMPORT_STATEMENT_HELD, NotificationType.IMPORT_STATEMENT_READY,
                     NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED,
                     NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
-                    NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX);
+                    NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
+                    // Our team applied a statement correction for the user; a reply should reach a person.
+                    NotificationType.STATEMENT_CORRECTED_BY_SUPPORT);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;

@@ -72,6 +72,7 @@ class StatementRefreshIT extends AbstractIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private StatementRefreshDryRunService dryRunService;
     @Autowired private StatementRefreshUserService userService;
+    @Autowired private AdminStatementCorrectionService adminCorrections;
     @Autowired private StatementRefreshNotifier notifier;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository previewRepository;
 
@@ -617,6 +618,11 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         });
         assertThat(balance(i)).isEqualByComparingTo("-950.00");
         assertThat(userService.overview(i.userId()).updatable()).as("refreshed, so no longer offered").isEmpty();
+        Map<String, Object> audited = jdbcTemplate.queryForMap(
+                "SELECT user_id, metadata->>'actorId' AS actor FROM audit_logs "
+                        + "WHERE action = 'STATEMENT_REFRESHED' AND entity_id = ?", i.id());
+        assertThat(audited.get("user_id")).as("the user's own refresh is theirs").isEqualTo(i.userId());
+        assertThat(audited.get("actor")).isNull();
 
         UUID runId = result.results().get(0).runId();
         assertThat(userService.run(i.userId(), runId).changed()).hasSize(1);
@@ -794,5 +800,99 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         user.setFullName("Refresh IT Other");
         user.setPhoneVerified(true);
         return user;
+    }
+    // ---- an admin applying the correction for the user (AdminStatementCorrectionService) -------
+
+    private UUID admin() {
+        User admin = userRepository.save(otherUser());
+        createdUserIds.add(admin.getId());
+        return admin.getId();
+    }
+
+    /** A payment an older parser stored as a spend: the shape of the real card statement (2026-10-22). */
+    @Test
+    void anAdminAppliesAWaitingCorrection_forTheUser_auditedWithTheReason_andTheUserIsTold() throws Exception {
+        Imported i = importStatement();
+        Transaction cafe = row(i, "SAMPLE CAFE");
+        jdbcTemplate.update("UPDATE transactions SET txn_type = 'INCOME' WHERE id = ?", cafe.getId());
+        moveBalance(i, "240.00");
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        assertThat(adminCorrections.waiting(i.userId())).singleElement().satisfies(w -> {
+            assertThat(w.statementImportId()).isEqualTo(i.id());
+            assertThat(w.rowsAdded()).isEqualTo(1);
+            assertThat(w.rowsRemoved()).isEqualTo(1);
+        });
+        UUID adminId = admin();
+
+        var applied = adminCorrections.apply(adminId, i.id(), "Card payments were stored as spends by an older parser");
+
+        assertThat(applied.status()).isEqualTo("APPLIED");
+        assertThat(applied.userNotified()).isTrue();
+        assertThat(transactionRepository.findByStatementImportId(i.id()))
+                .filteredOn(t -> "SAMPLE CAFE".equals(t.getDescription()))
+                .singleElement().satisfies(t -> assertThat(t.getTxnType().name()).isEqualTo("EXPENSE"));
+        assertThat(balance(i)).isEqualByComparingTo("-950.00");
+        assertThat(adminCorrections.waiting(i.userId())).as("applied, so no longer waiting").isEmpty();
+
+        Map<String, Object> audit = jdbcTemplate.queryForMap(
+                "SELECT user_id, metadata->>'reason' AS reason, metadata->>'subjectUserId' AS subject, "
+                        + "metadata->>'status' AS status FROM audit_logs "
+                        + "WHERE action = 'STATEMENT_CORRECTION_APPLIED_BY_ADMIN' AND entity_id = ?", i.id());
+        assertThat(audit.get("user_id")).isEqualTo(adminId);
+        assertThat(audit.get("reason")).isEqualTo("Card payments were stored as spends by an older parser");
+        assertThat(audit.get("subject")).isEqualTo(i.userId().toString());
+        assertThat(audit.get("status")).isEqualTo("APPLIED");
+
+        // Recorded before the change, so a correction can never land without naming who started it.
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT user_id FROM audit_logs WHERE action = 'STATEMENT_CORRECTION_REQUESTED_BY_ADMIN' AND entity_id = ?",
+                UUID.class, i.id())).isEqualTo(adminId);
+        // The refresh's own entry names the admin as the actor and the user as the subject -- never
+        // the user as if they had refreshed it themselves.
+        Map<String, Object> refreshed = jdbcTemplate.queryForMap(
+                "SELECT user_id, metadata->>'actorId' AS actor, metadata->>'subjectUserId' AS subject FROM audit_logs "
+                        + "WHERE action = 'STATEMENT_REFRESHED' AND entity_id = ?", i.id());
+        assertThat(refreshed.get("user_id")).isEqualTo(adminId);
+        assertThat(refreshed.get("actor")).isEqualTo(adminId.toString());
+        assertThat(refreshed.get("subject")).isEqualTo(i.userId().toString());
+
+        List<Map<String, Object>> told = jdbcTemplate.queryForList(
+                "SELECT channel, category, message FROM notifications "
+                        + "WHERE user_id = ? AND type = 'STATEMENT_CORRECTED_BY_SUPPORT'", i.userId());
+        assertThat(told).extracting(m -> m.get("channel")).containsExactlyInAnyOrder("PUSH", "EMAIL");
+        // SECURITY: a user cannot switch it off, so they are always told staff changed their records.
+        assertThat(told).extracting(m -> m.get("category")).containsOnly("SECURITY");
+        assertThat(told).allSatisfy(m -> assertThat((String) m.get("message"))
+                .contains("your Savings statement")
+                .contains("1 transaction replaced with a corrected reading.")
+                .doesNotContain("added").doesNotContain("removed")
+                .doesNotContain("SAMPLE CAFE").doesNotContain("120"));
+
+        assertThatThrownBy(() -> adminCorrections.apply(adminId, i.id(), "Applying the same correction a second time"))
+                .as("nothing is waiting any more")
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+    }
+
+    @Test
+    void anAdminCannotApplyWithoutAReason_orWhenNoCheckedCorrectionIsWaiting() throws Exception {
+        Imported i = importStatement();
+        misreadGrocer(i);
+        UUID adminId = admin();
+
+        assertThatThrownBy(() -> adminCorrections.apply(adminId, i.id(), "Not checked yet, so nothing waits"))
+                .as("the dry run has not checked this statement")
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
+
+        dryRunService.check(i.id(), buildVersionResolver.currentCommit());
+        assertThatThrownBy(() -> adminCorrections.apply(adminId, i.id(), "too short"))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST));
+
+        assertThat(row(i, "SAMPLE GROCER").getAmount()).as("nothing was applied").isEqualByComparingTo("45.00");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM audit_logs WHERE action LIKE 'STATEMENT_CORRECTION_%' AND entity_id = ?",
+                Integer.class, i.id())).as("refused before anything was recorded or changed").isZero();
     }
 }

@@ -27,6 +27,7 @@ import { CategoriesSection } from './user-detail/CategoriesSection';
 import { MerchantsSection } from './user-detail/MerchantsSection';
 import { RelationshipsSection } from './user-detail/RelationshipsSection';
 import { RulesSection } from './user-detail/RulesSection';
+import { StatementCorrectionsSection } from './user-detail/StatementCorrectionsSection';
 import { TransactionsSection } from './user-detail/TransactionsSection';
 import { WorkspaceSection } from './user-detail/WorkspaceSection';
 
@@ -203,6 +204,7 @@ function UserDetailContent({ id }: { id: string }) {
       </div>
 
       {canViewAccounts && <AccountsSection userId={id} />}
+      {hasPermission('IMPORT_TRIAGE_MANAGE') && <StatementCorrectionsSection userId={id} />}
       {hasPermission('TRANSACTION_DELETE') && <TransactionsSection userId={id} />}
       {hasPermission('MERCHANT_MANAGE') && <MerchantsSection userId={id} />}
       {hasPermission('RULE_MANAGE') && <RulesSection userId={id} />}

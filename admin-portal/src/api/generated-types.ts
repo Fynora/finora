@@ -2324,6 +2324,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/statement-corrections/statements/{statementId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["applyCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rules": {
         parameters: {
             query?: never;
@@ -5020,6 +5036,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["summary_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/statement-corrections/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["waitingCorrections"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8605,6 +8637,36 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
+        ApiResponseAppliedCorrection: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppliedCorrection"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        AppliedCorrection: {
+            /** Format: uuid */
+            statementImportId?: string;
+            status?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            balanceChange?: number;
+            reason?: string;
+            /** Format: uuid */
+            runId?: string;
+            userNotified?: boolean;
+        };
         TestRequest: {
             field: string;
             operator: string;
@@ -11893,6 +11955,38 @@ export interface components {
             /** Format: int64 */
             statementsAwaitingCheck?: number;
             byStatus?: components["schemas"]["RefreshStatusTotals"][];
+        };
+        ApiResponseListWaitingCorrection: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["WaitingCorrection"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        WaitingCorrection: {
+            /** Format: uuid */
+            statementImportId?: string;
+            fileName?: string;
+            accountName?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            /** Format: date-time */
+            checkedAt?: string;
         };
         ApiResponseListSearchResultDto: {
             success?: boolean;
@@ -17943,6 +18037,34 @@ export interface operations {
             };
         };
     };
+    applyCorrection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                statementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppliedCorrection"];
+                };
+            };
+        };
+    };
     list_11: {
         parameters: {
             query?: {
@@ -22089,6 +22211,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseRefreshSummary"];
+                };
+            };
+        };
+    };
+    waitingCorrections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListWaitingCorrection"];
                 };
             };
         };

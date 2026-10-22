@@ -110,6 +110,17 @@ public class StatementRefreshUserService {
                 statement == null ? null : statement.getStatementPeriodEnd());
     }
 
+    /**
+     * The statements whose checked correction can be applied with no password -- the ones the
+     * user's own "Update" would refresh -- for an admin applying one on the user's behalf
+     * (AdminStatementCorrectionService). Same rules as {@link #refreshAll}: a statement whose last
+     * refresh since its check could not be applied is left out.
+     */
+    public List<PendingStatement> correctionsReady(UUID userId) {
+        if (!refreshService.enabled()) return List.of();
+        return offerable(userId).stream().filter(p -> "CHANGES".equals(p.getStatus())).toList();
+    }
+
     // ---- internals ---------------------------------------------------------------------------
 
     private List<PendingStatement> offerable(UUID userId) {

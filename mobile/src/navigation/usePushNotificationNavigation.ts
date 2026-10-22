@@ -65,6 +65,8 @@ const TYPE_ROUTE: Record<string, PushRoute> = {
   IMPORT_STATEMENT_CONFIRM_REMINDER: 'Import',
   // Statement refresh, step 5: the banner that updates them is on the Statements screen.
   STATEMENT_REFRESH_AVAILABLE: 'Statements',
+  // A statement correction support applied for the user: their corrected transactions are there.
+  STATEMENT_CORRECTED_BY_SUPPORT: 'Statements',
 };
 
 function routeFor(message: RemoteMessage): PushRoute | null {

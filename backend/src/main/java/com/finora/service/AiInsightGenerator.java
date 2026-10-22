@@ -36,6 +36,12 @@ public class AiInsightGenerator {
 
     public static final String STORY_PROMPT_VERSION = "ai-story-v1";
     public static final String WHY_PROMPT_VERSION = "ai-why-v1";
+
+    /** A story written with a ranking asked for is a different prompt, so a different stored text:
+     *  turning ranking on regenerates each story once rather than leaving it without an order. */
+    public static String storyPromptVersion(boolean ranked) {
+        return ranked ? STORY_PROMPT_VERSION + "-ranked" : STORY_PROMPT_VERSION;
+    }
     static final int STORY_MAX_TOKENS = 400;
     static final int WHY_MAX_TOKENS = 200;
 
@@ -124,7 +130,7 @@ public class AiInsightGenerator {
         FynNameShield shield = nameShields.forUser(userId);
         LlmRequest request = LlmRequest.singleTurn(systemPrompt(kind, wantOrder), shield.shield(sheet.modelJson()),
                 story ? STORY_MAX_TOKENS : WHY_MAX_TOKENS);
-        String promptVersion = story ? STORY_PROMPT_VERSION : WHY_PROMPT_VERSION;
+        String promptVersion = story ? storyPromptVersion(wantOrder) : WHY_PROMPT_VERSION;
         String toolName = story ? "AI_INSIGHT_STORY" : "AI_INSIGHT_WHY";
 
         long startedAt = System.currentTimeMillis();

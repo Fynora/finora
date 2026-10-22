@@ -73,6 +73,18 @@ public interface AiInsightTextRepository extends JpaRepository<AiInsightText, UU
     Optional<AiInsightText> findLatestReady(@Param("userId") UUID userId, @Param("kind") String kind,
                                             @Param("subject") String subject, @Param("month") String month);
 
+    /** The newest READY text of one prompt version: the ranked story whose order "To look at" uses. */
+    @Query(value = """
+           SELECT * FROM ai_insight_texts
+           WHERE user_id = :userId AND kind = :kind AND subject = :subject AND month = :month AND status = 'READY'
+             AND prompt_version = :promptVersion AND policy_version = :policyVersion
+           ORDER BY created_at DESC LIMIT 1
+           """, nativeQuery = true)
+    Optional<AiInsightText> findLatestReadyOfVersion(@Param("userId") UUID userId, @Param("kind") String kind,
+                                                     @Param("subject") String subject, @Param("month") String month,
+                                                     @Param("promptVersion") String promptVersion,
+                                                     @Param("policyVersion") String policyVersion);
+
     /** Texts of this kind created for this month since {@code since}, whatever their status: the
      *  story's once-a-day rewrite limit (§6). */
     @Query("""

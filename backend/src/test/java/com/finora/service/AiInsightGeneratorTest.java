@@ -116,7 +116,7 @@ class AiInsightGeneratorTest {
         assertThat(row.getValue().getPlanCode()).isEqualTo("FREE");
         assertThat(row.getValue().getReasonCode()).isEqualTo("OK");
         assertThat(row.getValue().getToolName()).isEqualTo("AI_INSIGHT_STORY");
-        assertThat(row.getValue().getPromptVersion()).isEqualTo(AiInsightGenerator.STORY_PROMPT_VERSION);
+        assertThat(row.getValue().getPromptVersion()).isEqualTo("ai-story-v1-ranked");
         assertThat(row.getValue().getToolInputs()).isNull();
         assertThat(row.getValue().getToolOutputs()).isNull();
         assertThat(row.getValue().getTokensIn()).isEqualTo(1200);

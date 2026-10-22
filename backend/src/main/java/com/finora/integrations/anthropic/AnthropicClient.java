@@ -47,6 +47,7 @@ public class AnthropicClient implements LlmClient {
     private final FynProperties properties;
     private final RestClient restClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AnthropicClient(FynProperties properties) {
         this(properties, READ_TIMEOUT);
     }

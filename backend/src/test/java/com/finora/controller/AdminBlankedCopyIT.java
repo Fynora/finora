@@ -61,7 +61,7 @@ import static org.mockito.Mockito.verify;
 @TestPropertySource(properties = {
         "app.blanked-copy.enabled=true",
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-blanked-copy-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.statement-passwords.save.enabled=true"
 })
 @ExtendWith(OutputCaptureExtension.class)

@@ -814,8 +814,10 @@ jobs:
   # to main runs only repo-hygiene, so without that clause the integration tests would never run
   # while private). A public PR still runs unit tests only, as since 2026-09-02.
   #
-  # scripts/shard-integration-tests.py deals the 304 *IT classes round-robin by name, so the split
-  # needs no timing data. Its --check-reports, in backend-integration-summary, fails the run if any
+  # scripts/shard-integration-tests.py splits the *IT classes by Spring context configuration, so a
+  # configuration is booted in one shard rather than in each, and balances the shards by measured
+  # class time (scripts/it-class-timings.json; see the script's docstring for both, and for how to
+  # refresh the timings). Its --check-reports, in backend-integration-summary, fails the run if any
   # class went unreported -- a class that matched no shard would otherwise be skipped silently
   # while every shard stayed green. The shard count lives in two places, the matrix and --shards,
   # and a mismatch fails that check instead of dropping classes quietly.

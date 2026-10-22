@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.servlet.multipart.max-file-size=8KB",
         "spring.servlet.multipart.max-request-size=8KB",
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-oversized-upload-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false",
         // Same reasoning as ImportJobEndpointIT: importStageLimiter is 10 per 10 minutes per IP,
         // and raised here rather than disabled so the limiter itself stays exercised elsewhere.

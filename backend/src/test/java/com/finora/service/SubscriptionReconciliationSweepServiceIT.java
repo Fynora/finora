@@ -10,7 +10,6 @@ import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.LocalDate;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,7 +41,7 @@ class SubscriptionReconciliationSweepServiceIT extends AbstractIntegrationTest {
         subscription.setPlanId(premium.getId());
         subscription.setStatus(Subscription.STATUS_CANCELLED);
         subscription.setAutoRenew(false);
-        subscription.setRenewalDate(LocalDate.now().minusDays(1));
+        subscription.setRenewalDate(BillingCalendar.today().minusDays(1));
         subscriptionRepository.save(subscription);
 
         int downgraded = sweepService.sweep();
@@ -63,7 +62,7 @@ class SubscriptionReconciliationSweepServiceIT extends AbstractIntegrationTest {
         subscription.setPlanId(premium.getId());
         subscription.setStatus(Subscription.STATUS_CANCELLED);
         subscription.setAutoRenew(false);
-        subscription.setRenewalDate(LocalDate.now().plusDays(5));
+        subscription.setRenewalDate(BillingCalendar.today().plusDays(5));
         subscriptionRepository.save(subscription);
 
         sweepService.sweep();
@@ -82,7 +81,7 @@ class SubscriptionReconciliationSweepServiceIT extends AbstractIntegrationTest {
         subscription.setPlanId(premium.getId());
         subscription.setStatus(Subscription.STATUS_CANCELLED);
         subscription.setAutoRenew(false);
-        subscription.setRenewalDate(LocalDate.now().minusDays(1));
+        subscription.setRenewalDate(BillingCalendar.today().minusDays(1));
         subscription.setCancellationDispatchedAt(java.time.Instant.now().minusSeconds(3600));
         subscriptionRepository.save(subscription);
 

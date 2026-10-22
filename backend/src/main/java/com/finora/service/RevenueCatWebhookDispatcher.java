@@ -15,8 +15,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -381,7 +379,7 @@ public class RevenueCatWebhookDispatcher {
     private void applyExpiration(Subscription subscription, Map<String, Object> eventPayload) {
         Object expirationAtMs = eventPayload.get("expiration_at_ms");
         if (expirationAtMs instanceof Number n) {
-            subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochMilli(n.longValue()), ZoneOffset.UTC));
+            subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochMilli(n.longValue())));
         }
     }
 }

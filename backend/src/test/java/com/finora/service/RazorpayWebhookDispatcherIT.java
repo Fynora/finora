@@ -122,6 +122,75 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
                 eq(user.getEmail()), eq(user.getFullName()), eq("Premium"), eq("MONTHLY"));
     }
 
+    /** Razorpay periods end at midnight India time, 18:30 UTC the day before. The renewal date is
+     *  the India day Razorpay charges on, not the UTC day of that instant. */
+    private static final long INDIA_MIDNIGHT_EPOCH = 1893522600L; // synthetic-ok: 2030-01-01T18:30:00Z, fixture epoch second
+    private static final java.time.LocalDate INDIA_RENEWAL_DAY = java.time.LocalDate.of(2030, 1, 2);
+
+    @Test
+    void activationStoresTheIndiaDayRazorpayRenewsOnNotThePreviousUtcDay() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(plus.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("249.00"));
+        subscriptionOrderRepository.save(order);
+
+        dispatcher.dispatch("subscription.activated", Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", INDIA_MIDNIGHT_EPOCH))));
+
+        Subscription subscription = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(subscription.getRenewalDate()).isEqualTo(INDIA_RENEWAL_DAY);
+    }
+
+    @Test
+    void chargedStoresTheIndiaDayRazorpayRenewsOnNotThePreviousUtcDay() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(planRepository.findByCode("PLUS").orElseThrow().getId());
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscriptionRepository.save(subscription);
+
+        dispatcher.dispatch("subscription.charged", Map.of(
+                "payment", Map.of("entity", Map.of("id", "pay_test_" + UUID.randomUUID(), "amount", 24900)),
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", INDIA_MIDNIGHT_EPOCH))));
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getRenewalDate()).isEqualTo(INDIA_RENEWAL_DAY);
+    }
+
+    @Test
+    void resumedStoresTheIndiaDayRazorpayRenewsOnNotThePreviousUtcDay() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setStatus(Subscription.STATUS_PAUSED);
+        subscriptionRepository.save(subscription);
+
+        dispatcher.dispatch("subscription.resumed", Map.of(
+                "subscription", Map.of("entity", Map.of(
+                        "id", razorpaySubscriptionId, "current_end", INDIA_MIDNIGHT_EPOCH))));
+
+        Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        assertThat(reloaded.getRenewalDate()).isEqualTo(INDIA_RENEWAL_DAY);
+    }
+
     @Test
     void activationCapturesTheCardOnFileFromThePaymentEntity() {
         User user = createUser();
@@ -785,7 +854,7 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
         Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
         assertThat(reloaded.getRenewalDate()).isEqualTo(
-                java.time.LocalDate.ofInstant(java.time.Instant.ofEpochSecond(1893456000L), java.time.ZoneOffset.UTC)); // synthetic-ok: fixture epoch second
+                BillingCalendar.dateOf(java.time.Instant.ofEpochSecond(1893456000L))); // synthetic-ok: fixture epoch second
 
         List<SubscriptionEvent> events = subscriptionEventRepository.findAll().stream()
                 .filter(e -> e.getSubscriptionId().equals(subscription.getId())).toList();

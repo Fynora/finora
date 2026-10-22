@@ -383,7 +383,7 @@ public class BillingCheckoutService {
             change.setFromPlanId(currentPlan.getId());
             change.setToPlanId(newPlan.getId());
             change.setEffectiveAt(subscription.getRenewalDate() != null
-                    ? subscription.getRenewalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
+                    ? BillingCalendar.startOf(subscription.getRenewalDate())
                     : Instant.now());
             change.setReason(PlanChange.REASON_DOWNGRADE_SCHEDULED);
             planChangeRepository.save(change);

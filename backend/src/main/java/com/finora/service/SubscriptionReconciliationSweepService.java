@@ -76,7 +76,7 @@ public class SubscriptionReconciliationSweepService {
     }
 
     public int sweep() {
-        LocalDate cutoff = LocalDate.now();
+        LocalDate cutoff = BillingCalendar.today();
         List<Subscription> overdue = subscriptionRepository.findCancelledSubscriptionsPastPeriodEnd(cutoff);
 
         int downgraded = 0;

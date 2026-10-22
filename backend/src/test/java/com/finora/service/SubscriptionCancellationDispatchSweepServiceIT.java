@@ -57,7 +57,7 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
     @Test
     void dispatchesTheRealCancellationWhenWithinTheBufferWindow() {
         User user = createUser();
-        Subscription subscription = cancelledLocallyNotYetDispatched(user, LocalDate.now().plusDays(2));
+        Subscription subscription = cancelledLocallyNotYetDispatched(user, BillingCalendar.today().plusDays(2));
 
         int dispatched = sweepService.sweep();
 
@@ -70,7 +70,7 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
     @Test
     void leavesASubscriptionAloneWhenOutsideTheBufferWindow() {
         User user = createUser();
-        Subscription subscription = cancelledLocallyNotYetDispatched(user, LocalDate.now().plusDays(10));
+        Subscription subscription = cancelledLocallyNotYetDispatched(user, BillingCalendar.today().plusDays(10));
 
         sweepService.sweep();
 
@@ -82,7 +82,7 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
     @Test
     void isIdempotentOnASecondRunOverTheSameRow() {
         User user = createUser();
-        Subscription subscription = cancelledLocallyNotYetDispatched(user, LocalDate.now().plusDays(1));
+        Subscription subscription = cancelledLocallyNotYetDispatched(user, BillingCalendar.today().plusDays(1));
 
         sweepService.sweep();
         int secondRunDispatched = sweepService.sweep();
@@ -94,9 +94,9 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
     @Test
     void oneSubscriptionsGatewayFailureDoesNotBlockDispatchingTheRest() {
         User failing = createUser();
-        Subscription failingSubscription = cancelledLocallyNotYetDispatched(failing, LocalDate.now().plusDays(1));
+        Subscription failingSubscription = cancelledLocallyNotYetDispatched(failing, BillingCalendar.today().plusDays(1));
         User succeeding = createUser();
-        Subscription succeedingSubscription = cancelledLocallyNotYetDispatched(succeeding, LocalDate.now().plusDays(1));
+        Subscription succeedingSubscription = cancelledLocallyNotYetDispatched(succeeding, BillingCalendar.today().plusDays(1));
 
         doThrow(new RuntimeException("Razorpay unreachable"))
                 .when(gateway).cancelSubscription(eq(failingSubscription.getRazorpaySubscriptionId()), eq(true));

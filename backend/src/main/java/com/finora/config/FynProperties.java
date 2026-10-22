@@ -44,6 +44,15 @@ public class FynProperties {
     // ~20 messages (this class's own doc comment), that $1.00 cap is roughly 660 messages before it
     // trips -- nowhere near a real human's usage, so "uncapped" is safe as configured today.
     private int freeDailyQuestionLimit = 3;
+    // AI insights foundation (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md).
+    // §6: the Free plan's own slice of monthlyBudgetUsd, so Free use can never stop paying users' AI.
+    private BigDecimal freeMonthlyBudgetUsd = new BigDecimal("10.00");
+    // §7.1: who gets AI insights -- "internal" (users marked internal_account, V279) or "all".
+    private String insightsAudience = "internal";
+    // §7.3: AI ranking of "To look at" stays off until it beats the rules order.
+    private boolean insightsAiRanking = false;
+    // §5.4: insight model calls allowed at once on one instance; beyond it, rules text.
+    private int insightsMaxConcurrent = 4;
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -67,6 +76,14 @@ public class FynProperties {
     public void setMonthlyBudgetUsd(BigDecimal monthlyBudgetUsd) { this.monthlyBudgetUsd = monthlyBudgetUsd; }
     public int getFreeDailyQuestionLimit() { return freeDailyQuestionLimit; }
     public void setFreeDailyQuestionLimit(int freeDailyQuestionLimit) { this.freeDailyQuestionLimit = freeDailyQuestionLimit; }
+    public BigDecimal getFreeMonthlyBudgetUsd() { return freeMonthlyBudgetUsd; }
+    public void setFreeMonthlyBudgetUsd(BigDecimal freeMonthlyBudgetUsd) { this.freeMonthlyBudgetUsd = freeMonthlyBudgetUsd; }
+    public String getInsightsAudience() { return insightsAudience; }
+    public void setInsightsAudience(String insightsAudience) { this.insightsAudience = insightsAudience; }
+    public boolean isInsightsAiRanking() { return insightsAiRanking; }
+    public void setInsightsAiRanking(boolean insightsAiRanking) { this.insightsAiRanking = insightsAiRanking; }
+    public int getInsightsMaxConcurrent() { return insightsMaxConcurrent; }
+    public void setInsightsMaxConcurrent(int insightsMaxConcurrent) { this.insightsMaxConcurrent = insightsMaxConcurrent; }
 
     /** True only when the API key is actually configured -- distinct from {@link #isEnabled()},
      *  which is the deliberate operator kill switch. Both must be true for any Fyn call to

@@ -22,6 +22,10 @@ public interface AiAuditLogRepository extends JpaRepository<AiAuditLog, UUID> {
     @Query("SELECT COALESCE(SUM(a.cost), 0) FROM AiAuditLog a WHERE a.createdAt >= :since")
     BigDecimal sumCostSince(@Param("since") Instant since);
 
+    // AI insights' Free budget slice (V282 plan_code): spend under one plan, same COALESCE reasoning.
+    @Query("SELECT COALESCE(SUM(a.cost), 0) FROM AiAuditLog a WHERE a.planCode = :planCode AND a.createdAt >= :since")
+    BigDecimal sumCostByPlanSince(@Param("planCode") String planCode, @Param("since") Instant since);
+
     /** AccountPurgeSweepService -- {@code user_id} has no FK at all, so nothing else ever removes
      *  this table's rows for a purged user. Tool inputs/outputs here are constrained to Tier 0/1
      *  aggregate facts by design (see V201's own migration comment), so a hard delete needs no

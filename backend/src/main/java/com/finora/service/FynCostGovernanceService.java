@@ -59,9 +59,7 @@ public class FynCostGovernanceService {
      *  action to invalidate on and the TTL alone is the entire staleness contract. */
     @Cacheable(cacheNames = CacheConfig.FYN_MONTHLY_BUDGET_CACHE, sync = true)
     public MonthlyBudget monthlyBudget() {
-        Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
-                .withDayOfMonth(1).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
-        BigDecimal spent = aiAuditLogRepository.sumCostSince(monthStart);
+        BigDecimal spent = aiAuditLogRepository.sumCostSince(utcMonthStart());
         BigDecimal budget = properties.getMonthlyBudgetUsd();
 
         BudgetStatus status;
@@ -75,5 +73,20 @@ public class FynCostGovernanceService {
             status = BudgetStatus.OK;
         }
         return new MonthlyBudget(spent, budget, status);
+    }
+
+    /** AI insights foundation §6: true once this calendar month's spend on calls made under the Free
+     *  plan reaches {@link FynProperties#getFreeMonthlyBudgetUsd()}. Free users then get rules text
+     *  while Plus and Premium carry on; the org-wide {@link #monthlyBudget()} still covers everyone.
+     *  Same UTC month boundary as {@link #monthlyBudget()}. Not cached: AI insights check it only
+     *  before a model call for a Free user, which is rare next to every Fyn request. */
+    public boolean freeBudgetSpent() {
+        BigDecimal spent = aiAuditLogRepository.sumCostByPlanSince("FREE", utcMonthStart());
+        return spent.compareTo(properties.getFreeMonthlyBudgetUsd()) >= 0;
+    }
+
+    private static Instant utcMonthStart() {
+        return ZonedDateTime.now(ZoneOffset.UTC)
+                .withDayOfMonth(1).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
     }
 }

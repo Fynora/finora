@@ -111,8 +111,8 @@ public class AiInsightGenerator {
         return COMMON_RULES.formatted(orderShape) + "\n" + (story ? STORY_TASK + (wantOrder ? RANKING_TASK : "") : WHY_TASK);
     }
 
-    /** Not transactional: a model call never holds a database connection (FynInsightsNarrationService's
-     *  own lesson). Each audit row is its own write. */
+    /** Not transactional: a model call never holds a database connection (the HikariCP lesson from
+     *  Fyn's Phase 2 review). Each audit row is its own write. */
     public Result generate(UUID userId, String kind, FactSheet sheet, boolean wantOrder, String planCode) {
         if (!permits.tryAcquire()) {
             log.info("AI insight call refused for user {}: the most calls allowed at once are already running", userId);

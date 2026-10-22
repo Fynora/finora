@@ -3644,6 +3644,94 @@
                 }
             }
         },
+        "/api/v1/insights/story": {
+            "get": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "story",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStoryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "generateStory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoryRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStoryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/insights/look-at/why": {
+            "post": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "why",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WhyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseWhyDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/insights/acknowledgements": {
             "get": {
                 "tags": [
@@ -8158,6 +8246,47 @@
                 }
             }
         },
+        "/api/v1/insights/ai-texts/{id}/feedback": {
+            "patch": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "feedback",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AiTextFeedbackRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/inflow-kinds/{id}": {
             "delete": {
                 "tags": [
@@ -9898,6 +10027,36 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseFynInsightsNarrationDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/insights/look-at": {
+            "get": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "lookAt",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseLookAtDto"
                                 }
                             }
                         }
@@ -18351,6 +18510,142 @@
                     }
                 }
             },
+            "StoryRequest": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}$"
+                    }
+                }
+            },
+            "ApiResponseStoryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StoryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StoryDto": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "writtenByAi": {
+                        "type": "boolean"
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "canGenerate": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "WhyRequest": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING|SHARE_CHECK|LENT_CHECK|PAYBACK_CHECK|SETTLE|EVERY_MONTH|ALWAYS_PERSON|LEFTOVER_CHECK"
+                    },
+                    "itemKey": {
+                        "type": "string",
+                        "maxLength": 300,
+                        "minLength": 0
+                    },
+                    "month": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}$"
+                    }
+                },
+                "required": [
+                    "itemKey",
+                    "kind"
+                ]
+            },
+            "ApiResponseWhyDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/WhyDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WhyDto": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "writtenByAi": {
+                        "type": "boolean"
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "freeLeftThisMonth": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "InsightAcknowledgementDto": {
                 "type": "object",
                 "properties": {
@@ -22056,6 +22351,19 @@
                     "moment"
                 ]
             },
+            "AiTextFeedbackRequest": {
+                "type": "object",
+                "properties": {
+                    "rating": {
+                        "type": "string",
+                        "pattern": "HELPFUL|NOT_HELPFUL"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "pattern": "WRONG_NUMBER|NOT_USEFUL|CONFUSING"
+                    }
+                }
+            },
             "UpdateKindRequest": {
                 "type": "object",
                 "properties": {
@@ -25193,6 +25501,108 @@
                 "properties": {
                     "narration": {
                         "type": "string"
+                    }
+                }
+            },
+            "ApiResponseLookAtDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/LookAtDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LookAtDto": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LookAtRowDto"
+                        }
+                    },
+                    "orderedByAi": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "LookAtRowDto": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "ackKind": {
+                        "type": "string"
+                    },
+                    "ackItemKey": {
+                        "type": "string"
+                    },
+                    "month": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "number"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "cardName": {
+                        "type": "string"
+                    },
+                    "cardLast4": {
+                        "type": "string"
+                    },
+                    "people": {
+                        "$ref": "#/components/schemas/Suggestion"
+                    },
+                    "recurring": {
+                        "$ref": "#/components/schemas/RecurringDto"
+                    },
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "latestAmount": {
+                        "type": "number"
+                    },
+                    "latestDate": {
+                        "type": "string"
+                    },
+                    "current": {
+                        "type": "number"
+                    },
+                    "priorAverage": {
+                        "type": "number"
+                    },
+                    "whyAvailable": {
+                        "type": "boolean"
                     }
                 }
             },

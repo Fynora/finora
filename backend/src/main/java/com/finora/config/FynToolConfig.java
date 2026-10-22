@@ -30,14 +30,25 @@ public class FynToolConfig {
                 true);
     }
 
-    /** Phase 3's insights narration -- customer-facing, gated on {@code FYN_INSIGHTS}. Tier 1
-     *  only: deliberately excludes merchant names (Tier 2), see {@code
-     *  FynInsightsNarrationService}'s own doc for why. */
+    /** AI insights' month story (AiInsightGenerator) -- customer-facing, gated on {@code FYN_INSIGHTS}.
+     *  Tier 1 only: an allowlisted fact sheet, never a payee, person, account or narration
+     *  (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §4.1). */
     @Bean
-    public FynToolDescriptor narrateInsightsTool() {
+    public FynToolDescriptor aiInsightStoryTool() {
         return new FynToolDescriptor(
-                "NARRATE_INSIGHTS",
-                "Composes a short natural-language summary of a user's own month-over-month category insights.",
+                "AI_INSIGHT_STORY",
+                "Chooses what matters in a user's own month from server-computed facts and words it, figures as placeholders.",
+                FeatureEntitlement.FYN_INSIGHTS,
+                FynDataTier.TIER_1_AGGREGATE,
+                true);
+    }
+
+    /** AI insights' "Why?" on a running-high category -- same entitlement and tier as the story. */
+    @Bean
+    public FynToolDescriptor aiInsightWhyTool() {
+        return new FynToolDescriptor(
+                "AI_INSIGHT_WHY",
+                "Explains from server-computed facts why one of a user's categories is above its usual month.",
                 FeatureEntitlement.FYN_INSIGHTS,
                 FynDataTier.TIER_1_AGGREGATE,
                 true);

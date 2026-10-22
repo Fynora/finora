@@ -242,7 +242,12 @@ function AdvancedReportsContent() {
         ))}
       </div>
 
-      <div role="tabpanel" id="advanced-panel" aria-labelledby={`advanced-tab-${tab}`}>
+      {/* While another period loads, the figures on screen are the old period's: dimmed and marked busy so
+          they are not read as the new choice's. */}
+      <div
+        role="tabpanel" id="advanced-panel" aria-labelledby={`advanced-tab-${tab}`} aria-busy={refreshing}
+        className={refreshing ? 'opacity-50 transition-opacity' : 'transition-opacity'}
+      >
         {tab === 'categorisation' ? (
           <CategorisationPanel />
         ) : !customReady ? (

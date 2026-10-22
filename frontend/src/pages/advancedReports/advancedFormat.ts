@@ -153,6 +153,22 @@ export function ledgerHref(drill: AdvancedDrill): string {
   return `/app/transactions?${params.toString()}`;
 }
 
+/** Every month from `first` to `last` inclusive, newest first, as "yyyy-MM". `keep` months outside that
+ *  span (a link's own start or end) are included so a select never shows a value it cannot list. */
+export function monthChoices(first: string | null, last: string | null, keep: string[] = []): string[] {
+  const out = new Set<string>(keep.filter(Boolean));
+  if (first && last) {
+    let [y, m] = first.split('-').map(Number);
+    const [ly, lm] = last.split('-').map(Number);
+    while (y < ly || (y === ly && m <= lm)) {
+      out.add(`${y}-${String(m).padStart(2, '0')}`);
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+  }
+  return [...out].sort().reverse();
+}
+
 /** First and last day of a "YYYY-MM" month, for linking to a whole month. */
 export function monthBounds(month: string): { from: string; to: string } {
   const [y, m] = month.split('-').map(Number);

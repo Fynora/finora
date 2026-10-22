@@ -24,8 +24,10 @@ const PLOT_H = HEIGHT - TOP - BOTTOM;
  * calendar year at a time, and the toggle says so. "View as table" shows the same figures as text.
  */
 export function CashFlowChart({ months, incompleteNoteText }: { months: AdvancedMonth[]; incompleteNoteText: string | null }) {
-  const long = months.length > YEARLY_ABOVE_MONTHS;
-  const [grain, setGrain] = useState<'monthly' | 'yearly'>(long ? 'yearly' : 'monthly');
+  // The reader's own choice, or none: what the period suggests is worked out each time, so moving from a
+  // short period to a long one draws years even though a short one was on screen before.
+  const [chosenGrain, setGrain] = useState<'monthly' | 'yearly' | null>(null);
+  const grain = chosenGrain ?? (months.length > YEARLY_ABOVE_MONTHS ? 'yearly' : 'monthly');
   const [asTable, setAsTable] = useState(false);
   const yearly = months.length > 12 && grain === 'yearly';
   const points = yearly ? yearlyPoints(months) : monthlyPoints(months);

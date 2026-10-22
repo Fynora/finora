@@ -46,7 +46,11 @@ const lastCall = () => {
 describe('AdvancedReports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(analyticsApi.advanced).mockResolvedValue(fixtureReport());
+    // Like the server, answer with the range that was asked for.
+    vi.mocked(analyticsApi.advanced).mockImplementation(async ({ range }) => {
+      const base = fixtureReport();
+      return fixtureReport({ period: { ...base.period, range } });
+    });
     vi.mocked(analyticsApi.categoryConfidence).mockResolvedValue([{ category: 'Food', avgConfidence: 88, merchantCount: 4 }]);
     vi.mocked(analyticsApi.learningGrowth).mockResolvedValue([{ month: '2026-08', learnedCount: 10, correctedCount: 2 }]);
   });
@@ -139,6 +143,33 @@ describe('AdvancedReports', () => {
       await waitFor(() => expect(lastCall()).toEqual({ range: 'CUSTOM', startMonth: '2026-04', endMonth: '2026-09' }));
     });
 
+    it('lets a custom month be picked from the months the history has, in any browser', async () => {
+      renderPage('/app/reports/advanced?range=CUSTOM&start=2026-04&end=2026-09');
+      await screen.findByTestId('kpi-income');
+      const from = screen.getByLabelText('From');
+      expect(within(from).getAllByRole('option').map((o) => o.getAttribute('value')).slice(0, 3)).toEqual(['2026-09', '2026-08', '2026-07']);
+      const options = within(from).getAllByRole('option');
+      expect(options[options.length - 1]).toHaveValue('2025-01');
+
+      fireEvent.change(from, { target: { value: '2025-06' } });
+
+      await waitFor(() => expect(lastCall()).toEqual({ range: 'CUSTOM', startMonth: '2025-06', endMonth: '2026-09' }));
+    });
+
+    it('does not show the old period\'s months or ways to compare beside a period still loading', async () => {
+      renderPage();
+      await screen.findByLabelText('Compare with');
+      expect(screen.getByTestId('period-span')).toHaveTextContent('Apr 2026 – Sep 2026');
+      vi.mocked(analyticsApi.advanced).mockReturnValue(pending());
+
+      fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'LAST_3_MONTHS' } });
+
+      await waitFor(() => expect(lastCall()).toEqual({ range: 'LAST_3_MONTHS' }));
+      expect(screen.queryByTestId('period-span')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Compare with')).not.toBeInTheDocument();
+      expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-busy', 'true');
+    });
+
     it('asks nothing for a custom run that has no months yet, and says what it needs', async () => {
       renderPage('/app/reports/advanced?range=CUSTOM');
       expect(await screen.findByText('Choose a start and an end month')).toBeInTheDocument();
@@ -168,6 +199,29 @@ describe('AdvancedReports', () => {
       fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'LAST_3_MONTHS' } });
 
       await waitFor(() => expect(lastCall()).toEqual({ range: 'LAST_3_MONTHS' }));
+    });
+
+    it('never shows the old period\'s figures under a new period when the new request fails', async () => {
+      renderPage();
+      await screen.findByTestId('kpi-income');
+      vi.mocked(analyticsApi.advanced).mockRejectedValueOnce(new Error('boom'));
+
+      fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'LAST_3_MONTHS' } });
+
+      expect(await screen.findByText(/Couldn’t load Advanced Reports/)).toBeInTheDocument();
+      expect(screen.queryByTestId('kpi-income')).not.toBeInTheDocument();
+    });
+
+    it('draws a long period by year even after a short one was on screen', async () => {
+      renderPage();
+      await screen.findByTestId('cash-flow-chart');
+      const months = Array.from({ length: 30 }, (_, i) => fixtureMonth(`${2024 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`));
+      const base = fixtureReport();
+      vi.mocked(analyticsApi.advanced).mockResolvedValue(fixtureReport({ months, period: { ...base.period, range: 'ALL_TIME', monthCount: 30, startMonth: '2024-01', endMonth: '2026-06', compareOptions: [], compare: null } }));
+
+      fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'ALL_TIME' } });
+
+      expect(await screen.findByText('Each bar is a calendar year of the period.')).toBeInTheDocument();
     });
 
     it('has no compare picker when the period has one comparison, or none', async () => {

@@ -3,7 +3,7 @@ import { fmt } from '../reportSections/reportFormat';
 import type { AdvancedComparison, AdvancedPeriodInfo } from '../../api/endpoints';
 import {
   againstName, compactAmount, coverageNote, gateNote, incompleteNote, ledgerHref, leftOutNote, monthBounds,
-  monthYear, noDataCopy, percentChange, periodSpan, pointsChange, signedAmount,
+  monthChoices, monthYear, noDataCopy, percentChange, periodSpan, pointsChange, signedAmount,
 } from './advancedFormat';
 
 const period = (over: Partial<AdvancedPeriodInfo> = {}): AdvancedPeriodInfo => ({
@@ -118,5 +118,20 @@ describe('axis and links', () => {
     expect(monthBounds('2026-02')).toEqual({ from: '2026-02-01', to: '2026-02-28' });
     expect(monthBounds('2028-02')).toEqual({ from: '2028-02-01', to: '2028-02-29' });
     expect(monthBounds('2026-12')).toEqual({ from: '2026-12-01', to: '2026-12-31' });
+  });
+});
+
+describe('monthChoices', () => {
+  it('lists every month of the history newest first, across a year end', () => {
+    expect(monthChoices('2025-11', '2026-02')).toEqual(['2026-02', '2026-01', '2025-12', '2025-11']);
+  });
+
+  it('keeps a month a link names even when it is outside the history, so a select can show it', () => {
+    expect(monthChoices('2026-01', '2026-02', ['2025-06', ''])).toEqual(['2026-02', '2026-01', '2025-06']);
+  });
+
+  it('has only what it was asked to keep before the history is known', () => {
+    expect(monthChoices(null, null)).toEqual([]);
+    expect(monthChoices(null, '2026-02', ['2026-01'])).toEqual(['2026-01']);
   });
 });

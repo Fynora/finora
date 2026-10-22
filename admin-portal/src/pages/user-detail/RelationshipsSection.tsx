@@ -6,6 +6,8 @@ import { adminUserRelationshipsApi } from '../../api/endpoints';
 import type { CreateRelationshipRequest, RelationshipDto, UpdateRelationshipRequest } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Pagination } from '../../components/Pagination';
+import { usePagedList } from './usePagedList';
 
 const RELATIONSHIP_TYPES = ['FAMILY', 'FRIEND', 'OWN_ACCOUNT', 'OTHER'];
 const IDENTIFIER_TYPES = ['UPI_ID', 'ACCOUNT_LAST4', 'NAME_PATTERN'];
@@ -95,6 +97,8 @@ function RelationshipRow({ userId, relationship, allRelationships }: {
   const notify = useNotify();
   const [editing, setEditing] = useState(false);
   const [mergeFrom, setMergeFrom] = useState('');
+  // Built only for the row being merged -- see MerchantsSection: one picker per row is n squared.
+  const [merging, setMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -122,6 +126,7 @@ function RelationshipRow({ userId, relationship, allRelationships }: {
       adminUserRelationshipsApi.merge(userId, relationship.id, { mergeFromRelationshipId }),
     onSuccess: () => {
       setMergeFrom('');
+      setMerging(false);
       invalidate();
       notify.success('Relationships merged.');
     },
@@ -147,7 +152,8 @@ function RelationshipRow({ userId, relationship, allRelationships }: {
     },
   });
 
-  const otherRelationships = allRelationships.filter((r) => r.id !== relationship.id);
+  const otherRelationships = merging ? allRelationships.filter((r) => r.id !== relationship.id) : [];
+  const canMerge = allRelationships.length > 1;
 
   if (editing) {
     return (
@@ -184,7 +190,16 @@ function RelationshipRow({ userId, relationship, allRelationships }: {
         {error && <p className="text-xs text-danger mt-1">{error}</p>}
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        {otherRelationships.length > 0 && (
+        {canMerge && !merging && (
+          <button
+            type="button"
+            onClick={() => setMerging(true)}
+            className="text-xs font-semibold text-primary px-2 py-1.5"
+          >
+            Merge…
+          </button>
+        )}
+        {merging && (
           <>
             <select
               aria-label="Merge from"
@@ -202,6 +217,13 @@ function RelationshipRow({ userId, relationship, allRelationships }: {
               className="text-xs font-semibold text-primary px-2 py-1.5 disabled:opacity-50"
             >
               Merge
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMerging(false); setMergeFrom(''); }}
+              className="text-xs text-muted px-2 py-1.5"
+            >
+              Cancel
             </button>
           </>
         )}
@@ -262,6 +284,7 @@ export function RelationshipsSection({ userId }: { userId: string }) {
     queryKey: ['admin-user-relationships', userId],
     queryFn: () => adminUserRelationshipsApi.list(userId),
   });
+  const paged = usePagedList(isError ? undefined : relationships);
 
   const createMutation = useMutation({
     mutationFn: (values: CreateRelationshipRequest) => adminUserRelationshipsApi.create(userId, values),
@@ -315,10 +338,12 @@ export function RelationshipsSection({ userId }: { userId: string }) {
         <p className="text-sm text-muted">No relationships tagged for this user yet.</p>
       )}
       <div>
-        {!isError && relationships?.map((r) => (
+        {!isError && relationships && paged.pageItems.map((r) => (
           <RelationshipRow key={r.id} userId={userId} relationship={r} allRelationships={relationships} />
         ))}
       </div>
+      <Pagination page={paged.page} totalPages={paged.totalPages} totalElements={paged.totalElements}
+                  pageSize={paged.pageSize} onPageChange={paged.setPage} />
     </div>
   );
 }

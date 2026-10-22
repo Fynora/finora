@@ -5,6 +5,8 @@ import { adminUserRulesApi } from '../../api/endpoints';
 import type { CreateRuleRequest, RuleDto, UpdateRuleRequest } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Pagination } from '../../components/Pagination';
+import { usePagedList } from './usePagedList';
 import { ruleAmountRange } from '../../lib/ruleAmountRange';
 
 // PAYEE: the payee name, money going out only -- what the recurring-payment question saves.
@@ -237,6 +239,7 @@ export function RulesSection({ userId }: { userId: string }) {
     queryKey: ['admin-user-rules', userId],
     queryFn: () => adminUserRulesApi.list(userId),
   });
+  const paged = usePagedList(rules);
 
   const createMutation = useMutation({
     mutationFn: (values: CreateRuleRequest) => adminUserRulesApi.create(userId, values),
@@ -287,8 +290,10 @@ export function RulesSection({ userId }: { userId: string }) {
         <p className="text-sm text-muted">No personal rules for this user yet.</p>
       )}
       <div>
-        {rules?.map((r) => <RuleRow key={r.id} userId={userId} rule={r} />)}
+        {paged.pageItems.map((r) => <RuleRow key={r.id} userId={userId} rule={r} />)}
       </div>
+      <Pagination page={paged.page} totalPages={paged.totalPages} totalElements={paged.totalElements}
+                  pageSize={paged.pageSize} onPageChange={paged.setPage} />
     </div>
   );
 }

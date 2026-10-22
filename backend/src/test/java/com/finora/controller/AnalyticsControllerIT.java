@@ -3,8 +3,12 @@ package com.finora.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.entity.Account;
+import com.finora.entity.Transaction;
 import com.finora.entity.User;
+import com.finora.repository.AccountRepository;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.service.SubscriptionService;
@@ -14,6 +18,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,6 +44,8 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
+    @Autowired private AccountRepository accountRepository;
+    @Autowired private TransactionRepository transactionRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final List<String> ADVANCED_REPORTS_PATHS = List.of(
@@ -44,7 +53,8 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
             "/api/v1/analytics/category-confidence", "/api/v1/analytics/top-categories",
             "/api/v1/analytics/learning-growth", "/api/v1/analytics/international",
             "/api/v1/analytics/multi-year/income", "/api/v1/analytics/multi-year/spend",
-            "/api/v1/analytics/multi-year/categories", "/api/v1/analytics/multi-year/lifestyle-inflation");
+            "/api/v1/analytics/multi-year/categories", "/api/v1/analytics/multi-year/lifestyle-inflation",
+            "/api/v1/analytics/advanced");
 
     private User createUser() {
         User user = new User();
@@ -135,5 +145,97 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = get("/api/v1/analytics/merchants?view=importStatistics", user);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private User plusUser() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        subscriptionService.changePlan(user.getId(), "PLUS", "test-upgrade", user.getId());
+        return user;
+    }
+
+    private void persist(User user, UUID accountId, Transaction.Type type, LocalDate date, String amount, String description) {
+        Transaction t = new Transaction();
+        t.setUserId(user.getId());
+        t.setAccountId(accountId);
+        t.setAmount(new BigDecimal(amount));
+        t.setTxnType(type);
+        t.setTxnDate(date);
+        t.setDescription(description);
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        transactionRepository.save(t);
+    }
+
+    @Test
+    void advanced_forAUserWithNoTransactions_saysThereIsNothingToShowRatherThanFailing() throws Exception {
+        ResponseEntity<String> response = get("/api/v1/analytics/advanced?range=LAST_6_MONTHS", plusUser());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        assertThat(data.get("period").get("hasData").asBoolean()).isFalse();
+        assertThat(data.get("period").get("noDataReason").asText()).isEqualTo("NO_TRANSACTIONS");
+        assertThat(data.get("months")).isEmpty();
+        assertThat(data.get("insights")).isEmpty();
+    }
+
+    @Test
+    void advanced_refusesAnUnknownRangeAndACustomRangeWithoutItsMonths() {
+        User user = plusUser();
+
+        assertThat(get("/api/v1/analytics/advanced?range=LAST_WEEK", user).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/analytics/advanced?range=CUSTOM", user).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/analytics/advanced?range=CUSTOM&startMonth=2026-09&endMonth=2026-01", user).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/analytics/advanced?range=CUSTOM&startMonth=nope&endMonth=2026-01", user).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/analytics/advanced?compare=SOMETIMES", user).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void advanced_returnsTheWireShapeFromRealRows_andEachMonthIsTheFigureReportsGives() throws Exception {
+        User user = plusUser();
+        Account account = new Account();
+        account.setUserId(user.getId());
+        account.setName("Advanced IT Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.ZERO);
+        account.setAccountHolderName("Analytics IT Test User");
+        UUID accountId = accountRepository.save(account).getId();
+        for (YearMonth m = YearMonth.of(2026, 1); !m.isAfter(YearMonth.of(2026, 9)); m = m.plusMonths(1)) {
+            persist(user, accountId, Transaction.Type.INCOME, m.atDay(1), "1000.00", "SALARY ACME TECHNOLOGIES");
+            persist(user, accountId, Transaction.Type.EXPENSE, m.atDay(2), "300.00", "Advanced IT purchase");
+            persist(user, accountId, Transaction.Type.EXPENSE, m.atEndOfMonth(), "100.00", "Advanced IT purchase");
+        }
+
+        ResponseEntity<String> response = get("/api/v1/analytics/advanced?range=LAST_3_MONTHS", user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode data = mapper.readTree(response.getBody()).get("data");
+        JsonNode period = data.get("period");
+        assertThat(period.get("hasData").asBoolean()).isTrue();
+        assertThat(period.get("startMonth").asText()).isEqualTo("2026-07");
+        assertThat(period.get("endMonth").asText()).isEqualTo("2026-09");
+        assertThat(period.get("compare").asText()).isEqualTo("PREVIOUS_PERIOD");
+        assertThat(period.get("previousStartMonth").asText()).isEqualTo("2026-04");
+        assertThat(period.get("compareOptions")).hasSize(2);
+        assertThat(period.get("incompleteMonths")).isEmpty();
+        assertThat(data.get("totals").get("income").decimalValue()).isEqualByComparingTo("3000");
+        assertThat(data.get("totals").get("expense").decimalValue()).isEqualByComparingTo("1200");
+        assertThat(data.get("totals").get("savingsRatePct").decimalValue()).isEqualByComparingTo("60");
+        assertThat(data.get("comparison").get("reliable").asBoolean()).isTrue();
+        assertThat(data.get("comparison").get("expenseDeltaPct").asDouble()).isZero();
+        assertThat(data.get("months")).hasSize(3);
+        assertThat(data.get("categories").get("rows").get(0).get("name").asText()).isEqualTo("Uncategorized");
+        assertThat(data.get("categories").get("rows").get(0).get("monthly")).hasSize(3);
+        assertThat(data.get("paymentMethods")).isNotNull();
+        assertThat(data.get("insights")).isNotNull();
+
+        for (JsonNode month : data.get("months")) {
+            JsonNode report = mapper.readTree(get("/api/v1/reports?month=" + month.get("month").asText(), user).getBody()).get("data");
+            assertThat(month.get("income").decimalValue()).as(month.get("month").asText() + " income")
+                    .isEqualByComparingTo(report.get("income").decimalValue());
+            assertThat(month.get("expense").decimalValue()).as(month.get("month").asText() + " expense")
+                    .isEqualByComparingTo(report.get("expense").decimalValue());
+        }
     }
 }

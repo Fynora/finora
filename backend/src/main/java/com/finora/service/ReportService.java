@@ -144,15 +144,7 @@ public class ReportService {
         // account by the classifier.
         Map<UUID, com.finora.entity.Account.Type> accountTypes = new java.util.HashMap<>();
         for (com.finora.entity.Account a : accounts) accountTypes.put(a.getId(), a.getAccountType());
-        List<ReportDto.PaymentMethodAmount> paymentMethods = RefundNetting.withoutNegativeSpend(spendRows.stream()
-                        .collect(Collectors.groupingBy(
-                                t -> PaymentMethodClassifier.classify(t, accountTypes.get(t.getAccountId())).name(),
-                                Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))))
-                .entrySet().stream()
-                .filter(e -> e.getValue().signum() > 0)
-                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
-                .map(e -> new ReportDto.PaymentMethodAmount(e.getKey(), e.getValue()))
-                .toList();
+        List<ReportDto.PaymentMethodAmount> paymentMethods = paymentMethodsOf(spendRows, spend, accountTypes);
 
         Map<String, BigDecimal> incomeByLabel = new java.util.LinkedHashMap<>();
         for (Transaction t : txnsForTotals) {
@@ -180,11 +172,30 @@ public class ReportService {
                 savings.pct(), savings.gateReason(), biggestSpends, dailySpend, paymentMethods);
     }
 
+    /**
+     * Spending by how it was paid, largest first: the rows' account type and statement wording
+     * decide the method ({@link PaymentMethodClassifier}), amounts are refund-netted through
+     * {@code spend}, a method whose refunds exceed its purchases is dropped. Shared by the monthly
+     * report and the Advanced Reports period so the two split spending the same way.
+     */
+    static List<ReportDto.PaymentMethodAmount> paymentMethodsOf(List<Transaction> spendRows, RefundNetting spend,
+                                                               Map<UUID, com.finora.entity.Account.Type> accountTypes) {
+        return RefundNetting.withoutNegativeSpend(spendRows.stream()
+                        .collect(Collectors.groupingBy(
+                                t -> PaymentMethodClassifier.classify(t, accountTypes.get(t.getAccountId())).name(),
+                                Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))))
+                .entrySet().stream()
+                .filter(e -> e.getValue().signum() > 0)
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .map(e -> new ReportDto.PaymentMethodAmount(e.getKey(), e.getValue()))
+                .toList();
+    }
+
     /** How many of the month's largest purchases the report lists. */
     private static final int MAX_BIGGEST_SPENDS = 3;
 
     /** What a purchase is called on the report: the merchant, else the description, never blank. */
-    private static String spendLabel(Transaction t) {
+    static String spendLabel(Transaction t) {
         if (t.getMerchant() != null && !t.getMerchant().isBlank()) return t.getMerchant().trim();
         if (t.getDescription() != null && !t.getDescription().isBlank()) return t.getDescription().trim();
         return "Transaction";
@@ -320,10 +331,18 @@ public class ReportService {
                         liveAccountIds));
         List<Transaction> rangeTxns = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
-        List<Transaction> txns = reportRows.reportable(userId, rangeTxns);
-        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(txns);
+        return totalsOf(reportRows.reportable(userId, rangeTxns), refunds, flow);
+    }
+
+    /**
+     * Income and expense for rows that have already been through {@code ReportRows.reportable}: the
+     * one computation behind {@link #forRange}, and behind every period on the Advanced Reports
+     * page, so a figure there is the figure Reports and the Dashboard give for the same rows.
+     */
+    static RangeTotals totalsOf(List<Transaction> reportable, RefundNetting refunds, FlowTotals.Context flow) {
+        List<Transaction> txnsForTotals = RefundNetting.excludingInvestmentTransfers(reportable);
         // Spend netting: linked refunds against their purchases, unlinked ones in this period.
-        RefundNetting spend = refunds.withUnlinkedOffsets(txns, flow);
+        RefundNetting spend = refunds.withUnlinkedOffsets(reportable, flow);
 
         // Only flow-classified income: a credit from a person, a card credit, an investment
         // redemption or a loan disbursal is money in, not income. See FlowClassifier.

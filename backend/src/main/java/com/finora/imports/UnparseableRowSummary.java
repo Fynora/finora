@@ -1,6 +1,8 @@
 package com.finora.imports;
 
 import com.finora.dto.ImportDto.UnparseableRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,19 +25,33 @@ import java.util.TreeSet;
  * metrics -- read by admins, retained indefinitely, and exactly the sort of place data ends up when
  * nobody decided to put it there. Everything kept here is statement furniture: an engine-authored
  * failure reason, and the header names of the columns involved.
+ *
+ * <p>The reason is NOT {@link UnparseableRow#reason()} as the review screen shows it. Some of those
+ * quote the cell that failed ("Date value ... didn't match"), and for a while this histogram was
+ * keyed by them verbatim, so the summary held the very values this comment says it never does. It
+ * is keyed by {@link UnparseableReasons#summaryKey} instead, which keeps the reason and swaps the
+ * cell for its shape.
  */
 public record UnparseableRowSummary(Map<String, Integer> reasons,
                                     Map<String, Integer> columnSignatures,
                                     int total) {
+
+    private static final Logger log = LoggerFactory.getLogger(UnparseableRowSummary.class);
 
     public static UnparseableRowSummary of(List<UnparseableRow> rows) {
         Map<String, Integer> reasons = new LinkedHashMap<>();
         Map<String, Integer> signatures = new LinkedHashMap<>();
         if (rows != null) {
             for (UnparseableRow row : rows) {
-                reasons.merge(row.reason() == null ? "unspecified" : row.reason(), 1, Integer::sum);
+                reasons.merge(UnparseableReasons.summaryKey(row.reason()), 1, Integer::sum);
                 signatures.merge(signatureOf(row), 1, Integer::sum);
             }
+        }
+        Integer unclassified = reasons.get(UnparseableReasons.UNCLASSIFIED);
+        if (unclassified != null) {
+            // The text itself is withheld by design; this says a reason needs adding to the allowlist.
+            log.warn("{} unparseable row(s) gave a reason that is not in UnparseableReasons; counted as unclassified",
+                    unclassified);
         }
         return new UnparseableRowSummary(reasons, signatures, rows == null ? 0 : rows.size());
     }

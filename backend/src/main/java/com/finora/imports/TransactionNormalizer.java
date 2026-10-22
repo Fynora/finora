@@ -450,11 +450,11 @@ public class TransactionNormalizer {
     private RowFailure diagnoseFailure(Map<String, String> row) {
         String dateRaw = CsvParser.firstNonBlank(row, DATE_HINTS);
         if (dateRaw == null) {
-            return new RowFailure("No column recognized as a date",
+            return new RowFailure(UnparseableReasons.NO_DATE_COLUMN,
                     hasColumn(row, DATE_HINTS) ? REASON_DATE_COLUMN_EMPTY : REASON_NO_DATE_COLUMN);
         }
         if (CsvParser.parseDate(dateRaw.trim()) == null) {
-            return new RowFailure("Date value \"" + dateRaw + "\" didn't match any known date format",
+            return new RowFailure(UnparseableReasons.dateUnreadable(dateRaw),
                     REASON_DATE_UNPARSEABLE_PREFIX + ValueShape.of(dateRaw.trim()));
         }
 
@@ -465,14 +465,14 @@ public class TransactionNormalizer {
         if (amountRaw == null) {
             String anyAmountRaw = CsvParser.firstNonBlank(row, AMOUNT_HINTS);
             if (anyAmountRaw == null) {
-                return new RowFailure("No column recognized as an amount or balance",
+                return new RowFailure(UnparseableReasons.NO_AMOUNT_COLUMN,
                         hasColumn(row, AMOUNT_HINTS) ? REASON_AMOUNT_COLUMN_EMPTY : REASON_NO_AMOUNT_COLUMN);
             }
-            return new RowFailure("Amount value \"" + anyAmountRaw + "\" didn't match any known numeric format",
+            return new RowFailure(UnparseableReasons.amountUnreadable(anyAmountRaw),
                     REASON_AMOUNT_UNPARSEABLE_PREFIX + ValueShape.of(anyAmountRaw.trim()));
         }
 
-        return new RowFailure("Date and amount both parsed but the row was still rejected",
+        return new RowFailure(UnparseableReasons.REJECTED_AFTER_PARSE,
                 REASON_REJECTED_AFTER_PARSE);
     }
 

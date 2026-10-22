@@ -1651,7 +1651,29 @@ export interface LayoutProfileView {
   id: string;
   name: string;
   automatic: boolean;
+  /** The bank an upload of this profile's layouts gets when its file names none (V285); null when
+   *  no bank is set yet (a profile made by hand before profiles had banks). */
+  bankId: string | null;
+  bankName: string | null;
   versions: RegistryEntry[];
+}
+
+/** How many confirmed imports of a layout whose bank was unknown ended with the user choosing this
+ *  bank. A hint for attaching the layout to a profile; counts only. */
+export interface BankChoiceCount {
+  fingerprint: string;
+  bankId: string;
+  bankName: string;
+  count: number;
+}
+
+/** One week (Monday, India time) of accounts created by imports, by where their bank came from. */
+export interface BankOriginWeek {
+  weekStart: string;
+  fromFile: number;
+  fromProfile: number;
+  chosenByUser: number;
+  otherBank: number;
 }
 
 export interface UnknownHeaderSummary {

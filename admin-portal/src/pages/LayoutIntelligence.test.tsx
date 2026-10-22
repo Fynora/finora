@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutIntelligence from './LayoutIntelligence';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminLayoutsApi, adminLayoutRegistryApi } from '../api/endpoints';
+import { adminLayoutsApi, adminLayoutRegistryApi, banksApi } from '../api/endpoints';
 import type { LayoutEvidenceReport, LayoutProfileView, LayoutSummary, RegistryEntry, UnknownHeaderSummary } from '../types';
 
 // AdminLayout now renders ThemeToggle (dark-mode support), which calls useTheme() --
@@ -34,10 +34,15 @@ vi.mock('../api/endpoints', () => ({
     update: vi.fn(),
     profiles: vi.fn(),
     createProfile: vi.fn(),
-    renameProfile: vi.fn(),
+    updateProfile: vi.fn(),
     linkToProfile: vi.fn(),
     unlinkFromProfile: vi.fn(),
     returnToAutomatic: vi.fn(),
+    bankChoices: vi.fn(),
+    bankOrigins: vi.fn(),
+  },
+  banksApi: {
+    search: vi.fn(),
   },
 }));
 
@@ -99,6 +104,13 @@ beforeEach(() => {
   vi.mocked(adminLayoutsApi.overview).mockResolvedValue([LAYOUT]);
   vi.mocked(adminLayoutsApi.drifting).mockResolvedValue([]);
   vi.mocked(adminLayoutsApi.unknownHeaders).mockResolvedValue([]);
+  vi.mocked(adminLayoutRegistryApi.bankChoices).mockResolvedValue([]);
+  vi.mocked(adminLayoutRegistryApi.bankOrigins).mockResolvedValue([]);
+  vi.mocked(banksApi.search).mockResolvedValue([
+    { id: 'HDFC', officialName: 'HDFC Bank' },
+    { id: 'ICICI', officialName: 'ICICI Bank' },
+    { id: 'OTHER', officialName: null },
+  ] as never);
 });
 
 describe('LayoutIntelligence', () => {
@@ -283,7 +295,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
   it('lists profiles with their layouts in version order and adds a layout as the next version', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
     const profile: LayoutProfileView = {
-      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true,
+      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true, bankId: null, bankName: null,
       versions: [
         entry({ fingerprint: 'FP-1-OLD00001', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 1, name: 'Old table', profileLinkSource: 'AUTO' }),
         entry({ fingerprint: 'FP-1-NEW00002', profileId: 'p-1', profileName: 'Sample Bank Credit Card', profileVersion: 2 }),
@@ -309,22 +321,29 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('creates a profile', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
-    vi.mocked(adminLayoutRegistryApi.createProfile).mockResolvedValue({ id: 'p-2', name: 'New Profile', automatic: false, versions: [] });
+    vi.mocked(adminLayoutRegistryApi.createProfile).mockResolvedValue(
+      { id: 'p-2', name: 'New Profile', automatic: false, bankId: 'HDFC', bankName: 'HDFC Bank', versions: [] });
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByRole('button', { name: /Profiles/ }));
     await user.type(await screen.findByLabelText('New profile name'), 'New Profile');
+    // A profile needs a bank: Create stays off until one is chosen, and "no bank" is not offered.
+    expect(screen.getByRole('button', { name: /Create profile/ })).toBeDisabled();
+    const bank = screen.getByLabelText('New profile bank');
+    expect(await within(bank).findByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument();
+    expect(within(bank).queryByRole('option', { name: /Other/ })).not.toBeInTheDocument();
+    await user.selectOptions(bank, 'HDFC');
     await user.click(screen.getByRole('button', { name: /Create profile/ }));
 
-    await waitFor(() => expect(adminLayoutRegistryApi.createProfile).toHaveBeenCalled());
-    expect(vi.mocked(adminLayoutRegistryApi.createProfile).mock.calls[0][0]).toBe('New Profile');
+    await waitFor(() => expect(adminLayoutRegistryApi.createProfile).toHaveBeenCalledWith('New Profile', 'HDFC'));
   });
 
   it('renames a profile in place', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
-    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([{ id: 'p-1', name: 'Old Name', automatic: false, versions: [] }]);
-    vi.mocked(adminLayoutRegistryApi.renameProfile).mockResolvedValue(undefined as never);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue(
+      [{ id: 'p-1', name: 'Old Name', automatic: false, bankId: 'HDFC', bankName: 'HDFC Bank', versions: [] }]);
+    vi.mocked(adminLayoutRegistryApi.updateProfile).mockResolvedValue(undefined as never);
     const user = userEvent.setup();
     renderPage();
 
@@ -333,7 +352,75 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     await user.clear(field);
     await user.type(field, 'Better Name{Enter}');
 
-    await waitFor(() => expect(adminLayoutRegistryApi.renameProfile).toHaveBeenCalledWith('p-1', 'Better Name'));
+    await waitFor(() => expect(adminLayoutRegistryApi.updateProfile).toHaveBeenCalledWith('p-1', { name: 'Better Name' }));
+  });
+
+  it('marks a profile with no bank and sets one', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue(
+      [{ id: 'p-1', name: 'Hand Made', automatic: false, bankId: null, bankName: null, versions: [] }]);
+    vi.mocked(adminLayoutRegistryApi.updateProfile).mockResolvedValue(undefined as never);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    expect(await screen.findByText('No bank set')).toBeInTheDocument();
+    const bank = screen.getByLabelText('Bank for Hand Made');
+    await within(bank).findByRole('option', { name: 'ICICI Bank' });
+    await user.selectOptions(bank, 'ICICI');
+    await waitFor(() => expect(adminLayoutRegistryApi.updateProfile).toHaveBeenCalledWith('p-1', { bankId: 'ICICI' }));
+  });
+
+  it('shows a profile\'s bank by name', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue(
+      [{ id: 'p-1', name: 'Sample Profile', automatic: true, bankId: 'HDFC', bankName: 'HDFC Bank', versions: [] }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    expect(await screen.findByText('Bank: HDFC Bank')).toBeInTheDocument();
+    expect(screen.queryByText('No bank set')).not.toBeInTheDocument();
+  });
+
+  it('shows what users chose for a layout whose bank was unknown', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminLayoutRegistryApi.bankChoices).mockResolvedValue([
+      { fingerprint: 'FP-1-AAAA0001', bankId: 'HDFC', bankName: 'HDFC Bank', count: 2 },
+      { fingerprint: 'FP-1-AAAA0001', bankId: 'OTHER', bankName: 'Other bank', count: 1 },
+      { fingerprint: 'FP-1-ZZZZ0009', bankId: 'ICICI', bankName: 'ICICI Bank', count: 5 },
+    ]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText('Users chose: HDFC Bank 2 · Other bank 1')).toBeInTheDocument();
+    expect(screen.queryByText(/ICICI Bank 5/)).not.toBeInTheDocument();
+  });
+
+  it('says nothing about users\' choices when there are none', async () => {
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText('FP-1-AAAA0001')).toBeInTheDocument();
+    expect(screen.queryByText(/Users chose/)).not.toBeInTheDocument();
+  });
+
+  it('shows where new accounts got their bank, week by week', async () => {
+    vi.mocked(adminLayoutRegistryApi.bankOrigins).mockResolvedValue([
+      { weekStart: '2026-10-19', fromFile: 7, fromProfile: 3, chosenByUser: 2, otherBank: 1 },
+      { weekStart: '2026-10-12', fromFile: 0, fromProfile: 0, chosenByUser: 0, otherBank: 0 },
+    ]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    const table = await screen.findByRole('table', { name: 'Where new accounts got their bank' });
+    const rows = within(table).getAllByRole('row');
+    expect(rows[0]).toHaveTextContent(/Week of.*From the file.*From a profile.*Chosen by the user.*Other bank/);
+    expect(rows[1]).toHaveTextContent(/19 Oct 2026.*7.*3.*2.*1/);
+    expect(rows[2]).toHaveTextContent(/12 Oct 2026.*0.*0.*0.*0/);
   });
 
   it('shows a layout curator without diagnostics access only the review queue and profiles', async () => {
@@ -350,7 +437,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('says what version a moved layout used to be', async () => {
     const profile: LayoutProfileView = {
-      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true,
+      id: 'p-1', name: 'Sample Bank Credit Card', automatic: true, bankId: null, bankName: null,
       versions: [entry({ fingerprint: 'FP-1-MOVED001', profileId: 'p-1', profileName: 'Sample Bank Credit Card',
         profileVersion: 2, previousProfileVersion: 1, profileVersionChangedAt: '2026-09-02T00:00:00Z', profileLinkSource: 'AUTO' })],
     };

@@ -8523,7 +8523,7 @@
                 "tags": [
                     "admin-layout-registry-controller"
                 ],
-                "operationId": "renameProfile",
+                "operationId": "updateProfile",
                 "parameters": [
                     {
                         "name": "profileId",
@@ -12363,6 +12363,58 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseListRegistryEntry"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/bank-origins": {
+            "get": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "bankOrigins",
+                "parameters": [
+                    {
+                        "name": "weeks",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int32",
+                            "default": 12
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBankOriginWeek"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/imports/layout-registry/bank-choices": {
+            "get": {
+                "tags": [
+                    "admin-layout-registry-controller"
+                ],
+                "operationId": "bankChoices",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBankChoiceCount"
                                 }
                             }
                         }
@@ -17042,6 +17094,9 @@
                     "installmentsTotal": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "bankSource": {
+                        "type": "string"
                     }
                 }
             },
@@ -21114,6 +21169,12 @@
                     },
                     "automatic": {
                         "type": "boolean"
+                    },
+                    "bankId": {
+                        "type": "string"
+                    },
+                    "bankName": {
+                        "type": "string"
                     },
                     "versions": {
                         "type": "array",
@@ -30469,6 +30530,111 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseListBankOriginWeek": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BankOriginWeek"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BankOriginWeek": {
+                "type": "object",
+                "properties": {
+                    "weekStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "fromFile": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "fromProfile": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "chosenByUser": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "otherBank": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseListBankChoiceCount": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BankChoiceCount"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BankChoiceCount": {
+                "type": "object",
+                "properties": {
+                    "fingerprint": {
+                        "type": "string"
+                    },
+                    "bankId": {
+                        "type": "string"
+                    },
+                    "bankName": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

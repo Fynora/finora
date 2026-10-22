@@ -32,6 +32,7 @@ import {
   compareOptionLabel, incompleteNote, noDataCopy, periodSpan, RANGE_OPTIONS, type TransactionsFilter,
 } from '../lib/advancedReports/advancedFormat';
 import { shareAdvancedCsv } from '../lib/advancedReports/shareAdvancedCsv';
+import { shareAdvancedPdf } from '../lib/advancedReports/shareAdvancedPdf';
 import { toUserMessage } from '../lib/apiError';
 import { monthLabelLong } from '../lib/format';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
@@ -121,7 +122,7 @@ function AdvancedReportsContent() {
   const [tab, setTab] = useState<AdvancedTab>('overview');
   const [picker, setPicker] = useState<Picker>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const customReady = range !== 'CUSTOM' || (startMonth !== '' && endMonth !== '' && startMonth <= endMonth);
@@ -172,18 +173,20 @@ function AdvancedReportsContent() {
     });
   }
 
-  async function exportCsv() {
+  /** One export at a time: both write to the share sheet, and a second tap mid-way would stack sheets. */
+  async function runExport(kind: 'csv' | 'pdf') {
     if (!report || !report.period.hasData || exporting) return;
     setExportError(null);
-    setExporting(true);
+    setExporting(kind);
     try {
-      await shareAdvancedCsv(report);
+      await (kind === 'csv' ? shareAdvancedCsv(report) : shareAdvancedPdf(report));
     } catch (e) {
-      setExportError(toUserMessage(e, 'Could not export this report as CSV.'));
+      setExportError(toUserMessage(e, `Could not export this report as ${kind.toUpperCase()}.`));
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   }
+  const exportDisabled = !report || !report.period.hasData || exporting !== null || busy;
 
   async function refresh() {
     setRefreshing(true);
@@ -217,14 +220,20 @@ function AdvancedReportsContent() {
           {compareOptions.length > 1 && compareLabel ? (
             <PickerField label="Compare with" value={compareLabel} onPress={() => setPicker('compare')} testID="compare-field" />
           ) : null}
-          <Pressable
-            onPress={() => void exportCsv()} disabled={!report || !report.period.hasData || exporting || busy}
-            style={[styles.exportButton, { borderColor: c.border }, (!report || !report.period.hasData || exporting || busy) && styles.disabled]}
-            accessibilityRole="button" accessibilityLabel="Export as CSV"
-            accessibilityState={{ disabled: !report || !report.period.hasData || exporting || busy, busy: exporting }}
-          >
-            <Text style={[typography.labelM, { color: c.primary }]}>{exporting ? 'Preparing…' : 'Export CSV'}</Text>
-          </Pressable>
+          <View style={styles.pair}>
+            {(['csv', 'pdf'] as const).map((kind) => (
+              <Pressable
+                key={kind} onPress={() => void runExport(kind)} disabled={exportDisabled}
+                style={[styles.half, styles.exportButton, { borderColor: c.border }, exportDisabled && styles.disabled]}
+                accessibilityRole="button" accessibilityLabel={kind === 'csv' ? 'Export as CSV' : 'Export as PDF'}
+                accessibilityState={{ disabled: exportDisabled, busy: exporting === kind }}
+              >
+                <Text style={[typography.labelM, { color: c.primary }]}>
+                  {exporting === kind ? 'Preparing…' : kind === 'csv' ? 'Export CSV' : 'Export PDF'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           {exportError ? <Text style={[typography.bodyS, { color: c.dangerInk }]}>{exportError}</Text> : null}
         </Card>
       ) : null}

@@ -19,10 +19,10 @@ const LABEL = 'mb-1 block text-xs font-medium uppercase text-muted';
  * months from the history. The line under the pickers names the months actually in the period.
  */
 export function PeriodControls({
-  choice, period, onChange, onExport, exportDisabled,
+  choice, period, onChange, onExport, onPrint, exportDisabled,
 }: {
   choice: PeriodChoice; period: AdvancedPeriodInfo | null; onChange: (next: PeriodChoice) => void;
-  onExport: () => void; exportDisabled: boolean;
+  onExport: () => void; onPrint: () => void; exportDisabled: boolean;
 }) {
   // While a new period loads, `period` is still the one on screen: its months and its ways to compare
   // belong to the old choice, so they are not shown beside the new one.
@@ -79,8 +79,9 @@ export function PeriodControls({
           </select>
         </div>
       )}
-      <div className="ml-auto">
+      <div className="ml-auto flex gap-2">
         <Button variant="secondary" onClick={onExport} disabled={exportDisabled} className="uppercase">Export CSV</Button>
+        <Button onClick={onPrint} disabled={exportDisabled} className="uppercase">Print / PDF</Button>
       </div>
     </div>
   );

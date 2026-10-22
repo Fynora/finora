@@ -7,6 +7,7 @@ import {
 } from '../api/endpoints';
 import { fixtureMonth, fixtureReport } from '../lib/advancedReports/testFixtures';
 import { shareAdvancedCsv } from '../lib/advancedReports/shareAdvancedCsv';
+import { shareAdvancedPdf } from '../lib/advancedReports/shareAdvancedPdf';
 import { ThemeProvider } from '../theme';
 
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
@@ -27,6 +28,8 @@ jest.mock('../api/endpoints', () => ({
 // The CSV builder is tested directly in shareAdvancedCsv.test.ts; what matters here is that the screen
 // reaches it with the report actually on display, and survives a refusal.
 jest.mock('../lib/advancedReports/shareAdvancedCsv', () => ({ shareAdvancedCsv: jest.fn() }));
+// Likewise the PDF: its page is tested in advancedPrint.test.ts and its share in shareAdvancedPdf.test.ts.
+jest.mock('../lib/advancedReports/shareAdvancedPdf', () => ({ shareAdvancedPdf: jest.fn() }));
 
 /** A substring match: RN's toHaveTextContent compares the whole text when given a string. */
 const text = (s: string) => new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -35,6 +38,7 @@ const entitlements = entitlementsApi as jest.Mocked<typeof entitlementsApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const analytics = analyticsApi as jest.Mocked<typeof analyticsApi>;
 const mockShare = shareAdvancedCsv as jest.MockedFunction<typeof shareAdvancedCsv>;
+const mockSharePdf = shareAdvancedPdf as jest.MockedFunction<typeof shareAdvancedPdf>;
 
 const PLUS: EntitlementsDto = { planCode: 'PLUS', planName: 'Plus', features: { ADVANCED_REPORTS: true } };
 const FREE: EntitlementsDto = { planCode: 'FREE', planName: 'Free', features: {} };
@@ -517,6 +521,39 @@ describe('AdvancedReportsScreen for an entitled user', () => {
       renderScreen();
       await screen.findByText('No transactions yet');
       expect(screen.getByLabelText('Export as CSV').props.accessibilityState.disabled).toBe(true);
+      expect(screen.getByLabelText('Export as PDF').props.accessibilityState.disabled).toBe(true);
+    });
+
+    it('hands the report on display to the PDF share', async () => {
+      renderScreen();
+      await loaded();
+      fireEvent.press(screen.getByLabelText('Export as PDF'));
+      await act(async () => {});
+      expect(mockSharePdf).toHaveBeenCalledTimes(1);
+      expect(mockSharePdf.mock.calls[0][0].period.startMonth).toBe('2026-04');
+      expect(mockShare).not.toHaveBeenCalled();
+    });
+
+    it('says so when the PDF cannot be made', async () => {
+      mockSharePdf.mockRejectedValueOnce(new Error('print failed'));
+      renderScreen();
+      await loaded();
+      fireEvent.press(screen.getByLabelText('Export as PDF'));
+      expect(await screen.findByText(/Could not export this report as PDF/)).toBeTruthy();
+    });
+
+    it('runs one export at a time, and shows which one is being prepared', async () => {
+      let finish: () => void = () => {};
+      mockSharePdf.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      renderScreen();
+      await loaded();
+      fireEvent.press(screen.getByLabelText('Export as PDF'));
+      await act(async () => {});
+      expect(within(screen.getByLabelText('Export as PDF')).getByText('Preparing…')).toBeTruthy();
+      expect(screen.getByLabelText('Export as CSV').props.accessibilityState.disabled).toBe(true);
+      expect(within(screen.getByLabelText('Export as CSV')).getByText('Export CSV')).toBeTruthy();
+      await act(async () => { finish(); });
+      expect(screen.getByLabelText('Export as CSV').props.accessibilityState.disabled).toBe(false);
     });
   });
 });

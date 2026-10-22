@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { BarChart3, Crown, Loader2, Lock } from 'lucide-react';
@@ -11,6 +12,8 @@ import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { downloadBlob, toCsv } from '../lib/download';
 import { trackNavigation } from '../lib/trackNavigation';
 import { advancedCsvRows, advancedExportName } from './advancedReports/advancedExport';
+import { advancedPdfName } from './advancedReports/advancedPrint';
+import { PrintSheet } from './advancedReports/PrintSheet';
 import { incompleteNote, noDataCopy, RANGE_OPTIONS } from './advancedReports/advancedFormat';
 import { CashFlowChart } from './advancedReports/CashFlowChart';
 import { CategoriesPanel } from './advancedReports/CategoriesPanel';
@@ -201,6 +204,25 @@ function AdvancedReportsContent() {
     downloadBlob(new Blob([toCsv(advancedCsvRows(report))], { type: 'text/csv' }), advancedExportName(report));
   }
 
+  // "Print / PDF": the browser's print dialog is where "Save as PDF" lives, as on Reports. The sheet is
+  // put on the page first (flushSync), then the dialog opens from the click itself -- not from an effect,
+  // which StrictMode runs twice in development. The document title is what the browser offers as the
+  // PDF's file name. Everything is put back once the dialog closes.
+  const [printing, setPrinting] = useState<AdvancedReport | null>(null);
+  function printReport() {
+    if (!report || !report.period.hasData) return;
+    const previousTitle = document.title;
+    const done = () => {
+      window.removeEventListener('afterprint', done);
+      document.title = previousTitle;
+      setPrinting(null);
+    };
+    flushSync(() => setPrinting(report));
+    document.title = advancedPdfName(report).replace(/\.pdf$/, '');
+    window.addEventListener('afterprint', done);
+    window.print();
+  }
+
   const period = report?.period ?? null;
   const copy = period && !period.hasData ? noDataCopy(period) : null;
 
@@ -215,10 +237,11 @@ function AdvancedReportsContent() {
           </div>
         )}
         <PeriodControls
-          choice={choice} period={period} onChange={onChoice} onExport={exportCsv}
+          choice={choice} period={period} onChange={onChoice} onExport={exportCsv} onPrint={printReport}
           exportDisabled={!report || !report.period.hasData || refreshing}
         />
       </FinoraCard>}
+      {printing && <PrintSheet report={printing} />}
 
       <div role="tablist" aria-label="Advanced Reports sections" className="flex gap-1 overflow-x-auto border-b border-border">
         {TABS.map((t) => (

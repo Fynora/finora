@@ -135,6 +135,8 @@ class DataExportServiceTest {
             mock(com.finora.activation.ActivationAnswerRepository.class);
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository =
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
+    private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository =
+            mock(com.finora.repository.AiInsightTextRepository.class);
     private final com.finora.people.PeopleData peopleData = mock(com.finora.people.PeopleData.class);
 
 
@@ -323,7 +325,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleData,
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, aiInsightTextRepository, peopleData,
                 statementContentService);
     }
 
@@ -384,6 +386,28 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .contains("SPREADSHEET").contains(String.valueOf(at.getEpochSecond()));
         assertThat(new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8))
                 .contains("spending_tracking.json");
+    }
+
+    /** V282: the AI month stories and "Why?" answers written for the user, and the thumbs they gave,
+     *  are the user's own data; the Free allowance counter is listed as excluded. */
+    @Test
+    void writeZip_exportsTheAiInsightTexts() throws IOException {
+        java.time.Instant at = java.time.Instant.parse("2026-10-22T10:00:00Z");
+        String text = "Food came to \u20b96,200, above \u20b95,000 in a usual month.";
+        com.finora.entity.AiInsightText story = entity(com.finora.entity.AiInsightText.class,
+                "id", UUID.randomUUID(), "userId", userId, "kind", "STORY", "subject", "MONTH", "month", "2026-10",
+                "status", "READY", "text", text, "feedback", "HELPFUL", "createdAt", at);
+        when(aiInsightTextRepository.findByUserIdOrderByCreatedAtAsc(userId)).thenReturn(List.of(story));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.aiInsights()).singleElement().isEqualTo(new com.finora.dto.DataExportDto.AiInsightTextExportDto(
+                "STORY", "MONTH", "2026-10", "READY", text, "HELPFUL", null, at));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("ai_insights.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("Food came to").contains("HELPFUL");
+        String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(manifest).contains("ai_insights.json").contains("ai_insight_usage");
     }
 
     @Test
@@ -1104,7 +1128,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.sharedPayments());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.aiInsights(), b.sharedPayments());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {
@@ -1823,6 +1847,8 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("recurringDismissalRepository.deleteByUserId", "recurring_dismissals.json"),
                 Map.entry("accountAggregatorLinkRepository.deleteByUserId", "account_aggregator_links.json"),
                 Map.entry("aiAuditLogRepository.deleteByUserId", "ai_audit_log"),
+                Map.entry("aiInsightTextRepository.deleteByUserId", "ai_insights.json"),
+                Map.entry("aiInsightUsageRepository.deleteByUserId", "ai_insight_usage"),
                 Map.entry("chatMessageRepository.deleteByUserId", "fyn_chat_messages.json"),
                 Map.entry("chatConversationRepository.deleteByUserId", "fyn_chat_conversations.json"),
                 Map.entry("counterpartyCategoryObservationRepository.deleteByUserId", "merchant_category_votes.json"),

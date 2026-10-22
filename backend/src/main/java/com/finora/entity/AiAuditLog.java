@@ -66,10 +66,22 @@ public class AiAuditLog {
     @Column
     private String error;
 
+    // V282: the plan the call was made under (the Free budget slice) and how it ended (AiInsightReason).
+    // Only AI insights fill these so far; null on every other surface.
+    @Column(name = "plan_code", length = 20)
+    private String planCode;
+
+    @Column(name = "reason_code", length = 32)
+    private String reasonCode;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
     public UUID getId() { return id; }
+    public String getPlanCode() { return planCode; }
+    public void setPlanCode(String planCode) { this.planCode = planCode; }
+    public String getReasonCode() { return reasonCode; }
+    public void setReasonCode(String reasonCode) { this.reasonCode = reasonCode; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
     public UUID getConversationId() { return conversationId; }

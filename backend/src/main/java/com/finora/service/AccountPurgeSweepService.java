@@ -258,6 +258,8 @@ public class AccountPurgeSweepService {
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
     private final AiAuditLogRepository aiAuditLogRepository;
+    private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
+    private final com.finora.repository.AiInsightUsageRepository aiInsightUsageRepository;
     private final ChatConversationRepository chatConversationRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository;
@@ -333,6 +335,8 @@ public class AccountPurgeSweepService {
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
                                      AiAuditLogRepository aiAuditLogRepository,
+                                     com.finora.repository.AiInsightTextRepository aiInsightTextRepository,
+                                     com.finora.repository.AiInsightUsageRepository aiInsightUsageRepository,
                                      ChatConversationRepository chatConversationRepository,
                                      ChatMessageRepository chatMessageRepository,
                                      CounterpartyCategoryObservationRepository counterpartyCategoryObservationRepository,
@@ -407,6 +411,8 @@ public class AccountPurgeSweepService {
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
         this.aiAuditLogRepository = aiAuditLogRepository;
+        this.aiInsightTextRepository = aiInsightTextRepository;
+        this.aiInsightUsageRepository = aiInsightUsageRepository;
         this.chatConversationRepository = chatConversationRepository;
         this.chatMessageRepository = chatMessageRepository;
         this.counterpartyCategoryObservationRepository = counterpartyCategoryObservationRepository;
@@ -832,6 +838,9 @@ public class AccountPurgeSweepService {
             recurringDismissalRepository.deleteByUserId(userId);
             accountAggregatorLinkRepository.deleteByUserId(userId);
             aiAuditLogRepository.deleteByUserId(userId);
+            // V282: AI insight texts and the Free allowance, same anonymize-not-delete trap.
+            aiInsightTextRepository.deleteByUserId(userId);
+            aiInsightUsageRepository.deleteByUserId(userId);
             // chat_messages first: it carries no user_id of its own, only conversation_id, so its
             // delete depends on chat_conversations rows still existing for the subquery.
             chatMessageRepository.deleteByUserId(userId);

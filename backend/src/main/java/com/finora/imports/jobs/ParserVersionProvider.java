@@ -12,8 +12,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>Deliberately a different source from {@code BuildVersionResolver.currentCommit()}: that one
  * prefers Spring Boot's {@code GitProperties} (typically unavailable in this Docker build, per its
- * own doc) and falls back to {@code app.build.commit}, which is not wired to
- * {@code RAILWAY_GIT_COMMIT_SHA} anywhere in this codebase -- the two can disagree.
+ * own doc), then GIT_COMMIT, then RAILWAY_GIT_COMMIT_SHA, and shortens the result to seven
+ * characters, while this one is the full sha -- the two can disagree.
  * {@code HeldStatement.parserVersion} is stamped from THIS class, via {@link ImportJobWorker}, so
  * anything comparing against it (a parser re-run) has to read the same source back.
  *

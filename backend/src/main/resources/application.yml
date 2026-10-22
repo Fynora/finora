@@ -195,7 +195,11 @@ app:
     # manual variable. GIT_COMMIT is the generic override for any other builder (a CI job can pass
     # it, or a Docker build can bake it via --build-arg). Empty everywhere else, which reports as
     # unavailable exactly as before.
-    commit: ${GIT_COMMIT:${RAILWAY_GIT_COMMIT_SHA:}}
+    # The two are read separately and the first non-blank one wins (BuildVersionResolver). As one
+    # nested placeholder they could not be: a default applies only when GIT_COMMIT is absent, and
+    # the Dockerfile always declares it, empty unless a build argument fills it.
+    commit: ${GIT_COMMIT:}
+    platform-commit: ${RAILWAY_GIT_COMMIT_SHA:}
   jwt:
     # 32+ char secret required for HS256. Override via env var in every real deployment --
     # never commit a real secret; this default is only safe because it's obviously a placeholder.

@@ -57,7 +57,7 @@ describe('showSystemNotification', () => {
     );
   });
 
-  it('on iOS, asks the system to show the banner AND keep it in the notification centre', async () => {
+  it('on iOS, asks the system to show the banner, keep it in the notification centre, AND play the sound', async () => {
     setPlatform('ios');
 
     const shown = await showSystemNotification('Welcome to Fynora', 'Welcome to Fynora.');
@@ -66,7 +66,7 @@ describe('showSystemNotification', () => {
     expect(mockNotifee.createChannel).not.toHaveBeenCalled();
     expect(mockNotifee.displayNotification).toHaveBeenCalledWith(
       expect.objectContaining({
-        ios: { foregroundPresentationOptions: { banner: true, list: true, sound: false, badge: false } },
+        ios: { sound: 'default', foregroundPresentationOptions: { banner: true, list: true, sound: true, badge: false } },
         android: undefined,
       }),
     );

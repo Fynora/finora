@@ -93,8 +93,9 @@ export async function showSystemNotification(title: string, body: string, id?: s
       body,
       android: channelId ? { channelId, pressAction: { id: 'default' } } : undefined,
       // Without these the system hides an iOS notification while the app is open. banner = the slide-in,
-      // list = keep it in the notification centre. No sound or badge: it is an announcement.
-      ios: { foregroundPresentationOptions: { banner: true, list: true, sound: false, badge: false } },
+      // list = keep it in the notification centre, sound = play the default tone (both the
+      // notification's own sound and the foreground option are needed). No badge: nothing counts unread.
+      ios: { sound: 'default', foregroundPresentationOptions: { banner: true, list: true, sound: true, badge: false } },
     });
     return true;
   } catch (error) {

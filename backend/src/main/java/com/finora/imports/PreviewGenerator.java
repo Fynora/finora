@@ -92,7 +92,7 @@ public class PreviewGenerator {
                 if (csvParser.isBlankRow(cells)) continue;
                 Map<String, String> raw = new LinkedHashMap<>();
                 for (int c = 0; c < cells.length; c++) raw.put("column " + (c + 1), cells[c]);
-                unparseable.add(new UnparseableRow(raw, "No column header row was recognized anywhere in this file"));
+                unparseable.add(new UnparseableRow(raw, UnparseableReasons.NO_HEADER_ROW));
                 ctx.recordUnanchored(REASON_NO_HEADER_ROW);
             }
             DetectedAccountInfo empty = statementValidator.buildDetectedAccountInfo(filename, allRows, -1, staged, signals);
@@ -160,10 +160,7 @@ public class PreviewGenerator {
                     // BALANCE_MARKER; route it to the existing unparseable diagnostic instead.
                     // `parsed` is still passed to scanRow below regardless, so balance derivation
                     // is unaffected.
-                    unparseable.add(new UnparseableRow(row,
-                            "Row has a value in an unrecognized column and no recognized transactional "
-                                    + "amount column, so it could not be confidently classified as a transaction "
-                                    + "or excluded as a balance marker"));
+                    unparseable.add(new UnparseableRow(row, UnparseableReasons.UNRECOGNIZED_COLUMN_VALUE));
                     ctx.recordUnanchored(REASON_UNRECOGNIZED_COLUMN_VALUE);
                 } else if (transactionNormalizer.hasUnparseableRecognizedAmount(row)) {
                     // Third fix pass -- see TransactionNormalizer.hasUnparseableRecognizedAmount's
@@ -175,10 +172,7 @@ public class PreviewGenerator {
                     // empty, not because it genuinely lacks transactional data. Excluding it
                     // unconditionally would silently vanish it with zero trace. Route it to the
                     // unparseable diagnostic instead, same as the unrecognized-column case above.
-                    unparseable.add(new UnparseableRow(row,
-                            "Row has a value in a recognized transactional amount column that could not be "
-                                    + "parsed as a number, so it could not be confidently classified as a "
-                                    + "transaction or excluded as a balance marker"));
+                    unparseable.add(new UnparseableRow(row, UnparseableReasons.UNPARSEABLE_RECOGNIZED_AMOUNT));
                     ctx.recordUnanchored(transactionNormalizer.unparseableRecognizedAmountReasonKey(row));
                 }
             } else {

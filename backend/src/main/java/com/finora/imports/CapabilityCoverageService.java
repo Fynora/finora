@@ -573,7 +573,12 @@ public class CapabilityCoverageService {
             }
             UnparseableRowSummary summary = unparseableOf(si);
             if (summary != null) {
-                summary.reasons().forEach((reason, n) -> reasons.merge(reason, n, Integer::sum));
+                // Through summaryKey again on the way out, not only on the way in: a summary stored
+                // before keys were masked, or written by an older instance mid-deploy, still quotes
+                // statement cells, and this report is read by admins. A key that is already masked
+                // comes back unchanged.
+                summary.reasons().forEach((reason, n) ->
+                        reasons.merge(UnparseableReasons.summaryKey(reason), n, Integer::sum));
                 summary.columnSignatures().forEach((sig, n) -> shapes.merge(sig, n, Integer::sum));
                 rowsLost += summary.total();
             }

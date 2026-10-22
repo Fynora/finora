@@ -18,6 +18,7 @@ import com.finora.imports.DocumentContext;
 import com.finora.imports.ExplicitZeroActivityDetector;
 import com.finora.imports.RowKind;
 import com.finora.imports.TransactionNormalizer;
+import com.finora.imports.UnparseableReasons;
 import com.finora.imports.product.FinancialProductType;
 import com.finora.imports.product.ProductAttributeExtractor;
 import com.finora.imports.product.ProductAttributes;
@@ -723,10 +724,7 @@ public class PdfPreviewGenerator {
                 // visible for the user to notice. Surface it via the existing unparseable
                 // diagnostic instead; it is still used for balance-point derivation below exactly
                 // like any other row.
-                unparseable.add(new UnparseableRow(row,
-                        "Row has a value in an unrecognized column and no recognized transactional "
-                                + "amount column, so it could not be confidently classified as a transaction "
-                                + "or excluded as a balance marker"));
+                unparseable.add(new UnparseableRow(row, UnparseableReasons.UNRECOGNIZED_COLUMN_VALUE));
             } else if (transactionNormalizer.hasUnparseableRecognizedAmount(row)) {
                 // Third fix pass -- see TransactionNormalizer.hasUnparseableRecognizedAmount's own
                 // doc comment and PreviewGenerator's identical guard. This row's column NAMES are
@@ -737,10 +735,7 @@ public class PdfPreviewGenerator {
                 // not because it genuinely lacks transactional data. Excluding it unconditionally
                 // would silently vanish it with zero trace. Route it to the unparseable diagnostic
                 // instead, same as the unrecognized-column case above.
-                unparseable.add(new UnparseableRow(row,
-                        "Row has a value in a recognized transactional amount column that could not be "
-                                + "parsed as a number, so it could not be confidently classified as a "
-                                + "transaction or excluded as a balance marker"));
+                unparseable.add(new UnparseableRow(row, UnparseableReasons.UNPARSEABLE_RECOGNIZED_AMOUNT));
             } else if (printedBalance != null && balanceBeforeThisRow != null && nextPrintedBalance[i] != null
                     && printedBalance.compareTo(balanceBeforeThisRow) != 0
                     && printedBalance.compareTo(nextPrintedBalance[i]) != 0) {
@@ -755,9 +750,7 @@ public class PdfPreviewGenerator {
                 // accounted for while the statement fell short by exactly that amount. A row at
                 // either edge (no printed balance on one side) and a marker that repeats a
                 // neighbour's balance are unaffected.
-                unparseable.add(new UnparseableRow(row,
-                        "The running balance changed on this row, but no amount was read for it, so it "
-                                + "could not be staged as a transaction"));
+                unparseable.add(new UnparseableRow(row, UnparseableReasons.BALANCE_MOVED_WITHOUT_AN_AMOUNT));
                 if (ctx != null) ctx.recordDiagnostic(BALANCE_MOVED_WITHOUT_AN_AMOUNT);
             }
 
@@ -1238,8 +1231,7 @@ public class PdfPreviewGenerator {
         List<UnparseableRow> unparseable = new ArrayList<>();
         for (String line : extractedLines) {
             if (line == null || line.isBlank()) continue;
-            unparseable.add(new UnparseableRow(Map.of("text", line),
-                    "No transaction table was recognized anywhere in this document"));
+            unparseable.add(new UnparseableRow(Map.of("text", line), UnparseableReasons.NO_TRANSACTION_TABLE));
         }
         // The five-argument constructor defaults verification to null, and this path used it --
         // silently discarding the report buildLedgerSection had just computed. That threw the

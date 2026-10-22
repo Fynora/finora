@@ -240,8 +240,8 @@ public final class CategoryRules {
         RULES.put("Subscriptions", List.of("google one", "icloud", "adobe", "microsoft 365", "linkedin premium", "apple services",
                 "appleservices", "googleworkspace", "amazonaws", "cloudflare", "anthropic", "linkedin", "google workspace",
                 // An app store, like "appleservices" above (2026-10-05, 14 rows): its mandate ("Google
-                // Play"), its own UPI id ("playstore1..." -- fusion-tolerant, the id runs into a digit)
-                // and a card line ("GOOGLE*PLAYSUPPORT").
+                // Play"), its own UPI id (the brand word with a digit run straight into it, hence
+                // fusion-tolerant) and a card line ("GOOGLE*PLAYSUPPORT").
                 "google play", "playstore", "google playsupport"));
         RULES.put("Education", List.of("udemy", "coursera", "byjus", "tuition fee", "school fee", "college fee"));
         RULES.put("Gifts & Donations", List.of("donation", "charity", "ngo donation", "gift"));

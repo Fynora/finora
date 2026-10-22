@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Mechanical CSV parsing: reads the raw file, locates the real header row, and zips each data
@@ -231,11 +232,23 @@ public class CsvParser {
      *  non-blank, regardless of which one is positionally last; if both are genuinely non-blank
      *  (truly ambiguous data, not this class's real-world case), the later one still wins, same as
      *  before. Blank/spacer headers (both reducing to the same "" key) are unaffected -- nothing
-     *  looks a column up by that key, so their collision was never a data-loss risk. */
+     *  looks a column up by that key, so their collision was never a data-loss risk.
+     *
+     *  <p>One collision is not a choice between equals: a direction-marker header ("Dr / Cr")
+     *  that appears twice, once after the amount and once after the balance. Kotak Mahindra
+     *  Bank's savings CSV export prints exactly that, and both cells are filled on every row: the
+     *  first says which way the money moved, the second whether the balance is in credit. The
+     *  later one won, so every row read the balance's marker -- in credit on an ordinary savings
+     *  account -- and every debit staged as INCOME. Found on a real upload held for its balance
+     *  chain; KotakSavingsCsvPreviewGeneratorTest pins that layout's header set. The occurrence
+     *  that directly follows a balance column is now filed under {@link #BALANCE_DIRECTION_KEY},
+     *  so the amount's marker is the only one left under the header's own name. Only when the
+     *  header repeats: a single marker column after a balance keeps its old meaning. */
     public Map<String, String> zipRow(String[] headerRow, String[] cells) {
         Map<String, String> row = new LinkedHashMap<>();
         for (int c = 0; c < headerRow.length; c++) {
             String key = headerRow[c] == null ? "" : headerRow[c].trim();
+            if (isRepeatedBalanceDirectionColumn(headerRow, c)) key = BALANCE_DIRECTION_KEY;
             String value = c < cells.length ? cells[c] : null;
             String existing = row.get(key);
             if (row.containsKey(key) && (value == null || value.isBlank())
@@ -245,6 +258,28 @@ public class CsvParser {
             row.put(key, value);
         }
         return row;
+    }
+
+    /** The key {@link #zipRow} files a balance's own Dr/Cr column under when the file uses the same
+     *  header for the amount's marker too. TransactionNormalizer reads it as the balance's sign. */
+    public static final String BALANCE_DIRECTION_KEY = "Balance Dr / Cr";
+
+    private static final Set<String> DIRECTION_MARKER_HEADERS = Set.of("dr / cr", "dr/cr", "cr / dr", "cr/dr");
+    private static final Set<String> BALANCE_HEADERS = Set.of("balance", "running balance", "closing balance");
+
+    /** True when column {@code c} is a direction-marker header that appears more than once in the
+     *  header row and sits directly after a balance column. */
+    static boolean isRepeatedBalanceDirectionColumn(String[] headerRow, int c) {
+        if (c == 0 || headerRow[c] == null || headerRow[c - 1] == null) return false;
+        String name = normalizeHeaderCell(headerRow[c]);
+        if (!DIRECTION_MARKER_HEADERS.contains(name)) return false;
+        if (!BALANCE_HEADERS.contains(normalizeHeaderCell(headerRow[c - 1]))) return false;
+        for (int other = 0; other < headerRow.length; other++) {
+            if (other != c && headerRow[other] != null && name.equals(normalizeHeaderCell(headerRow[other]))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean isBlankRow(String[] cells) {

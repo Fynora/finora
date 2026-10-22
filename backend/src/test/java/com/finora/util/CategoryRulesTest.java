@@ -662,7 +662,7 @@ class CategoryRulesTest {
     void suggestCategory_brandsFromTheResidualOtherRows() {
         assertThat(CategoryRules.suggestCategory("UPI-TIM HORTONS-sample.00000001@hdfcbank-XXXX0MERUPI-100000000001-PAYMENT FROM PHONE")) // synthetic-ok
                 .isEqualTo("Dining");
-        assertThat(CategoryRules.suggestCategory("UPI/100000000001/BARBEQUENATION/sample.rzp@rxaxis/")).isEqualTo("Dining");
+        assertThat(CategoryRules.suggestCategory("UPI/100000000001/BARBEQUENATION/sample.rzp@rxsample/")).isEqualTo("Dining");
         assertThat(CategoryRules.suggestCategory("UPI/100000000001/ BLUE TOKAI COFFEE ROASTERS SAMPLE/sample@paytm/")).isEqualTo("Dining");
         assertThat(CategoryRules.suggestCategory("UPI-THE HUB HO KEVENTER")).isEqualTo("Dining");
         assertThat(CategoryRules.suggestCategory("UPI-LITE BITE FOODS PRIV-sample@rapl-100000000001-PAYMENT FROM PHONE")).isEqualTo("Dining");
@@ -670,7 +670,7 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("UPI/DR/100000000001/Domino s/YESB/paytm-000000001/")).isEqualTo("Dining");
         assertThat(CategoryRules.suggestCategory("UPI-BBNOW-bbnow.sample@hdfcbank-XXXX0MERUPI-100000000001-PAYMENT FROM PHONE")) // synthetic-ok
                 .isEqualTo("Groceries");
-        assertThat(CategoryRules.suggestCategory("UPI/MEESHO/meesho1online.gpay@okpayaxis/")).isEqualTo("Shopping");
+        assertThat(CategoryRules.suggestCategory("UPI/MEESHO/meesho0sample.gpay@okpaysample/")).isEqualTo("Shopping");
         assertThat(CategoryRules.suggestCategory("UPI-TATA CLIQ-paytm-00000001@ptybl-100000000001-TATA CLIQ ORDER")).isEqualTo("Shopping");
         assertThat(CategoryRules.suggestCategory("UPI-MR DIY-mrdiy.00000001@hdfcbank-XXXX0MERUPI-100000000001-UPI")) // synthetic-ok
                 .isEqualTo("Shopping");
@@ -687,7 +687,7 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("ANTHROPICANTHROPIC.")).isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("UPI-LINKEDIN-linkedin.sample@icici-100000000001-MANDATEREQUEST")).isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("UPI GOOGLE WORKSPACE 100000000001")).isEqualTo("Subscriptions");
-        assertThat(CategoryRules.suggestCategory("UPI-DOT AND KEY SKINCARE-sample.rzp@hdfcbank-100000000001-PAYVIARAZORPAY"))
+        assertThat(CategoryRules.suggestCategory("UPI-DOT AND KEY SKINCARE-sample.rzp@samplebank-100000000001-PAYVIARAZORPAY"))
                 .isEqualTo("Personal Care");
         assertThat(CategoryRules.suggestCategory("UPI-WAKEFIT-cf.wakefit00@cashfreensdlpb-100000000001-PAY FOR MERCHANT"))
                 .isEqualTo("Home & Furnishing");
@@ -699,18 +699,18 @@ class CategoryRulesTest {
         // App-store spend, in each shape printed: a mandate, the store's own UPI id (with its ₹2
         // autopay check and refund), and a card line. Apple's store is already Subscriptions.
         assertThat(CategoryRules.suggestCategory("UPI/RRN 100000000001/MandateExe cute  Google Play 1")).isEqualTo("Subscriptions");
-        assertThat(CategoryRules.suggestCategory("UPI/100000000001/11:22:57/UPI/playstore1.bd@axisb")).isEqualTo("Subscriptions");
+        assertThat(CategoryRules.suggestCategory("UPI/100000000001/11:22:57/UPI/playstore0.sample@sampleb")).isEqualTo("Subscriptions");
         assertThat(CategoryRules.suggestCategory("GOOGLE*PLAYSUPPORT.GO")).isEqualTo("Subscriptions");
         // A recharge collected through the payments app's recharge id.
-        assertThat(CategoryRules.suggestCategory("UPI/100000000001/ SAMPLE SERVICES INDIA PVT LTD/GPAYRECHARGE2@OKPAY 000/UPI/"))
+        assertThat(CategoryRules.suggestCategory("UPI/100000000001/ SAMPLE SERVICES INDIA PVT LTD/GPAYRECHARGE0@OKSAMPLE 000/UPI/"))
                 .isEqualTo("Utilities");
         assertThat(CategoryRules.suggestCategory("INDFITPASS httpsfitpa IN")).isEqualTo("Health");
         assertThat(CategoryRules.suggestCategory("UPI/URBAN COMPANY LIMITED/urbancompany000000.rz")).isEqualTo("Personal Care");
         assertThat(CategoryRules.suggestCategory("UPI/TONIQUE/paytm.d00000000001@pty/")).isEqualTo("Shopping");
-        assertThat(CategoryRules.suggestCategory("UPI-ADANI DIGITAL LABS P-sample.payu@axisbank-100000000001-PAYMENT FROM PHONE"))
+        assertThat(CategoryRules.suggestCategory("UPI-ADANI DIGITAL LABS P-sample.payu@samplebank-100000000001-PAYMENT FROM PHONE"))
                 .isEqualTo("Travel");
         // An ordinary word stays out: "district" also names courts and councils.
-        assertThat(CategoryRules.suggestCategory("UPI/DR/100000000001/DISTRICT /HDFC/sample.payu@hdfcbank/")).isEqualTo("Other");
+        assertThat(CategoryRules.suggestCategory("UPI/DR/100000000001/DISTRICT /HDFC/sample.payu@samplebank/")).isEqualTo("Other");
     }
 
     /** Each brand word stays a whole word: a person or shop whose name merely contains one is untouched. */

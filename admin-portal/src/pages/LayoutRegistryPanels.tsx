@@ -472,6 +472,11 @@ export function ProfilesPanel() {
                       className="bg-card text-ink border border-border rounded px-1 py-1 text-xs"
                     >
                       {!profile.bankId && <option value="">Choose a bank…</option>}
+                      {/* A bank the list no longer has (an admin-added bank since removed) is still
+                          this profile's bank; shown as such rather than silently as the first bank. */}
+                      {profile.bankId && !banks.some((b) => b.id === profile.bankId) && (
+                        <option value={profile.bankId}>{profile.bankName ?? profile.bankId}</option>
+                      )}
                       {banks.map((b) => <option key={b.id} value={b.id}>{b.officialName}</option>)}
                     </select>
                   )}

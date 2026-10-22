@@ -372,6 +372,21 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     await waitFor(() => expect(adminLayoutRegistryApi.updateProfile).toHaveBeenCalledWith('p-1', { bankId: 'ICICI' }));
   });
 
+  it('keeps showing a profile\'s bank that is no longer in the bank list', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE']);
+    vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue(
+      [{ id: 'p-1', name: 'Custom Profile', automatic: false, bankId: 'CUSTOM_GONE', bankName: 'Gone Bank', versions: [] }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /Profiles/ }));
+
+    const bank = await screen.findByLabelText('Bank for Custom Profile') as HTMLSelectElement;
+    await within(bank).findByRole('option', { name: 'HDFC Bank' });
+    expect(bank.value).toBe('CUSTOM_GONE');
+    expect(within(bank).getByRole('option', { name: 'Gone Bank' })).toBeInTheDocument();
+  });
+
   it('shows a profile\'s bank by name', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW']);
     vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue(

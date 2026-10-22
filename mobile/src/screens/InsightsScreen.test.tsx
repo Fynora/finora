@@ -268,19 +268,19 @@ describe('money with people', () => {
     bills: [{ billId: 'b-1', category: 'Rent', payeeLabel: 'Sample Owner', date: '2026-09-01', amount: 36000, remaining: 36000 }],
   };
 
-  it('asks about a share in To look at, and "Yes, pick the bill" opens the picker with the server\'s bills', async () => {
+  it('asks about a share in To look at, and "Yes, link it to a bill" opens the picker with the server\'s bills', async () => {
     people.suggestions.mockResolvedValue({ items: [shareCheck], expected: [] });
     renderScreen();
     expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeTruthy();
-    fireEvent.press(screen.getByRole('button', { name: 'Yes, pick the bill' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Yes, link it to a bill' }));
     expect(await screen.findByText('Share of which bill?')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rent, 1 Sep, Sample Owner, ₹36,000' })).toBeTruthy();
   });
 
-  it('"Got it" on a people row hides it and saves it under its own kind', async () => {
+  it('"Leave as it is" on a share question hides it and saves it under its own kind', async () => {
     people.suggestions.mockResolvedValue({ items: [shareCheck], expected: [] });
     renderScreen();
-    fireEvent.press(await screen.findByRole('button', { name: 'Got it: Flatmate A' }));
+    fireEvent.press(await screen.findByRole('button', { name: 'Leave as it is: Flatmate A' }));
     await waitFor(() => expect(screen.queryByText(/from Flatmate A on 4 Sep/)).not.toBeOnTheScreen());
     expect(insights.acknowledge).toHaveBeenCalledWith('SHARE_CHECK', 'c-1');
   });

@@ -171,7 +171,11 @@ or who received a payment from the user in the 180 days before it that was never
 the second form records that earlier payment as Lent and this credit as paid back, in one step.
 
 **D. "They owed you" / "Borrowed?"** for a person credit with no bill and no balance, when the user
-answers A with "Not a share".
+answers A with "No, it's not a share".
+
+A's three answers read "Yes, link it to a bill", "No, it's not a share" and "Leave as it is"
+(reworded 2026-10-23 from "Yes, pick the bill", "Not a share" and "Got it", which did not say what
+each one does; "Leave as it is" is A's dismissal, the "Got it" below).
 
 **E. "Settle it"** for a balance owed to the user that has been open for 60 days with nothing back:
 *Ask them* (a UPI request link built from the user's own UPI id, which Fynora does not store today:

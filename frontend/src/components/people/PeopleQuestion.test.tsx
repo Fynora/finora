@@ -52,9 +52,9 @@ describe('PeopleQuestion: a share of a bill', () => {
     const { onPickBill, onAck } = show(item);
     expect(screen.getByText('₹9,000 from Flatmate A on 4 Oct. You filed it under Rent.')).toBeInTheDocument();
     expect(screen.getByText('Is it their share of a bill you paid?')).toBeInTheDocument();
-    await press('Yes, pick the bill');
+    await press('Yes, link it to a bill');
     expect(onPickBill).toHaveBeenCalledWith(item);
-    await press('Got it: Flatmate A');
+    await press('Leave as it is: Flatmate A');
     expect(onAck).toHaveBeenCalledTimes(1);
     expect(addEntry).not.toHaveBeenCalled();
   });
@@ -64,9 +64,9 @@ describe('PeopleQuestion: a share of a bill', () => {
     expect(screen.getByText('₹9,000 from Flatmate A on 4 Oct.')).toBeInTheDocument();
   });
 
-  it('"Not a share" asks what it was instead; "They owed you" records the whole credit as paid back', async () => {
+  it('"No, it\'s not a share" asks what it was instead; "They owed you" records the whole credit as paid back', async () => {
     const { onAnswered } = show(suggestion());
-    await press('Not a share');
+    await press("No, it's not a share");
     expect(screen.getByText('What was it, then?')).toBeInTheDocument();
     await press('They owed you');
     await waitFor(() => expect(addEntry).toHaveBeenCalledWith('t-1', 'PAID_BACK', undefined));
@@ -74,9 +74,9 @@ describe('PeopleQuestion: a share of a bill', () => {
     expect(onAnswered).toHaveBeenCalledTimes(1);
   });
 
-  it('"Borrowed" after "Not a share" records the credit as borrowed', async () => {
+  it('"Borrowed" after "No, it\'s not a share" records the credit as borrowed', async () => {
     show(suggestion());
-    await press('Not a share');
+    await press("No, it's not a share");
     await press('Borrowed');
     await waitFor(() => expect(addEntry).toHaveBeenCalledWith('t-1', 'BORROWED', undefined));
   });
@@ -203,7 +203,7 @@ describe('PeopleQuestion: a failed answer', () => {
   it('says why, in the server\'s words, when the server refuses the answer', async () => {
     addEntry.mockRejectedValueOnce(refused("Fynora can't tell this sender apart from others, so it can't keep this for them."));
     show(suggestion());
-    await press('Not a share');
+    await press("No, it's not a share");
     await press('They owed you');
     expect(await screen.findByText("Fynora can't tell this sender apart from others, so it can't keep this for them.")).toBeInTheDocument();
   });

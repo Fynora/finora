@@ -46,7 +46,7 @@ export function PeopleQuestion({ item, today, paidBackKindId, onAck, onPickBill,
   // The guard itself: state only disables the buttons on the next render, too late for a double click.
   const saving = useRef(false);
   const [failed, setFailed] = useState<string | null>(null);
-  // "Not a share": what the credit was, asked in place (spec §6 D).
+  // "No, it's not a share": what the credit was, asked in place (spec §6 D).
   const [notAShare, setNotAShare] = useState(false);
 
   const amount = rupees(item.amount);
@@ -91,9 +91,9 @@ export function PeopleQuestion({ item, today, paidBackKindId, onAck, onPickBill,
       } else {
         question = 'Is it their share of a bill you paid?';
         choices = [
-          { text: 'Yes, pick the bill', primary: true, onClick: () => onPickBill(item) },
-          { text: 'Not a share', onClick: () => setNotAShare(true) },
-          gotIt(),
+          { text: 'Yes, link it to a bill', primary: true, onClick: () => onPickBill(item) },
+          { text: "No, it's not a share", onClick: () => setNotAShare(true) },
+          gotIt('Leave as it is'),
         ];
       }
       break;

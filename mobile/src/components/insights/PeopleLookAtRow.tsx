@@ -63,7 +63,7 @@ export function PeopleLookAtRow({
   // The guard itself: state only disables the chips on the next render, too late for two taps in one frame.
   const saving = useRef(false);
   const [failed, setFailed] = useState<string | null>(null);
-  // "Not a share": what the credit was, asked in place (spec §6 D).
+  // "No, it's not a share": what the credit was, asked in place (spec §6 D).
   const [notAShare, setNotAShare] = useState(false);
 
   const amount = fmtCurrency(item.amount);
@@ -111,9 +111,9 @@ export function PeopleLookAtRow({
       } else {
         question = 'Is it their share of a bill you paid?';
         chips = [
-          { text: 'Yes, pick the bill', primary: true, onPress: () => onPickBill(item) },
-          { text: 'Not a share', onPress: () => setNotAShare(true) },
-          gotIt(),
+          { text: 'Yes, link it to a bill', primary: true, onPress: () => onPickBill(item) },
+          { text: "No, it's not a share", onPress: () => setNotAShare(true) },
+          gotIt('Leave as it is'),
         ];
       }
       break;

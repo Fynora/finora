@@ -62,25 +62,25 @@ describe('PeopleQuestionsCard', () => {
     show(<PeopleQuestionsCard onChanged={vi.fn()} />);
     expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Money with people' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Yes, pick the bill' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Yes, link it to a bill' }));
     expect(await screen.findByRole('heading', { name: 'Share of which bill?' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Rent, 1 Sep, Sample Owner, ₹36,000' })).toBeChecked();
   });
 
-  it('hides a question marked "Got it" at once and saves it under its own kind', async () => {
+  it('hides a question marked "Leave as it is" at once and saves it under its own kind', async () => {
     vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck, lentCheck], expected: [] });
     show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Got it: Flatmate A' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Leave as it is: Flatmate A' }));
     await waitFor(() => expect(screen.queryByText(/from Flatmate A on 4 Sep/)).toBeNull());
     expect(insightsApi.acknowledge).toHaveBeenCalledWith('SHARE_CHECK', 'c-1');
     expect(screen.getByText('₹2,000 to Friend K on 3 Aug. Nothing back yet.')).toBeInTheDocument();
   });
 
-  it('brings the question back when the server refuses "Got it"', async () => {
+  it('brings the question back when the server refuses "Leave as it is"', async () => {
     vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck], expected: [] });
     vi.mocked(insightsApi.acknowledge).mockRejectedValue(new Error('offline'));
     show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Got it: Flatmate A' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Leave as it is: Flatmate A' }));
     expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeInTheDocument();
   });
 

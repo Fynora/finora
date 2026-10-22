@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -217,6 +218,10 @@ public class TransactionNormalizer {
     // comment). This is a second, independent read of the same column for a different purpose --
     // an ordinary transaction row's running balance AFTER that transaction, not its amount.
     private static final String[] BALANCE_HINTS = {"balance", "running balance", "closing balance"};
+    // A balance's own Dr/Cr column, once CsvParser.zipRow has filed it apart from the amount's
+    // marker (see CsvParser.BALANCE_DIRECTION_KEY). Read only as the balance's sign.
+    private static final String[] BALANCE_DIRECTION_HINTS =
+            {CsvParser.normalizeHeaderCell(CsvParser.BALANCE_DIRECTION_KEY)};
 
     @Autowired
     public TransactionNormalizer(CategorizationService categorizationService, DuplicateDetector duplicateDetector,
@@ -250,7 +255,7 @@ public class TransactionNormalizer {
     public static Set<String> recognizedColumnNames() {
         Set<String> names = new LinkedHashSet<>();
         for (String[] hints : new String[][]{DATE_HINTS, AMOUNT_HINTS, CREDIT_HINTS, TYPE_HINTS,
-                DESCRIPTION_HINTS, CATEGORY_HINTS, REFERENCE_HINTS, BALANCE_HINTS}) {
+                DESCRIPTION_HINTS, CATEGORY_HINTS, REFERENCE_HINTS, BALANCE_HINTS, BALANCE_DIRECTION_HINTS}) {
             for (String hint : hints) names.add(hint);
         }
         return names;
@@ -821,6 +826,13 @@ public class TransactionNormalizer {
         String referenceNumber = referenceNumberOf(row, description);
         String balanceRaw = firstParseableAmount(row, BALANCE_HINTS);
         BigDecimal balanceAfter = CsvParser.parseNumeric(balanceRaw);
+        // A balance in debit (an overdrawn account) is negative, the same reading parseNumeric
+        // gives a "Dr" suffixed onto the balance cell itself.
+        String balanceDirection = CsvParser.firstNonBlank(row, BALANCE_DIRECTION_HINTS);
+        if (balanceAfter != null && balanceDirection != null
+                && "dr".equals(balanceDirection.trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", ""))) {
+            balanceAfter = balanceAfter.abs().negate();
+        }
         // Runs after the balance parse so the index path can match on direction and running
         // balance when the narration differs (F-31); the repository path stays description-only.
         var duplicateMatch = (duplicateIndex != null

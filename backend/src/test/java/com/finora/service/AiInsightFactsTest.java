@@ -83,7 +83,7 @@ class AiInsightFactsTest {
 
         FactSheet sheet = new FactSheet("2026-10", List.of(rent),
                 List.of(AiInsightFacts.fact(rent.id(), "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("12000"), null)),
-                List.of(new Row("row_1", "CATEGORY_HIGH|Friend K rent|2026-10", "running-high", rent.id())));
+                List.of(new Row("row_1", "CATEGORY_HIGH|Friend K rent|2026-10", "running-high", rent.id())), List.of());
         String json = sheet.modelJson();
         assertThat(json).doesNotContain("Friend K").doesNotContain("rent|").contains("[category-2]").contains("row_1");
     }
@@ -109,8 +109,8 @@ class AiInsightFactsTest {
         Subject food = AiInsightFacts.categorySubject(FOOD, Map.of());
         Fact a = AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null);
         Fact b = AiInsightFacts.fact("food", "usual", Period.USUAL, Unit.RUPEES, new BigDecimal("5000"), null);
-        FactSheet one = new FactSheet("2026-10", List.of(food), List.of(a, b), List.of());
-        FactSheet two = new FactSheet("2026-10", List.of(food), List.of(b, a), List.of());
+        FactSheet one = new FactSheet("2026-10", List.of(food), List.of(a, b), List.of(), List.of());
+        FactSheet two = new FactSheet("2026-10", List.of(food), List.of(b, a), List.of(), List.of());
         assertThat(one.hash()).hasSize(64).isEqualTo(two.hash());
     }
 
@@ -118,9 +118,9 @@ class AiInsightFactsTest {
     void hashChangesWhenAValueChanges() {
         Subject food = AiInsightFacts.categorySubject(FOOD, Map.of());
         FactSheet before = new FactSheet("2026-10", List.of(food),
-                List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null)), List.of());
+                List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null)), List.of(), List.of());
         FactSheet after = new FactSheet("2026-10", List.of(food),
-                List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6201"), null)), List.of());
+                List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6201"), null)), List.of(), List.of());
         assertThat(before.hash()).isNotEqualTo(after.hash());
     }
 
@@ -129,8 +129,8 @@ class AiInsightFactsTest {
         Subject food = AiInsightFacts.categorySubject(FOOD, Map.of());
         List<Fact> facts = List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null));
         FactSheet withRow = new FactSheet("2026-10", List.of(food), facts,
-                List.of(new Row("row_1", "CATEGORY_HIGH|Food|2026-10", "running-high", "food")));
-        FactSheet without = new FactSheet("2026-10", List.of(food), facts, List.of());
+                List.of(new Row("row_1", "CATEGORY_HIGH|Food|2026-10", "running-high", "food")), List.of());
+        FactSheet without = new FactSheet("2026-10", List.of(food), facts, List.of(), List.of());
         assertThat(withRow.hash()).isEqualTo(without.hash());
     }
 
@@ -139,7 +139,7 @@ class AiInsightFactsTest {
         Subject food = AiInsightFacts.categorySubject(FOOD, Map.of());
         FactSheet sheet = new FactSheet("2026-10", List.of(food),
                 List.of(AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null)),
-                List.of());
+                List.of(), List.of("2026-07", "2026-08", "2026-09"));
         Map<String, Object> stored = sheet.toMap();
         assertThat(stored).containsKeys("month", "subjects", "facts");
         assertThat(FactSheet.fromMap(stored)).isEqualTo(sheet);

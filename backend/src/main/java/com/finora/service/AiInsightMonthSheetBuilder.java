@@ -134,7 +134,9 @@ public class AiInsightMonthSheetBuilder {
             rows.add(new Row("row_" + (rows.size() + 1), r.key(), r.kind(), subjectId));
         }
 
-        return Optional.of(new FactSheet(sheetMonth, subjects.used(), facts, rows));
+        List<String> usualMonths = built.pipeline() == null ? List.of()
+                : insightsService.moverBasis(built.pipeline()).priorMonths();
+        return Optional.of(new FactSheet(sheetMonth, subjects.used(), facts, rows, usualMonths));
     }
 
     /**

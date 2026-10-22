@@ -59,12 +59,16 @@ public final class AiInsightFacts {
     private static final ObjectMapper CANONICAL = new ObjectMapper()
             .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
 
-    public record FactSheet(String month, List<Subject> subjects, List<Fact> facts, List<Row> rows) {
+    /** {@code usualMonths}: the months the usual figures are averaged over ({@code yyyy-MM}, oldest
+     *  first), for the "Compared with your usual month (Jul–Sep)" line. Empty when nothing is compared. */
+    public record FactSheet(String month, List<Subject> subjects, List<Fact> facts, List<Row> rows,
+                            List<String> usualMonths) {
 
         public FactSheet {
             subjects = List.copyOf(subjects);
             facts = List.copyOf(facts);
             rows = List.copyOf(rows);
+            usualMonths = List.copyOf(usualMonths);
         }
 
         public Fact fact(String id) {
@@ -137,6 +141,7 @@ public final class AiInsightFacts {
                     "unit", f.unit().name(), "value", f.value().toPlainString(), "display", f.display())).toList());
             m.put("rows", rows.stream().map(r -> Map.of(
                     "id", r.id(), "key", r.key(), "kind", r.kind(), "subjectId", r.subjectId())).toList());
+            m.put("usualMonths", usualMonths);
             return m;
         }
 
@@ -154,7 +159,8 @@ public final class AiInsightFacts {
                     .map(r -> new Row((String) r.get("id"), (String) r.get("key"), (String) r.get("kind"),
                             (String) r.get("subjectId")))
                     .toList();
-            return new FactSheet((String) m.get("month"), subjects, facts, rows);
+            List<String> usualMonths = (List<String>) m.getOrDefault("usualMonths", List.of());
+            return new FactSheet((String) m.get("month"), subjects, facts, rows, usualMonths);
         }
     }
 

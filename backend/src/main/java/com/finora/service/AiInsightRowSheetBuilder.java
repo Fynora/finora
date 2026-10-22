@@ -125,7 +125,7 @@ public class AiInsightRowSheetBuilder {
                     sum(fromNewPayees, basis), null));
         }
 
-        return Optional.of(new FactSheet(current, subjects.used(), facts, List.of()));
+        return Optional.of(new FactSheet(current, subjects.used(), facts, List.of(), usualMonths));
     }
 
     private static BigDecimal sum(List<Transaction> txns, InsightsService.MoverBasis basis) {

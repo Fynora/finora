@@ -462,8 +462,8 @@ describe('AdvancedReports', () => {
         expect(seen[0].parent).toBe(document.body);
         // Sections from tabs that are not open are on the page too.
         expect(seen[0].text).toContain('Apr 2026 – Sep 2026');
-        expect(seen[0].text).toContain('Merchants');
-        expect(seen[0].text).toContain('Income sources');
+        expect(seen[0].text).toContain('Who you paid most');
+        expect(seen[0].text).toContain('Where income came from');
         // The browser offers the document title as the PDF's file name.
         expect(seen[0].title).toBe('fynora-advanced-report-2026-04-to-2026-09');
         // The print rules that hide the app only apply while <body> is marked: every other page of the

@@ -45,6 +45,8 @@ describe('shareAdvancedPdf', () => {
   it('prints the whole report and shares it under the report\'s own file name', async () => {
     await shareAdvancedPdf(fixtureReport());
 
+    // A4 at expo-print's 72 PPI, not its US Letter default.
+    expect(printToFileAsync.mock.calls[0][0]).toMatchObject({ width: 595, height: 842 });
     const html = printToFileAsync.mock.calls[0][0].html as string;
     expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
     expect(html).toContain('Apr 2026 – Sep 2026');

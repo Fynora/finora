@@ -8,7 +8,8 @@ import { advancedPdfName, advancedPrintDocument } from './advancedPrint';
  *  (save to Files, mail, print). The file is deleted afterwards whether or not the share went through,
  *  the same route Reports' sharePdf takes. */
 export async function shareAdvancedPdf(report: AdvancedReport): Promise<void> {
-  const { uri } = await Print.printToFileAsync({ html: advancedPrintDocument(report) });
+  // A4 (595 x 842 at expo-print's 72 PPI) rather than its US Letter default: the paper size here.
+  const { uri } = await Print.printToFileAsync({ html: advancedPrintDocument(report), width: 595, height: 842 });
   const name = advancedPdfName(report);
   const file = new File(uri);
   giveName(file, name);

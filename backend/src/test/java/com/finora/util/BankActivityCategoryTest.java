@@ -183,7 +183,7 @@ class BankActivityCategoryTest {
         // Paid to the app's own UPI id: that is how its card-bill payments arrive. A shop paid
         // through the same app is paid at the shop's own id, and is untouched.
         assertThat(of("UPI-CREDCLUB-CREDCLUB@ICICI-XXXX0000114-", EXPENSE)).isEqualTo("Transfer"); // synthetic-ok
-        assertThat(of("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@axisb/", EXPENSE)).isEqualTo("Transfer");
+        assertThat(of("UPI/DR/100000000001/CRED Clu/UTIB/cred.club@sampleb/", EXPENSE)).isEqualTo("Transfer");
         assertThat(of("UPI/DR/100000000001/SAMPLE CAFE/YESB/samplecafe@ybl/paid via cred", EXPENSE)).isNull();
     }
 

@@ -47,6 +47,7 @@ class AiInsightMonthSheetParityIT extends AbstractIntegrationTest {
     @Autowired private InsightsService insightsService;
     @Autowired private DashboardService dashboardService;
     @Autowired private AiInsightMonthSheetBuilder monthSheetBuilder;
+    @Autowired private AiInsightRowSheetBuilder rowSheetBuilder;
 
     private UUID userId;
     private UUID accountId;
@@ -147,5 +148,20 @@ class AiInsightMonthSheetParityIT extends AbstractIntegrationTest {
         assertThat(sheet.fact("month.money_out").value()).isEqualByComparingTo(dashboard.monthlyExpense());
 
         assertThat(sheet.modelJson()).doesNotContain("Friend K").doesNotContain("vpa:");
+    }
+
+    @Test
+    void rowSheetEqualsTheMover() {
+        InsightsDto.CategoryMover food = insightsService.build(userId, month.toString()).movers().stream()
+                .filter(m -> m.category().equals("Food")).findFirst().orElseThrow();
+
+        FactSheet row = rowSheetBuilder.build(userId, month.toString(), "Food").orElseThrow();
+
+        assertThat(row.fact("food.this_month").value()).isEqualByComparingTo(food.current()).isEqualByComparingTo("3000");
+        assertThat(row.fact("food.usual").value()).isEqualByComparingTo(food.priorAverage());
+        assertThat(row.fact("food.payments_this_month").value()).isEqualByComparingTo("1");
+        assertThat(row.fact("food.payments_usual").value()).isEqualByComparingTo("1");
+        // The user category is in its first month: no usual month, so no "Why?".
+        assertThat(rowSheetBuilder.build(userId, month.toString(), "Friend K rent")).isEmpty();
     }
 }

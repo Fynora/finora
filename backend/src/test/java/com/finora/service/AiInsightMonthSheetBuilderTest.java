@@ -73,7 +73,7 @@ class AiInsightMonthSheetBuilderTest {
         InsightsDto dto = new InsightsDto(List.of(), movers, null,
                 new InsightsDto.CategoryHighlight("Food", new BigDecimal("9400")), null, "2026-09", true, null);
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
-                dto, baselines, new BigDecimal("25000"), List.of(food, fuel, userRent)));
+                dto, baselines, new BigDecimal("25000"), List.of(food, fuel, userRent), null));
     }
 
     private static InsightsDto.CategoryMover mover(String c, String current, String prior, Double pct) {
@@ -83,7 +83,7 @@ class AiInsightMonthSheetBuilderTest {
     @Test
     void noSheetForAMonthWithNothingToDescribe() {
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
-                new InsightsDto(List.of(), List.of(), null, null, null, "2026-09", true, null), Map.of(), null, List.of()));
+                new InsightsDto(List.of(), List.of(), null, null, null, "2026-09", true, null), Map.of(), null, List.of(), null));
         assertThat(builder.build(userId, "2026-09")).isEmpty();
     }
 
@@ -185,7 +185,7 @@ class AiInsightMonthSheetBuilderTest {
                 new InsightsDto.CoverageCaveat("2026-09", List.of()), null, null, "2026-09", true,
                 new InsightsDto.UnlinkedCardBills("2026-09", new BigDecimal("21400"), 2, "Sample Card", "0001"));
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
-                dto, Map.of(), new BigDecimal("25000"), List.of()));
+                dto, Map.of(), new BigDecimal("25000"), List.of(), null));
         when(lookAtService.rows(eq(userId), any(InsightsService.Built.class))).thenReturn(List.of(
                 LookAtRowDto.newRecurring(null, "sample gym"), LookAtRowDto.newRecurring(null, "sample tv")));
 
@@ -201,7 +201,7 @@ class AiInsightMonthSheetBuilderTest {
     @Test
     void returnsEmptyNotAnErrorWhenInsightsHasNoMonth() {
         when(insightsService.buildDetailed(userId, "2026-09")).thenReturn(new InsightsService.Built(
-                new InsightsDto(List.of(), List.of(), null, null, null, null, true, null), Map.of(), null, List.of()));
+                new InsightsDto(List.of(), List.of(), null, null, null, null, true, null), Map.of(), null, List.of(), null));
         assertThat(builder.build(userId, "2026-09")).isEqualTo(Optional.empty());
     }
 }

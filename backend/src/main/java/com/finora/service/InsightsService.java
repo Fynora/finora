@@ -118,7 +118,62 @@ public class InsightsService {
      *  with at least 2), the month's total spend (the figure in the first sentence; null when there is
      *  no reportable month), and the user's categories (to tell built-in from user-created). */
     public record Built(InsightsDto dto, Map<String, Integer> baselineMonths, BigDecimal monthTotal,
-                        List<Category> categories) {}
+                        List<Category> categories, Pipeline pipeline) {}
+
+    /**
+     * The transactions the month-to-month comparison reads (card bills out), the usual months (prior
+     * months with a statement gap left out), and each category's first month with spend. One home for
+     * this, shared by {@link #buildDetailed}'s movers and AI insights' "Why?" row sheet, so the two
+     * can never compare against different months.
+     */
+    record MoverBasis(String currentMonth, List<Transaction> moverTxns, List<String> priorMonths,
+                      Map<String, String> firstMonthByCat, Map<UUID, Category> categoriesById, RefundNetting refunds) {
+
+        /** The usual months for {@code category}: the prior months from its first month with spend. */
+        List<String> usualMonths(String category) {
+            String first = firstMonthByCat.getOrDefault(category, currentMonth);
+            return priorMonths.stream().filter(m -> m.compareTo(first) >= 0).toList();
+        }
+
+        String categoryOf(Transaction t) {
+            return categoryName(t, categoriesById);
+        }
+    }
+
+    static String categoryName(Transaction t, Map<UUID, Category> categoriesById) {
+        return categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized";
+    }
+
+    MoverBasis moverBasis(Pipeline pipeline) {
+        Map<UUID, Category> categoriesById = pipeline.categoriesById();
+        RefundNetting refunds = pipeline.refunds();
+        // §8: a prior month with a known, unacknowledged coverage gap is excluded from the
+        // baseline entirely -- not diluted, not annotated -- rather than silently averaging in a
+        // month the account's own statement history says is incomplete. (No acknowledgment
+        // mechanism exists yet -- Phase 5 -- so every gap found here is "unacknowledged" by
+        // definition; this is the correct, safe default until that table exists.)
+        List<String> priorMonths = pipeline.priorMonths().stream()
+                .filter(m -> !monthIntersectsAnyGap(m, pipeline.gaps()))
+                .toList();
+        // A card bill is a whole month of card purchases paid at once (CardBills): it stays in the
+        // total and the biggest category, but is never compared month to month -- its size
+        // follows the card's statement, not a change in habits, so as a mover it read as a spike.
+        List<Transaction> txns = pipeline.txns();
+        boolean anyCardBill = txns.stream().anyMatch(t -> CardBills.isCardBill(t, categoriesById));
+        List<Transaction> moverTxns = !anyCardBill ? txns
+                : txns.stream().filter(t -> !CardBills.isCardBill(t, categoriesById)).toList();
+        // A category's usual month starts at the first month it has any spend in the user's history:
+        // a regular payment that began partway through the window is not "running high" because the
+        // months before it began read as zero (shared payments spec §7). Months after it first
+        // appeared still count, as zero when nothing was spent.
+        Map<String, String> firstMonthByCat = new HashMap<>();
+        for (Transaction t : moverTxns) {
+            if (refunds.spendAmount(t).signum() <= 0) continue;
+            String seen = YearMonth.from(t.getTxnDate()).toString();
+            firstMonthByCat.merge(categoryName(t, categoriesById), seen, (a, b) -> a.compareTo(b) <= 0 ? a : b);
+        }
+        return new MoverBasis(pipeline.currentMonth(), moverTxns, priorMonths, firstMonthByCat, categoriesById, refunds);
+    }
 
     @Transactional(readOnly = true)
     public Built buildDetailed(UUID userId, String month) {
@@ -140,7 +195,7 @@ public class InsightsService {
                     || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
             return new Built(new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
                     coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null), Map.of(),
-                    null, List.of());
+                    null, List.of(), null);
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -148,43 +203,21 @@ public class InsightsService {
         RefundNetting refunds = pipeline.refunds();
         String currentMonth = pipeline.currentMonth();
         String periodLabel = pipeline.reportingMonthIsCurrent() ? "this month" : "in " + currentMonth;
-        // §8: a prior month with a known, unacknowledged coverage gap is excluded from the
-        // baseline entirely -- not diluted, not annotated -- rather than silently averaging in a
-        // month the account's own statement history says is incomplete. (No acknowledgment
-        // mechanism exists yet -- Phase 5 -- so every gap found here is "unacknowledged" by
-        // definition; this is the correct, safe default until that table exists.)
-        List<String> priorMonths = pipeline.priorMonths().stream()
-                .filter(m -> !monthIntersectsAnyGap(m, pipeline.gaps()))
-                .toList();
+        MoverBasis basis = moverBasis(pipeline);
+        List<String> priorMonths = basis.priorMonths();
 
         Map<String, BigDecimal> currentByCat = groupByCategory(txns, currentMonth, categoriesById, refunds);
-        // A card bill is a whole month of card purchases paid at once (CardBills): it stays in the
-        // total and the biggest category above, but is never compared month to month -- its size
-        // follows the card's statement, not a change in habits, so as a mover it read as a spike.
         List<Transaction> cardBills = txns.stream().filter(t -> CardBills.isCardBill(t, categoriesById)).toList();
-        List<Transaction> moverTxns = cardBills.isEmpty() ? txns
-                : txns.stream().filter(t -> !CardBills.isCardBill(t, categoriesById)).toList();
+        List<Transaction> moverTxns = basis.moverTxns();
         Map<String, BigDecimal> moverCurrentByCat = groupByCategory(moverTxns, currentMonth, categoriesById, refunds);
         Map<String, BigDecimal> priorByCat = new HashMap<>();
         for (String m : priorMonths) {
             groupByCategory(moverTxns, m, categoriesById, refunds).forEach((k, v) -> priorByCat.merge(k, v, BigDecimal::add));
         }
-        // A category's usual month starts at the first month it has any spend in the user's history:
-        // a regular payment that began partway through the window is not "running high" because the
-        // months before it began read as zero (shared payments spec §7). Months after it first
-        // appeared still count, as zero when nothing was spent.
-        Map<String, String> firstMonthByCat = new HashMap<>();
-        for (Transaction t : moverTxns) {
-            if (refunds.spendAmount(t).signum() <= 0) continue;
-            String key = categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized";
-            String seen = YearMonth.from(t.getTxnDate()).toString();
-            firstMonthByCat.merge(key, seen, (a, b) -> a.compareTo(b) <= 0 ? a : b);
-        }
 
         Map<String, Integer> baselineMonths = new HashMap<>();
         for (String category : moverCurrentByCat.keySet()) {
-            String first = firstMonthByCat.getOrDefault(category, currentMonth);
-            baselineMonths.put(category, (int) priorMonths.stream().filter(m -> m.compareTo(first) >= 0).count());
+            baselineMonths.put(category, basis.usualMonths(category).size());
         }
         List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
@@ -308,7 +341,7 @@ public class InsightsService {
 
         return new Built(new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
                 currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds)),
-                Map.copyOf(baselineMonths), total, List.copyOf(categoriesById.values()));
+                Map.copyOf(baselineMonths), total, List.copyOf(categoriesById.values()), pipeline);
     }
 
     /**

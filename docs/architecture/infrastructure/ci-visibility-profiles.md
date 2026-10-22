@@ -115,6 +115,12 @@ Measured on 2026-10-04, on the first full run of the split:
 The split runs faster but costs more minutes in total. Each shard compiles the backend and starts
 its own database. Before the split, one job ran everything in 781s.
 
+Since 2026-10-22 the shards are split by Spring context configuration, not alphabetically, and
+balanced by measured class time (`scripts/shard-integration-tests.py`). Booting contexts had been
+about 40% of each shard's test time.
+- **Boots:** 92 → 61 across the three shards.
+- **Slowest shard's test phase:** 299s → 265s, on runners of similar speed.
+
 On the private runners, the first `full-ci` run (a change to `ci.yml`, so every area ran) billed
 65 minutes. A by-hand (`workflow_dispatch`) or weekly run always runs everything, so budget ~65
 minutes for one. Every push to a PR that still carries `full-ci` costs another run.

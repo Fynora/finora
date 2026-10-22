@@ -133,7 +133,8 @@ def load_timings():
 def plan(classes, shards):
     """Every class assigned to a shard (0-based), bundles whole, balanced by measured time."""
     timings = load_timings()
-    known = [t for c, t in timings.items() if c in set(classes)]
+    present = set(classes)
+    known = [t for c, t in timings.items() if c in present]
     default = statistics.median(known) if known else 1.0
     bundles = {}
     for c in classes:

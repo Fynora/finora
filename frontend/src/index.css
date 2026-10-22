@@ -637,3 +637,17 @@ input, textarea, select {
   .m-draw { animation: none !important; stroke-dashoffset: 0 !important; }
   .m-card-hover:hover, .m-btn-primary:hover, .m-btn-ghost:hover { transform: none; }
 }
+
+/* Advanced Reports' "Print / PDF" (pages/advancedReports/PrintSheet.tsx). The printable report is
+   mounted as a direct child of <body> only while the print dialog is open, and <body> carries
+   .fy-ar-printing for exactly that print: never drawn on screen, and on paper the only thing drawn,
+   so the app shell, tabs and charts stay off the page. Keyed on the body class so every other print
+   (Reports' own Print / PDF, a plain Ctrl+P anywhere) is untouched. Outside any @layer so Tailwind
+   never drops it. */
+@media screen {
+  .fy-ar-print-root { display: none; }
+}
+@media print {
+  body.fy-ar-printing > *:not(.fy-ar-print-root) { display: none !important; }
+  body.fy-ar-printing { background: #fff !important; }
+}

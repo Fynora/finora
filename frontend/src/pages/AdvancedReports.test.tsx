@@ -277,6 +277,7 @@ describe('AdvancedReports', () => {
         expect(await screen.findByText('No transactions yet')).toBeInTheDocument();
         expect(screen.getByRole('link', { name: 'Import Statement' })).toHaveAttribute('href', '/app/import');
         expect(screen.getByRole('button', { name: 'Export CSV' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Print / PDF' })).toBeDisabled();
       });
 
       it('explains that a first month still in progress is not yet a whole month', async () => {
@@ -439,6 +440,75 @@ describe('AdvancedReports', () => {
         const [blob, name] = vi.mocked(downloadBlob).mock.calls[0];
         expect(name).toBe('fynora-advanced-report-2026-04-to-2026-09.csv');
         expect(blob.type).toBe('text/csv');
+      });
+
+      it('prints the whole report, not just the open tab, and tidies up afterwards', async () => {
+        document.title = 'Fynora';
+        const seen: { parent: Element | null; text: string; title: string; bodyMarked: boolean }[] = [];
+        const print = vi.spyOn(window, 'print').mockImplementation(() => {
+          const sheet = document.querySelector('.fy-ar-print-root');
+          seen.push({
+            parent: sheet?.parentElement ?? null, text: sheet?.textContent ?? '', title: document.title,
+            bodyMarked: document.body.classList.contains('fy-ar-printing'),
+          });
+        });
+        renderPage();
+        await screen.findByTestId('kpi-income');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Print / PDF' }));
+
+        await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+        // A direct child of <body>: the print stylesheet hides every other child of <body>.
+        expect(seen[0].parent).toBe(document.body);
+        // Sections from tabs that are not open are on the page too.
+        expect(seen[0].text).toContain('Apr 2026 – Sep 2026');
+        expect(seen[0].text).toContain('Who you paid most');
+        expect(seen[0].text).toContain('Where income came from');
+        // The browser offers the document title as the PDF's file name.
+        expect(seen[0].title).toBe('fynora-advanced-report-2026-04-to-2026-09');
+        // The print rules that hide the app only apply while <body> is marked: every other page of the
+        // app (Reports' own Print / PDF, a plain Ctrl+P) prints itself as before.
+        expect(seen[0].bodyMarked).toBe(true);
+
+        window.dispatchEvent(new Event('afterprint'));
+        await waitFor(() => expect(document.querySelector('.fy-ar-print-root')).toBeNull());
+        expect(document.title).toBe('Fynora');
+        expect(document.body.classList.contains('fy-ar-printing')).toBe(false);
+        print.mockRestore();
+      });
+
+      it('leaves nothing behind when the page goes away mid-print', async () => {
+        document.title = 'Fynora';
+        const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+        const { unmount } = renderPage();
+        await screen.findByTestId('kpi-income');
+        fireEvent.click(screen.getByRole('button', { name: 'Print / PDF' }));
+        await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+
+        unmount();
+
+        expect(document.body.classList.contains('fy-ar-printing')).toBe(false);
+        expect(document.title).toBe('Fynora');
+        expect(document.querySelector('.fy-ar-print-root')).toBeNull();
+        print.mockRestore();
+      });
+
+      it('puts the real title back even when a browser never says the first print finished', async () => {
+        document.title = 'Fynora';
+        const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+        renderPage();
+        await screen.findByTestId('kpi-income');
+
+        // No afterprint between the two prints.
+        fireEvent.click(screen.getByRole('button', { name: 'Print / PDF' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Print / PDF' }));
+        await waitFor(() => expect(print).toHaveBeenCalledTimes(2));
+
+        window.dispatchEvent(new Event('afterprint'));
+        await waitFor(() => expect(document.querySelector('.fy-ar-print-root')).toBeNull());
+        expect(document.title).toBe('Fynora');
+        expect(document.body.classList.contains('fy-ar-printing')).toBe(false);
+        print.mockRestore();
       });
     });
   });

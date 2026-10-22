@@ -7,7 +7,8 @@ const oneDecimal = (n: number) => Math.round(n * 10) / 10;
 
 type Row = (string | number)[];
 
-function withheldRate(reason: string | null): string | null {
+/** Why the savings rate is not shown, in the words the page uses; shared with the printable report. */
+export function withheldRate(reason: string | null): string | null {
   switch (reason) {
     case 'NO_INCOME': return 'Not shown: no income was counted in this period';
     case 'UNRESOLVED_EXCEEDS_INCOME': return 'Not shown: money received has not been sorted into income yet';

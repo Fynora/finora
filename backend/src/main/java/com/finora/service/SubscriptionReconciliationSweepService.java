@@ -105,7 +105,7 @@ public class SubscriptionReconciliationSweepService {
             if (subscription == null || subscription.isAutoRenew()
                     || !Subscription.STATUS_CANCELLED.equals(subscription.getStatus())
                     || subscription.getRenewalDate() == null
-                    || !subscription.getRenewalDate().isBefore(cutoff)) {
+                    || subscription.getRenewalDate().isAfter(cutoff)) {
                 return false;
             }
 

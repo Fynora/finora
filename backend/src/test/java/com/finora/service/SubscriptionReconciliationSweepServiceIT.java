@@ -53,6 +53,48 @@ class SubscriptionReconciliationSweepServiceIT extends AbstractIntegrationTest {
         assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
     }
 
+    /** The renewal date is the India day the period ends on, and the period ends at the start of
+     *  that day. On the renewal day itself a cancelled subscription has already ended, and it has
+     *  no ACTIVE/TRIAL row until this sweep downgrades it, so waiting one more day would leave the
+     *  user without even Free access for that whole day. */
+    @Test
+    void downgradesACancelledSubscriptionOnItsRenewalDay() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(premium.getId());
+        subscription.setStatus(Subscription.STATUS_CANCELLED);
+        subscription.setAutoRenew(false);
+        subscription.setRenewalDate(BillingCalendar.today());
+        subscriptionRepository.save(subscription);
+
+        sweepService.sweep();
+
+        Subscription reloaded = subscriptionRepository.findById(subscription.getId()).orElseThrow();
+        assertThat(reloaded.getPlanId()).isEqualTo(planRepository.findByCode("FREE").orElseThrow().getId());
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+    }
+
+    @Test
+    void leavesACancelledSubscriptionAloneTheDayBeforeItsRenewalDay() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(premium.getId());
+        subscription.setStatus(Subscription.STATUS_CANCELLED);
+        subscription.setAutoRenew(false);
+        subscription.setRenewalDate(BillingCalendar.today().plusDays(1));
+        subscriptionRepository.save(subscription);
+
+        sweepService.sweep();
+
+        Subscription reloaded = subscriptionRepository.findById(subscription.getId()).orElseThrow();
+        assertThat(reloaded.getPlanId()).isEqualTo(premium.getId());
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_CANCELLED);
+    }
+
     @Test
     void leavesACancelledSubscriptionAloneBeforeItsPeriodEnd() {
         User user = createUser();

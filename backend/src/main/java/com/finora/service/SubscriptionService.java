@@ -28,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -83,7 +82,7 @@ public class SubscriptionService {
         subscription.setUserId(userId);
         subscription.setPlanId(freePlan.getId());
         subscription.setStatus(Subscription.STATUS_ACTIVE);
-        subscription.setStartDate(LocalDate.now());
+        subscription.setStartDate(BillingCalendar.today());
         Subscription saved = subscriptionRepository.save(subscription);
 
         SubscriptionEvent event = new SubscriptionEvent();

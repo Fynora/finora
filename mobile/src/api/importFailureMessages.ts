@@ -7,6 +7,7 @@ import {
   CORRUPT_PDF,
   MALFORMED_CSV,
   PAYMENT_APP_HISTORY,
+  MULTI_ACCOUNT_FILE,
   PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
   IMPORT_SYSTEM_BUSY,
@@ -51,6 +52,10 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
     "This is a payment app history, not a bank statement. Each payment in it was made from one " +
     "of your bank accounts and is already in that bank's own statement, so import those bank " +
     'statements instead.',
+  // Also the wrong kind of document: rows from several accounts, while an import fills one.
+  [MULTI_ACCOUNT_FILE]:
+    "This file lists transactions from more than one account, so it can't be imported into a " +
+    'single account. Please upload each bank or card statement on its own.',
   [PDF_TOO_LARGE]:
     'This PDF has too many pages to process. Split it into smaller files (e.g. by date range) ' +
     'and import each one separately.',
@@ -83,6 +88,7 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
   [CORRUPT_PDF]: 'This file looks damaged',
   [MALFORMED_CSV]: 'This file looks damaged',
   [PAYMENT_APP_HISTORY]: 'This is a payment app history',
+  [MULTI_ACCOUNT_FILE]: 'This file mixes several accounts',
   [PDF_TOO_LARGE]: 'This statement is too long',
   [NO_ACTIVITY_IN_PERIOD]: 'Nothing to import',
   [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",

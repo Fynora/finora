@@ -3644,6 +3644,94 @@
                 }
             }
         },
+        "/api/v1/insights/story": {
+            "get": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "story",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStoryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "generateStory",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StoryRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStoryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/insights/look-at/why": {
+            "post": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "why",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WhyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseWhyDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/insights/acknowledgements": {
             "get": {
                 "tags": [
@@ -5940,6 +6028,49 @@
                 }
             }
         },
+        "/api/v1/admin/statement-corrections/statements/{statementId}/apply": {
+            "post": {
+                "tags": [
+                    "admin-statement-correction-controller"
+                ],
+                "operationId": "applyCorrection",
+                "parameters": [
+                    {
+                        "name": "statementId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAppliedCorrection"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/rules": {
             "get": {
                 "tags": [
@@ -8158,6 +8289,47 @@
                 }
             }
         },
+        "/api/v1/insights/ai-texts/{id}/feedback": {
+            "patch": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "feedback",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AiTextFeedbackRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/inflow-kinds/{id}": {
             "delete": {
                 "tags": [
@@ -9905,6 +10077,36 @@
                 }
             }
         },
+        "/api/v1/insights/look-at": {
+            "get": {
+                "tags": [
+                    "ai-insight-controller"
+                ],
+                "operationId": "lookAt",
+                "parameters": [
+                    {
+                        "name": "month",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseLookAtDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/imports/capability-coverage": {
             "get": {
                 "tags": [
@@ -10649,6 +10851,60 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseListCategoryConfidencePoint"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/analytics/advanced": {
+            "get": {
+                "tags": [
+                    "analytics-controller"
+                ],
+                "operationId": "advanced",
+                "parameters": [
+                    {
+                        "name": "range",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "startMonth",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "endMonth",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "compare",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAdvancedReportDto"
                                 }
                             }
                         }
@@ -11428,6 +11684,37 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseRefreshSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/statement-corrections/users/{userId}": {
+            "get": {
+                "tags": [
+                    "admin-statement-correction-controller"
+                ],
+                "operationId": "waitingCorrections",
+                "parameters": [
+                    {
+                        "name": "userId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListWaitingCorrection"
                                 }
                             }
                         }
@@ -18406,6 +18693,142 @@
                     }
                 }
             },
+            "StoryRequest": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}$"
+                    }
+                }
+            },
+            "ApiResponseStoryDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StoryDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StoryDto": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "writtenByAi": {
+                        "type": "boolean"
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "canGenerate": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "WhyRequest": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "pattern": "CATEGORY_HIGH|AMOUNT_CHANGED|CARD_STATEMENT_MISSING|SHARE_CHECK|LENT_CHECK|PAYBACK_CHECK|SETTLE|EVERY_MONTH|ALWAYS_PERSON|LEFTOVER_CHECK"
+                    },
+                    "itemKey": {
+                        "type": "string",
+                        "maxLength": 300,
+                        "minLength": 0
+                    },
+                    "month": {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}$"
+                    }
+                },
+                "required": [
+                    "itemKey",
+                    "kind"
+                ]
+            },
+            "ApiResponseWhyDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/WhyDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WhyDto": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "writtenByAi": {
+                        "type": "boolean"
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "freeLeftThisMonth": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "InsightAcknowledgementDto": {
                 "type": "object",
                 "properties": {
@@ -20308,6 +20731,75 @@
                     }
                 }
             },
+            "ApiResponseAppliedCorrection": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AppliedCorrection"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "AppliedCorrection": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "balanceChange": {
+                        "type": "number"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "runId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userNotified": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "TestRequest": {
                 "type": "object",
                 "properties": {
@@ -22116,6 +22608,19 @@
                     "answer",
                     "moment"
                 ]
+            },
+            "AiTextFeedbackRequest": {
+                "type": "object",
+                "properties": {
+                    "rating": {
+                        "type": "string",
+                        "pattern": "HELPFUL|NOT_HELPFUL"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "pattern": "WRONG_NUMBER|NOT_USEFUL|CONFUSING"
+                    }
+                }
             },
             "UpdateKindRequest": {
                 "type": "object",
@@ -25257,6 +25762,108 @@
                     }
                 }
             },
+            "ApiResponseLookAtDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/LookAtDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LookAtDto": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LookAtRowDto"
+                        }
+                    },
+                    "orderedByAi": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "LookAtRowDto": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "ackKind": {
+                        "type": "string"
+                    },
+                    "ackItemKey": {
+                        "type": "string"
+                    },
+                    "month": {
+                        "type": "string"
+                    },
+                    "total": {
+                        "type": "number"
+                    },
+                    "count": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "cardName": {
+                        "type": "string"
+                    },
+                    "cardLast4": {
+                        "type": "string"
+                    },
+                    "people": {
+                        "$ref": "#/components/schemas/Suggestion"
+                    },
+                    "recurring": {
+                        "$ref": "#/components/schemas/RecurringDto"
+                    },
+                    "merchant": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "latestAmount": {
+                        "type": "number"
+                    },
+                    "latestDate": {
+                        "type": "string"
+                    },
+                    "current": {
+                        "type": "number"
+                    },
+                    "priorAverage": {
+                        "type": "number"
+                    },
+                    "whyAvailable": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "ApiResponseListInsightAcknowledgementDto": {
                 "type": "object",
                 "properties": {
@@ -27276,6 +27883,503 @@
                     }
                 }
             },
+            "AdvancedCategories": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedCategory"
+                        }
+                    },
+                    "otherAmount": {
+                        "type": "number"
+                    },
+                    "otherSharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "categoryCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "AdvancedCategory": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "sharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "previousAmount": {
+                        "type": "number"
+                    },
+                    "changeAmount": {
+                        "type": "number"
+                    },
+                    "changePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "monthly": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                }
+            },
+            "AdvancedComparison": {
+                "type": "object",
+                "properties": {
+                    "reliable": {
+                        "type": "boolean"
+                    },
+                    "gateReason": {
+                        "type": "string"
+                    },
+                    "previousIncome": {
+                        "type": "number"
+                    },
+                    "previousExpense": {
+                        "type": "number"
+                    },
+                    "previousNet": {
+                        "type": "number"
+                    },
+                    "previousAvgMonthlyExpense": {
+                        "type": "number"
+                    },
+                    "previousSavingsRatePct": {
+                        "type": "number"
+                    },
+                    "incomeDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "expenseDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "netDelta": {
+                        "type": "number"
+                    },
+                    "avgMonthlyExpenseDeltaPct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "savingsRateDeltaPp": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                }
+            },
+            "AdvancedDrill": {
+                "type": "object",
+                "properties": {
+                    "from": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "to": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "categoryName": {
+                        "type": "string"
+                    },
+                    "keyword": {
+                        "type": "string"
+                    }
+                }
+            },
+            "AdvancedIncome": {
+                "type": "object",
+                "properties": {
+                    "sources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedIncomeSource"
+                        }
+                    },
+                    "monthsWithIncome": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "highestMonth": {
+                        "type": "string"
+                    },
+                    "highestMonthAmount": {
+                        "type": "number"
+                    },
+                    "lowestMonth": {
+                        "type": "string"
+                    },
+                    "lowestMonthAmount": {
+                        "type": "number"
+                    },
+                    "lowestAsPctOfHighest": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                }
+            },
+            "AdvancedIncomeSource": {
+                "type": "object",
+                "properties": {
+                    "label": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "sharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "previousAmount": {
+                        "type": "number"
+                    }
+                }
+            },
+            "AdvancedInsight": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "tone": {
+                        "type": "string"
+                    },
+                    "headline": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "drill": {
+                        "$ref": "#/components/schemas/AdvancedDrill"
+                    }
+                }
+            },
+            "AdvancedMerchant": {
+                "type": "object",
+                "properties": {
+                    "merchantId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "sharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "previousAmount": {
+                        "type": "number"
+                    },
+                    "changeAmount": {
+                        "type": "number"
+                    },
+                    "changePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "monthly": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                }
+            },
+            "AdvancedMerchants": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedMerchant"
+                        }
+                    },
+                    "attributedSharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "topFiveSharePct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "merchantCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "AdvancedMonth": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string"
+                    },
+                    "income": {
+                        "type": "number"
+                    },
+                    "expense": {
+                        "type": "number"
+                    },
+                    "net": {
+                        "type": "number"
+                    },
+                    "savingsRatePct": {
+                        "type": "number"
+                    },
+                    "complete": {
+                        "type": "boolean"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "AdvancedPeriodInfo": {
+                "type": "object",
+                "properties": {
+                    "hasData": {
+                        "type": "boolean"
+                    },
+                    "noDataReason": {
+                        "type": "string"
+                    },
+                    "range": {
+                        "type": "string"
+                    },
+                    "startMonth": {
+                        "type": "string"
+                    },
+                    "endMonth": {
+                        "type": "string"
+                    },
+                    "monthCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "requestedMonths": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "firstDataMonth": {
+                        "type": "string"
+                    },
+                    "newestDataMonth": {
+                        "type": "string"
+                    },
+                    "leftOutMonth": {
+                        "type": "string"
+                    },
+                    "leftOutReason": {
+                        "type": "string"
+                    },
+                    "incompleteMonths": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "compare": {
+                        "type": "string"
+                    },
+                    "compareOptions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "previousStartMonth": {
+                        "type": "string"
+                    },
+                    "previousEndMonth": {
+                        "type": "string"
+                    }
+                }
+            },
+            "AdvancedReportDto": {
+                "type": "object",
+                "properties": {
+                    "period": {
+                        "$ref": "#/components/schemas/AdvancedPeriodInfo"
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/AdvancedTotals"
+                    },
+                    "comparison": {
+                        "$ref": "#/components/schemas/AdvancedComparison"
+                    },
+                    "months": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedMonth"
+                        }
+                    },
+                    "categories": {
+                        "$ref": "#/components/schemas/AdvancedCategories"
+                    },
+                    "merchants": {
+                        "$ref": "#/components/schemas/AdvancedMerchants"
+                    },
+                    "paymentMethods": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PaymentMethodAmount"
+                        }
+                    },
+                    "income": {
+                        "$ref": "#/components/schemas/AdvancedIncome"
+                    },
+                    "unusualSpends": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedUnusualSpend"
+                        }
+                    },
+                    "international": {
+                        "$ref": "#/components/schemas/InternationalSpend"
+                    },
+                    "insights": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvancedInsight"
+                        }
+                    }
+                }
+            },
+            "AdvancedTotals": {
+                "type": "object",
+                "properties": {
+                    "income": {
+                        "type": "number"
+                    },
+                    "expense": {
+                        "type": "number"
+                    },
+                    "net": {
+                        "type": "number"
+                    },
+                    "avgMonthlyExpense": {
+                        "type": "number"
+                    },
+                    "monthsWithData": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "savingsRatePct": {
+                        "type": "number"
+                    },
+                    "savingsRateGateReason": {
+                        "type": "string"
+                    },
+                    "unresolvedInflow": {
+                        "type": "number"
+                    },
+                    "unresolvedInflowCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "transactionCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "highestSpendMonth": {
+                        "type": "string"
+                    },
+                    "lowestSpendMonth": {
+                        "type": "string"
+                    }
+                }
+            },
+            "AdvancedUnusualSpend": {
+                "type": "object",
+                "properties": {
+                    "transactionId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "number"
+                    },
+                    "typicalAmount": {
+                        "type": "number"
+                    },
+                    "timesTypical": {
+                        "type": "number"
+                    },
+                    "sampleSize": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseAdvancedReportDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AdvancedReportDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
             "ApiResponsePagedResponseUserSummaryDto": {
                 "type": "object",
                 "properties": {
@@ -28169,6 +29273,80 @@
                         "items": {
                             "$ref": "#/components/schemas/RefreshStatusTotals"
                         }
+                    }
+                }
+            },
+            "ApiResponseListWaitingCorrection": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WaitingCorrection"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "WaitingCorrection": {
+                "type": "object",
+                "properties": {
+                    "statementImportId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "accountName": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "rowsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsAdded": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "rowsRemoved": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "factsChanged": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "checkedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

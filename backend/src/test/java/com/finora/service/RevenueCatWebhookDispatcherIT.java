@@ -1,12 +1,19 @@
 package com.finora.service;
 
 import com.finora.AbstractIntegrationTest;
+import com.finora.entity.Subscription;
+import com.finora.entity.User;
+import com.finora.repository.PlanRepository;
+import com.finora.repository.SubscriptionRepository;
+import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -21,6 +28,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RevenueCatWebhookDispatcherIT extends AbstractIntegrationTest {
 
     @Autowired private RevenueCatWebhookDispatcher dispatcher;
+    @Autowired private UserRepository userRepository;
+    @Autowired private PlanRepository planRepository;
+    @Autowired private SubscriptionRepository subscriptionRepository;
+    @Autowired private SubscriptionService subscriptionService;
+
+    /** A store period ending at midnight India time (18:30 UTC the day before) renews on the
+     *  India day, the same calendar BillingCalendar gives Razorpay renewals. */
+    @Test
+    void renewalStoresTheIndiaDayTheStorePeriodEndsOnNotThePreviousUtcDay() {
+        User user = new User();
+        user.setEmail("revenuecat-renewal-day-it-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant");
+        user.setFullName("RevenueCat Renewal Day IT User");
+        user.setRole("USER");
+        user.setPhoneVerified(true);
+        user = userRepository.save(user);
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String originalTransactionId = "txn_test_" + UUID.randomUUID();
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        subscription.setPlanId(planRepository.findByCode("PLUS").orElseThrow().getId());
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setRevenuecatOriginalTransactionId(originalTransactionId);
+        subscriptionRepository.save(subscription);
+
+        dispatcher.dispatch("RENEWAL", Map.of(
+                "original_transaction_id", originalTransactionId,
+                "expiration_at_ms", 1893522600000L)); // synthetic-ok: 2030-01-01T18:30:00Z, fixture epoch millis
+
+        Subscription reloaded = subscriptionRepository.findById(subscription.getId()).orElseThrow();
+        assertThat(reloaded.getRenewalDate()).isEqualTo(LocalDate.of(2030, 1, 2));
+    }
 
     @Test
     void renewalForUnknownOriginalTransactionIdThrowsInsteadOfSilentlyDroppingIt() {

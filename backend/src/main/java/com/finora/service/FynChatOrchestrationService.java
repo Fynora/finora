@@ -228,7 +228,7 @@ public class FynChatOrchestrationService {
 
     /**
      * Not {@code @Transactional} for the same reason {@code FynImportDiagnosisService
-     * .suggestDiagnosis} and {@code FynInsightsNarrationService.narrate} aren't: this makes
+     * .suggestDiagnosis} and {@code AiInsightGenerator.generate} aren't: this makes
      * several external HTTP calls to Anthropic (up to {@link #MAX_TOOL_ROUNDS} of them), and
      * holding a pooled DB connection open across all of them would be the exact HikariCP
      * pool-exhaustion risk found in Phase 2's review. Each persistence step below manages its own

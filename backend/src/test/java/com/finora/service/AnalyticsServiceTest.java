@@ -710,6 +710,29 @@ class AnalyticsServiceTest {
         assertThat(year2025.total()).isEqualByComparingTo("300");
     }
 
+    @Test
+    @DisplayName("multiYearSpend and lifestyle: an investment transfer is not spending, as in Reports and the Dashboard")
+    void multiYear_leavesInvestmentTransfersOutOfSpend() {
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+                .thenReturn(LocalDate.of(2025, 1, 5));
+        Transaction spend = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("800"));
+        Transaction invested = expense(null, LocalDate.of(2025, 3, 2), new BigDecimal("5000"));
+        invested.setReconciliationStatus(Transaction.ReconciliationStatus.INVESTMENT_TRANSFER);
+        Transaction earn = income(LocalDate.of(2025, 3, 1), new BigDecimal("10000"));
+        when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
+                eq(userId), any(), any(), any()))
+                .thenReturn(List.of(spend, invested, earn));
+
+        AnalyticsDto.MultiYearPoint spendYear = analyticsService.multiYearSpend(userId).fullYears().stream()
+                .filter(p -> p.year() == 2025).findFirst().orElseThrow();
+        AnalyticsDto.LifestyleInflationPoint lifestyleYear = analyticsService.multiYearLifestyleInflation(userId)
+                .fullYears().stream().filter(p -> p.year() == 2025).findFirst().orElseThrow();
+
+        assertThat(spendYear.total()).isEqualByComparingTo("800");
+        assertThat(lifestyleYear.expense()).isEqualByComparingTo("800");
+        assertThat(lifestyleYear.ratio()).isEqualByComparingTo("0.08");
+    }
+
     // --- multiYearLifestyleInflation (Multi-Year Comparison, issue #1455) ---
 
     @Test

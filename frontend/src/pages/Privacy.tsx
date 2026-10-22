@@ -56,9 +56,11 @@ export default function Privacy() {
         <p>
           When we improve how statements are read, Fynora can refresh the transactions from your statements
           using these stored files, so you do not have to upload them again. We tell you in the app, by push
-          notification and by email when an improvement would change your statements. A refresh runs only when
-          you choose to start it, and afterwards shows you what changed: transactions added, corrected or
-          removed. A transaction you edited keeps your changes.
+          notification and by email when an improvement would change your statements. A refresh runs when you
+          choose to start it, and afterwards shows you what changed: transactions added, corrected or removed.
+          If a correction we have already checked is waiting, our support team may also apply it for you; you
+          are then told by push notification and by email what changed. Every such action is logged and
+          auditable. Either way, a transaction you edited keeps your changes.
         </p>
         <p>
           In most cases statements are processed entirely automatically by Fynora's own rule-based extraction

@@ -330,7 +330,7 @@ class BillingCheckoutServiceTest {
         assertThat(change.getToPlanId()).isEqualTo(plusPlanId);
         assertThat(change.getReason()).isEqualTo(PlanChange.REASON_DOWNGRADE_SCHEDULED);
         assertThat(change.getEffectiveAt()).isEqualTo(
-                LocalDate.of(2026, 10, 5).atStartOfDay(java.time.ZoneOffset.UTC).toInstant());
+                java.time.Instant.parse("2026-10-04T18:30:00Z")); // midnight 5 Oct in India
 
         // Downgrade never touches the subscriptions row directly -- reconciliation happens later,
         // at the next subscription.charged webhook (Plan 1's existing handleCharged), not here.

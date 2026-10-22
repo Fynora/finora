@@ -47,11 +47,17 @@ public class AnthropicClient implements LlmClient {
     private final FynProperties properties;
     private final RestClient restClient;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AnthropicClient(FynProperties properties) {
+        this(properties, READ_TIMEOUT);
+    }
+
+    /** Package-private: AnthropicClientTest's read-timeout case uses a short timeout. */
+    AnthropicClient(FynProperties properties, Duration readTimeout) {
         this.properties = properties;
         ClientHttpRequestFactorySettings timeouts = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(CONNECT_TIMEOUT)
-                .withReadTimeout(READ_TIMEOUT);
+                .withReadTimeout(readTimeout);
         this.restClient = RestClient.builder()
                 .requestFactory(ClientHttpRequestFactoryBuilder.httpComponents()
                         .withHttpClientCustomizer(HttpClientBuilder::disableAutomaticRetries)
@@ -223,9 +229,24 @@ public class AnthropicClient implements LlmClient {
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {
+            // A read timeout is told apart from every other transport failure: AI insights record it
+            // as its own reason (PROVIDER_TIMEOUT), and it means "slow", not "down".
+            if (isTimeout(e)) {
+                log.warn("Anthropic completion call timed out");
+                throw new ApiException(HttpStatus.GATEWAY_TIMEOUT, "Anthropic did not answer in time. Try again shortly.");
+            }
             log.warn("Anthropic completion call failed transiently: {}", e.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY, "Could not reach Anthropic. Try again shortly.");
         }
+    }
+
+    private static boolean isTimeout(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof java.net.SocketTimeoutException || t instanceof java.net.http.HttpTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A message carries exactly one kind of content in this codebase's usage (plain text, a

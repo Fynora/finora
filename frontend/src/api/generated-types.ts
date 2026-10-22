@@ -1364,6 +1364,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/story": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["story"];
+        put?: never;
+        post: operations["generateStory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/look-at/why": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["why"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/acknowledgements": {
         parameters: {
             query?: never;
@@ -2292,6 +2324,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/statement-corrections/statements/{statementId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["applyCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rules": {
         parameters: {
             query?: never;
@@ -3202,6 +3250,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["updateCategory"];
+        trace?: never;
+    };
+    "/api/v1/insights/ai-texts/{id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["feedback"];
         trace?: never;
     };
     "/api/v1/inflow-kinds/{id}": {
@@ -4116,6 +4180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/look-at": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lookAt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/capability-coverage": {
         parameters: {
             query?: never;
@@ -4580,6 +4660,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/advanced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["advanced"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users/{userId}/workspace": {
         parameters: {
             query?: never;
@@ -4940,6 +5036,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["summary_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/statement-corrections/users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["waitingCorrections"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7825,6 +7937,57 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        StoryRequest: {
+            month?: string;
+        };
+        ApiResponseStoryDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["StoryDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        StoryDto: {
+            status?: string;
+            /** Format: uuid */
+            id?: string;
+            text?: string;
+            writtenByAi?: boolean;
+            basis?: string;
+            canGenerate?: boolean;
+        };
+        WhyRequest: {
+            kind: string;
+            itemKey: string;
+            month?: string;
+        };
+        ApiResponseWhyDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["WhyDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        WhyDto: {
+            status?: string;
+            /** Format: uuid */
+            id?: string;
+            text?: string;
+            writtenByAi?: boolean;
+            basis?: string;
+            /** Format: int32 */
+            freeLeftThisMonth?: number;
+        };
         InsightAcknowledgementDto: {
             kind: string;
             itemKey: string;
@@ -8507,6 +8670,36 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
+        ApiResponseAppliedCorrection: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppliedCorrection"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        AppliedCorrection: {
+            /** Format: uuid */
+            statementImportId?: string;
+            status?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            balanceChange?: number;
+            reason?: string;
+            /** Format: uuid */
+            runId?: string;
+            userNotified?: boolean;
+        };
         TestRequest: {
             field: string;
             operator: string;
@@ -9186,6 +9379,10 @@ export interface components {
             moment: "NO_FILE" | "REFUSED" | "NOT_CONFIRMED";
             /** @enum {string} */
             answer: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
+        };
+        AiTextFeedbackRequest: {
+            rating?: string;
+            reason?: string;
         };
         UpdateKindRequest: {
             name?: string;
@@ -10408,6 +10605,43 @@ export interface components {
         FynInsightsNarrationDto: {
             narration?: string;
         };
+        ApiResponseLookAtDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["LookAtDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        LookAtDto: {
+            rows?: components["schemas"]["LookAtRowDto"][];
+            orderedByAi?: boolean;
+        };
+        LookAtRowDto: {
+            kind?: string;
+            key?: string;
+            ackKind?: string;
+            ackItemKey?: string;
+            month?: string;
+            total?: number;
+            /** Format: int32 */
+            count?: number;
+            cardName?: string;
+            cardLast4?: string;
+            people?: components["schemas"]["Suggestion"];
+            recurring?: components["schemas"]["RecurringDto"];
+            merchant?: string;
+            category?: string;
+            latestAmount?: number;
+            latestDate?: string;
+            current?: number;
+            priorAverage?: number;
+            whyAvailable?: boolean;
+        };
         ApiResponseListInsightAcknowledgementDto: {
             success?: boolean;
             message?: string;
@@ -11202,6 +11436,188 @@ export interface components {
             /** Format: int32 */
             merchantCount?: number;
         };
+        AdvancedCategories: {
+            rows?: components["schemas"]["AdvancedCategory"][];
+            otherAmount?: number;
+            /** Format: double */
+            otherSharePct?: number;
+            /** Format: int32 */
+            categoryCount?: number;
+        };
+        AdvancedCategory: {
+            name?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            previousAmount?: number;
+            changeAmount?: number;
+            /** Format: double */
+            changePct?: number;
+            monthly?: number[];
+        };
+        AdvancedComparison: {
+            reliable?: boolean;
+            gateReason?: string;
+            previousIncome?: number;
+            previousExpense?: number;
+            previousNet?: number;
+            previousAvgMonthlyExpense?: number;
+            previousSavingsRatePct?: number;
+            /** Format: double */
+            incomeDeltaPct?: number;
+            /** Format: double */
+            expenseDeltaPct?: number;
+            netDelta?: number;
+            /** Format: double */
+            avgMonthlyExpenseDeltaPct?: number;
+            /** Format: double */
+            savingsRateDeltaPp?: number;
+        };
+        AdvancedDrill: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            categoryName?: string;
+            keyword?: string;
+        };
+        AdvancedIncome: {
+            sources?: components["schemas"]["AdvancedIncomeSource"][];
+            /** Format: int32 */
+            monthsWithIncome?: number;
+            highestMonth?: string;
+            highestMonthAmount?: number;
+            lowestMonth?: string;
+            lowestMonthAmount?: number;
+            /** Format: double */
+            lowestAsPctOfHighest?: number;
+        };
+        AdvancedIncomeSource: {
+            label?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            previousAmount?: number;
+        };
+        AdvancedInsight: {
+            id?: string;
+            kind?: string;
+            tone?: string;
+            headline?: string;
+            detail?: string;
+            drill?: components["schemas"]["AdvancedDrill"];
+        };
+        AdvancedMerchant: {
+            /** Format: uuid */
+            merchantId?: string;
+            name?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            previousAmount?: number;
+            changeAmount?: number;
+            /** Format: double */
+            changePct?: number;
+            monthly?: number[];
+        };
+        AdvancedMerchants: {
+            rows?: components["schemas"]["AdvancedMerchant"][];
+            /** Format: double */
+            attributedSharePct?: number;
+            /** Format: double */
+            topFiveSharePct?: number;
+            /** Format: int32 */
+            merchantCount?: number;
+        };
+        AdvancedMonth: {
+            month?: string;
+            income?: number;
+            expense?: number;
+            net?: number;
+            savingsRatePct?: number;
+            complete?: boolean;
+            /** Format: int32 */
+            transactionCount?: number;
+        };
+        AdvancedPeriodInfo: {
+            hasData?: boolean;
+            noDataReason?: string;
+            range?: string;
+            startMonth?: string;
+            endMonth?: string;
+            /** Format: int32 */
+            monthCount?: number;
+            /** Format: int32 */
+            requestedMonths?: number;
+            firstDataMonth?: string;
+            newestDataMonth?: string;
+            leftOutMonth?: string;
+            leftOutReason?: string;
+            incompleteMonths?: string[];
+            compare?: string;
+            compareOptions?: string[];
+            previousStartMonth?: string;
+            previousEndMonth?: string;
+        };
+        AdvancedReportDto: {
+            period?: components["schemas"]["AdvancedPeriodInfo"];
+            totals?: components["schemas"]["AdvancedTotals"];
+            comparison?: components["schemas"]["AdvancedComparison"];
+            months?: components["schemas"]["AdvancedMonth"][];
+            categories?: components["schemas"]["AdvancedCategories"];
+            merchants?: components["schemas"]["AdvancedMerchants"];
+            paymentMethods?: components["schemas"]["PaymentMethodAmount"][];
+            income?: components["schemas"]["AdvancedIncome"];
+            unusualSpends?: components["schemas"]["AdvancedUnusualSpend"][];
+            international?: components["schemas"]["InternationalSpend"];
+            insights?: components["schemas"]["AdvancedInsight"][];
+        };
+        AdvancedTotals: {
+            income?: number;
+            expense?: number;
+            net?: number;
+            avgMonthlyExpense?: number;
+            /** Format: int32 */
+            monthsWithData?: number;
+            savingsRatePct?: number;
+            savingsRateGateReason?: string;
+            unresolvedInflow?: number;
+            /** Format: int32 */
+            unresolvedInflowCount?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            highestSpendMonth?: string;
+            lowestSpendMonth?: string;
+        };
+        AdvancedUnusualSpend: {
+            /** Format: uuid */
+            transactionId?: string;
+            /** Format: date */
+            date?: string;
+            label?: string;
+            category?: string;
+            amount?: number;
+            typicalAmount?: number;
+            timesTypical?: number;
+            /** Format: int32 */
+            sampleSize?: number;
+        };
+        ApiResponseAdvancedReportDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AdvancedReportDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
         ApiResponsePagedResponseUserSummaryDto: {
             success?: boolean;
             message?: string;
@@ -11574,6 +11990,38 @@ export interface components {
             /** Format: int64 */
             statementsAwaitingCheck?: number;
             byStatus?: components["schemas"]["RefreshStatusTotals"][];
+        };
+        ApiResponseListWaitingCorrection: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["WaitingCorrection"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        WaitingCorrection: {
+            /** Format: uuid */
+            statementImportId?: string;
+            fileName?: string;
+            accountName?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            /** Format: int32 */
+            rowsChanged?: number;
+            /** Format: int32 */
+            rowsAdded?: number;
+            /** Format: int32 */
+            rowsRemoved?: number;
+            /** Format: int32 */
+            factsChanged?: number;
+            /** Format: date-time */
+            checkedAt?: string;
         };
         ApiResponseListSearchResultDto: {
             success?: boolean;
@@ -15919,6 +16367,76 @@ export interface operations {
             };
         };
     };
+    story: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStoryDto"];
+                };
+            };
+        };
+    };
+    generateStory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStoryDto"];
+                };
+            };
+        };
+    };
+    why: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseWhyDto"];
+                };
+            };
+        };
+    };
     acknowledgements: {
         parameters: {
             query?: never;
@@ -17597,6 +18115,34 @@ export interface operations {
             };
         };
     };
+    applyCorrection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                statementId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    [key: string]: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppliedCorrection"];
+                };
+            };
+        };
+    };
     list_11: {
         parameters: {
             query?: {
@@ -19186,6 +19732,32 @@ export interface operations {
             };
         };
     };
+    feedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiTextFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     deleteInflowKind: {
         parameters: {
             query?: never;
@@ -20534,6 +21106,28 @@ export interface operations {
             };
         };
     };
+    lookAt: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseLookAtDto"];
+                };
+            };
+        };
+    };
     mine_1: {
         parameters: {
             query?: never;
@@ -21162,6 +21756,31 @@ export interface operations {
             };
         };
     };
+    advanced: {
+        parameters: {
+            query?: {
+                range?: string;
+                startMonth?: string;
+                endMonth?: string;
+                compare?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAdvancedReportDto"];
+                };
+            };
+        };
+    };
     summary_1: {
         parameters: {
             query?: never;
@@ -21670,6 +22289,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseRefreshSummary"];
+                };
+            };
+        };
+    };
+    waitingCorrections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListWaitingCorrection"];
                 };
             };
         };

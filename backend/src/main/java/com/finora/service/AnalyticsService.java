@@ -294,8 +294,13 @@ public class AnalyticsService {
     /** See {@link AnalyticsDto.InternationalSpend}. {@code month} null means all time, same as
      *  {@link #topCategories}. */
     public AnalyticsDto.InternationalSpend internationalSpend(UUID userId, YearMonth month) {
-        RefundNetting refunds = refundsFor(userId);
-        List<Transaction> international = activeExpenseTransactions(userId, month).stream()
+        return internationalSpendOf(activeExpenseTransactions(userId, month), refundsFor(userId));
+    }
+
+    /** The international rows among {@code expenses}, split and summed as {@link #internationalSpend}
+     *  describes; shared with the Advanced Reports period so both read the same rows the same way. */
+    static AnalyticsDto.InternationalSpend internationalSpendOf(List<Transaction> expenses, RefundNetting refunds) {
+        List<Transaction> international = expenses.stream()
                 .filter(Transaction::isInternational)
                 .toList();
 
@@ -406,7 +411,10 @@ public class AnalyticsService {
         List<AccountCoverageService.DateRange> gaps = accountCoverageService.gapsForUser(userId);
 
         SpendRows fetched = fetcher.fetch(userId, firstDataMonth.atDay(1), currentMonth.atEndOfMonth());
-        Map<YearMonth, BigDecimal> byMonth = sumByMonth(fetched.rows(), fetched.netting());
+        // Investment transfers are not spending (or income): Reports and the Dashboard leave them
+        // out of every total, so a year here has to read the same as there.
+        Map<YearMonth, BigDecimal> byMonth = sumByMonth(
+                RefundNetting.excludingInvestmentTransfers(fetched.rows()), fetched.netting());
 
         List<AnalyticsDto.MultiYearPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
                 .stream()
@@ -501,8 +509,11 @@ public class AnalyticsService {
         LocalDate from = firstDataMonth.atDay(1);
         LocalDate to = currentMonth.atEndOfMonth();
         SpendRows spend = activeSpend(userId, from, to);
-        Map<YearMonth, BigDecimal> expenseByMonth = sumByMonth(spend.rows(), spend.netting());
-        Map<YearMonth, BigDecimal> incomeByMonth = sumByMonth(activeIncomeTransactions(userId, from, to), refunds);
+        // Same rule as multiYearScalarReport: investment transfers are in neither total.
+        Map<YearMonth, BigDecimal> expenseByMonth = sumByMonth(
+                RefundNetting.excludingInvestmentTransfers(spend.rows()), spend.netting());
+        Map<YearMonth, BigDecimal> incomeByMonth = sumByMonth(
+                RefundNetting.excludingInvestmentTransfers(activeIncomeTransactions(userId, from, to)), refunds);
 
         List<AnalyticsDto.LifestyleInflationPoint> fullYears = MultiYearCoverage.yearCoverages(firstDataMonth, currentMonth, gaps)
                 .stream()

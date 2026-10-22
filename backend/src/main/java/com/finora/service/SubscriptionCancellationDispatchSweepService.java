@@ -97,7 +97,7 @@ public class SubscriptionCancellationDispatchSweepService {
     }
 
     public int sweep() {
-        LocalDate cutoff = LocalDate.now().plusDays(bufferDays);
+        LocalDate cutoff = BillingCalendar.today().plusDays(bufferDays);
         List<Subscription> candidates = subscriptionRepository.findSubscriptionsAwaitingCancellationDispatch(cutoff);
 
         int dispatched = 0;

@@ -4,13 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
-import com.finora.entity.FeatureEntitlement;
-import com.finora.entity.Plan;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
-import com.finora.repository.FeatureEntitlementRepository;
-import com.finora.repository.PlanRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -29,19 +25,11 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Fyn Phase 3's {@code /api/v1/insights/narration} entitlement gate -- same pattern as {@code
- * AnalyticsControllerIT}, against real Plan/Subscription/FeatureEntitlement rows, not mocks.
- *
- * <p>{@code FYN_INSIGHTS} has no seed migration yet (plan §7 item 1 -- pricing undecided), so
- * unlike {@code ADVANCED_REPORTS}, no real plan grants it today. The "entitled" case here inserts
- * the grant row directly rather than upgrading to a real plan, proving the gate opens correctly
- * once granted without waiting on a pricing decision this test has no business making.
- *
- * <p>Once granted, the endpoint still fails -- with 503, not 403 -- because no {@code
- * ANTHROPIC_API_KEY} is configured under test. That is the correct, expected failure mode
- * ({@code FynAvailabilityGuard} failing closed), and distinguishing 403 (denied by entitlement)
- * from 503 (denied by availability) is exactly the proof that the entitlement check ran and
- * passed before anything else was attempted.
+ * The numeric Insights endpoint, and {@code /api/v1/insights/narration}, which since the AI insights
+ * foundation (V283) serves the AI month story: FYN_INSIGHTS is granted to every plan, so a Free user
+ * is no longer refused by plan. With no ANTHROPIC_API_KEY under test, Fyn is unavailable and the
+ * endpoint answers 404 (no narration), which the website shows as "nothing to add". The story itself
+ * is covered by AiInsightControllerIT with a stub model.
  */
 class InsightsControllerIT extends AbstractIntegrationTest {
 
@@ -50,8 +38,6 @@ class InsightsControllerIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private SubscriptionService subscriptionService;
-    @Autowired private FeatureEntitlementRepository featureEntitlementRepository;
-    @Autowired private PlanRepository planRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private TransactionRepository transactionRepository;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -78,35 +64,15 @@ class InsightsControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void aFreeUser_isDeniedNarration_withTheEntitlementErrorCode() throws Exception {
+    void aFreeUser_isNotRefusedByPlan_andWithoutAKeyGetsNoNarration() throws Exception {
         User user = createUser();
         subscriptionService.provisionFreeSubscription(user.getId());
 
         ResponseEntity<String> response = get("/api/v1/insights/narration", user);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         JsonNode body = mapper.readTree(response.getBody());
-        assertThat(body.get("errorCode").asText()).isEqualTo("ENTITLEMENT_001");
-    }
-
-    @Test
-    void grantingFynInsightsClearsTheEntitlementGate_thenFailsClosedOnAvailability() {
-        User user = createUser();
-        subscriptionService.provisionFreeSubscription(user.getId());
-        Plan plan = planRepository.findByCode("PLUS").orElseThrow();
-        FeatureEntitlement grant = new FeatureEntitlement();
-        grant.setPlanId(plan.getId());
-        grant.setFeatureKey(FeatureEntitlement.FYN_INSIGHTS);
-        grant.setEnabled(true);
-        featureEntitlementRepository.save(grant);
-        subscriptionService.changePlan(user.getId(), "PLUS", "test-upgrade", user.getId());
-
-        ResponseEntity<String> response = get("/api/v1/insights/narration", user);
-
-        // Not FORBIDDEN: the entitlement check passed. Not OK either -- no ANTHROPIC_API_KEY is
-        // configured under test, so FynAvailabilityGuard refuses, correctly, before any Anthropic
-        // call is attempted.
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(body.path("errorCode").asText()).isNotEqualTo("ENTITLEMENT_001");
     }
 
     @Test

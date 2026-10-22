@@ -32,11 +32,17 @@ describe('importFailureMessage', () => {
   // Every code that has a message also has a plain headline: a message with no headline leaves the
   // card leading with a generic error, which is what a user reads first.
   it('has a headline for every code that has a message', () => {
-    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015', 'IMPORT_017', 'IMPORT_018'];
+    const codes = ['IMPORT_001', 'IMPORT_007', 'IMPORT_008', 'IMPORT_010', 'IMPORT_011', 'IMPORT_013', 'IMPORT_014', 'IMPORT_015', 'IMPORT_017', 'IMPORT_018', 'IMPORT_020'];
     for (const code of codes) {
       expect([code, importFailureMessage(code) !== undefined]).toEqual([code, true]);
       expect([code, importFailureTitle(code) !== undefined]).toEqual([code, true]);
     }
+  });
+
+  it('says the file mixes several accounts and what to upload instead', () => {
+    expect(importFailureMessage('IMPORT_020')).toMatch(/more than one account/i);
+    expect(importFailureMessage('IMPORT_020')).toMatch(/upload each bank or card statement on its own/i);
+    expect(importFailureTitle('IMPORT_020')).toBe('This file mixes several accounts');
   });
 
   it('says the file is a payment app history and what to import instead', () => {

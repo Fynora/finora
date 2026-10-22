@@ -112,6 +112,17 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
   });
 
+  it('navigates to Statements for STATEMENT_CORRECTED_BY_SUPPORT, where the corrected statement is', async () => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage('STATEMENT_CORRECTED_BY_SUPPORT'));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+  });
+
   it('does nothing for a type this app does not know how to route', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();

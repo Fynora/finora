@@ -45,6 +45,12 @@ describe('money figures refresh after an inflow-kind change (web caches them for
     ]));
   });
 
+  // The Advanced Reports page reads its whole period in one query, and income and savings move with
+  // what counts as income.
+  it('covers the Advanced Reports period', () => {
+    expect(MONEY_FIGURE_KEYS).toContain('advanced-report');
+  });
+
   // Shared payments and loans: a share, a loan entry or a rule moves the same figures, a repeating
   // bill's share, and the people rows; an inflow kind on a sender also stops the questions about it.
   it('covers the people rows and repeating payments too', () => {

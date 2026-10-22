@@ -124,11 +124,21 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/created only for that review and is never stored, and every\s+such access is logged/i);
   });
 
-  it('says a refresh uses the stored files, runs only when the user starts it, and keeps their edits', () => {
+  it('says a refresh uses the stored files, runs when the user starts it, and keeps their edits', () => {
     const t = policyText();
     expect(t).toMatch(/refresh the transactions from your statements\s+using these stored files/i);
-    expect(t).toMatch(/A refresh runs only when\s+you choose to start it/i);
-    expect(t).toMatch(/A transaction you edited keeps your changes/i);
+    expect(t).toMatch(/A refresh runs when you\s+choose to start it/i);
+    expect(t).toMatch(/a transaction you edited keeps your changes/i);
+  });
+
+  // AdminStatementCorrectionService: support can apply a checked correction for the user, audited,
+  // and the user is told what changed. The policy must not still promise "only when you start it".
+  it('says support may apply a checked correction for the user, who is told, and that it is logged', () => {
+    const t = policyText();
+    expect(t).not.toMatch(/runs only when/i);
+    expect(t).toMatch(/our support team may also apply it for you/i);
+    expect(t).toMatch(/told by push notification and by email what changed/i);
+    expect(t).toMatch(/Every such action is logged\s+and auditable/i);
   });
 
   it('does not mention Gmail or Google mailbox access while Gmail sync is paused and unreleased', () => {

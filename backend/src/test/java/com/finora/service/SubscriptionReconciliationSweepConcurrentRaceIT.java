@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
-import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -71,7 +70,7 @@ class SubscriptionReconciliationSweepConcurrentRaceIT extends AbstractIntegratio
         subscription.setPlanId(premium.getId());
         subscription.setStatus(Subscription.STATUS_CANCELLED);
         subscription.setAutoRenew(false);
-        subscription.setRenewalDate(LocalDate.now().minusDays(1));
+        subscription.setRenewalDate(BillingCalendar.today().minusDays(1));
         return subscriptionRepository.save(subscription);
     }
 

@@ -149,6 +149,30 @@ class AnthropicClientTest {
     }
 
     @Test
+    @DisplayName("a read timeout is classified distinctly, as a gateway timeout (AI insights reason PROVIDER_TIMEOUT)")
+    void classifiesAReadTimeout() throws IOException {
+        server.stop(0);
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        properties.setAnthropicBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        AnthropicClient impatient = new AnthropicClient(properties, java.time.Duration.ofMillis(300));
+
+        assertThatThrownBy(() -> impatient.complete(LlmRequest.singleTurn("s", "u", 50)))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.GATEWAY_TIMEOUT);
+    }
+
+    @Test
     @DisplayName("5xx is classified as transient")
     void classifies5xx() {
         status.set(503);

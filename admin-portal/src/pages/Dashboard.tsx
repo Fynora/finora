@@ -288,6 +288,11 @@ function DashboardContent() {
     queryKey: ['admin-stats-overview'],
     queryFn: () => adminStatsApi.overview(),
   });
+  // V286: sign-ups by source, same PLATFORM_STATS_VIEW gate as the lifetime totals above.
+  const { data: signupSources } = useQuery({
+    queryKey: ['admin-stats-signup-sources'],
+    queryFn: () => adminStatsApi.signupSources(),
+  });
   // D-27 PR3-D. Same PLATFORM_STATS_VIEW gate as the rest of this page -- see the controller's
   // own class comment on why this reuses that permission rather than minting a new one.
   const { data: activationFunnel } = useQuery({
@@ -463,6 +468,24 @@ function DashboardContent() {
                     <Icon size={15} className="text-muted flex-shrink-0" />
                     <span className="text-sm text-ink flex-1">{label}</span>
                     <span className="text-sm font-mono font-semibold text-ink">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* V286: every self-service account by where its sign-up came from -- the landing
+              link's utm_source, else the referring site, else "referral" (a friend's code) or
+              "direct" (typed in, or the mobile apps). Read-only; the only place this is shown. */}
+          {signupSources && signupSources.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Sign-ups by source</h2>
+              <div className="bg-card border border-border rounded-xl2 shadow-card divide-y divide-border">
+                {signupSources.map(({ source, users }) => (
+                  <div key={source} className="flex items-center gap-3 px-4 py-3">
+                    <UserPlus size={15} className="text-muted flex-shrink-0" />
+                    <span className="text-sm text-ink flex-1 truncate" title={source}>{source}</span>
+                    <span className="text-sm font-mono font-semibold text-ink">{users}</span>
                   </div>
                 ))}
               </div>

@@ -31,6 +31,7 @@ class AuthFlowIT extends AbstractIntegrationTest {
 
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
@@ -144,6 +145,77 @@ class AuthFlowIT extends AbstractIntegrationTest {
         User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
         assertThat(saved.getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
         assertThat(saved.getTermsAcceptedAt()).isBetween(before.minusSeconds(1), Instant.now());
+    }
+
+    /** V286: the attribution the website sends with a sign-up is persisted under the new account,
+     *  the referrer reduced to its host and an overlong tag cut to the column's cap. */
+    @Test
+    void register_withAttribution_persistsItUnderTheNewUser() throws Exception {
+        String email = "attr-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String longContent = "v".repeat(140);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Attribution Test", "phoneNumber": "%s",
+                 "attribution": {"referrerHost": "https://www.Example.org/some/page?session=abc",
+                                 "utmSource": "instagram", "utmMedium": "reel", "utmCampaign": "launch-oct",
+                                 "utmContent": "%s"}}
+                """.formatted(email, phoneNumber, longContent);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        var attribution = signupAttributionRepository.findById(saved.getId()).orElseThrow();
+        assertThat(attribution.getReferrerHost()).isEqualTo("www.example.org");
+        assertThat(attribution.getUtmSource()).isEqualTo("instagram");
+        assertThat(attribution.getUtmMedium()).isEqualTo("reel");
+        assertThat(attribution.getUtmCampaign()).isEqualTo("launch-oct");
+        assertThat(attribution.getUtmContent()).isEqualTo("v".repeat(100));
+        assertThat(mapper.readTree(response.getBody()).get("data").get("accountCreated").asBoolean()).isTrue();
+    }
+
+    /** V286: the mobile apps and a direct visit send no attribution; the sign-up must go through
+     *  exactly as before, with no attribution row. */
+    @Test
+    void register_withoutAttribution_persistsNoAttributionRow() {
+        String email = "noattr-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "No Attribution", "phoneNumber": "%s"}
+                """.formatted(email, phoneNumber);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        assertThat(signupAttributionRepository.findById(saved.getId())).isEmpty();
+    }
+
+    /** V286: an attribution object with nothing usable in it (empty strings, a referrer that is
+     *  not a host) writes no row either -- the table's CHECK forbids an all-null row. */
+    @Test
+    void register_withEmptyAttribution_persistsNoAttributionRow() {
+        String email = "emptyattr-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Empty Attribution", "phoneNumber": "%s",
+                 "attribution": {"referrerHost": "not a host", "utmSource": "", "utmMedium": "  "}}
+                """.formatted(email, phoneNumber);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        assertThat(signupAttributionRepository.findById(saved.getId())).isEmpty();
     }
 
     @Test

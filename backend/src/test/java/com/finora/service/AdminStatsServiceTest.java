@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 class AdminStatsServiceTest {
 
     private UserRepository userRepository;
+    private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     private AdminStatsService service;
 
     @BeforeEach
@@ -32,7 +33,9 @@ class AdminStatsServiceTest {
         AccountRepository accountRepository = mock(AccountRepository.class);
         TransactionRepository transactionRepository = mock(TransactionRepository.class);
         StatementImportRepository statementImportRepository = mock(StatementImportRepository.class);
-        service = new AdminStatsService(userRepository, accountRepository, transactionRepository, statementImportRepository);
+        signupAttributionRepository = mock(com.finora.repository.SignupAttributionRepository.class);
+        service = new AdminStatsService(userRepository, accountRepository, transactionRepository, statementImportRepository,
+                signupAttributionRepository);
 
         when(userRepository.countByCreatedAtAfter(any())).thenReturn(0L);
         when(accountRepository.count()).thenReturn(0L);
@@ -94,5 +97,25 @@ class AdminStatsServiceTest {
         assertThat(dto.totalUsers()).isEqualTo(5L);
         assertThat(dto.suspendedUsers()).isEqualTo(2L);
         assertThat(dto.activeUsers()).isEqualTo(3L);
+    }
+
+    /** V286: the sign-ups-by-source list is the repository's grouped count, excluding the
+     *  bootstrap account the same way overview() does, in the order the query returns. */
+    @Test
+    void signupSources_mapsTheGroupedCount_excludingTheBootstrapAccount() {
+        var instagram = mock(com.finora.repository.SignupAttributionRepository.SourceCount.class);
+        when(instagram.getSource()).thenReturn("instagram");
+        when(instagram.getUsers()).thenReturn(7L);
+        var direct = mock(com.finora.repository.SignupAttributionRepository.SourceCount.class);
+        when(direct.getSource()).thenReturn("direct");
+        when(direct.getUsers()).thenReturn(2L);
+        when(signupAttributionRepository.countBySource(BootstrapService.BOOTSTRAP_IDENTIFIER))
+                .thenReturn(java.util.List.of(instagram, direct));
+
+        var rows = service.signupSources();
+
+        assertThat(rows).containsExactly(
+                new com.finora.dto.AdminDtos.SignupSourceCountDto("instagram", 7L),
+                new com.finora.dto.AdminDtos.SignupSourceCountDto("direct", 2L));
     }
 }

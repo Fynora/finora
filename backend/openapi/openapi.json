@@ -11598,6 +11598,26 @@
                 }
             }
         },
+        "/api/v1/admin/stats/signup-sources": {
+            "get": {
+                "tags": [
+                    "admin-stats-controller"
+                ],
+                "operationId": "signupSources",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListSignupSourceCountDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/stats/overview": {
             "get": {
                 "tags": [
@@ -17902,6 +17922,9 @@
                     },
                     "referralCode": {
                         "type": "string"
+                    },
+                    "attribution": {
+                        "$ref": "#/components/schemas/SignupAttributionRequest"
                     }
                 },
                 "required": [
@@ -17910,6 +17933,26 @@
                     "password",
                     "phoneNumber"
                 ]
+            },
+            "SignupAttributionRequest": {
+                "type": "object",
+                "properties": {
+                    "referrerHost": {
+                        "type": "string"
+                    },
+                    "utmSource": {
+                        "type": "string"
+                    },
+                    "utmMedium": {
+                        "type": "string"
+                    },
+                    "utmCampaign": {
+                        "type": "string"
+                    },
+                    "utmContent": {
+                        "type": "string"
+                    }
+                }
             },
             "RedeemMilestoneRequest": {
                 "type": "object",
@@ -20182,6 +20225,9 @@
                     },
                     "referralCode": {
                         "type": "string"
+                    },
+                    "attribution": {
+                        "$ref": "#/components/schemas/SignupAttributionRequest"
                     }
                 },
                 "required": [
@@ -20255,6 +20301,9 @@
                     },
                     "referralCode": {
                         "type": "string"
+                    },
+                    "attribution": {
+                        "$ref": "#/components/schemas/SignupAttributionRequest"
                     }
                 },
                 "required": [
@@ -28920,6 +28969,49 @@
                         "format": "int64"
                     },
                     "pausedCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ApiResponseListSignupSourceCountDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SignupSourceCountDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "SignupSourceCountDto": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string"
+                    },
+                    "users": {
                         "type": "integer",
                         "format": "int64"
                     }

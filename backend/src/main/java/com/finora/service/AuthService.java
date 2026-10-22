@@ -125,6 +125,9 @@ public class AuthService {
     // D-28 PR4-C: redeems RegisterRequest.referralCode, if present -- see register()'s own call
     // site and ReferralService.redeemCode's doc comment for why this never blocks signup.
     private final ReferralService referralService;
+    // V286: records where a self-service sign-up came from -- register() and the OAuth sign-ins
+    // that create an account. Never blocks a signup; see the service's own doc comment.
+    private final SignupAttributionService signupAttributionService;
     private final MerchantSeedService merchantSeedService;
     // SEC-07: dispatches the forgotPassword() email send off the request thread -- see
     // BackgroundWorkConfig.authEmailExecutor's own doc comment for why.
@@ -151,7 +154,8 @@ public class AuthService {
                         MerchantSeedService merchantSeedService,
                         @Qualifier("authEmailExecutor") Executor authEmailExecutor,
                         AdminMfaService adminMfaService,
-                        EmailLoginOtpRepository emailLoginOtpRepository) {
+                        EmailLoginOtpRepository emailLoginOtpRepository,
+                        SignupAttributionService signupAttributionService) {
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
         this.resetTokenRepository = resetTokenRepository;
@@ -176,6 +180,7 @@ public class AuthService {
         this.authEmailExecutor = authEmailExecutor;
         this.adminMfaService = adminMfaService;
         this.emailLoginOtpRepository = emailLoginOtpRepository;
+        this.signupAttributionService = signupAttributionService;
     }
 
     @Transactional
@@ -196,6 +201,9 @@ public class AuthService {
         // track. See ReferralService.redeemCode's own doc comment for why an invalid code is a
         // silent no-op here, not a rejected request.
         referralService.redeemCode(user.getId(), request.referralCode());
+        // V286: where this sign-up came from, if the website captured anything. Same transaction,
+        // so a registration that rolls back leaves no attribution row behind.
+        signupAttributionService.record(user.getId(), request.attribution());
         auditService.record(user.getId(), "USER_REGISTERED", "User", user.getId());
         // BH-016: sent AFTER this transaction commits, not inside it. The provider is an HTTP call
         // to Resend with no read timeout, and this method holds one of ten pooled connections --
@@ -785,7 +793,16 @@ public class AuthService {
     @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithGoogle(com.finora.integrations.google.login.GoogleIdentity identity,
                                          String referralCode) {
-        return loginWithOAuthIdentity(identity.email(), identity.name(), OAuthProvider.GOOGLE, referralCode);
+        return loginWithGoogle(identity, referralCode, null);
+    }
+
+    /** @param attribution optional -- recorded only if this sign-in creates the account, like
+     *        {@code referralCode}; see {@link #loginWithOAuthIdentity}. */
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse loginWithGoogle(com.finora.integrations.google.login.GoogleIdentity identity,
+                                         String referralCode, SignupAttributionRequest attribution) {
+        return loginWithOAuthIdentity(identity.email(), identity.name(), OAuthProvider.GOOGLE, referralCode,
+                attribution);
     }
 
     /**
@@ -814,7 +831,17 @@ public class AuthService {
     @Transactional(noRollbackFor = ApiException.class)
     public AuthResponse loginWithApple(com.finora.integrations.apple.login.AppleIdentity identity,
                                         String clientProvidedFullName, String referralCode) {
-        return loginWithOAuthIdentity(identity.email(), clientProvidedFullName, OAuthProvider.APPLE, referralCode);
+        return loginWithApple(identity, clientProvidedFullName, referralCode, null);
+    }
+
+    /** @param attribution optional -- recorded only if this sign-in creates the account, like
+     *        {@code referralCode}; see {@link #loginWithOAuthIdentity}. */
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse loginWithApple(com.finora.integrations.apple.login.AppleIdentity identity,
+                                        String clientProvidedFullName, String referralCode,
+                                        SignupAttributionRequest attribution) {
+        return loginWithOAuthIdentity(identity.email(), clientProvidedFullName, OAuthProvider.APPLE, referralCode,
+                attribution);
     }
 
     /**
@@ -859,7 +886,7 @@ public class AuthService {
      * has to live on that boundary, not here.
      */
     private AuthResponse loginWithOAuthIdentity(String rawEmail, String displayName, OAuthProvider provider,
-                                                 String referralCode) {
+                                                 String referralCode, SignupAttributionRequest attribution) {
         String email = rawEmail.trim().toLowerCase();
         Optional<User> existing = findUserByEmailIgnoreCaseSafely(email, User.SCOPE_USER);
         boolean isNewAccount = existing.isEmpty();
@@ -913,6 +940,8 @@ public class AuthService {
         // Same silent-on-invalid redeemCode as register(), so a bad code never blocks signing in.
         if (isNewAccount) {
             referralService.redeemCode(user.getId(), referralCode);
+            // V286: same "only when THIS call created the account" rule as the referral code.
+            signupAttributionService.record(user.getId(), attribution);
         }
 
         var issued = refreshTokenService.issue(user.getId());

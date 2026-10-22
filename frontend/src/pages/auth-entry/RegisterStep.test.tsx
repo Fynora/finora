@@ -142,6 +142,7 @@ describe('RegisterStep', () => {
     callback({ credential: 'a-real-looking-jwt' });
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(false));
-    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234');
+    // Third argument: the tab's signup attribution (lib/signupAttribution.ts), none in this test.
+    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234', undefined);
   });
 });

@@ -25,7 +25,7 @@ vi.mock('../context/AdminAuthContext', () => ({
 }));
 vi.mock('../api/endpoints', () => ({
   adminDashboardApi: { overview: vi.fn(), activationFunnel: vi.fn(), activityTrend: vi.fn() },
-  adminStatsApi: { overview: vi.fn() },
+  adminStatsApi: { overview: vi.fn(), signupSources: vi.fn() },
   adminSystemApi: { health: vi.fn() },
 }));
 
@@ -75,8 +75,33 @@ describe('Dashboard — Activation Funnel', () => {
     vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
       totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
     } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
     vi.mocked(adminSystemApi.health).mockReset();
     mockAuth(['PLATFORM_STATS_VIEW']);
+  });
+
+  // V286: the read-only "sign-ups by source" list next to the lifetime totals.
+  it('lists sign-ups by source once that query resolves, and nothing when there are none', async () => {
+    vi.mocked(adminStatsApi.signupSources).mockResolvedValue([
+      { source: 'instagram', users: 7 },
+      { source: 'news.example.org', users: 3 },
+      { source: 'direct', users: 2 },
+    ]);
+    renderPage();
+
+    expect(await screen.findByText('Sign-ups by source')).toBeInTheDocument();
+    expect(screen.getByText('instagram')).toBeInTheDocument();
+    expect(screen.getByText('news.example.org')).toBeInTheDocument();
+    expect(screen.getByText('direct')).toBeInTheDocument();
+    expect(screen.getByText('7')).toBeInTheDocument();
+  });
+
+  it('shows no sign-ups-by-source section on a platform with no accounts yet', async () => {
+    vi.mocked(adminStatsApi.signupSources).mockResolvedValue([]);
+    renderPage();
+
+    await waitFor(() => expect(adminStatsApi.signupSources).toHaveBeenCalled());
+    expect(screen.queryByText('Sign-ups by source')).not.toBeInTheDocument();
   });
 
   it('renders each stage with its own count and percentage of signups', async () => {
@@ -132,6 +157,7 @@ describe('Dashboard — stat tile deltas', () => {
     vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
       totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
     } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
     vi.mocked(adminSystemApi.health).mockReset();
     mockAuth(['PLATFORM_STATS_VIEW']);
   });
@@ -206,6 +232,7 @@ describe('Dashboard — Platform Activity chart + Insights row', () => {
     vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
       totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
     } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
     vi.mocked(adminSystemApi.health).mockReset();
     mockAuth(['PLATFORM_STATS_VIEW']);
   });
@@ -288,6 +315,7 @@ describe('Dashboard — needs attention: open holds', () => {
     vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
       totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
     } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
     vi.mocked(adminSystemApi.health).mockReset();
     mockAuth(['PLATFORM_STATS_VIEW']);
   });

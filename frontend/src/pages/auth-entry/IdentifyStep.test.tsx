@@ -174,7 +174,8 @@ describe('IdentifyStep', () => {
     callback({ credential: 'a-real-looking-jwt' });
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(true));
-    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234');
+    // Third argument: the tab's signup attribution (lib/signupAttribution.ts), none in this test.
+    expect(authApi.google).toHaveBeenLastCalledWith('a-real-looking-jwt', 'ABCD1234', undefined);
   });
 
   it('shows the backend error message and does not call onSuccess when Google sign-in fails', async () => {

@@ -47,7 +47,33 @@ public class AuthDtos {
             @NotBlank @Pattern(regexp = FULL_NAME_REGEXP, message = FULL_NAME_MESSAGE) String fullName,
             @NotBlank @Pattern(regexp = PHONE_REGEXP, message = PHONE_MESSAGE)
             String phoneNumber,
-            String referralCode
+            String referralCode,
+            // Optional, like referralCode: where the visit that led to this sign-up came from. The
+            // website sends it; the mobile apps and any caller that predates it send nothing.
+            SignupAttributionRequest attribution
+    ) {
+        /** Without attribution -- every caller that has none, admin-assisted signup included. */
+        public RegisterRequest(String email, String password, String fullName, String phoneNumber,
+                               String referralCode) {
+            this(email, password, fullName, phoneNumber, referralCode, null);
+        }
+    }
+
+    /**
+     * Where the visit that ended in a sign-up came from, as the browser captured it on the first
+     * page it loaded (frontend/src/lib/signupAttribution.ts): the host of the page that linked to
+     * Fynora and the campaign tags on the landing link. Every field optional. Deliberately
+     * unvalidated at this layer, like {@link RegisterRequest#referralCode}:
+     * {@code SignupAttributionService} normalizes, caps and drops what it cannot use, and a
+     * malformed value must never turn into a rejected registration. Lengths are capped there, not
+     * here, for the same reason.
+     */
+    public record SignupAttributionRequest(
+            String referrerHost,
+            String utmSource,
+            String utmMedium,
+            String utmCampaign,
+            String utmContent
     ) {}
 
     /**
@@ -107,7 +133,14 @@ public class AuthDtos {
      * {@code GoogleIdTokenVerifierService} before trusting anything it says, same discipline as
      * {@code ResetPasswordRequest.firebaseIdToken}.
      */
-    public record GoogleAuthRequest(@NotBlank String idToken, String referralCode) {}
+    public record GoogleAuthRequest(@NotBlank String idToken, String referralCode,
+                                    // Same semantics as RegisterRequest.attribution: recorded only
+                                    // when this sign-in CREATES the account.
+                                    SignupAttributionRequest attribution) {
+        public GoogleAuthRequest(String idToken, String referralCode) {
+            this(idToken, referralCode, null);
+        }
+    }
 
     /**
      * D-23 Phase 2: {@code idToken} is the raw Apple identity token from native
@@ -137,8 +170,15 @@ public class AuthDtos {
             // Optional, same semantics as RegisterRequest.referralCode: used only when this sign-in
             // CREATES the account (a friend's link, or a code typed on the sign-up screen before
             // tapping Apple/Google), ignored for a returning user. See AuthService.loginWithOAuthIdentity.
-            String referralCode
-    ) {}
+            String referralCode,
+            // Same semantics as RegisterRequest.attribution: recorded only when this sign-in
+            // CREATES the account.
+            SignupAttributionRequest attribution
+    ) {
+        public AppleAuthRequest(String idToken, String fullName, String referralCode) {
+            this(idToken, fullName, referralCode, null);
+        }
+    }
 
     /** token = short-lived access token (15 min default); refreshToken = long-lived (30 days),
      *  used to obtain a new access token via /auth/refresh without re-entering credentials.

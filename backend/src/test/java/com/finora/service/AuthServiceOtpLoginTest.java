@@ -73,7 +73,8 @@ class AuthServiceOtpLoginTest {
                 mock(com.finora.service.MerchantSeedService.class),
                 Runnable::run,
                 mock(AdminMfaService.class),
-                emailLoginOtpRepository
+                emailLoginOtpRepository,
+                mock(com.finora.service.SignupAttributionService.class)
         );
         // AuthService's own constructor calls passwordEncoder.encode() once (timingParityHash,
         // BH-014) -- clearing here so each test's own verify(passwordEncoder).encode(...) counts

@@ -79,7 +79,8 @@ class AuthServiceMfaLoginTest {
                 mock(com.finora.service.MerchantSeedService.class),
                 Runnable::run,
                 adminMfaService,
-                mock(com.finora.repository.EmailLoginOtpRepository.class)
+                mock(com.finora.repository.EmailLoginOtpRepository.class),
+                mock(com.finora.service.SignupAttributionService.class)
         );
     }
 

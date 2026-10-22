@@ -48,6 +48,7 @@ class AuthServiceGoogleLoginTest {
     private PlatformSettingsService platformSettingsService;
     private AuthService authService;
     private com.finora.service.ReferralService referralService;
+    private SignupAttributionService signupAttributionService;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
@@ -74,6 +75,7 @@ class AuthServiceGoogleLoginTest {
         emailVerificationTokenRepository = mock(com.finora.repository.EmailVerificationTokenRepository.class);
         auditService = mock(AuditService.class);
         referralService = mock(com.finora.service.ReferralService.class);
+        signupAttributionService = mock(SignupAttributionService.class);
         emailProvider = mock(EmailProvider.class);
         when(emailProvider.sendEmailVerificationEmail(any(), any()))
                 .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
@@ -98,7 +100,8 @@ class AuthServiceGoogleLoginTest {
                 // SEC-03: no MFA gate interference for tests unrelated to it -- an
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
-                mock(com.finora.repository.EmailLoginOtpRepository.class)
+                mock(com.finora.repository.EmailLoginOtpRepository.class),
+                signupAttributionService
         );
         // AuthService's own constructor calls passwordEncoder.encode() once, to build the BH-014
         // timing-parity hash (see that field's own doc comment) -- clearing invocations here so
@@ -118,6 +121,32 @@ class AuthServiceGoogleLoginTest {
         u.setPhoneNumber("+919876500001");
         u.setEmailVerified(true);
         return u;
+    }
+
+    /** V286: a Google sign-up is a registration, so it records where the visit came from. */
+    @Test
+    void newAccount_recordsTheSignupAttributionItWasSentWith() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.empty());
+        var attribution = new com.finora.dto.AuthDtos.SignupAttributionRequest(
+                "www.example.org", "instagram", "reel", null, null);
+
+        authService.loginWithGoogle(new GoogleIdentity("amy@example.test", "Amy Santiago"), null, attribution);
+
+        verify(signupAttributionService).record(userId, attribution);
+    }
+
+    /** V286: a returning user's sign-in must never attach an attribution after the fact. */
+    @Test
+    void existingAccount_recordsNoSignupAttribution() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
+                .thenReturn(Optional.of(existingUser("amy@example.test", "ACTIVE")));
+        var attribution = new com.finora.dto.AuthDtos.SignupAttributionRequest(
+                "www.example.org", "instagram", "reel", null, null);
+
+        authService.loginWithGoogle(new GoogleIdentity("amy@example.test", "Amy Santiago"), null, attribution);
+
+        verify(signupAttributionService, never()).record(any(), any());
     }
 
     @Test

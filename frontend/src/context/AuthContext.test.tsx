@@ -191,6 +191,39 @@ describe('AuthContext', () => {
     expect(Object.values(localStorage)).not.toContain('refresh-token-1');
   });
 
+  // V286: the tab's capture (lib/signupAttribution.ts, written by main.tsx) rides along with the
+  // registration and with a Google sign-in, since either may create the account. Read at call
+  // time, so a capture written after mount still reaches the request.
+  it('register() and loginWithGoogle() send the signup attribution this tab captured', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.register).mockResolvedValue({ data: { ...AUTH_RESPONSE, phoneVerified: false } } as any);
+    vi.mocked(authApi.google).mockResolvedValue({ data: { ...AUTH_RESPONSE, phoneVerified: false } } as any);
+    window.sessionStorage.setItem('finora:signup-attribution',
+      JSON.stringify({ referrerHost: 'news.example.org', utmSource: 'news' }));
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(authApi.register).toHaveBeenCalled());
+    expect(vi.mocked(authApi.register).mock.calls[0][5]).toEqual({ referrerHost: 'news.example.org', utmSource: 'news' });
+
+    await user.click(screen.getByRole('button', { name: 'Sign in with Google' }));
+    await waitFor(() => expect(authApi.google).toHaveBeenCalled());
+    expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', undefined,
+      { referrerHost: 'news.example.org', utmSource: 'news' });
+    window.sessionStorage.removeItem('finora:signup-attribution');
+  });
+
+  it('register() sends no attribution when this tab captured none', async () => {
+    const user = userEvent.setup();
+    vi.mocked(authApi.register).mockResolvedValue({ data: { ...AUTH_RESPONSE, phoneVerified: false } } as any);
+    window.sessionStorage.removeItem('finora:signup-attribution');
+    renderHarness();
+
+    await user.click(screen.getByRole('button', { name: 'Register' }));
+    await waitFor(() => expect(authApi.register).toHaveBeenCalled());
+    expect(vi.mocked(authApi.register).mock.calls[0][5]).toBeUndefined();
+  });
+
   it('register() persists the session the same way login() does', async () => {
     const user = userEvent.setup();
     vi.mocked(authApi.register).mockResolvedValue({ data: { ...AUTH_RESPONSE, phoneVerified: false } } as any);
@@ -212,7 +245,7 @@ describe('AuthContext', () => {
 
     await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
     expect(screen.getByTestId('phoneVerified')).toHaveTextContent('false');
-    expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', undefined);
+    expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', undefined, undefined);
     expect(localStorage.getItem('finora_refresh_token')).toBeNull();
   });
 
@@ -236,7 +269,7 @@ describe('AuthContext', () => {
       await user.click(screen.getByRole('button', { name: 'Google with code' }));
 
       await waitFor(() => expect(screen.getByTestId('token')).toHaveTextContent('access-token-1'));
-      expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', 'abcd1234');
+      expect(authApi.google).toHaveBeenCalledWith('fake-google-id-token', 'abcd1234', undefined);
       expect(screen.getByTestId('referralPromptPending')).toHaveTextContent('false');
     });
 

@@ -218,6 +218,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    @Autowired private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     @Autowired private com.finora.people.PeopleData peopleData;
     @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
     @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
@@ -273,7 +274,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -373,6 +374,20 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(insightAcknowledgementRepository.findByUserId(userId)).isEmpty();
+    }
+
+    /** Where the sign-up came from (V286), same anonymize-not-delete trap: the privacy page says
+     *  it goes with the account. */
+    @Test
+    @Transactional
+    void purgeDeletesSignupAttribution() {
+        signupAttributionRepository.save(new com.finora.entity.SignupAttribution(
+                userId, "www.example.org", "instagram", "reel", null, null));
+        assertThat(signupAttributionRepository.findById(userId)).isPresent();
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(signupAttributionRepository.findById(userId)).isEmpty();
     }
 
     /** Shared payments and loans (V281): all five tables, same anonymize-not-delete trap. */

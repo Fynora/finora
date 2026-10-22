@@ -3,6 +3,7 @@ import { authApi, userApi } from '../api/endpoints';
 import { AUTH_CHANGED_EVENT } from './ThemeContext';
 import { safeStorage } from '../lib/safeStorage';
 import { forgetActivationAnswered } from '../lib/activationQuestions';
+import { readSignupAttribution } from '../lib/signupAttribution';
 import { getAccessToken, setAccessToken, refreshAccessToken } from '../api/client';
 
 interface AuthState {
@@ -181,7 +182,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     phoneNumber: string,
     referralCode?: string
   ): Promise<{ phoneVerified: boolean }> {
-    const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode);
+    // Where this tab's visit came from, read at call time (the capture happens in main.tsx) --
+    // undefined for a direct visit, so the request body is unchanged for one.
+    const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode,
+      readSignupAttribution(window));
     persist(res.data);
     // VerifyPhone.tsx fetches the account's real phone number itself (userApi.get(), now that
     // it's authenticated) rather than being handed it via router state -- one less thing this
@@ -191,7 +195,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loginWithGoogle(idToken: string, referralCode?: string): Promise<boolean> {
     const code = referralCode?.trim() || undefined;
-    const res = await authApi.google(idToken, code);
+    // Same attribution as register(): the backend uses it only if this sign-in creates the account.
+    const res = await authApi.google(idToken, code, readSignupAttribution(window));
     persist(res.data);
     offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;
@@ -199,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loginWithApple(idToken: string, fullName: string | null, referralCode?: string): Promise<boolean> {
     const code = referralCode?.trim() || undefined;
-    const res = await authApi.apple(idToken, fullName, code);
+    const res = await authApi.apple(idToken, fullName, code, readSignupAttribution(window));
     persist(res.data);
     offerReferralPromptIfNew(res.data, code);
     return res.data.phoneVerified;

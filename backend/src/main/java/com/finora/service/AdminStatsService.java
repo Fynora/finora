@@ -1,7 +1,9 @@
 package com.finora.service;
 
 import com.finora.dto.AdminDtos.PlatformStatsDto;
+import com.finora.dto.AdminDtos.SignupSourceCountDto;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.SignupAttributionRepository;
 import com.finora.repository.StatementImportRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -26,14 +28,26 @@ public class AdminStatsService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final StatementImportRepository statementImportRepository;
+    private final SignupAttributionRepository signupAttributionRepository;
 
     public AdminStatsService(UserRepository userRepository, AccountRepository accountRepository,
                               TransactionRepository transactionRepository,
-                              StatementImportRepository statementImportRepository) {
+                              StatementImportRepository statementImportRepository,
+                              SignupAttributionRepository signupAttributionRepository) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.statementImportRepository = statementImportRepository;
+        this.signupAttributionRepository = signupAttributionRepository;
+    }
+
+    /** V286: sign-ups by source, excluding the bootstrap account the same way overview() does
+     *  (internal and ADMIN-scope accounts are left out in the query itself). */
+    @Transactional(readOnly = true)
+    public java.util.List<SignupSourceCountDto> signupSources() {
+        return signupAttributionRepository.countBySource(BootstrapService.BOOTSTRAP_IDENTIFIER).stream()
+                .map(row -> new SignupSourceCountDto(row.getSource(), row.getUsers()))
+                .toList();
     }
 
     @Transactional(readOnly = true)

@@ -5012,6 +5012,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/stats/signup-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signupSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/stats/overview": {
         parameters: {
             query?: never;
@@ -7703,6 +7719,14 @@ export interface components {
             fullName: string;
             phoneNumber: string;
             referralCode?: string;
+            attribution?: components["schemas"]["SignupAttributionRequest"];
+        };
+        SignupAttributionRequest: {
+            referrerHost?: string;
+            utmSource?: string;
+            utmMedium?: string;
+            utmCampaign?: string;
+            utmContent?: string;
         };
         RedeemMilestoneRequest: {
             tier: string;
@@ -8520,6 +8544,7 @@ export interface components {
         GoogleAuthRequest: {
             idToken: string;
             referralCode?: string;
+            attribution?: components["schemas"]["SignupAttributionRequest"];
         };
         ForgotPasswordRequest: {
             /** Format: email */
@@ -8546,6 +8571,7 @@ export interface components {
             idToken: string;
             fullName?: string;
             referralCode?: string;
+            attribution?: components["schemas"]["SignupAttributionRequest"];
         };
         RuleCreateRequest: {
             field: string;
@@ -11925,6 +11951,23 @@ export interface components {
             pendingOrderCount?: number;
             /** Format: int64 */
             pausedCount?: number;
+        };
+        ApiResponseListSignupSourceCountDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SignupSourceCountDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SignupSourceCountDto: {
+            source?: string;
+            /** Format: int64 */
+            users?: number;
         };
         ApiResponsePlatformStatsDto: {
             success?: boolean;
@@ -22247,6 +22290,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseSubscriptionHealthDto"];
+                };
+            };
+        };
+    };
+    signupSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListSignupSourceCountDto"];
                 };
             };
         };

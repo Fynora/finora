@@ -68,7 +68,8 @@ class AuthServiceEmailTest {
                 // SEC-03: no MFA gate interference for tests unrelated to it -- an
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
-                mock(com.finora.repository.EmailLoginOtpRepository.class)
+                mock(com.finora.repository.EmailLoginOtpRepository.class),
+                mock(com.finora.service.SignupAttributionService.class)
         );
     }
 
@@ -113,7 +114,8 @@ class AuthServiceEmailTest {
                 mock(com.finora.service.MerchantSeedService.class),
                 captured::set, // records the work instead of running it
                 mock(AdminMfaService.class),
-                mock(com.finora.repository.EmailLoginOtpRepository.class)
+                mock(com.finora.repository.EmailLoginOtpRepository.class),
+                mock(com.finora.service.SignupAttributionService.class)
         );
         when(emailProvider.isConfigured()).thenReturn(true);
         when(emailProvider.sendPasswordResetEmail(any(), any()))

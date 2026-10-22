@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initMonitoring } from './lib/monitoring';
 import { dropNotFoundDocumentText } from './lib/notFoundDocument';
+import { captureSignupAttribution } from './lib/signupAttribution';
 // Before index.css, so the @font-face rules precede the stylesheet that names the families.
 import './fonts';
 import './index.css';
@@ -15,6 +16,11 @@ initMonitoring();
 
 // Before render: the first page's effects then write over the defaults, never the other way round.
 dropNotFoundDocumentText();
+
+// Before render and before any in-app navigation: where this tab's visit came from (the referring
+// host and the link's utm tags), kept in sessionStorage for the sign-up that may end it. See the
+// file for what is and is not kept.
+captureSignupAttribution(window);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -288,6 +288,7 @@ public class DataExportService {
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    private final com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
     private final com.finora.people.PeopleData peopleData;
     private final StatementContentService statementContentService;
@@ -339,6 +340,7 @@ public class DataExportService {
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
                               com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
+                              com.finora.repository.SignupAttributionRepository signupAttributionRepository,
                               com.finora.repository.AiInsightTextRepository aiInsightTextRepository,
                               com.finora.people.PeopleData peopleData,
                               StatementContentService statementContentService) {
@@ -361,6 +363,7 @@ public class DataExportService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
+        this.signupAttributionRepository = signupAttributionRepository;
         this.aiInsightTextRepository = aiInsightTextRepository;
         this.peopleData = peopleData;
         this.statementContentService = statementContentService;
@@ -521,6 +524,14 @@ public class DataExportService {
                 insightAcknowledgementRepository.findByUserId(userId).stream()
                         .map(a -> new com.finora.dto.DataExportDto.InsightAcknowledgementExportDto(
                                 a.getKind(), a.getItemKey(), a.getAcknowledgedAt()))
+                        .toList();
+        // V286: where the website sign-up came from, in the purge scope, so exported. One row at
+        // most; none when the browser reported nothing (a direct visit, the mobile apps).
+        List<com.finora.dto.DataExportDto.SignupAttributionExportDto> signupSource =
+                signupAttributionRepository.findById(userId).stream()
+                        .map(a -> new com.finora.dto.DataExportDto.SignupAttributionExportDto(
+                                a.getReferrerHost(), a.getUtmSource(), a.getUtmMedium(), a.getUtmCampaign(),
+                                a.getUtmContent(), a.getCreatedAt()))
                         .toList();
         // V283: the AI texts written for the user, in the purge scope, so exported.
         List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights =
@@ -818,7 +829,7 @@ public class DataExportService {
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
-                activationAnswers, insightAcknowledgements, aiInsights, sharedPayments);
+                activationAnswers, insightAcknowledgements, signupSource, aiInsights, sharedPayments);
     }
 
     /**
@@ -890,6 +901,7 @@ public class DataExportService {
             writeJsonEntry(zos, "import_funnel_days.json", bundle.importFunnelDays());
             writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
             writeJsonEntry(zos, "insight_acknowledgements.json", bundle.insightAcknowledgements());
+            writeJsonEntry(zos, "signup_source.json", bundle.signupSource());
             writeJsonEntry(zos, "ai_insights.json", bundle.aiInsights());
             writeJsonEntry(zos, "shared_payments.json", bundle.sharedPayments());
 
@@ -1040,6 +1052,7 @@ public class DataExportService {
                 new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
                 new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
                 new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size()),
+                new ManifestEntry("signup_source.json", "Where the website visit that ended in your sign-up came from: the referring site's name and the campaign tags on the link, if any.", bundle.signupSource().size()),
                 new ManifestEntry("ai_insights.json", "The AI-written month stories and \"Why?\" answers on your Insights, and the thumbs up or down you gave them.", bundle.aiInsights().size()),
                 new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size())
         );
@@ -1150,6 +1163,7 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
             List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
             List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements,
+            List<com.finora.dto.DataExportDto.SignupAttributionExportDto> signupSource,
             List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights,
             com.finora.people.PeopleData.PeopleExport sharedPayments
     ) {}

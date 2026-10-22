@@ -53,6 +53,11 @@ public class AdminDtos {
             String accountScope
     ) {}
 
+    /** One line of the admin Dashboard's "sign-ups by source" list (V286): {@code source} is
+     *  the landing link's utm_source, else the host that linked here, else "referral" or
+     *  "direct" -- see SignupAttributionRepository.countBySource. Same gate as PlatformStatsDto. */
+    public record SignupSourceCountDto(String source, long users) {}
+
     /** Aggregate, platform-wide (not per-user) counts for the admin Dashboard's stat tiles.
      *  Gated by PLATFORM_STATS_VIEW -- see V24__admin_platform_stats_permission.sql. */
     public record PlatformStatsDto(

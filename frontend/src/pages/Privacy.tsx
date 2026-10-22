@@ -30,6 +30,13 @@ export default function Privacy() {
           Fynora) and a small amount of technical information needed to operate the Service
           securely (login timestamps, IP address at login, device/browser information for session security).
         </p>
+        <p>
+          When you sign up on the website, Fynora also notes where that visit came from: the name of the
+          website that linked you here (its address only, never the page you were on) and any campaign tags
+          in the link you followed (utm_source, utm_medium, utm_campaign, utm_content). We use this only to
+          learn which places bring people to Fynora. It is kept with your account and deleted with it, and is
+          never used to advertise to you.
+        </p>
       </PublicSection>
 
       <PublicSection title="Personal Information">

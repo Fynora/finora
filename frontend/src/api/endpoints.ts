@@ -1,4 +1,5 @@
 import { api, rawApi, type ApiEnvelope } from './client';
+import type { SignupAttribution } from '../lib/signupAttribution';
 import { downloadBlob } from '../lib/download';
 import type { components } from './generated-types';
 
@@ -62,8 +63,12 @@ export const authApi = {
   // referralCode: D-28 PR4-C. Optional -- Register.tsx passes it only when the page was reached
   // via a referral link's `?ref=` param. Omitted (undefined) for the overwhelming majority of
   // registrations, same as the backend's own RegisterRequest.referralCode.
-  register: (email: string, password: string, fullName: string, phoneNumber: string, referralCode?: string) =>
-    api.post<AuthResponseDto>('/auth/register', { email, password, fullName, phoneNumber, referralCode }),
+  // attribution: where this tab's visit came from (lib/signupAttribution.ts) -- AuthContext reads
+  // it at call time and passes it here; undefined for a direct visit. The backend records it only
+  // for the account this call creates (SignupAttributionService).
+  register: (email: string, password: string, fullName: string, phoneNumber: string, referralCode?: string,
+             attribution?: SignupAttribution) =>
+    api.post<AuthResponseDto>('/auth/register', { email, password, fullName, phoneNumber, referralCode, attribution }),
   // `identifier` accepts either an email address or a registered mobile number -- see
   // AuthService.resolveEmailForLogin on the backend, which resolves either down to the
   // account's real email before authenticating.
@@ -122,14 +127,15 @@ export const authApi = {
   // both registration and login: the backend auto-links to an existing account sharing the same
   // Google-verified email, or creates one, and returns the same AuthResponseDto shape either way.
   // referralCode: optional -- the backend redeems it only if this sign-in creates the account.
-  google: (idToken: string, referralCode?: string) =>
-    api.post<AuthResponseDto>('/auth/google', { idToken, referralCode }),
+  // attribution: same as register()'s -- used only when this sign-in creates the account.
+  google: (idToken: string, referralCode?: string, attribution?: SignupAttribution) =>
+    api.post<AuthResponseDto>('/auth/google', { idToken, referralCode, attribution }),
   // D-26 (web). Same shape as google() -- idToken is what AppleSignInButton's signIn() promise
   // resolves with, verified server-side (AppleIdTokenVerifierService), never trusted as-is.
   // fullName is only ever present on the FIRST authorization for a given Apple ID/client id pair
   // (Apple's own constraint, not this client's) -- forwarded through unvalidated, same as native.
-  apple: (idToken: string, fullName: string | null, referralCode?: string) =>
-    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode }),
+  apple: (idToken: string, fullName: string | null, referralCode?: string, attribution?: SignupAttribution) =>
+    api.post<AuthResponseDto>('/auth/apple', { idToken, fullName, referralCode, attribution }),
   // token is the raw verification token from a /verify-email?token=... link (register(), or a
   // fresh one loginWithGoogle sends when it finds a matching but not-yet-verified account -- see
   // VerifyEmail.tsx). Not authenticated: the token itself is the proof.

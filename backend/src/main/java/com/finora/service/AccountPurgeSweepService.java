@@ -53,6 +53,7 @@ import com.finora.repository.PasswordResetTokenRepository;
 import com.finora.repository.PaymentRepository;
 import com.finora.repository.PhoneChangeSessionRepository;
 import com.finora.repository.InsightAcknowledgementRepository;
+import com.finora.repository.SignupAttributionRepository;
 import com.finora.repository.RecurringDismissalRepository;
 import com.finora.repository.ReferralChargeRepository;
 import com.finora.repository.ReferralCodeRepository;
@@ -254,6 +255,7 @@ public class AccountPurgeSweepService {
     private final ImportFunnelDayRepository importFunnelDayRepository;
     private final ActivationAnswerRepository activationAnswerRepository;
     private final InsightAcknowledgementRepository insightAcknowledgementRepository;
+    private final SignupAttributionRepository signupAttributionRepository;
     private final com.finora.people.PeopleData peopleData;
     private final RecurringDismissalRepository recurringDismissalRepository;
     private final AccountAggregatorLinkRepository accountAggregatorLinkRepository;
@@ -331,6 +333,7 @@ public class AccountPurgeSweepService {
                                      ImportFunnelDayRepository importFunnelDayRepository,
                                      ActivationAnswerRepository activationAnswerRepository,
                                      InsightAcknowledgementRepository insightAcknowledgementRepository,
+                                     SignupAttributionRepository signupAttributionRepository,
                                      com.finora.people.PeopleData peopleData,
                                      RecurringDismissalRepository recurringDismissalRepository,
                                      AccountAggregatorLinkRepository accountAggregatorLinkRepository,
@@ -407,6 +410,7 @@ public class AccountPurgeSweepService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
+        this.signupAttributionRepository = signupAttributionRepository;
         this.peopleData = peopleData;
         this.recurringDismissalRepository = recurringDismissalRepository;
         this.accountAggregatorLinkRepository = accountAggregatorLinkRepository;
@@ -833,6 +837,9 @@ public class AccountPurgeSweepService {
             activationAnswerRepository.deleteByUserId(userId);
             // V277: the Insights "Got it" record, same anonymize-not-delete trap.
             insightAcknowledgementRepository.deleteByUserId(userId);
+            // V286: where the sign-up came from, same anonymize-not-delete trap. The privacy page
+            // promises this goes with the account.
+            signupAttributionRepository.deleteByUserId(userId);
             // V281: shared payments and loans, same anonymize-not-delete trap.
             peopleData.deleteByUserId(userId);
             recurringDismissalRepository.deleteByUserId(userId);

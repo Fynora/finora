@@ -50,6 +50,13 @@ export interface PlatformStatsDto {
   totalStatementImports: number;
 }
 
+/** One line of the Dashboard's "sign-ups by source" list (AdminStatsController /signup-sources):
+ *  the landing link's utm_source, else the referring host, else "referral" or "direct". */
+export interface SignupSourceCountDto {
+  source: string;
+  users: number;
+}
+
 // --- Operational Dashboard (AdminOperationalDashboardController / com.finora.health.*) ---
 
 export interface ProviderStatusDto {

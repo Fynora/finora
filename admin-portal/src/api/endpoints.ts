@@ -12,7 +12,7 @@ import type {
   SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
-  CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto,
+  CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto, SignupSourceCountDto,
   LearningTimelineEntry,
   IntegrationsOverviewDto,
   MeAccessDto, MerchantDto, MerchantMergeRequest, MerchantStatDto, MerchantTemplateDto,
@@ -349,6 +349,9 @@ export const adminAuditApi = {
 
 export const adminStatsApi = {
   overview: () => api.get<PlatformStatsDto>('/admin/stats/overview').then((r) => r.data),
+  // Every self-service account by where its sign-up came from, most first. Same
+  // PLATFORM_STATS_VIEW gate as overview().
+  signupSources: () => api.get<SignupSourceCountDto[]>('/admin/stats/signup-sources').then((r) => r.data),
 };
 
 // The Operational Dashboard -- "Is Finora healthy?" as one screen (AdminOperationalDashboardController).

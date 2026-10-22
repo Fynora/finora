@@ -96,6 +96,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate activationJdbc;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    @Autowired private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     @Autowired private com.finora.repository.TransactionRepository transactionRepository;
     @Autowired private com.finora.repository.CategoryRepository categoryRepository;
     @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
@@ -612,6 +613,31 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(acks.get(0).get("kind").asText()).isEqualTo("CARD_STATEMENT_MISSING");
         assertThat(acks.get(0).get("itemKey").asText()).isEqualTo("2026-09");
         assertThat(acks.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("kind", "itemKey", "acknowledgedAt");
+    }
+
+    /** Where the sign-up came from (V286) leaves as the referring host, the four tags and the date,
+     *  and only this user's row. */
+    @Test
+    void exportIncludesSignupSource() throws Exception {
+        signupAttributionRepository.save(new com.finora.entity.SignupAttribution(
+                userId, "news.example.org", "news", null, "launch-oct", null));
+        User otherUser = new User();
+        otherUser.setEmail("export-it-src-" + UUID.randomUUID() + "@example.com");
+        otherUser.setPasswordHash(passwordEncoder.encode(PASSWORD));
+        otherUser.setFullName("Other Export Test User");
+        UUID otherUserId = userRepository.save(otherUser).getId();
+        signupAttributionRepository.save(new com.finora.entity.SignupAttribution(
+                otherUserId, null, "instagram", "reel", null, null));
+
+        Map<String, byte[]> entries = export();
+
+        JsonNode rows = new ObjectMapper().readTree(entries.get("signup_source.json"));
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("referrerHost").asText()).isEqualTo("news.example.org");
+        assertThat(rows.get(0).get("utmSource").asText()).isEqualTo("news");
+        assertThat(rows.get(0).get("utmCampaign").asText()).isEqualTo("launch-oct");
+        assertThat(rows.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder(
+                "referrerHost", "utmSource", "utmMedium", "utmCampaign", "utmContent", "recordedAt");
     }
 
     /** Shared payments and loans (V281): one entry with the user's shares, split rules, loan

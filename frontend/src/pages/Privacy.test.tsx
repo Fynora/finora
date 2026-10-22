@@ -188,4 +188,15 @@ describe('Privacy policy matches what the product does', () => {
       /If you tell us why you are deleting your account, we keep that answer with the month only and no\s+link to you or your account, so it is not deleted with your account\./);
   });
 
+  // V286: lib/signupAttribution.ts captures the referring host and the four utm tags on a website
+  // sign-up; SignupAttributionService stores the host only, and AccountPurgeSweepService deletes
+  // the row with the account.
+  it('discloses the sign-up source: the referring site by address only, the four utm tags, and deletion with the account', () => {
+    const t = policyText();
+    expect(t).toMatch(/When you sign up on the website, Fynora also notes where that visit came from/i);
+    expect(t).toMatch(/its address only, never the page you were on/i);
+    expect(t).toMatch(/utm_source, utm_medium, utm_campaign, utm_content/);
+    expect(t).toMatch(/kept with your account and deleted with it/i);
+  });
+
 });

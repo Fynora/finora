@@ -109,6 +109,16 @@ public class InsightsService {
      *  with reportable expense data) -- backs the mobile Spending tab's month picker. */
     @Transactional(readOnly = true)
     public InsightsDto build(UUID userId, String month) {
+        return buildDetailed(userId, month).dto();
+    }
+
+    /** {@link #build}'s result, plus how many usual months each mover category's baseline holds --
+     *  the prior months from the category's first month with spend, gap months left out. AI insights
+     *  compare a category with its usual month only when that is at least 2 (spec §4.3). */
+    public record Built(InsightsDto dto, Map<String, Integer> baselineMonths) {}
+
+    @Transactional(readOnly = true)
+    public Built buildDetailed(UUID userId, String month) {
         Optional<Pipeline> maybePipeline = pipeline(userId, month);
         if (maybePipeline.isEmpty()) {
             // Track C/C2 bug fix: coverageCaveat used to be hard-coded null here. pipeline() gates
@@ -125,8 +135,8 @@ public class InsightsService {
             // back as such rather than letting the client title it "this month".
             boolean requestedIsCurrent = month == null
                     || month.equals(YearMonth.now(UserZone.forUser(userRepository, userId)).toString());
-            return new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
-                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null);
+            return new Built(new InsightsDto(List.of("Upload or add transactions to see spending insights."), List.of(),
+                    coverageCaveatWithNoTransactions(userId), null, null, month, requestedIsCurrent, null), Map.of());
         }
         Pipeline pipeline = maybePipeline.get();
         List<Transaction> txns = pipeline.txns();
@@ -167,11 +177,15 @@ public class InsightsService {
             firstMonthByCat.merge(key, seen, (a, b) -> a.compareTo(b) <= 0 ? a : b);
         }
 
+        Map<String, Integer> baselineMonths = new HashMap<>();
+        for (String category : moverCurrentByCat.keySet()) {
+            String first = firstMonthByCat.getOrDefault(category, currentMonth);
+            baselineMonths.put(category, (int) priorMonths.stream().filter(m -> m.compareTo(first) >= 0).count());
+        }
         List<InsightsDto.CategoryMover> movers = moverCurrentByCat.entrySet().stream().map(e -> {
             BigDecimal current = e.getValue();
             BigDecimal priorTotal = priorByCat.getOrDefault(e.getKey(), BigDecimal.ZERO);
-            String first = firstMonthByCat.getOrDefault(e.getKey(), currentMonth);
-            long priorCount = priorMonths.stream().filter(m -> m.compareTo(first) >= 0).count();
+            long priorCount = baselineMonths.get(e.getKey());
             BigDecimal priorAvg = priorCount == 0 ? BigDecimal.ZERO
                     : priorTotal.divide(BigDecimal.valueOf(priorCount), 4, RoundingMode.HALF_UP);
             Double pct = priorAvg.compareTo(BigDecimal.ZERO) > 0
@@ -288,8 +302,9 @@ public class InsightsService {
                     periodLabel, topMerchant.name(), topMerchant.amount()));
         }
 
-        return new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
-                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds));
+        return new Built(new InsightsDto(sentences, movers, coverageCaveat, biggestCategory, topMerchant,
+                currentMonth, pipeline.reportingMonthIsCurrent(), unlinkedCardBills(userId, cardBills, currentMonth, refunds)),
+                Map.copyOf(baselineMonths));
     }
 
     /**

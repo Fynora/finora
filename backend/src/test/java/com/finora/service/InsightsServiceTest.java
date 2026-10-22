@@ -658,4 +658,24 @@ class InsightsServiceTest {
         assertThat(result.reportingMonth()).isNull();
         assertThat(result.reportingMonthIsCurrent()).isTrue();
     }
+
+    // AI insights foundation §4.3: how many usual months each category's baseline holds. A comparison
+    // is offered only with at least 2; a category is counted from its first month with spend.
+    @Test
+    void baselineMonthsCountFromTheCategorysFirstMonth() {
+        givenTransactions(List.of(
+                expense(LocalDate.of(2026, 4, 5), BigDecimal.valueOf(1000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 5, 5), BigDecimal.valueOf(1000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 6, 5), BigDecimal.valueOf(1000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 7, 5), BigDecimal.valueOf(2000), dining, "Cafe"),
+                expense(LocalDate.of(2026, 6, 10), BigDecimal.valueOf(500), groceries, "Mart"),
+                expense(LocalDate.of(2026, 7, 10), BigDecimal.valueOf(900), groceries, "Mart")));
+
+        InsightsService.Built built = insightsService.buildDetailed(userId, null);
+
+        assertThat(built.dto().reportingMonth()).isEqualTo("2026-07");
+        assertThat(built.baselineMonths()).containsEntry("Dining", 3).containsEntry("Groceries", 1);
+        // The same InsightsDto build(...) returns.
+        assertThat(built.dto()).isEqualTo(insightsService.build(userId, null));
+    }
 }

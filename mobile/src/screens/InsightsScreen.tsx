@@ -122,7 +122,7 @@ export function InsightsScreen() {
   const peopleCount = people.owedToYou.length + people.youOwe.length;
   const paidBackKindId = (kindsQ.data ?? []).find((k) => k.builtIn === 'PAID_BACK')?.id ?? null;
   const today = toLocalDateString(new Date());
-  // "Yes, pick the bill": the credit whose bill is being picked.
+  // "Yes, link it to a bill": the credit whose bill is being picked.
   const [picking, setPicking] = useState<PeopleSuggestion | null>(null);
   const { ask: askForMoney, prompt: askPrompt } = useAskForMoney();
   const upcoming = useMemo(() => comingUp(recurring, toLocalDateString(new Date())), [recurring]);

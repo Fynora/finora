@@ -56,9 +56,9 @@ describe('PeopleLookAtRow: a share of a bill', () => {
     const { onPickBill, onAck } = show(item);
     expect(screen.getByText('₹9,000 from Flatmate A on 4 Oct. You filed it under Rent.')).toBeTruthy();
     expect(screen.getByText('Is it their share of a bill you paid?')).toBeTruthy();
-    press('Yes, pick the bill');
+    press('Yes, link it to a bill');
     expect(onPickBill).toHaveBeenCalledWith(item);
-    press('Got it: Flatmate A');
+    press('Leave as it is: Flatmate A');
     expect(onAck).toHaveBeenCalledTimes(1);
     expect(addEntry).not.toHaveBeenCalled();
   });
@@ -68,9 +68,9 @@ describe('PeopleLookAtRow: a share of a bill', () => {
     expect(screen.getByText('₹9,000 from Flatmate A on 4 Oct.')).toBeTruthy();
   });
 
-  it('"Not a share" asks what it was instead, and "They owed you" records the whole credit as paid back', async () => {
+  it('"No, it\'s not a share" asks what it was instead, and "They owed you" records the whole credit as paid back', async () => {
     show(suggestion());
-    press('Not a share');
+    press("No, it's not a share");
     expect(screen.getByText('What was it, then?')).toBeTruthy();
     press('They owed you');
     await waitFor(() => expect(addEntry).toHaveBeenCalledWith('t-1', 'PAID_BACK', undefined));
@@ -78,9 +78,9 @@ describe('PeopleLookAtRow: a share of a bill', () => {
     expectHaptics({ success: 1 });
   });
 
-  it('"Borrowed" after "Not a share" records the credit as borrowed', async () => {
+  it('"Borrowed" after "No, it\'s not a share" records the credit as borrowed', async () => {
     show(suggestion());
-    press('Not a share');
+    press("No, it's not a share");
     press('Borrowed');
     await waitFor(() => expect(addEntry).toHaveBeenCalledWith('t-1', 'BORROWED', undefined));
   });
@@ -219,7 +219,7 @@ describe('PeopleLookAtRow: a failed answer', () => {
   it('says why, in the server\'s words, when the server refuses the answer', async () => {
     addEntry.mockRejectedValueOnce(refused("Fynora can't tell this sender apart from others, so it can't keep this for them."));
     show(suggestion());
-    press('Not a share');
+    press("No, it's not a share");
     press('They owed you');
     expect(await screen.findByText("Fynora can't tell this sender apart from others, so it can't keep this for them.")).toBeTruthy();
   });

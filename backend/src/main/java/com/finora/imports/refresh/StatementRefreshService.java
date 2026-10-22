@@ -164,8 +164,8 @@ public class StatementRefreshService {
     /**
      * The same refresh, started by an admin for the statement's owner -- see
      * AdminStatementCorrectionService. {@code actingAdminId} is who acted: the STATEMENT_REFRESHED
-     * audit entry names them and the owner as its subject, so the trail never says the user refreshed
-     * their own statement when staff did. No password is given and none is ever saved: keeping a
+     * audit entry, filed under the owner, names them as {@code actorId}, so the trail never says the
+     * user refreshed their own statement when staff did. No password is given and none is ever saved: keeping a
      * password needs the user's own consent, so this path has no route to it at all.
      */
     public StatementRefreshOutcome refreshForOwnerByAdmin(UUID userId, UUID statementId, UUID actingAdminId) {
@@ -359,12 +359,10 @@ public class StatementRefreshService {
         audit.put("rowsAdded", saved.getRowsAdded());
         audit.put("rowsRemoved", saved.getRowsRemoved());
         audit.put("factsChanged", saved.getFactsChanged());
-        if (actingAdminId != null) {
-            audit.put("actorId", actingAdminId.toString());
-            audit.put("subjectUserId", userId.toString());
-        }
-        auditService.record(actingAdminId != null ? actingAdminId : userId, "STATEMENT_REFRESHED", "StatementImport",
-                statementId, audit);
+        // Filed under the statement's owner, like every other change to their data (AccountService);
+        // when staff started it, actorId says who.
+        if (actingAdminId != null) audit.put("actorId", actingAdminId.toString());
+        auditService.record(userId, "STATEMENT_REFRESHED", "StatementImport", statementId, audit);
         return saved;
     }
 

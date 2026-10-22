@@ -834,27 +834,27 @@ class StatementRefreshIT extends AbstractIntegrationTest {
         assertThat(balance(i)).isEqualByComparingTo("-950.00");
         assertThat(adminCorrections.waiting(i.userId())).as("applied, so no longer waiting").isEmpty();
 
+        // Filed under the user whose statement it is (AccountService's convention), the admin as actorId.
         Map<String, Object> audit = jdbcTemplate.queryForMap(
-                "SELECT user_id, metadata->>'reason' AS reason, metadata->>'subjectUserId' AS subject, "
+                "SELECT user_id, metadata->>'reason' AS reason, metadata->>'actorId' AS actor, "
                         + "metadata->>'status' AS status FROM audit_logs "
                         + "WHERE action = 'STATEMENT_CORRECTION_APPLIED_BY_ADMIN' AND entity_id = ?", i.id());
-        assertThat(audit.get("user_id")).isEqualTo(adminId);
+        assertThat(audit.get("user_id")).isEqualTo(i.userId());
+        assertThat(audit.get("actor")).isEqualTo(adminId.toString());
         assertThat(audit.get("reason")).isEqualTo("Card payments were stored as spends by an older parser");
-        assertThat(audit.get("subject")).isEqualTo(i.userId().toString());
         assertThat(audit.get("status")).isEqualTo("APPLIED");
 
         // Recorded before the change, so a correction can never land without naming who started it.
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT user_id FROM audit_logs WHERE action = 'STATEMENT_CORRECTION_REQUESTED_BY_ADMIN' AND entity_id = ?",
-                UUID.class, i.id())).isEqualTo(adminId);
-        // The refresh's own entry names the admin as the actor and the user as the subject -- never
-        // the user as if they had refreshed it themselves.
+                "SELECT metadata->>'actorId' FROM audit_logs "
+                        + "WHERE action = 'STATEMENT_CORRECTION_REQUESTED_BY_ADMIN' AND entity_id = ? AND user_id = ?",
+                String.class, i.id(), i.userId())).isEqualTo(adminId.toString());
+        // The refresh's own entry names the admin as actorId -- never reads as the user's own refresh.
         Map<String, Object> refreshed = jdbcTemplate.queryForMap(
-                "SELECT user_id, metadata->>'actorId' AS actor, metadata->>'subjectUserId' AS subject FROM audit_logs "
+                "SELECT user_id, metadata->>'actorId' AS actor FROM audit_logs "
                         + "WHERE action = 'STATEMENT_REFRESHED' AND entity_id = ?", i.id());
-        assertThat(refreshed.get("user_id")).isEqualTo(adminId);
+        assertThat(refreshed.get("user_id")).isEqualTo(i.userId());
         assertThat(refreshed.get("actor")).isEqualTo(adminId.toString());
-        assertThat(refreshed.get("subject")).isEqualTo(i.userId().toString());
 
         List<Map<String, Object>> told = jdbcTemplate.queryForList(
                 "SELECT channel, category, message FROM notifications "

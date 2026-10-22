@@ -47,7 +47,7 @@ import java.util.UUID;
  *   <li>The refresh itself re-checks everything (trust gate, too many rows removed, a different
  *       account) and holds instead of applying, exactly as for the user.</li>
  *   <li>A typed reason, 15 to 500 characters, the rule "View original" uses. It goes to the audit
- *       entry with the admin's id and the run's counts, never to the user.</li>
+ *       entries, filed under the user with the admin as actorId, never to the user.</li>
  *   <li>The user is told afterwards, by push and email, what was corrected: counts and the account
  *       name only. The app has no screen to reopen a refresh summary later, so the message itself
  *       says what changed.</li>
@@ -103,22 +103,34 @@ public class AdminStatementCorrectionService {
                         "No checked correction is waiting for this statement. Only a correction the "
                                 + "app has already checked, and that needs no password, can be applied."));
 
-        // Recorded before anything changes, with the reason, so a correction can never land without
-        // an entry naming who started it -- even if the process dies between the refresh and the
-        // result entry below.
+        // Filed under the user whose statement it is, like every other change to their data
+        // (AccountService), with the admin as actorId. audit_logs never reaches the user's data export,
+        // so the reason stays internal. Recorded before anything changes, so a correction can never
+        // land without an entry naming who started it and why -- even if the process dies between the
+        // refresh and the result entry below.
         Map<String, Object> requested = new LinkedHashMap<>();
         requested.put("actorId", actingAdminId.toString());
-        requested.put("subjectUserId", ownerId.toString());
         requested.put("reason", reason);
-        auditService.record(actingAdminId, "STATEMENT_CORRECTION_REQUESTED_BY_ADMIN", "StatementImport", statementId,
+        auditService.record(ownerId, "STATEMENT_CORRECTION_REQUESTED_BY_ADMIN", "StatementImport", statementId,
                 requested);
 
-        StatementRefreshOutcome outcome = refreshService.refreshForOwnerByAdmin(ownerId, statementId, actingAdminId);
+        StatementRefreshOutcome outcome;
+        try {
+            outcome = refreshService.refreshForOwnerByAdmin(ownerId, statementId, actingAdminId);
+        } catch (RuntimeException e) {
+            // Deleted, replaced or its account deleted since the check: nothing was applied. The
+            // request above still needs its outcome. The class name only -- a message can quote text.
+            Map<String, Object> failed = new LinkedHashMap<>();
+            failed.put("actorId", actingAdminId.toString());
+            failed.put("status", "NOT_APPLIED");
+            failed.put("error", e.getClass().getSimpleName());
+            auditService.record(ownerId, "STATEMENT_CORRECTION_APPLIED_BY_ADMIN", "StatementImport", statementId, failed);
+            throw e;
+        }
 
         boolean applied = outcome.status() == StatementRefreshRun.Status.APPLIED;
         Map<String, Object> audit = new LinkedHashMap<>();
         audit.put("actorId", actingAdminId.toString());
-        audit.put("subjectUserId", ownerId.toString());
         audit.put("reason", reason);
         audit.put("status", outcome.status().name());
         audit.put("rowsChanged", outcome.rowsChanged());
@@ -126,7 +138,7 @@ public class AdminStatementCorrectionService {
         audit.put("rowsRemoved", outcome.rowsRemoved());
         if (outcome.runId() != null) audit.put("runId", outcome.runId().toString());
         if (outcome.reason() != null) audit.put("refreshReason", outcome.reason());
-        auditService.record(actingAdminId, "STATEMENT_CORRECTION_APPLIED_BY_ADMIN", "StatementImport", statementId, audit);
+        auditService.record(ownerId, "STATEMENT_CORRECTION_APPLIED_BY_ADMIN", "StatementImport", statementId, audit);
 
         boolean notified = applied && notifyUser(ownerId, outcome, pending);
         return new AppliedCorrection(statementId, outcome.status().name(), outcome.rowsChanged(),

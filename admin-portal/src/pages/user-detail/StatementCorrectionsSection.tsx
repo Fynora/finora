@@ -83,9 +83,6 @@ export function StatementCorrectionsSection({ userId }: { userId: string }) {
             : `Not applied (${result.status}${result.reason ? `: ${result.reason}` : ''}). Nothing in the account changed.`}
         </p>
       )}
-      {apply.isError && (
-        <p className="text-sm mt-3 text-danger">{errorMessage(apply.error, 'The correction could not be applied.')}</p>
-      )}
 
       {selected && (
         <ConfirmDialog
@@ -110,6 +107,12 @@ export function StatementCorrectionsSection({ userId }: { userId: string }) {
             rows={3}
           />
           <p className="text-xs text-muted mt-1">{trimmed.length} / {MAX_REASON} · at least {MIN_REASON} characters, recorded in the audit log</p>
+          {apply.isError && (
+            // Inside the dialog, which stays open on a failure, so the admin reads why.
+            <p role="alert" className="text-sm mt-2 text-danger">
+              {errorMessage(apply.error, 'The correction could not be applied.')}
+            </p>
+          )}
         </ConfirmDialog>
       )}
     </div>

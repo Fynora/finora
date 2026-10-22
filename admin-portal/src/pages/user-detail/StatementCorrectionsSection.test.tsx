@@ -74,4 +74,22 @@ describe('StatementCorrectionsSection', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent(/Not applied \(NEEDS_REVIEW: TRUST_HOLD\)\. Nothing in the account changed/);
   });
+
+  it('shows why an apply was refused inside the dialog, which stays open', async () => {
+    vi.mocked(adminStatementCorrectionsApi.waiting).mockResolvedValue([WAITING]);
+    vi.mocked(adminStatementCorrectionsApi.apply).mockRejectedValueOnce({
+      response: { data: { message: 'No checked correction is waiting for this statement.' } },
+    });
+    const user = userEvent.setup();
+    renderSection();
+
+    await user.click(await screen.findByRole('button', { name: 'Apply correction' }));
+    await user.type(screen.getByLabelText('Reason'), 'Applying the checked correction');
+    const dialog = screen.getByRole('dialog');
+    await user.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Apply correction')!);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('No checked correction is waiting for this statement.');
+    expect(dialog).toContainElement(alert);
+  });
 });

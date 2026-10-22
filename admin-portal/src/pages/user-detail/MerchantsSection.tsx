@@ -7,6 +7,8 @@ import { adminUserMerchantsApi } from '../../api/endpoints';
 import type { MerchantDto } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Pagination } from '../../components/Pagination';
+import { usePagedList } from './usePagedList';
 
 function MerchantRow({
   userId, merchant, allMerchants, canManage,
@@ -258,6 +260,7 @@ export function MerchantsSection({ userId }: { userId: string }) {
     queryKey: ['admin-user-merchants', userId],
     queryFn: () => adminUserMerchantsApi.list(userId),
   });
+  const paged = usePagedList(merchants);
 
   return (
     <div className="bg-card border border-border rounded-xl2 shadow-card p-6">
@@ -270,10 +273,12 @@ export function MerchantsSection({ userId }: { userId: string }) {
         <p className="text-sm text-muted">No merchants recorded for this user yet.</p>
       )}
       <div>
-        {merchants?.map((m) => (
+        {merchants && paged.pageItems.map((m) => (
           <MerchantRow key={m.id} userId={userId} merchant={m} allMerchants={merchants} canManage={canManage} />
         ))}
       </div>
+      <Pagination page={paged.page} totalPages={paged.totalPages} totalElements={paged.totalElements}
+                  pageSize={paged.pageSize} onPageChange={paged.setPage} />
     </div>
   );
 }

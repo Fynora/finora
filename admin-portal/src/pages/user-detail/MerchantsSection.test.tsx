@@ -37,15 +37,33 @@ describe('MerchantsSection', () => {
     vi.mocked(adminUserMerchantsApi.list).mockResolvedValue(Array.from({ length: 400 }, (_, i) => merchant(i)));
     const { container } = renderSection();
 
-    expect(await screen.findByText('Merchant 399')).toBeInTheDocument();
+    expect(await screen.findByText('Merchant 24')).toBeInTheDocument();
     expect(container.querySelectorAll('option')).toHaveLength(0);
-    expect(screen.getAllByRole('button', { name: 'Merge…' })).toHaveLength(400);
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Merge…' })[0]);
 
-    // One picker, for that row only: every other merchant plus the placeholder.
+    // One picker, for that row only, listing every other merchant -- not only this page's.
     expect(screen.getAllByRole('combobox', { name: 'Merge from' })).toHaveLength(1);
     expect(container.querySelectorAll('option')).toHaveLength(400);
+  });
+
+  it('shows 25 merchants a page, and the next page shows the next 25', async () => {
+    vi.mocked(adminUserMerchantsApi.list).mockResolvedValue(Array.from({ length: 60 }, (_, i) => merchant(i)));
+    const user = userEvent.setup();
+    renderSection();
+
+    expect(await screen.findByText('Merchant 0')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Merge…' })).toHaveLength(25);
+    expect(screen.queryByText('Merchant 25')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing 1–25 of 60')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('Merchant 25')).toBeInTheDocument();
+    expect(screen.queryByText('Merchant 24')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('Showing 51–60 of 60')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Merge…' })).toHaveLength(10);
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });
 
   it('still merges the chosen merchant into the row, and Cancel closes the picker', async () => {

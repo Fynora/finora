@@ -29,7 +29,9 @@ describe('RelationshipsSection', () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText('Person 199')).toBeInTheDocument();
+    expect(await screen.findByText('Person 24')).toBeInTheDocument();
+    expect(screen.queryByText('Person 25')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing 1–25 of 200')).toBeInTheDocument();
     expect(container.querySelectorAll('select[aria-label="Merge from"]')).toHaveLength(0);
 
     await userEvent.click(screen.getAllByRole('button', { name: 'Merge…' })[0]);

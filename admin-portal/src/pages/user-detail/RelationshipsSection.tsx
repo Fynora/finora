@@ -6,6 +6,8 @@ import { adminUserRelationshipsApi } from '../../api/endpoints';
 import type { CreateRelationshipRequest, RelationshipDto, UpdateRelationshipRequest } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Pagination } from '../../components/Pagination';
+import { usePagedList } from './usePagedList';
 
 const RELATIONSHIP_TYPES = ['FAMILY', 'FRIEND', 'OWN_ACCOUNT', 'OTHER'];
 const IDENTIFIER_TYPES = ['UPI_ID', 'ACCOUNT_LAST4', 'NAME_PATTERN'];
@@ -282,6 +284,7 @@ export function RelationshipsSection({ userId }: { userId: string }) {
     queryKey: ['admin-user-relationships', userId],
     queryFn: () => adminUserRelationshipsApi.list(userId),
   });
+  const paged = usePagedList(isError ? undefined : relationships);
 
   const createMutation = useMutation({
     mutationFn: (values: CreateRelationshipRequest) => adminUserRelationshipsApi.create(userId, values),
@@ -335,10 +338,12 @@ export function RelationshipsSection({ userId }: { userId: string }) {
         <p className="text-sm text-muted">No relationships tagged for this user yet.</p>
       )}
       <div>
-        {!isError && relationships?.map((r) => (
+        {!isError && relationships && paged.pageItems.map((r) => (
           <RelationshipRow key={r.id} userId={userId} relationship={r} allRelationships={relationships} />
         ))}
       </div>
+      <Pagination page={paged.page} totalPages={paged.totalPages} totalElements={paged.totalElements}
+                  pageSize={paged.pageSize} onPageChange={paged.setPage} />
     </div>
   );
 }

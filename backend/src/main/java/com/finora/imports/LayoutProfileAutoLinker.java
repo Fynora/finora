@@ -147,16 +147,20 @@ public class LayoutProfileAutoLinker {
      *  something else, which the caller treats as a conflict rather than guessing. */
     private UUID profileFor(LayoutIdentity identity) {
         jdbc.update("""
-                INSERT INTO layout_profile (id, name, auto_key, created_at, updated_at)
-                SELECT gen_random_uuid(), ?, ?, now(), now()
+                INSERT INTO layout_profile (id, name, auto_key, bank_id, created_at, updated_at)
+                SELECT gen_random_uuid(), ?, ?, ?, now(), now()
                 WHERE NOT EXISTS (SELECT 1 FROM layout_profile WHERE lower(name) = lower(?))
                 ON CONFLICT DO NOTHING
-                """, identity.profileName(), identity.key(), identity.profileName());
+                """, identity.profileName(), identity.key(), identity.bankId(), identity.profileName());
         List<UUID> byKey = jdbc.queryForList("SELECT id FROM layout_profile WHERE auto_key = ?", UUID.class, identity.key());
         if (!byKey.isEmpty()) return byKey.get(0);
-        // Same name, created by an operator without a key: adopt it.
-        int adopted = jdbc.update("UPDATE layout_profile SET auto_key = ?, updated_at = now() "
-                + "WHERE lower(name) = lower(?) AND auto_key IS NULL", identity.key(), identity.profileName());
+        // Same name, created by an operator without a key: adopt it -- but only when it has no bank
+        // yet or already has this one. An admin's choice of a different bank is a disagreement for
+        // a person to look at (the caller's CONFLICT), never something the engine overwrites.
+        int adopted = jdbc.update("UPDATE layout_profile SET auto_key = ?, bank_id = COALESCE(bank_id, ?), "
+                        + "updated_at = now() WHERE lower(name) = lower(?) AND auto_key IS NULL "
+                        + "AND (bank_id IS NULL OR bank_id = ?)",
+                identity.key(), identity.bankId(), identity.profileName(), identity.bankId());
         if (adopted == 0) return null;
         return jdbc.queryForObject("SELECT id FROM layout_profile WHERE auto_key = ?", UUID.class, identity.key());
     }

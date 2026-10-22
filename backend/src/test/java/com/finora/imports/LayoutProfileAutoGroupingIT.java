@@ -440,4 +440,55 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
 
         assertThat(layout(headerless).getProfileId()).isNull();
     }
+
+    // ------------------------------------------------------------------ the profile's bank
+
+    private static LayoutIdentity uniqueSavingsIdentity() {
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        return new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("SAVINGS"));
+    }
+
+    private String profileBank(String autoKey) {
+        return jdbc.queryForObject("SELECT bank_id FROM layout_profile WHERE auto_key = ?", String.class, autoKey);
+    }
+
+    @Test
+    void autoCreatedProfileCarriesTheIdentitysBank() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        stage(fingerprint(), identity);
+
+        assertThat(profileBank(identity.key())).isEqualTo(identity.bankId());
+    }
+
+    @Test
+    void adoptingAHandMadeProfileByNameFillsAnEmptyBank() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        UUID handMade = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, created_at, updated_at) VALUES (?, ?, now(), now())",
+                handMade, identity.profileName());
+
+        String fp = fingerprint();
+        stage(fp, identity);
+
+        assertThat(layout(fp).getProfileId()).isEqualTo(handMade);
+        assertThat(profileBank(identity.key())).isEqualTo(identity.bankId());
+    }
+
+    @Test
+    void adoptingByNameNeverOverwritesABankAnAdminSet() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        UUID handMade = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, bank_id, created_at, updated_at) VALUES (?, ?, 'ICICI', now(), now())",
+                handMade, identity.profileName());
+
+        String fp = fingerprint();
+        stage(fp, identity);
+
+        assertThat(layout(fp).getProfileId()).isNull();
+        assertThat(layout(fp).getReviewReasons()).contains("IDENTITY_CONFLICT");
+        assertThat(jdbc.queryForObject("SELECT bank_id FROM layout_profile WHERE id = ?", String.class, handMade))
+                .isEqualTo("ICICI");
+        assertThat(jdbc.queryForObject("SELECT auto_key FROM layout_profile WHERE id = ?", String.class, handMade))
+                .isNull();
+    }
 }

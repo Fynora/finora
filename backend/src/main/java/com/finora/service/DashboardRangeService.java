@@ -191,7 +191,7 @@ public class DashboardRangeService {
      *  single calendar month to an arbitrary range: the previous window must lie entirely within
      *  the account's own transaction history (not reach back before it existed), and must carry
      *  at least {@link #MIN_TRANSACTIONS_FOR_RANGE_COMPARISON} transactions of its own. */
-    private String rangeComparisonGateReason(LocalDate earliestTxnDate, LocalDate prevStart, int prevTransactionCount) {
+    static String rangeComparisonGateReason(LocalDate earliestTxnDate, LocalDate prevStart, int prevTransactionCount) {
         if (earliestTxnDate == null) return "NO_TRANSACTION_HISTORY";
         if (prevStart.isBefore(earliestTxnDate)) return "PRIOR_PERIOD_BEFORE_HISTORY";
         return prevTransactionCount < MIN_TRANSACTIONS_FOR_RANGE_COMPARISON ? "TOO_FEW_PRIOR_TRANSACTIONS" : null;

@@ -1,11 +1,16 @@
 package com.finora.controller;
 
+import com.finora.dto.AdvancedCompare;
+import com.finora.dto.AdvancedRange;
+import com.finora.dto.AdvancedReportDto;
 import com.finora.dto.AnalyticsDto;
 import com.finora.dto.ApiResponse;
 import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.security.CurrentUser;
+import com.finora.util.EnumParsing;
+import com.finora.service.AdvancedReportService;
 import com.finora.service.AnalyticsService;
 import com.finora.service.EntitlementService;
 import org.springframework.http.HttpStatus;
@@ -33,14 +38,37 @@ import java.util.List;
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
+    private final AdvancedReportService advancedReportService;
     private final EntitlementService entitlementService;
     private final CurrentUser currentUser;
 
-    public AnalyticsController(AnalyticsService analyticsService, EntitlementService entitlementService,
-                                CurrentUser currentUser) {
+    public AnalyticsController(AnalyticsService analyticsService, AdvancedReportService advancedReportService,
+                                EntitlementService entitlementService, CurrentUser currentUser) {
         this.analyticsService = analyticsService;
+        this.advancedReportService = advancedReportService;
         this.entitlementService = entitlementService;
         this.currentUser = currentUser;
+    }
+
+    /**
+     * The Advanced Reports page in one response: a period of whole months, the period it is compared
+     * with, and every breakdown the page draws (see {@link AdvancedReportService}). {@code range}
+     * defaults to {@code LAST_12_MONTHS}; {@code startMonth} and {@code endMonth} ("yyyy-MM") are read
+     * only for {@code CUSTOM}; {@code compare} is honoured when that range offers it and ignored
+     * otherwise (the response says which was used).
+     */
+    @GetMapping("/advanced")
+    public ApiResponse<AdvancedReportDto> advanced(@RequestParam(required = false) String range,
+                                                   @RequestParam(required = false) String startMonth,
+                                                   @RequestParam(required = false) String endMonth,
+                                                   @RequestParam(required = false) String compare) {
+        requireAdvancedReports();
+        AdvancedRange type = range == null || range.isBlank() ? AdvancedRange.LAST_12_MONTHS
+                : EnumParsing.parse(AdvancedRange.class, range, "range");
+        AdvancedCompare mode = compare == null || compare.isBlank() ? null
+                : EnumParsing.parse(AdvancedCompare.class, compare, "compare");
+        return ApiResponse.ok(advancedReportService.build(currentUser.id(), type, parseMonth(startMonth),
+                parseMonth(endMonth), mode));
     }
 
     @GetMapping("/merchants")

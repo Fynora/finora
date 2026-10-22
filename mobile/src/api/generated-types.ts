@@ -4580,6 +4580,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/advanced": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["advanced"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users/{userId}/workspace": {
         parameters: {
             query?: never;
@@ -11166,6 +11182,188 @@ export interface components {
             avgConfidence?: number;
             /** Format: int32 */
             merchantCount?: number;
+        };
+        AdvancedCategories: {
+            rows?: components["schemas"]["AdvancedCategory"][];
+            otherAmount?: number;
+            /** Format: double */
+            otherSharePct?: number;
+            /** Format: int32 */
+            categoryCount?: number;
+        };
+        AdvancedCategory: {
+            name?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            previousAmount?: number;
+            changeAmount?: number;
+            /** Format: double */
+            changePct?: number;
+            monthly?: number[];
+        };
+        AdvancedComparison: {
+            reliable?: boolean;
+            gateReason?: string;
+            previousIncome?: number;
+            previousExpense?: number;
+            previousNet?: number;
+            previousAvgMonthlyExpense?: number;
+            previousSavingsRatePct?: number;
+            /** Format: double */
+            incomeDeltaPct?: number;
+            /** Format: double */
+            expenseDeltaPct?: number;
+            netDelta?: number;
+            /** Format: double */
+            avgMonthlyExpenseDeltaPct?: number;
+            /** Format: double */
+            savingsRateDeltaPp?: number;
+        };
+        AdvancedDrill: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            categoryName?: string;
+            keyword?: string;
+        };
+        AdvancedIncome: {
+            sources?: components["schemas"]["AdvancedIncomeSource"][];
+            /** Format: int32 */
+            monthsWithIncome?: number;
+            highestMonth?: string;
+            highestMonthAmount?: number;
+            lowestMonth?: string;
+            lowestMonthAmount?: number;
+            /** Format: double */
+            lowestAsPctOfHighest?: number;
+        };
+        AdvancedIncomeSource: {
+            label?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            previousAmount?: number;
+        };
+        AdvancedInsight: {
+            id?: string;
+            kind?: string;
+            tone?: string;
+            headline?: string;
+            detail?: string;
+            drill?: components["schemas"]["AdvancedDrill"];
+        };
+        AdvancedMerchant: {
+            /** Format: uuid */
+            merchantId?: string;
+            name?: string;
+            amount?: number;
+            /** Format: double */
+            sharePct?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            previousAmount?: number;
+            changeAmount?: number;
+            /** Format: double */
+            changePct?: number;
+            monthly?: number[];
+        };
+        AdvancedMerchants: {
+            rows?: components["schemas"]["AdvancedMerchant"][];
+            /** Format: double */
+            attributedSharePct?: number;
+            /** Format: double */
+            topFiveSharePct?: number;
+            /** Format: int32 */
+            merchantCount?: number;
+        };
+        AdvancedMonth: {
+            month?: string;
+            income?: number;
+            expense?: number;
+            net?: number;
+            savingsRatePct?: number;
+            complete?: boolean;
+            /** Format: int32 */
+            transactionCount?: number;
+        };
+        AdvancedPeriodInfo: {
+            hasData?: boolean;
+            noDataReason?: string;
+            range?: string;
+            startMonth?: string;
+            endMonth?: string;
+            /** Format: int32 */
+            monthCount?: number;
+            /** Format: int32 */
+            requestedMonths?: number;
+            firstDataMonth?: string;
+            newestDataMonth?: string;
+            leftOutMonth?: string;
+            leftOutReason?: string;
+            incompleteMonths?: string[];
+            compare?: string;
+            compareOptions?: string[];
+            previousStartMonth?: string;
+            previousEndMonth?: string;
+        };
+        AdvancedReportDto: {
+            period?: components["schemas"]["AdvancedPeriodInfo"];
+            totals?: components["schemas"]["AdvancedTotals"];
+            comparison?: components["schemas"]["AdvancedComparison"];
+            months?: components["schemas"]["AdvancedMonth"][];
+            categories?: components["schemas"]["AdvancedCategories"];
+            merchants?: components["schemas"]["AdvancedMerchants"];
+            paymentMethods?: components["schemas"]["PaymentMethodAmount"][];
+            income?: components["schemas"]["AdvancedIncome"];
+            unusualSpends?: components["schemas"]["AdvancedUnusualSpend"][];
+            international?: components["schemas"]["InternationalSpend"];
+            insights?: components["schemas"]["AdvancedInsight"][];
+        };
+        AdvancedTotals: {
+            income?: number;
+            expense?: number;
+            net?: number;
+            avgMonthlyExpense?: number;
+            /** Format: int32 */
+            monthsWithData?: number;
+            savingsRatePct?: number;
+            savingsRateGateReason?: string;
+            unresolvedInflow?: number;
+            /** Format: int32 */
+            unresolvedInflowCount?: number;
+            /** Format: int32 */
+            transactionCount?: number;
+            highestSpendMonth?: string;
+            lowestSpendMonth?: string;
+        };
+        AdvancedUnusualSpend: {
+            /** Format: uuid */
+            transactionId?: string;
+            /** Format: date */
+            date?: string;
+            label?: string;
+            category?: string;
+            amount?: number;
+            typicalAmount?: number;
+            timesTypical?: number;
+            /** Format: int32 */
+            sampleSize?: number;
+        };
+        ApiResponseAdvancedReportDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AdvancedReportDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponsePagedResponseUserSummaryDto: {
             success?: boolean;
@@ -21080,6 +21278,31 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListCategoryConfidencePoint"];
+                };
+            };
+        };
+    };
+    advanced: {
+        parameters: {
+            query?: {
+                range?: string;
+                startMonth?: string;
+                endMonth?: string;
+                compare?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAdvancedReportDto"];
                 };
             };
         };

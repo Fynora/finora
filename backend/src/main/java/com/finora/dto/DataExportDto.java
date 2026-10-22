@@ -228,6 +228,12 @@ public final class DataExportDto {
     /** V277. One Insights row the user marked "Got it": its kind, key and when. */
     public record InsightAcknowledgementExportDto(String kind, String itemKey, Instant acknowledgedAt) {}
 
+    /** V283. One AI month story or "Why?" answer written for the user, and the thumbs they gave it.
+     *  The fact sheet it was written from is not repeated: its figures come from the transactions
+     *  already in transactions.json. */
+    public record AiInsightTextExportDto(String kind, String subject, String month, String status, String text,
+                                         String feedback, String feedbackReason, Instant createdAt) {}
+
     /** F-03. One onboarding financial-focus selection. */
     public record UserFinancialFocusExportDto(UUID id, String focusKey, Instant createdAt) {
         public static UserFinancialFocusExportDto from(UserFinancialFocus f) {

@@ -288,6 +288,7 @@ public class DataExportService {
     private final com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository;
     private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
+    private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
     private final com.finora.people.PeopleData peopleData;
     private final StatementContentService statementContentService;
     private final ObjectMapper objectMapper;
@@ -338,6 +339,7 @@ public class DataExportService {
                               com.finora.activation.ImportFunnelDayRepository importFunnelDayRepository,
                               com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
+                              com.finora.repository.AiInsightTextRepository aiInsightTextRepository,
                               com.finora.people.PeopleData peopleData,
                               StatementContentService statementContentService) {
         this.statementPasswordRepository = statementPasswordRepository;
@@ -359,6 +361,7 @@ public class DataExportService {
         this.importFunnelDayRepository = importFunnelDayRepository;
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
+        this.aiInsightTextRepository = aiInsightTextRepository;
         this.peopleData = peopleData;
         this.statementContentService = statementContentService;
         this.userRepository = userRepository;
@@ -518,6 +521,13 @@ public class DataExportService {
                 insightAcknowledgementRepository.findByUserId(userId).stream()
                         .map(a -> new com.finora.dto.DataExportDto.InsightAcknowledgementExportDto(
                                 a.getKind(), a.getItemKey(), a.getAcknowledgedAt()))
+                        .toList();
+        // V283: the AI texts written for the user, in the purge scope, so exported.
+        List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights =
+                aiInsightTextRepository.findByUserIdOrderByCreatedAtAsc(userId).stream()
+                        .map(t -> new com.finora.dto.DataExportDto.AiInsightTextExportDto(
+                                t.getKind(), t.getSubject(), t.getMonth(), t.getStatus(), t.getText(),
+                                t.getFeedback(), t.getFeedbackReason(), t.getCreatedAt()))
                         .toList();
 
         // V281: shared payments and loans, in the purge scope, so exported.
@@ -808,7 +818,7 @@ public class DataExportService {
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
-                activationAnswers, insightAcknowledgements, sharedPayments);
+                activationAnswers, insightAcknowledgements, aiInsights, sharedPayments);
     }
 
     /**
@@ -880,6 +890,7 @@ public class DataExportService {
             writeJsonEntry(zos, "import_funnel_days.json", bundle.importFunnelDays());
             writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
             writeJsonEntry(zos, "insight_acknowledgements.json", bundle.insightAcknowledgements());
+            writeJsonEntry(zos, "ai_insights.json", bundle.aiInsights());
             writeJsonEntry(zos, "shared_payments.json", bundle.sharedPayments());
 
             for (Summary statement : bundle.statementSummaries()) {
@@ -1029,6 +1040,7 @@ public class DataExportService {
                 new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
                 new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
                 new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size()),
+                new ManifestEntry("ai_insights.json", "The AI-written month stories and \"Why?\" answers on your Insights, and the thumbs up or down you gave them.", bundle.aiInsights().size()),
                 new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size())
         );
         List<ManifestEntry> excluded = List.of(
@@ -1049,6 +1061,7 @@ public class DataExportService {
                 new ManifestEntry("reimport_confirmation_claims", "A guard that stops one statement re-import from running twice -- request bookkeeping, not your data.", null),
                 new ManifestEntry("statement_refresh_previews",
                         "What a newer statement reader would change if you let it -- an offer Finora recalculates, not a record of anything that happened. Refreshes you ran are in statement_refresh_runs.json.", null),
+                new ManifestEntry("ai_insight_usage", "How many AI explanations the Free plan used each month -- a counter for the monthly limit, not data you provided. The texts themselves are in ai_insights.json.", null),
                 new ManifestEntry("ai_audit_log", "Cost, token and timing records for each Fyn AI call -- Finora's own accountability log, like audit_logs. Your chats themselves are in fyn_chat_conversations.json and fyn_chat_messages.json.", null),
                 new ManifestEntry("referral_charges", "The payments made by people you referred, kept to count your referral rewards -- those are their payments, not your data. Your rewards are in referral_rewards.json and wallet.json.", null),
                 new ManifestEntry("held_statements, held_statement_events", "Finora's own review record for a statement it held back to check -- like support_ticket_internal_notes. The import itself is in import_jobs.json.", null),
@@ -1137,6 +1150,7 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.ImportFunnelDayExportDto> importFunnelDays,
             List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
             List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements,
+            List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights,
             com.finora.people.PeopleData.PeopleExport sharedPayments
     ) {}
 

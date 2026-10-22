@@ -1364,6 +1364,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/story": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["story"];
+        put?: never;
+        post: operations["generateStory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/look-at/why": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["why"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/acknowledgements": {
         parameters: {
             query?: never;
@@ -3204,6 +3236,22 @@ export interface paths {
         patch: operations["updateCategory"];
         trace?: never;
     };
+    "/api/v1/insights/ai-texts/{id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["feedback"];
+        trace?: never;
+    };
     "/api/v1/inflow-kinds/{id}": {
         parameters: {
             query?: never;
@@ -4108,6 +4156,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["narration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/look-at": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lookAt"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7808,6 +7872,57 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        StoryRequest: {
+            month?: string;
+        };
+        ApiResponseStoryDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["StoryDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        StoryDto: {
+            status?: string;
+            /** Format: uuid */
+            id?: string;
+            text?: string;
+            writtenByAi?: boolean;
+            basis?: string;
+            canGenerate?: boolean;
+        };
+        WhyRequest: {
+            kind: string;
+            itemKey: string;
+            month?: string;
+        };
+        ApiResponseWhyDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["WhyDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        WhyDto: {
+            status?: string;
+            /** Format: uuid */
+            id?: string;
+            text?: string;
+            writtenByAi?: boolean;
+            basis?: string;
+            /** Format: int32 */
+            freeLeftThisMonth?: number;
+        };
         InsightAcknowledgementDto: {
             kind: string;
             itemKey: string;
@@ -9168,6 +9283,10 @@ export interface components {
             /** @enum {string} */
             answer: "NO_STATEMENT" | "NOT_COMFORTABLE" | "DIDNT_KNOW_HOW" | "NO_POINT_YET" | "NOT_NOW" | "TRY_ANOTHER_FILE" | "NO_OTHER_STATEMENT" | "DONT_UNDERSTAND_FAILURE" | "LEAVE_FOR_NOW" | "ROWS_LOOKED_WRONG" | "WRONG_FILE" | "NOT_READY_TO_SAVE" | "COME_BACK_LATER" | "SKIPPED";
         };
+        AiTextFeedbackRequest: {
+            rating?: string;
+            reason?: string;
+        };
         UpdateKindRequest: {
             name?: string;
             countsAsIncome?: boolean;
@@ -10388,6 +10507,43 @@ export interface components {
         };
         FynInsightsNarrationDto: {
             narration?: string;
+        };
+        ApiResponseLookAtDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["LookAtDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        LookAtDto: {
+            rows?: components["schemas"]["LookAtRowDto"][];
+            orderedByAi?: boolean;
+        };
+        LookAtRowDto: {
+            kind?: string;
+            key?: string;
+            ackKind?: string;
+            ackItemKey?: string;
+            month?: string;
+            total?: number;
+            /** Format: int32 */
+            count?: number;
+            cardName?: string;
+            cardLast4?: string;
+            people?: components["schemas"]["Suggestion"];
+            recurring?: components["schemas"]["RecurringDto"];
+            merchant?: string;
+            category?: string;
+            latestAmount?: number;
+            latestDate?: string;
+            current?: number;
+            priorAverage?: number;
+            whyAvailable?: boolean;
         };
         ApiResponseListInsightAcknowledgementDto: {
             success?: boolean;
@@ -16039,6 +16195,76 @@ export interface operations {
             };
         };
     };
+    story: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStoryDto"];
+                };
+            };
+        };
+    };
+    generateStory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseStoryDto"];
+                };
+            };
+        };
+    };
+    why: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseWhyDto"];
+                };
+            };
+        };
+    };
     acknowledgements: {
         parameters: {
             query?: never;
@@ -19306,6 +19532,32 @@ export interface operations {
             };
         };
     };
+    feedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiTextFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
     deleteInflowKind: {
         parameters: {
             query?: never;
@@ -20650,6 +20902,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseFynInsightsNarrationDto"];
+                };
+            };
+        };
+    };
+    lookAt: {
+        parameters: {
+            query?: {
+                month?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseLookAtDto"];
                 };
             };
         };

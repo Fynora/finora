@@ -120,6 +120,8 @@ class AccountPurgeSweepServiceTest {
     private SupportTicketRepository supportTicketRepository;
     private FeedbackEntryRepository feedbackEntryRepository;
     private TimelineEventRepository timelineEventRepository;
+    private com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
+    private com.finora.repository.AiInsightUsageRepository aiInsightUsageRepository;
     private AuditService auditService;
     private PasswordEncoder passwordEncoder;
     private TransactionTemplate transactionTemplate;
@@ -155,6 +157,8 @@ class AccountPurgeSweepServiceTest {
         supportTicketRepository = mock(SupportTicketRepository.class);
         feedbackEntryRepository = mock(FeedbackEntryRepository.class);
         timelineEventRepository = mock(TimelineEventRepository.class);
+        aiInsightTextRepository = mock(com.finora.repository.AiInsightTextRepository.class);
+        aiInsightUsageRepository = mock(com.finora.repository.AiInsightUsageRepository.class);
         auditService = mock(AuditService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         when(passwordEncoder.encode(anyString())).thenReturn("unusable-random-hash");
@@ -208,6 +212,7 @@ class AccountPurgeSweepServiceTest {
                 mock(com.finora.people.PeopleData.class),
                 mock(RecurringDismissalRepository.class),
                 mock(AccountAggregatorLinkRepository.class), mock(AiAuditLogRepository.class),
+                aiInsightTextRepository, aiInsightUsageRepository,
                 mock(ChatConversationRepository.class), mock(ChatMessageRepository.class),
                 mock(CounterpartyCategoryObservationRepository.class),
                 mock(com.finora.repository.InflowKindRepository.class),
@@ -296,6 +301,10 @@ class AccountPurgeSweepServiceTest {
         // this test file already caught twice before (user_roles, support/feedback tables) --
         // a table with its own user_id column is easy to add and forget to wire into the purge.
         verify(timelineEventRepository).deleteByUserId(userId);
+        // V283: AI insight texts and the Free allowance -- the cascade never fires here (the users row
+        // is anonymized), so both need their own call.
+        verify(aiInsightTextRepository).deleteByUserId(userId);
+        verify(aiInsightUsageRepository).deleteByUserId(userId);
 
         assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
         assertThat(user.getDeletedAt()).isNotNull();

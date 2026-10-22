@@ -4,15 +4,13 @@ import com.finora.dto.ApiResponse;
 import com.finora.dto.FynInsightsNarrationDto;
 import com.finora.dto.InsightAcknowledgementDto;
 import com.finora.dto.InsightsDto;
-import com.finora.entity.FeatureEntitlement;
 import com.finora.exception.ApiException;
-import com.finora.exception.ErrorCode;
 import com.finora.security.CurrentUser;
-import com.finora.service.EntitlementService;
-import com.finora.service.FynInsightsNarrationService;
+import com.finora.service.AiInsightService;
 import com.finora.service.InsightAcknowledgementService;
 import com.finora.service.InsightsService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,19 +25,15 @@ import java.util.List;
 public class InsightsController {
 
     private final InsightsService insightsService;
-    private final FynInsightsNarrationService fynInsightsNarrationService;
-    private final EntitlementService entitlementService;
+    private final AiInsightService aiInsightService;
     private final InsightAcknowledgementService insightAcknowledgementService;
     private final CurrentUser currentUser;
 
-    public InsightsController(InsightsService insightsService,
-                               FynInsightsNarrationService fynInsightsNarrationService,
-                               EntitlementService entitlementService,
+    public InsightsController(InsightsService insightsService, AiInsightService aiInsightService,
                                InsightAcknowledgementService insightAcknowledgementService, CurrentUser currentUser) {
         this.insightsService = insightsService;
         this.insightAcknowledgementService = insightAcknowledgementService;
-        this.fynInsightsNarrationService = fynInsightsNarrationService;
-        this.entitlementService = entitlementService;
+        this.aiInsightService = aiInsightService;
         this.currentUser = currentUser;
     }
 
@@ -61,22 +55,24 @@ public class InsightsController {
         return ApiResponse.ok(null, "Saved");
     }
 
-    /** Fyn Phase 3 (docs/superpowers/specs/2026-09-13-fino-ai-implementation-plan.md, §6 Phase 3)
-     *  -- its own endpoint, deliberately: a failure here (guard refusal, Anthropic outage, cost
-     *  cap, or simply nothing worth narrating) must never affect {@link #insights}, which this
-     *  calls nothing in common with beyond reading the same underlying data independently. */
+    /** The website's narration slot, served from the AI month story (AI insights foundation,
+     *  docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §8.4): the stored story, or
+     *  one written now when it may be. Anything other than an AI story -- not allowed, unavailable,
+     *  nothing to describe, a failed check -- is 404, which the page shows as no narration. Its own
+     *  endpoint, deliberately: nothing here can affect {@link #insights}. The website moves to
+     *  GET/POST /story (with its label and feedback) in its own PR; this stays for the version live now. */
     @GetMapping("/narration")
     public ApiResponse<FynInsightsNarrationDto> narration(@RequestParam(required = false) String month) {
-        requireFynInsights();
-        return ApiResponse.ok(new FynInsightsNarrationDto(
-                fynInsightsNarrationService.narrate(currentUser.id(), month)));
-    }
-
-    /** Same per-request, no-cache posture as {@code AnalyticsController.requireAdvancedReports} --
-     *  see that method's own doc for why. */
-    private void requireFynInsights() {
-        if (!entitlementService.hasEntitlement(currentUser.id(), FeatureEntitlement.FYN_INSIGHTS)) {
-            throw new ApiException(ErrorCode.ENTITLEMENT_REQUIRED);
+        if (month != null && !month.matches(com.finora.dto.AiInsightDtos.MONTH_PATTERN)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "month must be yyyy-MM");
         }
+        AiInsightService.TextView story = aiInsightService.getStory(currentUser.id(), month);
+        if (!"ready".equals(story.status()) && story.canGenerate()) {
+            story = aiInsightService.generateStory(currentUser.id(), month);
+        }
+        if (!"ready".equals(story.status()) || !story.writtenByAi() || story.text() == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Nothing to narrate for this month yet.");
+        }
+        return ApiResponse.ok(new FynInsightsNarrationDto(story.text()));
     }
 }

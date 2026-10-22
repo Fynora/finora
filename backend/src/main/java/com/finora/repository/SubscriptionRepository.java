@@ -91,9 +91,11 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
 
     /** SubscriptionReconciliationSweepService (design spec §6.3) -- the safety net for a missed
      *  {@code subscription.cancelled} webhook. Not scoped to {@code ACTIVE}/{@code TRIAL} on
-     *  purpose: {@code status='CANCELLED'} is exactly the state a cancellation already reached. */
+     *  purpose: {@code status='CANCELLED'} is exactly the state a cancellation already reached.
+     *  {@code <=}, not {@code <}: the renewal date is the India day the period ends on, and it ends
+     *  at the start of that day (see BillingCalendar), so on the renewal day itself it is over. */
     @Query("SELECT s FROM Subscription s WHERE s.autoRenew = false AND s.status = 'CANCELLED' " +
-           "AND s.renewalDate < :cutoff")
+           "AND s.renewalDate <= :cutoff")
     List<Subscription> findCancelledSubscriptionsPastPeriodEnd(@Param("cutoff") LocalDate cutoff);
 
     /** SubscriptionCancellationDispatchSweepService -- candidates for the real, deferred Razorpay

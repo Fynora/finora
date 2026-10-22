@@ -76,7 +76,7 @@ public class SubscriptionReconciliationSweepService {
     }
 
     public int sweep() {
-        LocalDate cutoff = LocalDate.now();
+        LocalDate cutoff = BillingCalendar.today();
         List<Subscription> overdue = subscriptionRepository.findCancelledSubscriptionsPastPeriodEnd(cutoff);
 
         int downgraded = 0;
@@ -105,7 +105,7 @@ public class SubscriptionReconciliationSweepService {
             if (subscription == null || subscription.isAutoRenew()
                     || !Subscription.STATUS_CANCELLED.equals(subscription.getStatus())
                     || subscription.getRenewalDate() == null
-                    || !subscription.getRenewalDate().isBefore(cutoff)) {
+                    || subscription.getRenewalDate().isAfter(cutoff)) {
                 return false;
             }
 

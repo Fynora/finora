@@ -24,8 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
 
@@ -258,7 +256,7 @@ public class RazorpayWebhookDispatcher {
         subscription.setCancellationDispatchedAt(null);
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
-            subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+            subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
         }
         applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
@@ -455,7 +453,7 @@ public class RazorpayWebhookDispatcher {
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         Object currentEnd = subscriptionEntity.get("current_end");
         if (currentEnd instanceof Number n) {
-            subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+            subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
         }
         Map<String, Object> paymentEntity = paymentEntity(payload);
         applyCardOnFile(subscription, paymentEntity);
@@ -825,7 +823,7 @@ public class RazorpayWebhookDispatcher {
         subscription.setStatus(Subscription.STATUS_ACTIVE);
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
-            subscription.setRenewalDate(LocalDate.ofInstant(Instant.ofEpochSecond(n.longValue()), ZoneOffset.UTC));
+            subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
         }
         subscriptionRepository.save(subscription);
 

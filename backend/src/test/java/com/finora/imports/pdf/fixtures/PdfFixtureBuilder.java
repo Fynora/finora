@@ -225,6 +225,26 @@ public final class PdfFixtureBuilder {
         }
     }
 
+    /**
+     * A plain savings ledger with one row whose withdrawal cell holds a figure no numeric format
+     * accepts (letter O for zero) and no balance beside it. The row is located, then refused at
+     * normalisation, so it becomes an unparseable row whose review-screen reason quotes the cell --
+     * the shape the unparseable summary must never persist.
+     */
+    public static byte[] buildUnreadableAmountCellSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 120f, 330f, 410f, 490f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Statement of Accounts")
+                .blankLine()
+                .row(col, "Date", "Details", "Withdrawals", "Deposits", "Balance")
+                .row(col, "01/07/2026", "OPENING DEPOSIT", "", "5,000.00", "5,000.00")
+                .row(col, "02/07/2026", "SAMPLE PAYEE ONE", "100.00", "", "4,900.00")
+                .row(col, "03/07/2026", "SAMPLE PAYEE TWO", "2OO.OO", "", "")
+                .row(col, "04/07/2026", "SAMPLE PAYEE THREE", "300.00", "", "4,600.00");
+        return render(List.of(page));
+    }
+
     // ==================== RUNNING_BALANCE / BALANCE_CHAIN_RECONSTRUCTION ====================
 
     /**

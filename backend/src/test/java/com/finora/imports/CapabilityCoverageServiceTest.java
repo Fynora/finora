@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -82,17 +83,70 @@ class CapabilityCoverageServiceTest {
     @Test
     void aggregatesUnparseableRowsIntoAPrioritisedBacklog() throws Exception {
         String heavy = objectMapper.writeValueAsString(UnparseableRowSummary.of(List.of(
-                new UnparseableRow(Map.of("date", "x", "narration", "y"), "No date value"),
-                new UnparseableRow(Map.of("date", "x", "narration", "y"), "No date value"),
-                new UnparseableRow(Map.of("date", "x", "narration", "y"), "No amount value"))));
+                new UnparseableRow(Map.of("date", "x", "narration", "y"), UnparseableReasons.NO_DATE_COLUMN),
+                new UnparseableRow(Map.of("date", "x", "narration", "y"), UnparseableReasons.NO_DATE_COLUMN),
+                new UnparseableRow(Map.of("date", "x", "narration", "y"), UnparseableReasons.NO_AMOUNT_COLUMN))));
 
         var map = service.aggregate(List.of(importWith(capabilities("WRAPPED_DESCRIPTION"), heavy)));
 
         assertThat(map.rowsLost()).isEqualTo(3);
         // Highest first: a backlog is only useful in priority order, which is the whole reason for
         // counting instead of prioritising by whichever document was looked at most recently.
-        assertThat(map.unparseableReasons().keySet()).containsExactly("No date value", "No amount value");
+        assertThat(map.unparseableReasons().keySet())
+                .containsExactly(UnparseableReasons.NO_DATE_COLUMN, UnparseableReasons.NO_AMOUNT_COLUMN);
         assertThat(map.unparseableShapes()).containsEntry("date|narration", 3);
+    }
+
+    @Test
+    void unreadableCellsOfOneFormatGroupUnderOneShapeAndNoValueReachesTheReport() throws Exception {
+        // Two imports, two different dates in the same unsupported format: one backlog entry with
+        // a count of two, which is the question the report exists to answer -- and neither date.
+        String first = objectMapper.writeValueAsString(UnparseableRowSummary.of(List.of(new UnparseableRow(
+                Map.of("date", "05-Sept-2026"), UnparseableReasons.dateUnreadable("05-Sept-2026")))));
+        String second = objectMapper.writeValueAsString(UnparseableRowSummary.of(List.of(new UnparseableRow(
+                Map.of("date", "17-Sept-2026"), UnparseableReasons.dateUnreadable("17-Sept-2026")))));
+
+        var map = service.aggregate(List.of(importWith(null, first), importWith(null, second)));
+
+        assertThat(map.unparseableReasons())
+                .containsOnly(entry("Date value \"99-XXXX-9999\" didn't match any known date format", 2));
+        assertThat(objectMapper.writeValueAsString(map)).doesNotContain("Sept").doesNotContain("2026");
+    }
+
+    @Test
+    void aStoredKeyThatStillQuotesACellIsMaskedBeforeTheReportShowsIt() throws Exception {
+        // A summary written before keys were masked (or by an older instance mid-deploy) must not
+        // reach the admin report as it was stored. It joins the same bucket a new summary of that
+        // format lands in.
+        var legacyReasons = new java.util.LinkedHashMap<String, Integer>();
+        legacyReasons.put(UnparseableReasons.dateUnreadable("05-Sept-2026"), 2);
+        legacyReasons.put(UnparseableReasons.dateUnreadable("(redacted)"), 1);
+        String legacy = objectMapper.writeValueAsString(
+                new UnparseableRowSummary(legacyReasons, Map.of("date", 3), 3));
+        String current = objectMapper.writeValueAsString(UnparseableRowSummary.of(List.of(new UnparseableRow(
+                Map.of("date", "17-Sept-2026"), UnparseableReasons.dateUnreadable("17-Sept-2026")))));
+
+        var map = service.aggregate(List.of(importWith(null, legacy), importWith(null, current)));
+
+        assertThat(map.unparseableReasons()).containsOnly(
+                entry("Date value \"99-XXXX-9999\" didn't match any known date format", 3),
+                entry("Date value \"(redacted)\" didn't match any known date format", 1));
+        assertThat(objectMapper.writeValueAsString(map)).doesNotContain("Sept");
+        assertThat(map.rowsLost()).isEqualTo(4);
+    }
+
+    @Test
+    void summariesStoredBeforeTheFixStillAggregate() {
+        // Rows written before this change are keyed by the review-screen reason; the report must
+        // keep reading them rather than skipping them as unreadable. Whether those rows are
+        // redacted is a separate, data-level decision.
+        String legacy = "{\"reasons\":{\"" + UnparseableReasons.NO_DATE_COLUMN.replace("\"", "\\\"")
+                + "\":2},\"columnSignatures\":{\"narration\":2},\"total\":2}";
+
+        var map = service.aggregate(List.of(importWith(null, legacy)));
+
+        assertThat(map.rowsLost()).isEqualTo(2);
+        assertThat(map.unparseableReasons()).containsEntry(UnparseableReasons.NO_DATE_COLUMN, 2);
     }
 
     @Test
@@ -112,7 +166,7 @@ class CapabilityCoverageServiceTest {
         // The privacy property, asserted rather than assumed: an unparseable row is a line of
         // somebody's bank statement, and this table is read by admins and retained indefinitely.
         var summary = UnparseableRowSummary.of(List.of(
-                new UnparseableRow(Map.of("narration", "UPI/XXXXX XXXX/9999999999"), "No date value")));
+                new UnparseableRow(Map.of("narration", "UPI/XXXXX XXXX/9999999999"), UnparseableReasons.NO_DATE_COLUMN)));
 
         assertThat(summary.toString()).doesNotContain("XXXXX");
         assertThat(summary.toString()).doesNotContain("9999999999");

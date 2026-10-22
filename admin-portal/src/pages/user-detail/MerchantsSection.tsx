@@ -21,6 +21,10 @@ function MerchantRow({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(merchant.canonicalName);
   const [mergeFrom, setMergeFrom] = useState('');
+  // The merge picker is built only for the row being merged. Built for every row, it was one
+  // <option> per other merchant per row -- n squared: a user with 378 merchants rendered 142,884
+  // options and froze the user page (2026-10-23).
+  const [merging, setMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [confirmUndo, setConfirmUndo] = useState(false);
@@ -52,6 +56,7 @@ function MerchantRow({
       adminUserMerchantsApi.merge(userId, merchant.id, { mergeFromMerchantId }),
     onSuccess: () => {
       setMergeFrom('');
+      setMerging(false);
       invalidate();
       notify.success('Merchants merged.');
     },
@@ -88,7 +93,8 @@ function MerchantRow({
 
   // Every OTHER merchant this same user has -- merging absorbs one of them into this row (see
   // MerchantService.merge()'s doc comment on the backend for exactly what that repoints).
-  const otherMerchants = allMerchants.filter((m) => m.id !== merchant.id);
+  const otherMerchants = merging ? allMerchants.filter((m) => m.id !== merchant.id) : [];
+  const canMerge = allMerchants.length > 1;
   // Both actions operate on learned categories, so there's nothing to act on until this merchant
   // has at least one.
   const hasLearning = merchant.topCategory !== null;
@@ -136,7 +142,16 @@ function MerchantRow({
       </div>
       {canManage && !editing && (
         <div className="flex items-center gap-2 flex-shrink-0">
-          {otherMerchants.length > 0 && (
+          {canMerge && !merging && (
+            <button
+              type="button"
+              onClick={() => setMerging(true)}
+              className="text-xs font-semibold text-primary px-2 py-1.5"
+            >
+              Merge…
+            </button>
+          )}
+          {merging && (
             <>
               <select
                 aria-label="Merge from"
@@ -154,6 +169,13 @@ function MerchantRow({
                 className="text-xs font-semibold text-primary px-2 py-1.5 disabled:opacity-50"
               >
                 Merge
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMerging(false); setMergeFrom(''); }}
+                className="text-xs text-muted px-2 py-1.5"
+              >
+                Cancel
               </button>
             </>
           )}

@@ -71,7 +71,7 @@ public class StatementValidator {
     public void scanRow(Map<String, String> row, StagedRow parsedRow, AccountSignalAccumulator acc) {
         if (parsedRow != null) {
             String balanceRaw = CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance");
-            BigDecimal balance = CsvParser.parseNumeric(balanceRaw);
+            BigDecimal balance = TransactionNormalizer.withBalanceDirection(row, CsvParser.parseNumeric(balanceRaw));
             if (balance != null) {
                 BigDecimal signedAmount = BalanceSequenceResolver.signedAmountOf(parsedRow, row);
                 acc.balanceObservations.add(new BalanceObservation(parsedRow.date(), signedAmount, balance, parsedRow.description()));

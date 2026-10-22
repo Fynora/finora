@@ -1,7 +1,7 @@
 import { Info } from 'lucide-react';
 import type { AdvancedReport } from '../../api/endpoints';
 import { FinoraCard } from '../../design-system';
-import { coverageNote, gateNote, incompleteNote, leftOutNote, periodSpan, monthYear } from './advancedFormat';
+import { coverageNote, gateNote, leftOutNote, monthYear, periodSpan } from './advancedFormat';
 
 /**
  * What the period actually is, and what was left out or withheld, in plain sentences: the months

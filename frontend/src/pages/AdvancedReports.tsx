@@ -261,7 +261,7 @@ function AdvancedReportsContent() {
             <EmptyState
               icon={BarChart3} iconBg="bg-surface" iconColor="text-ink" title={copy.title} desc={copy.desc}
               cta={report.period.noDataReason === 'NO_TRANSACTIONS' ? (
-                <Link to="/app/import" className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
+                <Link to="/app/import" onClick={() => trackNavigation('import-statement', 'contextual')} className="inline-flex items-center gap-1.5 bg-primary text-on-primary hover:bg-primary-dark rounded-lg px-4 py-2 text-xs font-semibold">
                   Import Statement
                 </Link>
               ) : undefined}

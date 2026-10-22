@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -13,7 +13,7 @@ import { downloadBlob, toCsv } from '../lib/download';
 import { trackNavigation } from '../lib/trackNavigation';
 import { advancedCsvRows, advancedExportName } from './advancedReports/advancedExport';
 import { advancedPdfName } from './advancedReports/advancedPrint';
-import { PrintSheet } from './advancedReports/PrintSheet';
+import { PRINTING_CLASS, PrintSheet } from './advancedReports/PrintSheet';
 import { incompleteNote, noDataCopy, RANGE_OPTIONS } from './advancedReports/advancedFormat';
 import { CashFlowChart } from './advancedReports/CashFlowChart';
 import { CategoriesPanel } from './advancedReports/CategoriesPanel';
@@ -206,22 +206,35 @@ function AdvancedReportsContent() {
 
   // "Print / PDF": the browser's print dialog is where "Save as PDF" lives, as on Reports. The sheet is
   // put on the page first (flushSync), then the dialog opens from the click itself -- not from an effect,
-  // which StrictMode runs twice in development. The document title is what the browser offers as the
-  // PDF's file name. Everything is put back once the dialog closes.
+  // which StrictMode runs twice in development. <body> is marked for the length of this print only:
+  // index.css hides the rest of the app on paper just while it carries PRINTING_CLASS, so every other
+  // page's printing is untouched. The document title is what the browser offers as the PDF's file name.
+  // Everything is put back on afterprint. A browser that never fires it for one print still gets the
+  // real title back on the next: the title from before the first unfinished print is the one kept.
   const [printing, setPrinting] = useState<AdvancedReport | null>(null);
+  const printState = useRef<{ title: string; done: () => void } | null>(null);
   function printReport() {
     if (!report || !report.period.hasData) return;
-    const previousTitle = document.title;
+    const pending = printState.current;
+    if (pending) window.removeEventListener('afterprint', pending.done);
+    const title = pending ? pending.title : document.title;
     const done = () => {
       window.removeEventListener('afterprint', done);
-      document.title = previousTitle;
+      printState.current = null;
+      document.title = title;
+      document.body.classList.remove(PRINTING_CLASS);
       setPrinting(null);
     };
+    printState.current = { title, done };
     flushSync(() => setPrinting(report));
+    document.body.classList.add(PRINTING_CLASS);
     document.title = advancedPdfName(report).replace(/\.pdf$/, '');
     window.addEventListener('afterprint', done);
     window.print();
   }
+  // Leaving the page before afterprint (a browser whose print() does not block) must not strand the
+  // body class or the file-name title on whatever page comes next.
+  useEffect(() => () => printState.current?.done(), []);
 
   const period = report?.period ?? null;
   const copy = period && !period.hasData ? noDataCopy(period) : null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advancedPdfName, advancedPrintBody, advancedPrintDocument } from './advancedPrint';
+import { ADVANCED_PRINT_CSS, advancedPdfName, advancedPrintBody, advancedPrintDocument } from './advancedPrint';
 import { fixtureReport } from './testFixtures';
 
 describe('advancedPrintBody', () => {
@@ -105,12 +105,29 @@ describe('advancedPrintBody', () => {
     expect(html).toContain('International spend');
     expect(html).toContain('USD');
     expect(html).toContain('₹8,000');
+    // The amount in the currency itself, as the screen shows it.
+    expect(html).toContain('USD 95.00');
+  });
+
+  it('says how steady income was, in the Income tab\'s words', () => {
+    const html = advancedPrintBody(fixtureReport());
+    expect(html).toContain('Income came in during 6 of 6 months. Among whole months the highest was Sep 2026 (₹1,10,000) and the lowest Apr 2026 (₹95,000), 86% of the highest.');
   });
 
   it('prints the key insights in the words the server wrote', () => {
     const html = advancedPrintBody(fixtureReport());
     expect(html).toContain('Your spending is 20% higher');
     expect(html).toContain('You spent ₹40,000 more than in the previous 6 months');
+  });
+});
+
+describe('ADVANCED_PRINT_CSS', () => {
+  // On web the sheet sits inside the app, whose Tailwind reset makes headings plain text and drops list
+  // bullets; browser defaults cannot be leaned on, so the sheet sets them itself.
+  it('sets heading weight and list markers itself rather than relying on browser defaults', () => {
+    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h1 \{[^}]*font-weight: 700/);
+    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar h2 \{[^}]*font-weight: 700/);
+    expect(ADVANCED_PRINT_CSS).toMatch(/\.fy-ar ul \{[^}]*list-style: disc/);
   });
 });
 

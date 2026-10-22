@@ -51,7 +51,8 @@ const section = (title: string, inner: string) => `<h2>${esc(title)}</h2>${inner
 export const ADVANCED_PRINT_CSS = `
 .fy-ar { font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #1b1e2b; background: #fff; font-size: 13px; line-height: 1.4;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.fy-ar h1 { font-size: 20px; margin: 0 0 4px; }
+.fy-ar h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+.fy-ar ul { list-style: disc; }
 .fy-ar .sub { color: #6b7280; font-size: 12px; margin: 0 0 16px; }
 .fy-ar .notes { margin: 0 0 16px; padding-left: 18px; color: #374151; }
 .fy-ar .notes li { margin-bottom: 4px; }
@@ -62,7 +63,7 @@ export const ADVANCED_PRINT_CSS = `
 .fy-ar .chg { font-size: 11px; color: #374151; margin-top: 2px; }
 .fy-ar .income { color: #16a34a; }
 .fy-ar .expense { color: #dc2626; }
-.fy-ar h2 { font-size: 12px; text-transform: uppercase; color: #6b7280; margin: 22px 0 6px; break-after: avoid; }
+.fy-ar h2 { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #6b7280; margin: 22px 0 6px; break-after: avoid; }
 .fy-ar table { width: 100%; border-collapse: collapse; }
 .fy-ar th { text-align: left; font-size: 10px; text-transform: uppercase; color: #6b7280; font-weight: 600; padding: 6px 4px; border-bottom: 1px solid #d1d5db; }
 .fy-ar td { padding: 6px 4px; border-bottom: 1px solid #e7e8f2; vertical-align: top; }
@@ -154,20 +155,36 @@ export function advancedPrintBody(report: AdvancedReport): string {
     parts.push(section('Spending by payment method', table(['Method', 'Amount'], rows.map((r) => [esc(r.label), esc(fmt(r.amount))]), [1])));
   }
 
-  if (report.income.sources.length > 0) {
+  const income = report.income;
+  if (income.sources.length > 0) {
+    // How steady income was, worded as the Income tab words it (IncomePanel / IncomeSection).
+    const n = report.months.length;
+    let steadiness = `Income came in during ${income.monthsWithIncome} of ${n} ${n === 1 ? 'month' : 'months'}.`;
+    if (income.highestMonth && income.lowestMonth && income.lowestAsPctOfHighest != null) {
+      steadiness += ` Among whole months the highest was ${monthYear(income.highestMonth)} (${fmt(income.highestMonthAmount ?? 0)})`
+        + ` and the lowest ${monthYear(income.lowestMonth)} (${fmt(income.lowestMonthAmount ?? 0)}),`
+        + ` ${Math.round(income.lowestAsPctOfHighest)}% of the highest.`;
+    }
     parts.push(section('Income sources', table(
       ['Source', 'Amount', 'Share'],
-      report.income.sources.map((s) => [esc(s.label), esc(fmt(s.amount)), esc(pct(s.sharePct))]),
+      income.sources.map((s) => [esc(s.label), esc(fmt(s.amount)), esc(pct(s.sharePct))]),
       [1, 2],
-    )));
+    ) + `<p class="small">${esc(steadiness)}</p>`));
   }
 
   const intl = report.international;
   if (intl.transactionCount > 0) {
     const summary = `<p class="small">${esc(`Total ${fmt(intl.totalSpend)} across ${intl.transactionCount} transactions: `
       + `${fmt(intl.purchasesSpend)} foreign purchases, ${fmt(intl.otherChargesSpend)} other charges (GST, FX markup and anything billed in rupees).`)}</p>`;
+    // "USD 95.00": the same format as the screen's (frontend lib/foreignAmount.ts, mobile fmtForeignAmount).
+    const foreign = (currency: string, amount: number) =>
+      `${currency} ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const byCurrency = intl.byCurrency.length > 0
-      ? table(['Currency', 'Billed in rupees', 'Transactions'], intl.byCurrency.map((x) => [esc(x.currency), esc(fmt(x.rupeeTotal)), esc(x.transactionCount)]), [1, 2])
+      ? table(
+        ['Currency', 'In the currency', 'Billed in rupees', 'Transactions'],
+        intl.byCurrency.map((x) => [esc(x.currency), esc(foreign(x.currency, x.foreignTotal)), esc(fmt(x.rupeeTotal)), esc(x.transactionCount)]),
+        [1, 2, 3],
+      )
       : '';
     parts.push(section('International spend', byCurrency + summary));
   }

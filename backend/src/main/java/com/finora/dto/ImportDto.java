@@ -858,6 +858,13 @@ public class ImportDto {
                     holderIsMine);
         }
 
+        public ConfirmRequest withNewAccount(NewAccountRequest replacement) {
+            return new ConfirmRequest(sessionId, rows, existingAccountId, replacement,
+                    statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
+                    statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey,
+                    holderIsMine);
+        }
+
         /** Pre-existing arity. Kept so the many call sites that construct a request with no printed
          *  statement period to echo -- reimport's internal re-scoping, tests, Gmail's receipt-derived
          *  confirms -- stay unchanged; both new fields default to null, which persistSection stores
@@ -939,7 +946,25 @@ public class ImportDto {
             BigDecimal principalAmount, BigDecimal interestRate, LocalDate maturityDate,
             BigDecimal maturityAmount, BigDecimal installmentAmount,
             Integer installmentsPaid, Integer installmentsTotal
-    ) {}
+    ) {
+        /** The same request without the product identity key. The key hashes the bank it was staged
+         *  with; once the user has given the account a different bank, it would point at the wrong
+         *  institution, so the account is created without one (spec 2026-10-22, section 5). */
+        public NewAccountRequest withoutProductIdentityHash() {
+            return new NewAccountRequest(name, accountType, openingBalance, creditLimit, dueDate,
+                    accountHolderName, accountNumberMasked, bankId, branchName, ifscCode, detectedProduct, null,
+                    principalAmount, interestRate, maturityDate, maturityAmount, installmentAmount,
+                    installmentsPaid, installmentsTotal);
+        }
+
+        /** Applies {@link #withoutProductIdentityHash} when the chosen bank is not the staged one. */
+        public NewAccountRequest keyedOnlyFor(DetectedAccountInfo staged) {
+            if (staged == null || productIdentityHash == null) return this;
+            String stagedBank = staged.bank() == null ? com.finora.util.BankRegistry.UNKNOWN_ID : staged.bank().id();
+            String chosenBank = bankId == null ? com.finora.util.BankRegistry.UNKNOWN_ID : bankId;
+            return stagedBank.equals(chosenBank) ? this : withoutProductIdentityHash();
+        }
+    }
 
     /**
      * @param confirmedNotDuplicate the user's ANSWER on the duplicate review screen, as opposed to

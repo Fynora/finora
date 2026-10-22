@@ -137,6 +137,26 @@ public class ImportService {
         this.profileBankFiller = profileBankFiller;
     }
 
+    /** Counts where each created account's bank came from (V285). Setter-injected for the same reason
+     *  as {@link #profileBankFiller}; null in hand-built unit tests means "record nothing". */
+    private ImportBankChoiceRecorder bankChoiceRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBankChoiceRecorder(ImportBankChoiceRecorder bankChoiceRecorder) {
+        this.bankChoiceRecorder = bankChoiceRecorder;
+    }
+
+    /** Records the bank of an account this section's confirm created, read back from the account
+     *  itself so it is what the account really got, not what the client sent. Nothing for an
+     *  import into an existing account. */
+    private void recordBankChoice(String layoutFingerprint, DetectedAccountInfo staged, ConfirmRequest sectionRequest,
+                                  List<String> accountsCreated, UUID accountId) {
+        if (bankChoiceRecorder == null || sectionRequest.newAccount() == null
+                || accountsCreated == null || accountsCreated.isEmpty() || accountId == null) return;
+        accountRepository.findById(accountId)
+                .ifPresent(account -> bankChoiceRecorder.record(layoutFingerprint, staged, account.getBankId()));
+    }
+
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
                           StatementImportRepository statementImportRepository,
@@ -1069,7 +1089,8 @@ public class ImportService {
                     null, // this section's ConfirmRequest doesn't carry its own sessionId -- the session is claimed once, above, for the whole multi-account request
                     // International/foreign amount from this section's own parse, never the client's
                     // echo -- see ConfirmedRowIntegrity.withStatementFacts.
-                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
+                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(),
+                    sectionConfirm.newAccount() == null ? null : sectionConfirm.newAccount().keyedOnlyFor(stagedSection.detectedAccount()),
                     sectionConfirm.statementOpeningBalance(), sectionConfirm.statementClosingBalance(),
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
@@ -1082,6 +1103,9 @@ public class ImportService {
                 session.getUnparseableSummaryJson(), null, importSessionService.readCreditCardSummary(session),
                 stagedSection.detectedAccount() == null ? null : stagedSection.detectedAccount().accountHolderName(),
                 session.getParserVersion()));
+            PersistedSection justPersisted = persisted.get(persisted.size() - 1);
+            recordBankChoice(session.getLayoutFingerprint(), stagedSection.detectedAccount(), perAccountRequest,
+                    justPersisted.accountsCreated(), justPersisted.accountId());
         }
 
         reconcileAcross(userId, persisted);
@@ -1134,10 +1158,14 @@ public class ImportService {
         // request.statementPeriodStart()/End() or request.rows() -- see
         // requireStatementWithinFreeLimit's own doc comment.
         requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
+        if (request.newAccount() != null) request = request.withNewAccount(request.newAccount().keyedOnlyFor(detectedAccount));
         ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
                 detectedAccount == null ? null : detectedAccount.accountHolderName(), session.getParserVersion());
+        UUID createdInto = response.statementImportId() == null ? null
+                : statementImportRepository.findById(response.statementImportId()).map(StatementImport::getAccountId).orElse(null);
+        recordBankChoice(session.getLayoutFingerprint(), detectedAccount, request, response.accountsCreated(), createdInto);
         carrySavedPassword(session.getId(), List.of(response.statementImportId()));
         return response;
     }

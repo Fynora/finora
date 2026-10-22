@@ -128,6 +128,14 @@ public class ImportService {
     private final StatementProvenanceRecorder provenanceRecorder;
     /** Null only in unit tests that construct this class directly -- see reviewLayout. */
     private final LayoutReviewService layoutReviewService;
+    /** Fills an unknown bank from the layout's profile (V285). Setter-injected so the unit tests that
+     *  build this service by hand keep compiling; null there means "no fill". */
+    private ProfileBankFiller profileBankFiller;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setProfileBankFiller(ProfileBankFiller profileBankFiller) {
+        this.profileBankFiller = profileBankFiller;
+    }
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -238,8 +246,12 @@ public class ImportService {
             diagnostics = ParseDiagnostics.of(staged.rows().size(), result.documentContext().unanchoredReasons())
                     .withIdentity(DocumentIdentity.of(staged.detectedAccount()));
             rejectIfNothingWasExtracted(staged, result.documentContext());
-            var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                    result.documentContext(), null, null, null, staged.verification());
+            // Filled for the user and the session only; everything below that records evidence about
+            // the file or groups its layout keeps the unfilled `staged`.
+            ProfileBankFiller.Filled<StagingResponse> filled = fillBank(fingerprint, staged);
+            StagingResponse shown = filled.value();
+            var session = importSessionService.createSession(userId, fileName, fileContent, shown.rows(), shown.detectedAccount(),
+                    result.documentContext(), null, null, null, shown.verification());
             String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                     "CSV", fileContent.length, fingerprint, 1, System.currentTimeMillis() - startedAtMs,
                     diagnostics, session.getId());
@@ -253,8 +265,9 @@ public class ImportService {
                     java.util.Collections.singletonList(staged.verification()));
             reviewLayout(fingerprint, "CSV", staged.rows(),
                     java.util.Collections.singletonList(staged.verification()), reference,
-                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false);
-            return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
+                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false,
+                    filled.bankConflict());
+            return new StagingSessionResponse(session.getId(), shown, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
             // -- an index out of bounds in column bucketing, a PDFBox failure, anything unchecked
@@ -394,18 +407,22 @@ public class ImportService {
                 StagingResponse staged = sections.isEmpty()
                         ? new StagingResponse(List.of(), 0, 0, null, List.of())
                         : toStagingResponse(sections.get(0));
-                var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                        result.documentContext(), null, null, result.creditCardSummary(), staged.verification());
+                ProfileBankFiller.Filled<StagingResponse> filled = fillBank(fingerprint, staged);
+                StagingResponse shown = filled.value();
+                var session = importSessionService.createSession(userId, fileName, fileContent, shown.rows(), shown.detectedAccount(),
+                        result.documentContext(), null, null, result.creditCardSummary(), shown.verification());
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
                         java.util.Collections.singletonList(staged.verification()), staged.rows(),
                         LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())),
-                        holderUnreadable(result.documentContext(), java.util.Collections.singletonList(staged.detectedAccount())));
-                return new PdfStagingSessionResponse(session.getId(), false, staged, null,
+                        holderUnreadable(result.documentContext(), java.util.Collections.singletonList(staged.detectedAccount())),
+                        filled.bankConflict());
+                return new PdfStagingSessionResponse(session.getId(), false, shown, null,
                         previousImportOf(userId, session.getContentHash()));
             }
 
-            var session = importSessionService.createMultiSection(userId, fileName, fileContent, sections,
+            ProfileBankFiller.Filled<List<StagedAccountSection>> filledSections = fillBank(fingerprint, sections);
+            var session = importSessionService.createMultiSection(userId, fileName, fileContent, filledSections.value(),
                     result.documentContext(), result.creditCardSummary());
             // Per section, in section order, because a composite statement's sections have separate
             // balance chains and one can verify while another does not -- collapsing them into one
@@ -415,8 +432,9 @@ public class ImportService {
                     sections.stream().map(StagedAccountSection::verification).toList(),
                     sections.stream().flatMap(section -> section.rows().stream()).toList(),
                     LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()),
-                    holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()));
-            return new PdfStagingSessionResponse(session.getId(), true, null, sections,
+                    holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()),
+                    filledSections.bankConflict());
+            return new PdfStagingSessionResponse(session.getId(), true, null, filledSections.value(),
                     previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // The whole point of the evidence table. A password failure carries no fingerprint --
@@ -505,13 +523,16 @@ public class ImportService {
      * for this document and has already removed it (the V79 index allows one per user and file).
      */
     public StagedReparse stageReparsed(UUID userId, String fileName, byte[] fileContent, ReparsedStatement parsed) {
+        // Same fill as an upload; no conflict is reported from here, since a re-staging of a held
+        // statement is not a review run (see parseAndStageAnyFormat's reviewLayout flag).
+        String fingerprint = fingerprintOf(parsed.documentContext());
         if (parsed.csv() != null) {
-            StagingResponse staged = parsed.csv();
+            StagingResponse staged = fillBank(fingerprint, parsed.csv()).value();
             var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(),
                     staged.detectedAccount(), parsed.documentContext(), null, null, null, staged.verification());
             return new StagedReparse(session.getId(), staged.totalParsed(), staged.rows().size());
         }
-        List<StagedAccountSection> sections = parsed.sections();
+        List<StagedAccountSection> sections = fillBank(fingerprint, parsed.sections()).value();
         if (sections.size() <= 1) {
             StagingResponse staged = sections.isEmpty()
                     ? new StagingResponse(List.of(), 0, 0, null, List.of())
@@ -707,12 +728,14 @@ public class ImportService {
                                   int sectionCount, long startedAtMs, ParseDiagnostics diagnostics,
                                   UUID importSessionId,
                                   List<VerificationReport> verificationBySection,
-                                  List<StagedRow> stagedRows, LayoutIdentity identity, boolean holderUnreadable) {
+                                  List<StagedRow> stagedRows, LayoutIdentity identity, boolean holderUnreadable,
+                                  boolean bankConflict) {
         String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                 "PDF", byteSize, fingerprint, sectionCount, System.currentTimeMillis() - startedAtMs,
                 diagnostics, importSessionId);
         verificationRecorder.recordForAnalysis(reference, verificationBySection);
-        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity, holderUnreadable);
+        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity, holderUnreadable,
+                bankConflict);
     }
 
     /**
@@ -725,9 +748,28 @@ public class ImportService {
     private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
                               List<VerificationReport> verificationBySection, String analysisReference,
                               LayoutIdentity identity, boolean holderUnreadable) {
+        reviewLayout(fingerprint, sourceFormat, rows, verificationBySection, analysisReference, identity,
+                holderUnreadable, false);
+    }
+
+    /** As above; {@code bankConflict} is the file naming a different bank from its layout's profile. */
+    private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
+                              List<VerificationReport> verificationBySection, String analysisReference,
+                              LayoutIdentity identity, boolean holderUnreadable, boolean bankConflict) {
         if (layoutReviewService == null) return;
         layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference,
-                identity, holderUnreadable);
+                identity, holderUnreadable, bankConflict);
+    }
+
+    private ProfileBankFiller.Filled<StagingResponse> fillBank(String fingerprint, StagingResponse staged) {
+        return profileBankFiller == null ? new ProfileBankFiller.Filled<>(staged, false)
+                : profileBankFiller.fill(fingerprint, staged);
+    }
+
+    private ProfileBankFiller.Filled<List<StagedAccountSection>> fillBank(String fingerprint,
+                                                                          List<StagedAccountSection> sections) {
+        return profileBankFiller == null ? new ProfileBankFiller.Filled<>(sections, false)
+                : profileBankFiller.fill(fingerprint, sections);
     }
 
     /**

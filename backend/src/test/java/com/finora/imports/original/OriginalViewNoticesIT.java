@@ -49,7 +49,7 @@ import static org.mockito.Mockito.when;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-original-view-notices-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 class OriginalViewNoticesIT extends AbstractIntegrationTest {
 

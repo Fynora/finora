@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         // The follow-up is FixJobFollowUpTest's: kept from polling the stand-in during this class.
         "app.claude-fix.follow-up-initial-delay-ms=86400000",
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-claude-fix-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 @ExtendWith(OutputCaptureExtension.class)
 class FixJobStarterIT extends AbstractIntegrationTest {

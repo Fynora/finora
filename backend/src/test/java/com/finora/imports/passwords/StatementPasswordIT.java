@@ -64,7 +64,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-statement-password-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false",
         "app.statement-passwords.save.enabled=true",
         "app.rate-limit.import-stage.max=10000"

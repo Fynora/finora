@@ -49,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-held-statement-controller-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 class AdminHeldStatementControllerIT extends AbstractIntegrationTest {
 

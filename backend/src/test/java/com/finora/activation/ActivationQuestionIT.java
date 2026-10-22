@@ -47,7 +47,7 @@ import static org.mockito.Mockito.doReturn;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-activation-question-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false"
 })
 class ActivationQuestionIT extends AbstractIntegrationTest {

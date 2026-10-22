@@ -54,7 +54,7 @@ import static org.mockito.Mockito.when;
         // The queued endpoint is only reachable with statement storage on (ImportJobEndpointIT
         // explains why the base context leaves it off); the worker itself stays off.
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-pre-read-rejection-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false"
 })
 class ImportPreReadRejectionIT extends AbstractIntegrationTest {

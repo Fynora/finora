@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *  and gone with its import job. */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-statement-original-view-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 class StatementOriginalViewRepositoryIT extends AbstractIntegrationTest {
 

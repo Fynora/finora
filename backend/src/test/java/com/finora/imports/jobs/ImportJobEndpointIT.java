@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         // AbstractIntegrationTest does NOT enable storage (that change lives on the parked V55
         // branch), so this IT's first run hit the 503 guard, which was the guard working.
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-import-job-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false",
         // BH-011 put /api/v1/import/jobs behind importStageLimiter, which is 10 per 10 minutes per
         // IP -- and this class uploads well past that from one loopback address. The limiter is

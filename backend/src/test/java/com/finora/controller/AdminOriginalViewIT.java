@@ -77,7 +77,7 @@ import static org.mockito.Mockito.when;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-admin-original-view-it"
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage"
 })
 class AdminOriginalViewIT extends AbstractIntegrationTest {
 

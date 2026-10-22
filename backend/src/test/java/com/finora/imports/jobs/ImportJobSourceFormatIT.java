@@ -39,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @TestPropertySource(properties = {
         "app.statement-storage.provider=filesystem",
-        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-import-source-format-it",
+        "app.statement-storage.filesystem.root=${java.io.tmpdir}/finora-it-statement-storage",
         "app.import.queue.enabled=false"
 })
 class ImportJobSourceFormatIT extends AbstractIntegrationTest {

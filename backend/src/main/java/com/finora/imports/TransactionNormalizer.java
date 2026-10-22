@@ -202,6 +202,22 @@ public class TransactionNormalizer {
         return null;
     }
 
+    /**
+     * {@code balance} with the row's own balance marker applied: negative when that marker says
+     * the balance is in debit (an overdrawn account), the same reading parseNumeric gives a "Dr"
+     * suffixed onto the balance cell itself. Unchanged when the row has no such marker, which is
+     * every layout except one whose balance carries its own Dr/Cr column (see
+     * CsvParser.BALANCE_DIRECTION_KEY). Every reader of a row's balance goes through this, so the
+     * staged row and the opening/closing-balance derivation cannot disagree about its sign.
+     */
+    public static BigDecimal withBalanceDirection(Map<String, String> row, BigDecimal balance) {
+        if (balance == null) return null;
+        String marker = CsvParser.firstNonBlank(row, BALANCE_DIRECTION_HINTS);
+        if (marker == null) return balance;
+        String m = marker.trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", "");
+        return "dr".equals(m) ? balance.abs().negate() : balance;
+    }
+
     private static String lettersOf(String s) {
         return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z]", "");
     }
@@ -825,14 +841,7 @@ public class TransactionNormalizer {
         // review screen needs to let the user decide rather than just flagging the row (WI5).
         String referenceNumber = referenceNumberOf(row, description);
         String balanceRaw = firstParseableAmount(row, BALANCE_HINTS);
-        BigDecimal balanceAfter = CsvParser.parseNumeric(balanceRaw);
-        // A balance in debit (an overdrawn account) is negative, the same reading parseNumeric
-        // gives a "Dr" suffixed onto the balance cell itself.
-        String balanceDirection = CsvParser.firstNonBlank(row, BALANCE_DIRECTION_HINTS);
-        if (balanceAfter != null && balanceDirection != null
-                && "dr".equals(balanceDirection.trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", ""))) {
-            balanceAfter = balanceAfter.abs().negate();
-        }
+        BigDecimal balanceAfter = withBalanceDirection(row, CsvParser.parseNumeric(balanceRaw));
         // Runs after the balance parse so the index path can match on direction and running
         // balance when the narration differs (F-31); the repository path stays description-only.
         var duplicateMatch = (duplicateIndex != null

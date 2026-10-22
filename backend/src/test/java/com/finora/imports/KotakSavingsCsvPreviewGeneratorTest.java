@@ -139,6 +139,41 @@ class KotakSavingsCsvPreviewGeneratorTest {
     }
 
     @Test
+    void theOpeningAndClosingBalanceUseTheBalancesSignToo() throws Exception {
+        String overdrawn = HEADER
+                + row(1, "05-01-2026 09:00:00", "SYNTHETIC CHARGE", "", "300.00", "DR", "200.00", "CR")
+                + row(2, "05-01-2026 10:00:00", "SYNTHETIC CHARGE TWO", "", "500.00", "DR", "300.00", "DR")
+                + row(3, "06-01-2026 10:00:00", "SYNTHETIC CREDIT", "", "1,000.00", "CR", "700.00", "CR");
+        var result = generate(overdrawn);
+
+        var detected = result.response().detectedAccount();
+        assertThat(detected.openingBalance()).isEqualByComparingTo("500.00");
+        assertThat(detected.closingBalance()).isEqualByComparingTo("700.00");
+        assertThat(finding(result, "STATEMENT_TOTALS").outcome()).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void theTransactionDateIsUsed_notTheValueDate_andDatesAreDayFirst() throws Exception {
+        String csv = HEADER
+                + "\"1\",\"25-01-2026 23:59:58\",\"26-01-2026\",\"SYNTHETIC LATE NIGHT PAYMENT\",\"\",\"100.00\",\"DR\",\"900.00\",\"CR\"\n"
+                + "\"2\",\"13-02-2026 08:00:00\",\"13-02-2026\",\"SYNTHETIC SALARY\",\"\",\"5,000.00\",\"CR\",\"5,900.00\",\"CR\"\n";
+
+        assertThat(generate(csv).response().rows()).extracting(StagedRow::date)
+                .containsExactly(LocalDate.of(2026, 1, 25), LocalDate.of(2026, 2, 13));
+    }
+
+    @Test
+    void theOlderSpellingWithoutSpacesIsReadTheSameWay() throws Exception {
+        String csv = "Sl. No.,Date,Description,Chq/Ref Number,Amount,Dr/Cr,Balance (INR),Dr/Cr\n"
+                + "1,25-01-2026,SYNTHETIC SHOP,,100.00,DR,900.00,CR\n"
+                + "2,26-01-2026,SYNTHETIC REFUND,,40.00,CR,940.00,CR\n";
+        var result = generate(csv);
+
+        assertThat(result.response().rows()).extracting(StagedRow::type).containsExactly("EXPENSE", "INCOME");
+        assertThat(finding(result, "BALANCE_CHAIN").outcome()).isEqualTo("VERIFIED");
+    }
+
+    @Test
     void zipRowFilesOnlyTheRepeatedMarkerAfterABalanceUnderItsOwnKey() {
         CsvParser parser = new CsvParser();
         String[] header = {"Amount", "Dr / Cr", "Balance", "Dr / Cr"};

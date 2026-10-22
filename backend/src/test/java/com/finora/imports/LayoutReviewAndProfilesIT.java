@@ -333,8 +333,8 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         String newer = fingerprint();
         String other = fingerprint();
         for (String fp : List.of(older, newer, other)) registryService.observe(fp, "PDF", null);
-        var kotak = curationService.createProfile(adminId(), "Test Kotak CC " + UUID.randomUUID());
-        var axis = curationService.createProfile(adminId(), "Test Axis CC " + UUID.randomUUID());
+        var kotak = curationService.createProfile(adminId(), "Test Kotak CC " + UUID.randomUUID(), "KOTAK");
+        var axis = curationService.createProfile(adminId(), "Test Axis CC " + UUID.randomUUID(), "AXIS");
 
         assertThat(curationService.linkToProfile(adminId(), older, kotak.id()).profileVersion()).isEqualTo(1);
         assertThat(curationService.linkToProfile(adminId(), newer, kotak.id()).profileVersion()).isEqualTo(2);
@@ -354,11 +354,11 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     @Test
     void profileNamesAreUniqueIgnoringCase() {
         String name = "Test Unique Profile " + UUID.randomUUID();
-        curationService.createProfile(adminId(), name);
+        curationService.createProfile(adminId(), name, "HDFC");
 
-        assertThatThrownBy(() -> curationService.createProfile(adminId(), name.toUpperCase()))
+        assertThatThrownBy(() -> curationService.createProfile(adminId(), name.toUpperCase(), "HDFC"))
                 .isInstanceOf(ApiException.class).hasMessageContaining("already exists");
-        assertThatThrownBy(() -> curationService.createProfile(adminId(), "  "))
+        assertThatThrownBy(() -> curationService.createProfile(adminId(), "  ", "HDFC"))
                 .isInstanceOf(ApiException.class);
     }
 
@@ -417,6 +417,155 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void createProfileRequiresAKnownBank() throws Exception {
+        User admin = createUser("ADMIN");
+        String base = "/api/v1/admin/imports/layout-registry/profiles";
+        String name = "Test Banked Profile " + UUID.randomUUID();
+
+        for (String body : List.of("{\"name\":\"" + name + "\"}",
+                "{\"name\":\"" + name + "\",\"bankId\":\"NOT_A_BANK\"}",
+                "{\"name\":\"" + name + "\",\"bankId\":\"OTHER\"}")) {
+            ResponseEntity<String> refused = restTemplate.exchange(base, HttpMethod.POST,
+                    new HttpEntity<>(body, bearerFor(admin)), String.class);
+            assertThat(refused.getStatusCode()).as(body).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+
+        ResponseEntity<String> created = restTemplate.exchange(base, HttpMethod.POST,
+                new HttpEntity<>("{\"name\":\"" + name + "\",\"bankId\":\"HDFC\"}", bearerFor(admin)), String.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode view = mapper.readTree(created.getBody()).get("data");
+        assertThat(view.get("bankId").asText()).isEqualTo("HDFC");
+        assertThat(view.get("bankName").asText()).isEqualTo("HDFC Bank");
+    }
+
+    @Test
+    void patchSetsTheBankOnAHandMadeProfile_andIsAudited() throws Exception {
+        User admin = createUser("ADMIN");
+        UUID profileId = UUID.randomUUID();
+        String name = "Test Legacy Profile " + UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, created_at, updated_at) VALUES (?, ?, now(), now())",
+                profileId, name);
+
+        ResponseEntity<String> patched = restTemplate.exchange(
+                "/api/v1/admin/imports/layout-registry/profiles/" + profileId, HttpMethod.PATCH,
+                new HttpEntity<>("{\"bankId\":\"ICICI\"}", bearerFor(admin)), String.class);
+
+        assertThat(patched.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var view = curationService.profiles().stream().filter(p -> p.id().equals(profileId)).findFirst().orElseThrow();
+        assertThat(view.bankId()).isEqualTo("ICICI");
+        assertThat(view.bankName()).isEqualTo("ICICI Bank");
+        assertThat(view.name()).isEqualTo(name);
+        assertThat(auditLogRepository.findAll()).filteredOn(a -> profileId.equals(a.getEntityId()))
+                .extracting(a -> a.getAction()).contains("LAYOUT_PROFILE_BANK_SET");
+    }
+
+    @Test
+    void patchWithAnUnknownBankIsRefused() {
+        User admin = createUser("ADMIN");
+        var profile = curationService.createProfile(adminId(), "Test Refuse Bank " + UUID.randomUUID(), "HDFC");
+
+        ResponseEntity<String> patched = restTemplate.exchange(
+                "/api/v1/admin/imports/layout-registry/profiles/" + profile.id(), HttpMethod.PATCH,
+                new HttpEntity<>("{\"bankId\":\"OTHER\"}", bearerFor(admin)), String.class);
+
+        assertThat(patched.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(jdbc.queryForObject("SELECT bank_id FROM layout_profile WHERE id = ?", String.class, profile.id()))
+                .isEqualTo("HDFC");
+    }
+
+    @Test
+    void patchRenameStillWorks_andLeavesTheBankAlone() {
+        User admin = createUser("ADMIN");
+        var profile = curationService.createProfile(adminId(), "Test Rename Bank " + UUID.randomUUID(), "HDFC");
+        String renamedTo = "Test Renamed " + UUID.randomUUID();
+
+        ResponseEntity<String> patched = restTemplate.exchange(
+                "/api/v1/admin/imports/layout-registry/profiles/" + profile.id(), HttpMethod.PATCH,
+                new HttpEntity<>("{\"name\":\"" + renamedTo + "\"}", bearerFor(admin)), String.class);
+
+        assertThat(patched.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var view = curationService.profiles().stream().filter(p -> p.id().equals(profile.id())).findFirst().orElseThrow();
+        assertThat(view.name()).isEqualTo(renamedTo);
+        assertThat(view.bankId()).isEqualTo("HDFC");
+    }
+
+    // ------------------------------------------------------------------ bank counts (V285)
+
+    private void choice(String fingerprint, String detected, String source, String chosen, String createdAt) {
+        jdbc.update("INSERT INTO import_bank_choice (id, layout_fingerprint, detected_bank_id, bank_source, chosen_bank_id, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?::timestamptz)", UUID.randomUUID(), fingerprint, detected, source, chosen, createdAt);
+    }
+
+    @Test
+    void bankChoicesCountsOnlyUnknownBankUploads() {
+        String fp = fingerprint();
+        choice(fp, "OTHER", "NONE", "HDFC", "2026-10-20T10:00:00Z");
+        choice(fp, "OTHER", "NONE", "HDFC", "2026-10-21T10:00:00Z");
+        choice(fp, "OTHER", "NONE", "OTHER", "2026-10-21T11:00:00Z");
+        choice(fp, "HDFC", "PROFILE", "HDFC", "2026-10-21T12:00:00Z");
+
+        var counts = curationService.bankChoices().stream().filter(c -> fp.equals(c.fingerprint())).toList();
+
+        assertThat(counts).extracting(c -> c.bankId() + "=" + c.count()).containsExactly("HDFC=2", "OTHER=1");
+        assertThat(counts.get(0).bankName()).isEqualTo("HDFC Bank");
+        assertThat(counts.get(1).bankName()).isEqualTo("Other bank");
+    }
+
+    @Test
+    void bankOriginsClassifiesEachRow() {
+        // A week long before anything else in the shared database: Monday 2001-01-01.
+        String fp = fingerprint();
+        choice(fp, "HDFC", "FILE", "HDFC", "2001-01-02T10:00:00+05:30");
+        choice(fp, "HDFC", "PROFILE", "HDFC", "2001-01-02T11:00:00+05:30");
+        choice(fp, "OTHER", "NONE", "ICICI", "2001-01-03T10:00:00+05:30");
+        choice(fp, "HDFC", "FILE", "ICICI", "2001-01-04T10:00:00+05:30"); // detected bank changed by the user
+        choice(fp, "OTHER", "NONE", "OTHER", "2001-01-07T23:00:00+05:30"); // Sunday night IST, same week
+
+        var weeks = curationService.bankOrigins(1, java.time.LocalDate.of(2001, 1, 5));
+
+        assertThat(weeks).hasSize(1);
+        var week = weeks.get(0);
+        assertThat(week.weekStart()).isEqualTo(java.time.LocalDate.of(2001, 1, 1));
+        assertThat(List.of(week.fromFile(), week.fromProfile(), week.chosenByUser(), week.otherBank()))
+                .containsExactly(1L, 1L, 2L, 1L);
+    }
+
+    @Test
+    void bankOriginsListsEveryWeekNewestFirst_includingEmptyOnes() {
+        String fp = fingerprint();
+        choice(fp, "HDFC", "FILE", "HDFC", "2001-02-06T10:00:00+05:30");
+
+        var weeks = curationService.bankOrigins(3, java.time.LocalDate.of(2001, 2, 21));
+
+        assertThat(weeks).extracting(w -> w.weekStart().toString())
+                .containsExactly("2001-02-19", "2001-02-12", "2001-02-05");
+        assertThat(weeks.get(2).fromFile()).isEqualTo(1L);
+        assertThat(weeks.get(0).fromFile() + weeks.get(0).fromProfile() + weeks.get(0).chosenByUser()
+                + weeks.get(0).otherBank()).isZero();
+    }
+
+    @Test
+    void bankOriginsWeeksAreClamped() {
+        java.time.LocalDate today = java.time.LocalDate.of(2001, 3, 7);
+        assertThat(curationService.bankOrigins(0, today)).hasSize(1);
+        assertThat(curationService.bankOrigins(500, today)).hasSize(52);
+    }
+
+    @Test
+    void theCountEndpointsNeedTheReadPermission() {
+        User ops = createUser("OPS");
+        User admin = createUser("ADMIN");
+        String base = "/api/v1/admin/imports/layout-registry";
+
+        for (String path : List.of("/bank-choices", "/bank-origins?weeks=4")) {
+            assertThat(restTemplate.exchange(base + path, HttpMethod.GET, new HttpEntity<>(bearerFor(ops)), String.class)
+                    .getStatusCode()).as(path).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(restTemplate.exchange(base + path, HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class)
+                    .getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
+        }
+    }
+
+    @Test
     void aUserWithoutTheLayoutPermissionsCannotReadOrWrite() {
         User ops = createUser("OPS");
         String base = "/api/v1/admin/imports/layout-registry";
@@ -424,7 +573,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         ResponseEntity<String> read = restTemplate.exchange(base + "/review-queue", HttpMethod.GET,
                 new HttpEntity<>(bearerFor(ops)), String.class);
         ResponseEntity<String> write = restTemplate.exchange(base + "/profiles", HttpMethod.POST,
-                new HttpEntity<>("{\"name\":\"Nope\"}", bearerFor(ops)), String.class);
+                new HttpEntity<>("{\"name\":\"Nope\",\"bankId\":\"HDFC\"}", bearerFor(ops)), String.class);
 
         assertThat(read.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(write.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);

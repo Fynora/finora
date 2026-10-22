@@ -94,17 +94,35 @@ public class AdminLayoutRegistryController {
         return ApiResponse.ok(curationService.profiles());
     }
 
+    /** Counts of the bank users chose for layouts whose bank was unknown. Counts only. */
+    @GetMapping("/bank-choices")
+    @PreAuthorize(READ)
+    public ApiResponse<List<LayoutCurationService.BankChoiceCount>> bankChoices() {
+        return ApiResponse.ok(curationService.bankChoices());
+    }
+
+    /** Accounts created by imports per week, by where their bank came from. {@code weeks} 1..52. */
+    @GetMapping("/bank-origins")
+    @PreAuthorize(READ)
+    public ApiResponse<List<LayoutCurationService.BankOriginWeek>> bankOrigins(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "12") int weeks) {
+        return ApiResponse.ok(curationService.bankOrigins(weeks));
+    }
+
+    /** Body: {@code {"name": "...", "bankId": "HDFC"}}. Both required. */
     @PostMapping("/profiles")
     @PreAuthorize(WRITE)
     public ApiResponse<ProfileView> createProfile(@RequestBody Map<String, String> body) {
-        return ApiResponse.ok(curationService.createProfile(currentUser.id(), body.get("name")), "Profile created");
+        return ApiResponse.ok(curationService.createProfile(currentUser.id(), body.get("name"), body.get("bankId")),
+                "Profile created");
     }
 
+    /** Body: {@code {"name"?: "...", "bankId"?: "HDFC"}} -- rename, set the bank, or both. */
     @PatchMapping("/profiles/{profileId}")
     @PreAuthorize(WRITE)
-    public ApiResponse<Void> renameProfile(@PathVariable UUID profileId, @RequestBody Map<String, String> body) {
-        curationService.renameProfile(currentUser.id(), profileId, body.get("name"));
-        return ApiResponse.ok(null, "Profile renamed");
+    public ApiResponse<Void> updateProfile(@PathVariable UUID profileId, @RequestBody Map<String, String> body) {
+        curationService.updateProfile(currentUser.id(), profileId, body.get("name"), body.get("bankId"));
+        return ApiResponse.ok(null, "Profile updated");
     }
 
     /** Body: {@code {"profileId": "<uuid>"}}. The layout becomes the profile's next version. */

@@ -35,7 +35,7 @@ import type {
   MerchantReviewItem,
   LayoutSummary,
   RegistryEntry,
-  LayoutProfileView,
+  BankChoiceCount, BankOriginWeek, LayoutProfileView,
   LayoutStatus,
   UnknownHeaderSummary,
   LayoutTimelinePoint,
@@ -908,10 +908,18 @@ export const adminLayoutRegistryApi = {
       .then((r) => r.data),
   profiles: () =>
     api.get<LayoutProfileView[]>('/admin/imports/layout-registry/profiles').then((r) => r.data),
-  createProfile: (name: string) =>
-    api.post<LayoutProfileView>('/admin/imports/layout-registry/profiles', { name }).then((r) => r.data),
-  renameProfile: (profileId: string, name: string) =>
-    api.patch<void>(`/admin/imports/layout-registry/profiles/${encodeURIComponent(profileId)}`, { name }),
+  /** A new profile needs a bank (V285). */
+  createProfile: (name: string, bankId: string) =>
+    api.post<LayoutProfileView>('/admin/imports/layout-registry/profiles', { name, bankId }).then((r) => r.data),
+  /** Rename, set the bank, or both. */
+  updateProfile: (profileId: string, changes: { name?: string; bankId?: string }) =>
+    api.patch<void>(`/admin/imports/layout-registry/profiles/${encodeURIComponent(profileId)}`, changes),
+  /** Banks users chose for layouts whose bank was unknown. Counts only. */
+  bankChoices: () =>
+    api.get<BankChoiceCount[]>('/admin/imports/layout-registry/bank-choices').then((r) => r.data),
+  /** New imported accounts per week by where their bank came from, newest first. */
+  bankOrigins: (weeks = 12) =>
+    api.get<BankOriginWeek[]>('/admin/imports/layout-registry/bank-origins', { params: { weeks } }).then((r) => r.data),
   /** The layout becomes the profile's next version. */
   linkToProfile: (fingerprint: string, profileId: string) =>
     api

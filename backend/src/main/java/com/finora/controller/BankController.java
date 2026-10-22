@@ -22,6 +22,11 @@ import java.util.List;
  * (StatementValidator still calls BankRegistry.detect() directly): detection stays built-in-only,
  * deliberately -- a fuzzy filename/content match against an arbitrary admin-entered alias list
  * risks misdetection in a way manual selection from this list doesn't.
+ *
+ * A layout profile's bank (V285, LayoutCurationService) is chosen by an admin from this same list,
+ * custom banks included. That is a person's selection, like the manual picker, not a fuzzy match,
+ * so it does not weaken the rule above: the import only ever applies it to a file that named no
+ * bank of its own (ProfileBankFiller).
  */
 @RestController
 @RequestMapping("/api/v1/banks")

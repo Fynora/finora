@@ -33,6 +33,11 @@ public class LayoutProfile {
     @Column(name = "auto_key", length = 96, insertable = false, updatable = false)
     private String autoKey;
 
+    /** The bank uploads of this profile's layouts get when the file names none (V285). Null for a
+     *  profile made by hand until an admin chooses one. */
+    @Column(name = "bank_id", length = 64)
+    private String bankId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -51,7 +56,13 @@ public class LayoutProfile {
         this.updatedAt = Instant.now();
     }
 
+    public void setBankId(String bankId) {
+        this.bankId = bankId;
+        this.updatedAt = Instant.now();
+    }
+
     public UUID getId() { return id; }
+    public String getBankId() { return bankId; }
     public String getName() { return name; }
     public String getAutoKey() { return autoKey; }
     public Instant getCreatedAt() { return createdAt; }

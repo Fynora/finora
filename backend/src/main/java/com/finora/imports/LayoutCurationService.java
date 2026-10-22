@@ -6,6 +6,8 @@ import com.finora.exception.ApiException;
 import com.finora.repository.LayoutProfileRepository;
 import com.finora.repository.RegisteredLayoutRepository;
 import com.finora.service.AuditService;
+import com.finora.service.BankManagementService;
+import com.finora.util.BankRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,14 +38,20 @@ public class LayoutCurationService {
     private final LayoutProfileAutoLinker autoLinker;
     private final LayoutProfileBackfill backfill;
     private final jakarta.persistence.EntityManager entityManager;
+    private final BankManagementService bankManagementService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     public LayoutCurationService(RegisteredLayoutRepository layoutRepository,
                                  LayoutProfileRepository profileRepository,
                                  AuditService auditService,
                                  LayoutProfileAutoLinker autoLinker,
                                  LayoutProfileBackfill backfill,
-                                 jakarta.persistence.EntityManager entityManager) {
+                                 jakarta.persistence.EntityManager entityManager,
+                                 BankManagementService bankManagementService,
+                                 org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.backfill = backfill;
+        this.jdbc = jdbc;
+        this.bankManagementService = bankManagementService;
         this.layoutRepository = layoutRepository;
         this.profileRepository = profileRepository;
         this.auditService = auditService;
@@ -70,7 +78,20 @@ public class LayoutCurationService {
 
     /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
      *  engine groups into by bank and account family. */
-    public record ProfileView(UUID id, String name, boolean automatic, List<RegistryEntry> versions) {}
+    /** How many confirmed imports of a layout whose bank was unknown (no file bank, no profile bank)
+     *  ended with the user choosing {@code bankId}. A hint for attaching the layout to a profile;
+     *  counts only (spec 2026-10-22, section 6). */
+    public record BankChoiceCount(String fingerprint, String bankId, String bankName, long count) {}
+
+    /** One week (Monday, India time) of accounts created by statement imports, by where their bank
+     *  came from (spec 2026-10-22, section 8). */
+    public record BankOriginWeek(java.time.LocalDate weekStart, long fromFile, long fromProfile,
+                                 long chosenByUser, long otherBank) {}
+
+    /** {@code bankId}/{@code bankName}: the bank this profile's layouts give an upload whose file names
+     *  none (V285), or null when no bank is set yet. */
+    public record ProfileView(UUID id, String name, boolean automatic, String bankId, String bankName,
+                              List<RegistryEntry> versions) {}
 
     @Transactional(readOnly = true)
     public List<RegistryEntry> registry() {
@@ -100,10 +121,65 @@ public class LayoutCurationService {
         for (LayoutProfile profile : profileRepository.findAll()) {
             List<RegistryEntry> versions = new ArrayList<>(members.getOrDefault(profile.getId(), List.of()));
             versions.sort(Comparator.comparing(RegistryEntry::profileVersion));
-            views.add(new ProfileView(profile.getId(), profile.getName(), profile.getAutoKey() != null, versions));
+            views.add(viewOf(profile, versions));
         }
         views.sort(Comparator.comparing(v -> v.name().toLowerCase(java.util.Locale.ROOT)));
         return views;
+    }
+
+    @Transactional(readOnly = true)
+    public List<BankChoiceCount> bankChoices() {
+        return jdbc.query("""
+                SELECT layout_fingerprint, chosen_bank_id, count(*) AS n FROM import_bank_choice
+                WHERE bank_source = 'NONE' AND layout_fingerprint IS NOT NULL
+                GROUP BY layout_fingerprint, chosen_bank_id
+                ORDER BY layout_fingerprint, n DESC, chosen_bank_id
+                """, (rs, i) -> new BankChoiceCount(rs.getString(1), rs.getString(2), bankNameOf(rs.getString(2)),
+                rs.getLong(3)));
+    }
+
+    private static final java.time.ZoneId WEEK_ZONE = java.time.ZoneId.of("Asia/Kolkata");
+
+    /** The last {@code weeks} weeks (clamped to 1..52) up to and including the current one, newest
+     *  first, empty weeks included as zeros. */
+    @Transactional(readOnly = true)
+    public List<BankOriginWeek> bankOrigins(int weeks) {
+        return bankOrigins(weeks, java.time.LocalDate.now(WEEK_ZONE));
+    }
+
+    List<BankOriginWeek> bankOrigins(int weeks, java.time.LocalDate today) {
+        int span = Math.max(1, Math.min(52, weeks));
+        java.time.LocalDate newest = today.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+        java.time.LocalDate oldest = newest.minusWeeks(span - 1L);
+        // Classification, in order: the account ended with no bank; the user chose it (the bank was
+        // unknown, or they replaced the one we offered); otherwise where the offered bank came from.
+        Map<java.time.LocalDate, long[]> byWeek = new HashMap<>();
+        jdbc.query("""
+                SELECT date_trunc('week', created_at AT TIME ZONE 'Asia/Kolkata')::date AS week,
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND bank_source = 'FILE' AND chosen_bank_id = detected_bank_id),
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND bank_source = 'PROFILE' AND chosen_bank_id = detected_bank_id),
+                       count(*) FILTER (WHERE chosen_bank_id <> 'OTHER' AND (bank_source = 'NONE' OR chosen_bank_id <> detected_bank_id)),
+                       count(*) FILTER (WHERE chosen_bank_id = 'OTHER')
+                FROM import_bank_choice
+                WHERE created_at >= (?::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+                  AND created_at < ((?::date) + 7)::timestamp AT TIME ZONE 'Asia/Kolkata'
+                GROUP BY 1
+                """, rs -> {
+                    byWeek.put(rs.getDate(1).toLocalDate(),
+                            new long[] {rs.getLong(2), rs.getLong(3), rs.getLong(4), rs.getLong(5)});
+                }, oldest, newest);
+        List<BankOriginWeek> result = new ArrayList<>(span);
+        for (java.time.LocalDate week = newest; !week.isBefore(oldest); week = week.minusWeeks(1)) {
+            long[] c = byWeek.getOrDefault(week, new long[4]);
+            result.add(new BankOriginWeek(week, c[0], c[1], c[2], c[3]));
+        }
+        return result;
+    }
+
+    private String bankNameOf(String bankId) {
+        if (bankId == null || BankRegistry.UNKNOWN_ID.equals(bankId)) return "Other bank";
+        String name = bankManagementService.resolve(bankId).officialName();
+        return name == null ? bankId : name;
     }
 
     @Transactional
@@ -140,27 +216,61 @@ public class LayoutCurationService {
     }
 
     @Transactional
-    public ProfileView createProfile(UUID actingAdminId, String name) {
+    public ProfileView createProfile(UUID actingAdminId, String name, String bankId) {
         String trimmed = requireName(name);
+        String bank = requireBank(bankId);
         if (profileRepository.existsByNameIgnoreCase(trimmed)) {
             throw new ApiException(HttpStatus.CONFLICT, "A layout profile named \"" + trimmed + "\" already exists");
         }
-        LayoutProfile profile = profileRepository.save(new LayoutProfile(trimmed));
+        LayoutProfile created = new LayoutProfile(trimmed);
+        created.setBankId(bank);
+        LayoutProfile profile = profileRepository.save(created);
         auditService.record(actingAdminId, "LAYOUT_PROFILE_CREATED", "LayoutProfile", profile.getId(),
-                Map.of("name", profile.getName(), "actorId", String.valueOf(actingAdminId)));
-        return new ProfileView(profile.getId(), profile.getName(), false, List.of());
+                Map.of("name", profile.getName(), "bankId", bank, "actorId", String.valueOf(actingAdminId)));
+        return viewOf(profile, List.of());
     }
 
+    /** Renames a profile, sets its bank, or both. Either may be null, not both. A bank change
+     *  affects later uploads only: accounts already created keep the bank they got. */
     @Transactional
-    public void renameProfile(UUID actingAdminId, UUID profileId, String name) {
-        String trimmed = requireName(name);
+    public void updateProfile(UUID actingAdminId, UUID profileId, String name, String bankId) {
+        if (name == null && bankId == null) throw new ApiException(HttpStatus.BAD_REQUEST, "Nothing to update");
         LayoutProfile profile = profileRepository.findById(profileId).orElseThrow(() -> notFoundProfile(profileId));
-        if (!profile.getName().equalsIgnoreCase(trimmed) && profileRepository.existsByNameIgnoreCase(trimmed)) {
-            throw new ApiException(HttpStatus.CONFLICT, "A layout profile named \"" + trimmed + "\" already exists");
+        if (name != null) {
+            String trimmed = requireName(name);
+            if (!profile.getName().equalsIgnoreCase(trimmed) && profileRepository.existsByNameIgnoreCase(trimmed)) {
+                throw new ApiException(HttpStatus.CONFLICT, "A layout profile named \"" + trimmed + "\" already exists");
+            }
+            profile.rename(trimmed);
+            auditService.record(actingAdminId, "LAYOUT_PROFILE_RENAMED", "LayoutProfile", profile.getId(),
+                    Map.of("name", profile.getName(), "actorId", String.valueOf(actingAdminId)));
         }
-        profile.rename(trimmed);
-        auditService.record(actingAdminId, "LAYOUT_PROFILE_RENAMED", "LayoutProfile", profile.getId(),
-                Map.of("name", profile.getName(), "actorId", String.valueOf(actingAdminId)));
+        if (bankId != null) {
+            String bank = requireBank(bankId);
+            String previous = profile.getBankId();
+            profile.setBankId(bank);
+            auditService.record(actingAdminId, "LAYOUT_PROFILE_BANK_SET", "LayoutProfile", profile.getId(),
+                    Map.of("bankId", bank, "previousBankId", previous == null ? "" : previous,
+                            "actorId", String.valueOf(actingAdminId)));
+        }
+    }
+
+    /** A profile's bank must be a real one: known to the registry or an admin-added bank, and never
+     *  OTHER, which would mean "no bank" while looking like a choice. */
+    private String requireBank(String bankId) {
+        String trimmed = bankId == null ? "" : bankId.trim();
+        if (trimmed.isEmpty() || BankRegistry.UNKNOWN_ID.equals(trimmed)
+                || !trimmed.equals(bankManagementService.resolve(trimmed).id())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a bank for this profile");
+        }
+        return trimmed;
+    }
+
+    private ProfileView viewOf(LayoutProfile profile, List<RegistryEntry> versions) {
+        String bankId = profile.getBankId();
+        String bankName = bankId == null ? null : bankManagementService.resolve(bankId).officialName();
+        return new ProfileView(profile.getId(), profile.getName(), profile.getAutoKey() != null, bankId, bankName,
+                versions);
     }
 
     /**

@@ -129,7 +129,7 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
     @Test
     void anOperatorsLinkIsPlacedByFirstAppearanceToo() {
         UUID admin = admin();
-        var profile = curationService.createProfile(admin, "Test Chronological " + UUID.randomUUID());
+        var profile = curationService.createProfile(admin, "Test Chronological " + UUID.randomUUID(), "HDFC");
         Instant now = Instant.now();
         String a = fingerprint();
         String b = fingerprint();
@@ -260,7 +260,7 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         UUID admin = admin();
         String fp = fingerprint();
         stage(fp, null);
-        var own = curationService.createProfile(admin, "Test Return Profile " + UUID.randomUUID());
+        var own = curationService.createProfile(admin, "Test Return Profile " + UUID.randomUUID(), "HDFC");
         curationService.linkToProfile(admin, fp, own.id());
 
         var entry = curationService.returnToAutomatic(admin, fp);
@@ -321,7 +321,7 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
 
         String placed = fingerprint();
         registryService.observe(placed, "PDF", null);
-        var ownProfile = curationService.createProfile(admin, "Test Own Profile " + UUID.randomUUID());
+        var ownProfile = curationService.createProfile(admin, "Test Own Profile " + UUID.randomUUID(), "HDFC");
         curationService.linkToProfile(admin, placed, ownProfile.id());
 
         stage(placed, KOTAK_CC);
@@ -334,13 +334,16 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         UUID admin = admin();
         String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         LayoutIdentity identity = new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("SAVINGS"));
-        var handMade = curationService.createProfile(admin, identity.profileName());
+        // A profile made by hand before profiles had a bank (V285): no bank, no key.
+        UUID handMade = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, created_at, updated_at) VALUES (?, ?, now(), now())",
+                handMade, identity.profileName());
         String fp = fingerprint();
 
         stage(fp, identity);
 
-        assertThat(layout(fp).getProfileId()).isEqualTo(handMade.id());
-        assertThat(jdbc.queryForObject("SELECT auto_key FROM layout_profile WHERE id = ?", String.class, handMade.id()))
+        assertThat(layout(fp).getProfileId()).isEqualTo(handMade);
+        assertThat(jdbc.queryForObject("SELECT auto_key FROM layout_profile WHERE id = ?", String.class, handMade))
                 .isEqualTo(identity.key());
     }
 
@@ -439,5 +442,56 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         backfill.run();
 
         assertThat(layout(headerless).getProfileId()).isNull();
+    }
+
+    // ------------------------------------------------------------------ the profile's bank
+
+    private static LayoutIdentity uniqueSavingsIdentity() {
+        String bankId = "TEST" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        return new LayoutIdentity(bankId, "Test Bank " + bankId, Set.of("SAVINGS"));
+    }
+
+    private String profileBank(String autoKey) {
+        return jdbc.queryForObject("SELECT bank_id FROM layout_profile WHERE auto_key = ?", String.class, autoKey);
+    }
+
+    @Test
+    void autoCreatedProfileCarriesTheIdentitysBank() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        stage(fingerprint(), identity);
+
+        assertThat(profileBank(identity.key())).isEqualTo(identity.bankId());
+    }
+
+    @Test
+    void adoptingAHandMadeProfileByNameFillsAnEmptyBank() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        UUID handMade = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, created_at, updated_at) VALUES (?, ?, now(), now())",
+                handMade, identity.profileName());
+
+        String fp = fingerprint();
+        stage(fp, identity);
+
+        assertThat(layout(fp).getProfileId()).isEqualTo(handMade);
+        assertThat(profileBank(identity.key())).isEqualTo(identity.bankId());
+    }
+
+    @Test
+    void adoptingByNameNeverOverwritesABankAnAdminSet() {
+        LayoutIdentity identity = uniqueSavingsIdentity();
+        UUID handMade = UUID.randomUUID();
+        jdbc.update("INSERT INTO layout_profile (id, name, bank_id, created_at, updated_at) VALUES (?, ?, 'ICICI', now(), now())",
+                handMade, identity.profileName());
+
+        String fp = fingerprint();
+        stage(fp, identity);
+
+        assertThat(layout(fp).getProfileId()).isNull();
+        assertThat(layout(fp).getReviewReasons()).contains("IDENTITY_CONFLICT");
+        assertThat(jdbc.queryForObject("SELECT bank_id FROM layout_profile WHERE id = ?", String.class, handMade))
+                .isEqualTo("ICICI");
+        assertThat(jdbc.queryForObject("SELECT auto_key FROM layout_profile WHERE id = ?", String.class, handMade))
+                .isNull();
     }
 }

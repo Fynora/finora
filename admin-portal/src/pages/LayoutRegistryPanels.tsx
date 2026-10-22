@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Plus, X } from 'lucide-react';
-import { adminLayoutRegistryApi } from '../api/endpoints';
+import { adminLayoutRegistryApi, banksApi } from '../api/endpoints';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import type { LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry } from '../types';
+import { withSep } from '../lib/withSep';
+import type { BankChoiceCount, BankDto, BankOriginWeek, LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry } from '../types';
 
 /**
  * The layout registry's curation panels (V243), shown as tabs on Layout Intelligence.
@@ -72,9 +73,14 @@ function useRegistryMutations(onError: (message: string | null) => void) {
     }),
     unlink: useMutation({ mutationFn: adminLayoutRegistryApi.unlinkFromProfile, onSuccess: refresh, onError: fail }),
     returnToAutomatic: useMutation({ mutationFn: adminLayoutRegistryApi.returnToAutomatic, onSuccess: refresh, onError: fail }),
-    createProfile: useMutation({ mutationFn: adminLayoutRegistryApi.createProfile, onSuccess: refresh, onError: fail }),
-    renameProfile: useMutation({
-      mutationFn: (v: { profileId: string; name: string }) => adminLayoutRegistryApi.renameProfile(v.profileId, v.name),
+    createProfile: useMutation({
+      mutationFn: (v: { name: string; bankId: string }) => adminLayoutRegistryApi.createProfile(v.name, v.bankId),
+      onSuccess: refresh,
+      onError: fail,
+    }),
+    updateProfile: useMutation({
+      mutationFn: (v: { profileId: string; changes: { name?: string; bankId?: string } }) =>
+        adminLayoutRegistryApi.updateProfile(v.profileId, v.changes),
       onSuccess: refresh,
       onError: fail,
     }),
@@ -176,12 +182,74 @@ function ProfilePicker({ entry, profiles, disabled, onLink, onReturn }: {
   );
 }
 
+/** Banks an admin can give a profile: every registered bank except OTHER, which means "no bank". */
+function useProfileBanks(): BankDto[] {
+  const banksQ = useQuery({ queryKey: ['banks-picker'], queryFn: () => banksApi.search() });
+  return (banksQ.data ?? []).filter((b) => b.id !== 'OTHER');
+}
+
+/** "Users chose: HDFC Bank 2 · Other bank 1" for one layout, or nothing when no one chose. */
+function UsersChose({ fingerprint, choices }: { fingerprint: string; choices: BankChoiceCount[] }) {
+  const mine = choices.filter((c) => c.fingerprint === fingerprint);
+  if (mine.length === 0) return null;
+  return (
+    <p className="mt-1 text-[11px] text-muted">
+      {`Users chose: ${mine.map((c) => `${c.bankName} ${c.count}`).join(' · ')}`}
+    </p>
+  );
+}
+
+function weekLabel(iso: string) {
+  const date = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? iso
+    : withSep(date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
+}
+
+/** Accounts created by imports each week, by where their bank came from (spec 2026-10-22, §8). */
+function BankOriginsTable() {
+  const originsQ = useQuery({ queryKey: ['layout-bank-origins'], queryFn: () => adminLayoutRegistryApi.bankOrigins() });
+  const weeks: BankOriginWeek[] = originsQ.data ?? [];
+  if (originsQ.isLoading || originsQ.isError || weeks.length === 0) return null;
+  return (
+    <div className="bg-card border border-border rounded-xl2 p-3 mb-4 overflow-x-auto">
+      <h3 id="bank-origins-title" className="text-sm font-semibold text-ink mb-1">Where new accounts got their bank</h3>
+      <p className="text-xs text-muted mb-2">
+        Accounts created by statement imports. "From a profile" means the file named no bank and its
+        layout's profile supplied one.
+      </p>
+      <table aria-labelledby="bank-origins-title" className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[10px] uppercase text-muted border-b border-border">
+            <th className="py-1.5 pr-3">Week of</th>
+            <th className="py-1.5 pr-3">From the file</th>
+            <th className="py-1.5 pr-3">From a profile</th>
+            <th className="py-1.5 pr-3">Chosen by the user</th>
+            <th className="py-1.5">Other bank</th>
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((w) => (
+            <tr key={w.weekStart} className="border-t border-border">
+              <td className="py-1.5 pr-3 text-xs text-ink whitespace-nowrap">{weekLabel(w.weekStart)}</td>
+              <td className="py-1.5 pr-3 text-xs text-ink">{w.fromFile}</td>
+              <td className="py-1.5 pr-3 text-xs text-ink">{w.fromProfile}</td>
+              <td className="py-1.5 pr-3 text-xs text-ink">{w.chosenByUser}</td>
+              <td className="py-1.5 text-xs text-ink">{w.otherBank}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ReviewQueuePanel() {
   const { hasPermission } = useAdminAuth();
   const canManage = hasPermission('LAYOUT_REGISTRY_MANAGE');
   const [actionError, setActionError] = useState<string | null>(null);
   const queueQ = useQuery({ queryKey: ['layout-review-queue'], queryFn: adminLayoutRegistryApi.reviewQueue });
   const profilesQ = useQuery({ queryKey: ['layout-profiles'], queryFn: adminLayoutRegistryApi.profiles });
+  const choicesQ = useQuery({ queryKey: ['layout-bank-choices'], queryFn: adminLayoutRegistryApi.bankChoices });
   const m = useRegistryMutations(setActionError);
   const queue = queueQ.data ?? [];
 
@@ -219,7 +287,10 @@ export function ReviewQueuePanel() {
               {queue.map((entry) => (
                 <tr key={entry.fingerprint} className="border-b border-border last:border-0 align-top">
                   <td className="p-3 font-mono text-xs text-ink whitespace-nowrap">{entry.fingerprint}</td>
-                  <td className="p-3"><ReasonChips reasons={entry.reviewReasons} sources={entry.reviewReasonSources ?? {}} /></td>
+                  <td className="p-3">
+                    <ReasonChips reasons={entry.reviewReasons} sources={entry.reviewReasonSources ?? {}} />
+                    <UsersChose fingerprint={entry.fingerprint} choices={choicesQ.data ?? []} />
+                  </td>
                   <td className="p-3 text-xs text-muted">{formatWhen(entry.reviewFlaggedAt)}</td>
                   <td className="p-3 font-mono text-xs text-muted">{entry.reviewAnalysisReference ?? '—'}</td>
                   <td className="p-3 text-xs text-ink">{entry.stagingCount} / {entry.observationCount}</td>
@@ -294,6 +365,8 @@ export function ProfilesPanel() {
   const canManage = hasPermission('LAYOUT_REGISTRY_MANAGE');
   const [actionError, setActionError] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [newBank, setNewBank] = useState('');
+  const banks = useProfileBanks();
   const profilesQ = useQuery({ queryKey: ['layout-profiles'], queryFn: adminLayoutRegistryApi.profiles });
   const registryQ = useQuery({ queryKey: ['layout-registry'], queryFn: adminLayoutRegistryApi.registry });
   const m = useRegistryMutations(setActionError);
@@ -312,13 +385,15 @@ export function ProfilesPanel() {
         here is final; automatic grouping will not undo it.
       </p>
       {actionError && <p role="alert" className="text-sm text-danger mb-3">{actionError}</p>}
+      <BankOriginsTable />
       {canManage && (
         <form
-          className="flex items-center gap-2 mb-4"
+          className="flex flex-wrap items-center gap-2 mb-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!newName.trim()) return;
-            m.createProfile.mutate(newName.trim(), { onSuccess: () => setNewName('') });
+            if (!newName.trim() || !newBank) return;
+            m.createProfile.mutate({ name: newName.trim(), bankId: newBank },
+              { onSuccess: () => { setNewName(''); setNewBank(''); } });
           }}
         >
           <input
@@ -329,7 +404,16 @@ export function ProfilesPanel() {
             maxLength={120}
             className="bg-card text-ink border border-border rounded px-2 py-1 text-sm w-64"
           />
-          <button type="submit" disabled={!newName.trim() || m.createProfile.isPending}
+          <select
+            aria-label="New profile bank"
+            value={newBank}
+            onChange={(e) => setNewBank(e.target.value)}
+            className="bg-card text-ink border border-border rounded px-1 py-1 text-sm"
+          >
+            <option value="">Choose a bank…</option>
+            {banks.map((b) => <option key={b.id} value={b.id}>{b.officialName}</option>)}
+          </select>
+          <button type="submit" disabled={!newName.trim() || !newBank || m.createProfile.isPending}
             className="flex items-center gap-1 text-sm text-primary disabled:opacity-60">
             <Plus size={14} /> Create profile
           </button>
@@ -368,12 +452,35 @@ export function ProfilesPanel() {
           {(profilesQ.data ?? []).map((profile) => (
             <div key={profile.id} className="bg-card border border-border rounded-xl2 p-3">
               <div className="flex items-center justify-between mb-2">
-                {canManage ? (
-                  <ProfileNameField profile={profile}
-                    onSave={(name) => m.renameProfile.mutate({ profileId: profile.id, name })} />
-                ) : (
-                  <h3 className="text-sm font-semibold text-ink">{profile.name}</h3>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {canManage ? (
+                    <ProfileNameField profile={profile}
+                      onSave={(name) => m.updateProfile.mutate({ profileId: profile.id, changes: { name } })} />
+                  ) : (
+                    <h3 className="text-sm font-semibold text-ink">{profile.name}</h3>
+                  )}
+                  {profile.bankId
+                    ? <span className="text-xs text-muted">{`Bank: ${profile.bankName ?? profile.bankId}`}</span>
+                    : <span className="text-xs text-danger">No bank set</span>}
+                  {canManage && (
+                    <select
+                      aria-label={`Bank for ${profile.name}`}
+                      value={profile.bankId ?? ''}
+                      onChange={(e) => {
+                        if (e.target.value) m.updateProfile.mutate({ profileId: profile.id, changes: { bankId: e.target.value } });
+                      }}
+                      className="bg-card text-ink border border-border rounded px-1 py-1 text-xs"
+                    >
+                      {!profile.bankId && <option value="">Choose a bank…</option>}
+                      {/* A bank the list no longer has (an admin-added bank since removed) is still
+                          this profile's bank; shown as such rather than silently as the first bank. */}
+                      {profile.bankId && !banks.some((b) => b.id === profile.bankId) && (
+                        <option value={profile.bankId}>{profile.bankName ?? profile.bankId}</option>
+                      )}
+                      {banks.map((b) => <option key={b.id} value={b.id}>{b.officialName}</option>)}
+                    </select>
+                  )}
+                </div>
                 {canManage && unassigned.length > 0 && (
                   <select
                     aria-label={`Add a layout to ${profile.name}`}

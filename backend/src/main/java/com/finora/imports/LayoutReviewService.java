@@ -108,8 +108,18 @@ public class LayoutReviewService {
     public void onStaged(String fingerprint, String sourceFormat, List<StagedRow> rows,
                          List<VerificationReport> reports, String analysisReference, LayoutIdentity identity,
                          boolean holderUnreadable) {
+        onStaged(fingerprint, sourceFormat, rows, reports, analysisReference, identity, holderUnreadable, false);
+    }
+
+    /** As above; {@code bankConflict} raises {@link Reason#IDENTITY_CONFLICT}: the file named a bank
+     *  other than the one its layout's profile carries (ProfileBankFiller). The file's bank was
+     *  used; a person should look at whether the layout sits in the right profile. */
+    public void onStaged(String fingerprint, String sourceFormat, List<StagedRow> rows,
+                         List<VerificationReport> reports, String analysisReference, LayoutIdentity identity,
+                         boolean holderUnreadable, boolean bankConflict) {
         Set<String> reasons = new TreeSet<>();
         if (holderUnreadable) reasons.add(Reason.HOLDER_NAME_UNREADABLE.name());
+        if (bankConflict) reasons.add(Reason.IDENTITY_CONFLICT.name());
         for (String rule : rulesNotPassed(reports)) reasons.add(Reason.VERIFICATION_NOT_PASSED.name() + ":" + rule);
         if (mostlyBlankDescriptions(rows)) reasons.add(Reason.BLANK_DESCRIPTIONS.name());
         record(fingerprint, sourceFormat, reasons, analysisReference, identity);

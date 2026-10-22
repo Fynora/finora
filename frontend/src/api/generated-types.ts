@@ -3377,7 +3377,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch: operations["renameProfile"];
+        patch: operations["updateProfile"];
         trace?: never;
     };
     "/api/v1/workspace/dashboard": {
@@ -5572,6 +5572,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/imports/layout-registry/bank-origins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["bankOrigins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/imports/layout-registry/bank-choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["bankChoices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/imports/analyses/{reference}": {
         parameters: {
             query?: never;
@@ -7429,6 +7461,7 @@ export interface components {
             installmentsPaid?: number;
             /** Format: int32 */
             installmentsTotal?: number;
+            bankSource?: string;
         };
         DuplicateMatch: {
             /** Format: uuid */
@@ -8989,6 +9022,8 @@ export interface components {
             id?: string;
             name?: string;
             automatic?: boolean;
+            bankId?: string;
+            bankName?: string;
             versions?: components["schemas"]["RegistryEntry"][];
         };
         AnalysisDetail: {
@@ -12939,6 +12974,49 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        ApiResponseListBankOriginWeek: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BankOriginWeek"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BankOriginWeek: {
+            /** Format: date */
+            weekStart?: string;
+            /** Format: int64 */
+            fromFile?: number;
+            /** Format: int64 */
+            fromProfile?: number;
+            /** Format: int64 */
+            chosenByUser?: number;
+            /** Format: int64 */
+            otherBank?: number;
+        };
+        ApiResponseListBankChoiceCount: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BankChoiceCount"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BankChoiceCount: {
+            fingerprint?: string;
+            bankId?: string;
+            bankName?: string;
+            /** Format: int64 */
+            count?: number;
         };
         ApiResponseListAnalysisView: {
             success?: boolean;
@@ -19908,7 +19986,7 @@ export interface operations {
             };
         };
     };
-    renameProfile: {
+    updateProfile: {
         parameters: {
             query?: never;
             header?: never;
@@ -22919,6 +22997,48 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseListRegistryEntry"];
+                };
+            };
+        };
+    };
+    bankOrigins: {
+        parameters: {
+            query?: {
+                weeks?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBankOriginWeek"];
+                };
+            };
+        };
+    };
+    bankChoices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBankChoiceCount"];
                 };
             };
         };

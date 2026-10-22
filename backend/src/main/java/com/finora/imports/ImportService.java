@@ -128,6 +128,58 @@ public class ImportService {
     private final StatementProvenanceRecorder provenanceRecorder;
     /** Null only in unit tests that construct this class directly -- see reviewLayout. */
     private final LayoutReviewService layoutReviewService;
+    /** Fills an unknown bank from the layout's profile (V285). Setter-injected so the unit tests that
+     *  build this service by hand keep compiling; null there means "no fill". */
+    private ProfileBankFiller profileBankFiller;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setProfileBankFiller(ProfileBankFiller profileBankFiller) {
+        this.profileBankFiller = profileBankFiller;
+    }
+
+    /** Counts where each created account's bank came from (V285). Setter-injected for the same reason
+     *  as {@link #profileBankFiller}; null in hand-built unit tests means "record nothing". */
+    private ImportBankChoiceRecorder bankChoiceRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setBankChoiceRecorder(ImportBankChoiceRecorder bankChoiceRecorder) {
+        this.bankChoiceRecorder = bankChoiceRecorder;
+    }
+
+    /** Records the bank of an account this section's confirm created, read back from the account
+     *  itself so it is what the account really got, not what the client sent. Nothing for an
+     *  import into an existing account.
+     *
+     *  <p>Written only after the import commits, and never allowed to throw: it is a count for
+     *  admins, and a failure to write it must never cost the user their import (in the same
+     *  transaction, even a caught SQL error would leave PostgreSQL's transaction aborted). An import
+     *  that rolls back records nothing. */
+    private void recordBankChoice(String layoutFingerprint, DetectedAccountInfo staged, ConfirmRequest sectionRequest,
+                                  List<String> accountsCreated, UUID accountId) {
+        if (bankChoiceRecorder == null || sectionRequest.newAccount() == null
+                || accountsCreated == null || accountsCreated.isEmpty() || accountId == null) return;
+        String chosenBankId = accountRepository.findById(accountId).map(Account::getBankId).orElse(null);
+        if (chosenBankId == null) return;
+        ImportBankChoiceRecorder recorder = bankChoiceRecorder;
+        Runnable write = () -> {
+            try {
+                recorder.record(layoutFingerprint, staged, chosenBankId);
+            } catch (RuntimeException e) {
+                log.warn("Could not record the bank choice for a confirmed import; the import itself is unaffected", e);
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            write.run();
+                        }
+                    });
+        } else {
+            write.run();
+        }
+    }
 
     public ImportService(AccountRepository accountRepository, AccountService accountService,
                           TransactionRepository transactionRepository, MerchantRepository merchantRepository,
@@ -238,8 +290,12 @@ public class ImportService {
             diagnostics = ParseDiagnostics.of(staged.rows().size(), result.documentContext().unanchoredReasons())
                     .withIdentity(DocumentIdentity.of(staged.detectedAccount()));
             rejectIfNothingWasExtracted(staged, result.documentContext());
-            var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                    result.documentContext(), null, null, null, staged.verification());
+            // Filled for the user and the session only; everything below that records evidence about
+            // the file or groups its layout keeps the unfilled `staged`.
+            ProfileBankFiller.Filled<StagingResponse> filled = fillBank(fingerprint, staged);
+            StagingResponse shown = filled.value();
+            var session = importSessionService.createSession(userId, fileName, fileContent, shown.rows(), shown.detectedAccount(),
+                    result.documentContext(), null, null, null, shown.verification());
             String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                     "CSV", fileContent.length, fingerprint, 1, System.currentTimeMillis() - startedAtMs,
                     diagnostics, session.getId());
@@ -253,8 +309,9 @@ public class ImportService {
                     java.util.Collections.singletonList(staged.verification()));
             reviewLayout(fingerprint, "CSV", staged.rows(),
                     java.util.Collections.singletonList(staged.verification()), reference,
-                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false);
-            return new StagingSessionResponse(session.getId(), staged, previousImportOf(userId, session.getContentHash()));
+                    LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())), false,
+                    filled.bankConflict());
+            return new StagingSessionResponse(session.getId(), shown, previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // BH-028. This caught ApiException only, so a document that made the PARSER FALL OVER
             // -- an index out of bounds in column bucketing, a PDFBox failure, anything unchecked
@@ -394,18 +451,22 @@ public class ImportService {
                 StagingResponse staged = sections.isEmpty()
                         ? new StagingResponse(List.of(), 0, 0, null, List.of())
                         : toStagingResponse(sections.get(0));
-                var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(), staged.detectedAccount(),
-                        result.documentContext(), null, null, result.creditCardSummary(), staged.verification());
+                ProfileBankFiller.Filled<StagingResponse> filled = fillBank(fingerprint, staged);
+                StagingResponse shown = filled.value();
+                var session = importSessionService.createSession(userId, fileName, fileContent, shown.rows(), shown.detectedAccount(),
+                        result.documentContext(), null, null, result.creditCardSummary(), shown.verification());
                 recordPdfParsed(userId, fileName, fileContent.length, fingerprint, sections.size(), startedAtMs,
                         diagnostics, session.getId(),
                         java.util.Collections.singletonList(staged.verification()), staged.rows(),
                         LayoutIdentity.of(java.util.Collections.singletonList(staged.detectedAccount())),
-                        holderUnreadable(result.documentContext(), java.util.Collections.singletonList(staged.detectedAccount())));
-                return new PdfStagingSessionResponse(session.getId(), false, staged, null,
+                        holderUnreadable(result.documentContext(), java.util.Collections.singletonList(staged.detectedAccount())),
+                        filled.bankConflict());
+                return new PdfStagingSessionResponse(session.getId(), false, shown, null,
                         previousImportOf(userId, session.getContentHash()));
             }
 
-            var session = importSessionService.createMultiSection(userId, fileName, fileContent, sections,
+            ProfileBankFiller.Filled<List<StagedAccountSection>> filledSections = fillBank(fingerprint, sections);
+            var session = importSessionService.createMultiSection(userId, fileName, fileContent, filledSections.value(),
                     result.documentContext(), result.creditCardSummary());
             // Per section, in section order, because a composite statement's sections have separate
             // balance chains and one can verify while another does not -- collapsing them into one
@@ -415,8 +476,9 @@ public class ImportService {
                     sections.stream().map(StagedAccountSection::verification).toList(),
                     sections.stream().flatMap(section -> section.rows().stream()).toList(),
                     LayoutIdentity.of(sections.stream().map(StagedAccountSection::detectedAccount).toList()),
-                    holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()));
-            return new PdfStagingSessionResponse(session.getId(), true, null, sections,
+                    holderUnreadable(result.documentContext(), sections.stream().map(StagedAccountSection::detectedAccount).toList()),
+                    filledSections.bankConflict());
+            return new PdfStagingSessionResponse(session.getId(), true, null, filledSections.value(),
                     previousImportOf(userId, session.getContentHash()));
         } catch (RuntimeException e) {
             // The whole point of the evidence table. A password failure carries no fingerprint --
@@ -505,13 +567,16 @@ public class ImportService {
      * for this document and has already removed it (the V79 index allows one per user and file).
      */
     public StagedReparse stageReparsed(UUID userId, String fileName, byte[] fileContent, ReparsedStatement parsed) {
+        // Same fill as an upload; no conflict is reported from here, since a re-staging of a held
+        // statement is not a review run (see parseAndStageAnyFormat's reviewLayout flag).
+        String fingerprint = fingerprintOf(parsed.documentContext());
         if (parsed.csv() != null) {
-            StagingResponse staged = parsed.csv();
+            StagingResponse staged = fillBank(fingerprint, parsed.csv()).value();
             var session = importSessionService.createSession(userId, fileName, fileContent, staged.rows(),
                     staged.detectedAccount(), parsed.documentContext(), null, null, null, staged.verification());
             return new StagedReparse(session.getId(), staged.totalParsed(), staged.rows().size());
         }
-        List<StagedAccountSection> sections = parsed.sections();
+        List<StagedAccountSection> sections = fillBank(fingerprint, parsed.sections()).value();
         if (sections.size() <= 1) {
             StagingResponse staged = sections.isEmpty()
                     ? new StagingResponse(List.of(), 0, 0, null, List.of())
@@ -707,12 +772,14 @@ public class ImportService {
                                   int sectionCount, long startedAtMs, ParseDiagnostics diagnostics,
                                   UUID importSessionId,
                                   List<VerificationReport> verificationBySection,
-                                  List<StagedRow> stagedRows, LayoutIdentity identity, boolean holderUnreadable) {
+                                  List<StagedRow> stagedRows, LayoutIdentity identity, boolean holderUnreadable,
+                                  boolean bankConflict) {
         String reference = analysisRecorder.recordParsed(userId, StatementAnalysisSession.Source.CUSTOMER_IMPORT, fileName,
                 "PDF", byteSize, fingerprint, sectionCount, System.currentTimeMillis() - startedAtMs,
                 diagnostics, importSessionId);
         verificationRecorder.recordForAnalysis(reference, verificationBySection);
-        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity, holderUnreadable);
+        reviewLayout(fingerprint, "PDF", stagedRows, verificationBySection, reference, identity, holderUnreadable,
+                bankConflict);
     }
 
     /**
@@ -725,9 +792,28 @@ public class ImportService {
     private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
                               List<VerificationReport> verificationBySection, String analysisReference,
                               LayoutIdentity identity, boolean holderUnreadable) {
+        reviewLayout(fingerprint, sourceFormat, rows, verificationBySection, analysisReference, identity,
+                holderUnreadable, false);
+    }
+
+    /** As above; {@code bankConflict} is the file naming a different bank from its layout's profile. */
+    private void reviewLayout(String fingerprint, String sourceFormat, List<StagedRow> rows,
+                              List<VerificationReport> verificationBySection, String analysisReference,
+                              LayoutIdentity identity, boolean holderUnreadable, boolean bankConflict) {
         if (layoutReviewService == null) return;
         layoutReviewService.onStaged(fingerprint, sourceFormat, rows, verificationBySection, analysisReference,
-                identity, holderUnreadable);
+                identity, holderUnreadable, bankConflict);
+    }
+
+    private ProfileBankFiller.Filled<StagingResponse> fillBank(String fingerprint, StagingResponse staged) {
+        return profileBankFiller == null ? new ProfileBankFiller.Filled<>(staged, false)
+                : profileBankFiller.fill(fingerprint, staged);
+    }
+
+    private ProfileBankFiller.Filled<List<StagedAccountSection>> fillBank(String fingerprint,
+                                                                          List<StagedAccountSection> sections) {
+        return profileBankFiller == null ? new ProfileBankFiller.Filled<>(sections, false)
+                : profileBankFiller.fill(fingerprint, sections);
     }
 
     /**
@@ -1027,7 +1113,8 @@ public class ImportService {
                     null, // this section's ConfirmRequest doesn't carry its own sessionId -- the session is claimed once, above, for the whole multi-account request
                     // International/foreign amount from this section's own parse, never the client's
                     // echo -- see ConfirmedRowIntegrity.withStatementFacts.
-                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(), sectionConfirm.newAccount(),
+                    ConfirmedRowIntegrity.withStatementFacts(stagedSection.rows(), sectionConfirm.rows()), sectionConfirm.existingAccountId(),
+                    sectionConfirm.newAccount() == null ? null : sectionConfirm.newAccount().keyedOnlyFor(stagedSection.detectedAccount()),
                     sectionConfirm.statementOpeningBalance(), sectionConfirm.statementClosingBalance(),
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
@@ -1040,6 +1127,9 @@ public class ImportService {
                 session.getUnparseableSummaryJson(), null, importSessionService.readCreditCardSummary(session),
                 stagedSection.detectedAccount() == null ? null : stagedSection.detectedAccount().accountHolderName(),
                 session.getParserVersion()));
+            PersistedSection justPersisted = persisted.get(persisted.size() - 1);
+            recordBankChoice(session.getLayoutFingerprint(), stagedSection.detectedAccount(), perAccountRequest,
+                    justPersisted.accountsCreated(), justPersisted.accountId());
         }
 
         reconcileAcross(userId, persisted);
@@ -1092,10 +1182,14 @@ public class ImportService {
         // request.statementPeriodStart()/End() or request.rows() -- see
         // requireStatementWithinFreeLimit's own doc comment.
         requireStatementWithinFreeLimit(userId, session.getId(), detectedAccount, stagedRows, false);
+        if (request.newAccount() != null) request = request.withNewAccount(request.newAccount().keyedOnlyFor(detectedAccount));
         ConfirmResponse response = confirm(userId, session.getFileName(), statementContentService.read(session), request, null,
                 session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 session.getUnparseableSummaryJson(), session.getSource(), importSessionService.readCreditCardSummary(session),
                 detectedAccount == null ? null : detectedAccount.accountHolderName(), session.getParserVersion());
+        UUID createdInto = response.statementImportId() == null ? null
+                : statementImportRepository.findById(response.statementImportId()).map(StatementImport::getAccountId).orElse(null);
+        recordBankChoice(session.getLayoutFingerprint(), detectedAccount, request, response.accountsCreated(), createdInto);
         carrySavedPassword(session.getId(), List.of(response.statementImportId()));
         return response;
     }

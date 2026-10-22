@@ -1607,6 +1607,182 @@ export interface ThisYearSoFarCategoryPoint { year: number; categories: Category
 export interface ThisYearSoFarCategories { windowEndMonth: string | null; years: ThisYearSoFarCategoryPoint[]; }
 export interface MultiYearCategoryReport { fullYears: MultiYearCategoryPoint[]; thisYearSoFar: ThisYearSoFarCategories; }
 
+// Advanced Reports (docs/superpowers/specs/2026-10-22-advanced-reports-redesign-design.md). Mirrors
+// backend AdvancedReportDto: one period of whole months, the period it is compared with, and every
+// breakdown the page draws. Fields the server sends as null are `| null` here.
+export type AdvancedRange = 'LAST_3_MONTHS' | 'LAST_6_MONTHS' | 'LAST_12_MONTHS' | 'THIS_YEAR' | 'LAST_YEAR' | 'ALL_TIME' | 'CUSTOM';
+export type AdvancedCompare = 'PREVIOUS_PERIOD' | 'SAME_PERIOD_LAST_YEAR';
+export interface AdvancedPeriodInfo {
+  hasData: boolean;
+  /** NO_TRANSACTIONS, ONLY_PARTIAL_MONTH or NO_MONTHS_IN_PERIOD when there is no data. */
+  noDataReason: string | null;
+  range: AdvancedRange;
+  /** "yyyy-MM" */
+  startMonth: string | null;
+  endMonth: string | null;
+  monthCount: number;
+  requestedMonths: number;
+  firstDataMonth: string | null;
+  newestDataMonth: string | null;
+  /** The newest month, when it was left out because it is not whole yet. */
+  leftOutMonth: string | null;
+  /** PARTIAL_MONTH or STATEMENT_BEHIND. */
+  leftOutReason: string | null;
+  /** Months inside the period that are only part of a month. */
+  incompleteMonths: string[];
+  compare: AdvancedCompare | null;
+  compareOptions: AdvancedCompare[];
+  previousStartMonth: string | null;
+  previousEndMonth: string | null;
+}
+export interface AdvancedTotals {
+  income: number;
+  expense: number;
+  net: number;
+  avgMonthlyExpense: number | null;
+  monthsWithData: number;
+  savingsRatePct: number | null;
+  /** NO_INCOME or UNRESOLVED_EXCEEDS_INCOME when savingsRatePct is null. */
+  savingsRateGateReason: string | null;
+  unresolvedInflow: number;
+  unresolvedInflowCount: number;
+  transactionCount: number;
+  highestSpendMonth: string | null;
+  lowestSpendMonth: string | null;
+}
+export interface AdvancedComparison {
+  reliable: boolean;
+  /** NO_TRANSACTION_HISTORY, PRIOR_PERIOD_BEFORE_HISTORY, TOO_FEW_PRIOR_TRANSACTIONS, COVERAGE_GAP,
+   *  INCOMPLETE_MONTHS or ALL_TIME. */
+  gateReason: string | null;
+  previousIncome: number | null;
+  previousExpense: number | null;
+  previousNet: number | null;
+  previousAvgMonthlyExpense: number | null;
+  previousSavingsRatePct: number | null;
+  incomeDeltaPct: number | null;
+  expenseDeltaPct: number | null;
+  netDelta: number | null;
+  avgMonthlyExpenseDeltaPct: number | null;
+  /** Change in the savings rate, in percentage points. */
+  savingsRateDeltaPp: number | null;
+}
+export interface AdvancedMonth {
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+  savingsRatePct: number | null;
+  complete: boolean;
+  transactionCount: number;
+}
+export interface AdvancedCategory {
+  name: string;
+  amount: number;
+  sharePct: number;
+  transactionCount: number;
+  previousAmount: number | null;
+  changeAmount: number | null;
+  changePct: number | null;
+  /** One amount per month of the period, aligned with `months`. */
+  monthly: number[];
+}
+export interface AdvancedCategories {
+  rows: AdvancedCategory[];
+  otherAmount: number;
+  otherSharePct: number;
+  categoryCount: number;
+}
+export interface AdvancedMerchant {
+  merchantId: string;
+  name: string;
+  amount: number;
+  sharePct: number;
+  transactionCount: number;
+  previousAmount: number | null;
+  changeAmount: number | null;
+  changePct: number | null;
+  monthly: number[];
+}
+export interface AdvancedMerchants {
+  rows: AdvancedMerchant[];
+  attributedSharePct: number;
+  topFiveSharePct: number;
+  merchantCount: number;
+}
+export interface AdvancedIncomeSource { label: string; amount: number; sharePct: number; previousAmount: number | null; }
+export interface AdvancedIncome {
+  sources: AdvancedIncomeSource[];
+  monthsWithIncome: number;
+  highestMonth: string | null;
+  highestMonthAmount: number | null;
+  lowestMonth: string | null;
+  lowestMonthAmount: number | null;
+  lowestAsPctOfHighest: number | null;
+}
+export interface AdvancedUnusualSpend {
+  transactionId: string;
+  /** YYYY-MM-DD */
+  date: string;
+  label: string;
+  category: string;
+  amount: number;
+  typicalAmount: number;
+  timesTypical: number;
+  sampleSize: number;
+}
+/** A link into the Ledger: transactions in [from, to], optionally in one category or matching a word. */
+export interface AdvancedDrill { from: string; to: string; categoryName: string | null; keyword: string | null; }
+export interface AdvancedInsight {
+  id: string;
+  kind: string;
+  /** UP, DOWN or NEUTRAL: the direction of the thing described, not a judgement of it. */
+  tone: 'UP' | 'DOWN' | 'NEUTRAL';
+  headline: string;
+  detail: string;
+  drill: AdvancedDrill | null;
+}
+export interface AdvancedReport {
+  period: AdvancedPeriodInfo;
+  totals: AdvancedTotals;
+  comparison: AdvancedComparison;
+  months: AdvancedMonth[];
+  categories: AdvancedCategories;
+  merchants: AdvancedMerchants;
+  paymentMethods: PaymentMethodAmount[];
+  income: AdvancedIncome;
+  unusualSpends: AdvancedUnusualSpend[];
+  international: InternationalSpend;
+  insights: AdvancedInsight[];
+}
+export interface AdvancedReportParams {
+  range: AdvancedRange;
+  /** "yyyy-MM"; read only for CUSTOM. */
+  startMonth?: string;
+  endMonth?: string;
+  compare?: AdvancedCompare;
+}
+
+// Every field above exists on the server's schema of the same shape.
+type AdvancedFieldsOf<T, S> = Exclude<keyof T, keyof S> extends never ? true : Exclude<keyof T, keyof S>;
+const _advancedShapesMatchTheServer: [
+  AdvancedFieldsOf<AdvancedPeriodInfo, GeneratedSchemas['AdvancedPeriodInfo']>,
+  AdvancedFieldsOf<AdvancedTotals, GeneratedSchemas['AdvancedTotals']>,
+  AdvancedFieldsOf<AdvancedComparison, GeneratedSchemas['AdvancedComparison']>,
+  AdvancedFieldsOf<AdvancedMonth, GeneratedSchemas['AdvancedMonth']>,
+  AdvancedFieldsOf<AdvancedCategory, GeneratedSchemas['AdvancedCategory']>,
+  AdvancedFieldsOf<AdvancedCategories, GeneratedSchemas['AdvancedCategories']>,
+  AdvancedFieldsOf<AdvancedMerchant, GeneratedSchemas['AdvancedMerchant']>,
+  AdvancedFieldsOf<AdvancedMerchants, GeneratedSchemas['AdvancedMerchants']>,
+  AdvancedFieldsOf<AdvancedIncomeSource, GeneratedSchemas['AdvancedIncomeSource']>,
+  AdvancedFieldsOf<AdvancedIncome, GeneratedSchemas['AdvancedIncome']>,
+  AdvancedFieldsOf<AdvancedUnusualSpend, GeneratedSchemas['AdvancedUnusualSpend']>,
+  AdvancedFieldsOf<AdvancedDrill, GeneratedSchemas['AdvancedDrill']>,
+  AdvancedFieldsOf<AdvancedInsight, GeneratedSchemas['AdvancedInsight']>,
+  AdvancedFieldsOf<AdvancedReport, GeneratedSchemas['AdvancedReportDto']>,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true];
+void _advancedShapesMatchTheServer;
+
 export const analyticsApi = {
   importStatistics: () =>
     api.get<ImportStatistics>('/analytics/merchants', { params: { view: 'importStatistics' } }).then((r) => r.data),
@@ -1623,6 +1799,9 @@ export const analyticsApi = {
     api.get<LearningGrowthPoint[]>('/analytics/learning-growth').then((r) => r.data),
   international: (month?: string) =>
     api.get<InternationalSpend>('/analytics/international', { params: month ? { month } : {} }).then((r) => r.data),
+  /** The whole Advanced Reports screen for one period; see AdvancedReport. */
+  advanced: (params: AdvancedReportParams) =>
+    api.get<AdvancedReport>('/analytics/advanced', { params }).then((r) => r.data),
   multiYearIncome: () => api.get<MultiYearReport>('/analytics/multi-year/income').then((r) => r.data),
   multiYearSpend: () => api.get<MultiYearReport>('/analytics/multi-year/spend').then((r) => r.data),
   multiYearCategories: () => api.get<MultiYearCategoryReport>('/analytics/multi-year/categories').then((r) => r.data),

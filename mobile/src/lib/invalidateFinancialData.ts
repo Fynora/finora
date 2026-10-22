@@ -70,6 +70,10 @@ export const FINANCIAL_QUERY_KEYS = [
   // relying on that incidentally, the way web's identical AdvancedReports.tsx queries currently
   // do (not in frontend's own invalidateEverything/Import.tsx cascade), is exactly the implicit
   // assumption this module's whole design exists to replace with an explicit one.
+  // The Advanced Reports screen reads its whole period in one query: income, expenses, categories,
+  // merchants and the comparison all move with any write to the history, and with a change to what
+  // counts as income.
+  'advanced-report',
   'advanced-reports-top-merchants',
   'advanced-reports-top-categories',
   'advanced-reports-international',

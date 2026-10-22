@@ -1,65 +1,66 @@
 import { useMemo, useState } from 'react';
-import {
-  Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
-} from 'react-native';
-import { AppRefreshControl } from '../components/AppRefreshControl';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
+import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { hapticSelectionIfChanged } from '../lib/haptics';
-import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useQuery } from '@tanstack/react-query';
-import { Card, EmptyState, SectionHeading } from '../components/Card';
+import { AppRefreshControl } from '../components/AppRefreshControl';
+import { Card, EmptyState } from '../components/Card';
+import { GlassScreen } from '../components/GlassScreen';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { PremiumFeatureGate } from '../components/PremiumFeatureGate';
-import { SkeletonBarRow, SkeletonChart, SkeletonGroup, SkeletonLines } from '../components/skeletons/Skeletons';
+import { SkeletonCard, SkeletonGroup } from '../components/skeletons/Skeletons';
 import { LoadFailed } from '../components/LoadFailed';
-import { HorizontalBarList } from '../components/charts/HorizontalBarList';
-import { LearningGrowthChart } from '../components/charts/LearningGrowthChart';
-import { SpendTrendChart } from '../components/charts/SpendTrendChart';
-import { analyticsApi, reportsApi } from '../api/endpoints';
-import { fmtCurrency, fmtForeignAmount, monthLabel, monthLabelLong } from '../lib/format';
+import { AdvancedKpis } from '../components/advancedReports/AdvancedKpis';
+import { AdvancedTabs, type AdvancedTab } from '../components/advancedReports/AdvancedTabs';
+import { CategoryList } from '../components/advancedReports/CategoryList';
+import { CategorisationSection } from '../components/advancedReports/CategorisationSection';
+import { CategoryTrendChart } from '../components/advancedReports/CategoryTrendChart';
+import { FlowChart } from '../components/advancedReports/FlowChart';
+import { IncomeSection } from '../components/advancedReports/IncomeSection';
+import { InsightCards } from '../components/advancedReports/InsightCards';
+import { InternationalSection } from '../components/advancedReports/InternationalSection';
+import { MerchantList } from '../components/advancedReports/MerchantList';
+import { PeriodNotice } from '../components/advancedReports/PeriodNotice';
+import { UnusualList } from '../components/advancedReports/UnusualList';
+import { PaymentMethods } from '../components/reportSections/PaymentMethods';
+import {
+  analyticsApi, reportsApi, type AdvancedCompare, type AdvancedRange, type AdvancedReportParams,
+} from '../api/endpoints';
+import {
+  compareOptionLabel, incompleteNote, noDataCopy, periodSpan, RANGE_OPTIONS, type TransactionsFilter,
+} from '../lib/advancedReports/advancedFormat';
+import { shareAdvancedCsv } from '../lib/advancedReports/shareAdvancedCsv';
+import { toUserMessage } from '../lib/apiError';
+import { monthLabelLong } from '../lib/format';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
-import { spacing, useTheme } from '../theme';
-import { GlassScreen } from '../components/GlassScreen';
+import { methodBreakdown } from '../lib/reportSections/methodBreakdown';
+import { usePreventScreenCapture } from '../lib/screenCapture';
+import { trackNavigation } from '../lib/trackNavigation';
+import type { AppTabParamList } from '../navigation/types';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
+import { spacing, typography, useTheme } from '../theme';
 
-const ALL_TIME_LABEL = 'All time';
-// Sentinel for a Lifestyle Inflation row with no defined ratio (zero income that year) -- a
-// value HorizontalBarList's rows never otherwise produce, since a real ratio is always >= 0.
-const NO_RATIO = -1;
+const DEFAULT_RANGE: AdvancedRange = 'LAST_12_MONTHS';
 
 /**
- * Mobile counterpart to frontend/src/pages/AdvancedReports.tsx -- same five panels (Top Merchants,
- * Top Categories, Spend Trend, Category Confidence, Learning Growth), same ADVANCED_REPORTS gate.
- * Reached from the More menu, always visible even to a Free user -- the gate below shows the
- * upgrade prompt on open rather than hiding the entry point, same reasoning as web's Sidebar.tsx
- * ("Hiding it entirely would mean a Free user can't discover the feature exists at all").
+ * Mobile counterpart to frontend/src/pages/AdvancedReports.tsx: one period (last 3, 6 or 12 months,
+ * this year, last year, all time, or a custom run) and one comparison drive every figure on the
+ * Overview, Spending, Income and Merchants tabs, all read from GET /analytics/advanced; the Category
+ * insights tab is the categorisation engine's own history and does not follow the period. The same
+ * ADVANCED_REPORTS gate as web. Reached from the More menu, always visible even to a Free user -- the
+ * gate shows the upgrade prompt on open rather than hiding the entry point, same reasoning as web's
+ * Sidebar.tsx.
  */
-/** Four bar-list rows: the shape of a HorizontalBarList while its first load is in flight. */
-function SectionSkeleton() {
-  return (
-    <SkeletonGroup style={styles.barListSkeleton}>
-      {[0, 1, 2, 3].map((i) => <SkeletonBarRow key={i} />)}
-    </SkeletonGroup>
-  );
-}
-
-/** A first load that failed, which used to fall through to the empty message as if there were no data. */
-function SectionFailed({ onRetry }: { onRetry: () => void }) {
-  return <LoadFailed message="Couldn't load this section." tone="danger" onRetry={onRetry} />;
-}
-
 export function AdvancedReportsScreen() {
   usePreventScreenCapture();
   const c = useTheme();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const navigation = useNavigation();
-  const chartWidth = width - spacing.md * 2 - spacing.md * 2;
 
   return (
-    <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
+    <GlassScreen style={[styles.flex, { paddingTop: insets.top }]}>
       <View style={styles.titleRow}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="chevron-back" size={22} color={c.ink} />
@@ -67,19 +68,19 @@ export function AdvancedReportsScreen() {
         <View style={styles.titleTextCol}>
           <View style={styles.titleWithIcon}>
             <Ionicons name="ribbon" size={18} color={c.primary} />
-            <Text style={[styles.title, { color: c.ink }]}>Advanced Reports</Text>
+            <Text style={[typography.screenTitle, { color: c.ink }]}>Advanced Reports</Text>
           </View>
-          <Text style={[styles.subtitle, { color: c.muted }]}>
-            Deeper analysis of your spending, built from the same engine behind your Dashboard.
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>
+            How your income, spending and savings have changed over time, and what is behind it.
           </Text>
         </View>
       </View>
 
-      {/* PremiumFeatureGate, not AdvancedReportsContent, owns the ScrollView/RefreshControl below
-          it -- the gate's own fallback (a single short card) needs neither, and the queries a
-          pull-to-refresh here would refetch live inside the gated content, one level down. */}
+      {/* PremiumFeatureGate, not AdvancedReportsContent, owns the ScrollView/RefreshControl below it --
+          the gate's own fallback (a single short card) needs neither, and the queries a pull-to-refresh
+          here would refetch live inside the gated content, one level down. */}
       <PremiumFeatureGate featureKey="ADVANCED_REPORTS" fallback={<UpgradePrompt />}>
-        <AdvancedReportsContent chartWidth={chartWidth} />
+        <AdvancedReportsContent />
       </PremiumFeatureGate>
     </GlassScreen>
   );
@@ -91,392 +92,247 @@ function UpgradePrompt() {
   const c = useTheme();
   return (
     <Card style={styles.upgradePrompt}>
-      <EmptyState message={`Advanced Reports is a ${PREMIUM_PLAN_VISIBLE ? 'Plus & Premium' : 'Plus'} feature -- top merchants, spend trends, category confidence, and how the categorization engine is learning your habits, all built from your own transaction history.`} />
+      <EmptyState message={`Advanced Reports is a ${PREMIUM_PLAN_VISIBLE ? 'Plus & Premium' : 'Plus'} feature -- how your income, spending, categories and merchants have changed over months and years, compared with the period before, all built from your own transaction history.`} />
       <Text style={[styles.upgradeHint, { color: c.primary }]}>Open Settings › Subscription to view plans.</Text>
     </Card>
   );
 }
 
-function AdvancedReportsContent({ chartWidth }: { chartWidth: number }) {
+type Picker = 'range' | 'compare' | 'start' | 'end' | null;
+
+function BodySkeleton() {
+  return (
+    <SkeletonGroup>
+      <SkeletonCard style={styles.section} lines={2} />
+      <SkeletonCard style={styles.section} lines={3} />
+      <SkeletonCard style={styles.section} lines={4} />
+    </SkeletonGroup>
+  );
+}
+
+function AdvancedReportsContent() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
-  const [month, setMonth] = useState(''); // '' = all-time, matching web
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const navigation = useNavigation();
+  const [range, setRange] = useState<AdvancedRange>(DEFAULT_RANGE);
+  const [startMonth, setStartMonth] = useState('');
+  const [endMonth, setEndMonth] = useState('');
+  const [compare, setCompare] = useState<AdvancedCompare | null>(null);
+  const [tab, setTab] = useState<AdvancedTab>('overview');
+  const [picker, setPicker] = useState<Picker>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
-  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths() });
-  const topMerchantsQ = useQuery({
-    queryKey: ['advanced-reports-top-merchants', month],
-    queryFn: () => analyticsApi.topMerchants(month || undefined),
+  const customReady = range !== 'CUSTOM' || (startMonth !== '' && endMonth !== '' && startMonth <= endMonth);
+  const request: AdvancedReportParams = {
+    range,
+    ...(range === 'CUSTOM' ? { startMonth, endMonth } : {}),
+    ...(compare ? { compare } : {}),
+  };
+  const reportQ = useQuery({
+    queryKey: ['advanced-report', request],
+    queryFn: () => analyticsApi.advanced(request),
+    // Nothing to ask until a custom run has both months; the categorisation tab does not use the period.
+    enabled: customReady && tab !== 'categorisation',
+    placeholderData: keepPreviousData,
   });
-  const topCategoriesQ = useQuery({
-    queryKey: ['advanced-reports-top-categories', month],
-    queryFn: () => analyticsApi.topCategories(month || undefined),
-  });
-  const internationalQ = useQuery({
-    queryKey: ['advanced-reports-international', month],
-    queryFn: () => analyticsApi.international(month || undefined),
-  });
-  const trendQ = useQuery({ queryKey: ['advanced-reports-trend'], queryFn: () => analyticsApi.trend() });
-  const confidenceQ = useQuery({ queryKey: ['advanced-reports-confidence'], queryFn: () => analyticsApi.categoryConfidence() });
-  const learningQ = useQuery({ queryKey: ['advanced-reports-learning-growth'], queryFn: () => analyticsApi.learningGrowth() });
-  const [comparisonMode, setComparisonMode] = useState<'full' | 'ytd'>('full');
-  const multiYearIncomeQ = useQuery({ queryKey: ['multi-year-income'], queryFn: () => analyticsApi.multiYearIncome() });
-  const multiYearSpendQ = useQuery({ queryKey: ['multi-year-spend'], queryFn: () => analyticsApi.multiYearSpend() });
-  const multiYearLifestyleQ = useQuery({ queryKey: ['multi-year-lifestyle'], queryFn: () => analyticsApi.multiYearLifestyleInflation() });
-  const multiYearCategoriesQ = useQuery({ queryKey: ['multi-year-categories'], queryFn: () => analyticsApi.multiYearCategories() });
+  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths(), enabled: range === 'CUSTOM' });
+  const report = reportQ.data ?? null;
+  const period = report?.period ?? null;
+  const busy = reportQ.isFetching && report !== null;
 
-  const categoryYears = comparisonMode === 'full'
-    ? (multiYearCategoriesQ.data?.fullYears ?? [])
-    : (multiYearCategoriesQ.data?.thisYearSoFar.years ?? []);
-  // Ranked once across every shown year, matching web's identical AdvancedReports.tsx reasoning --
-  // otherwise a category jumps in and out of the top 5 as the bars redraw.
-  const categoryTotals = new Map<string, number>();
-  for (const y of categoryYears) {
-    for (const cat of y.categories) categoryTotals.set(cat.categoryName, (categoryTotals.get(cat.categoryName) ?? 0) + cat.totalSpend);
-  }
-  const topCategoryNames = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name]) => name);
-
-  // Newest first, same reasoning as ReportsScreen's own identical picker: the month someone opens
-  // this for is nearly always a recent one.
+  const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label ?? 'Last 12 months';
+  const compareOptions = period?.compareOptions ?? [];
+  const compareLabel = period && period.compare ? compareOptionLabel(period.compare, period) : null;
   const monthsNewestFirst = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
-  // OptionPickerModal's options are plain display strings with no separate value -- unlike
-  // ReportsScreen's own month picker (which passes raw "YYYY-MM" straight through and shows it
-  // unformatted), this maps a real label back to the raw month string it stands for.
-  const monthOptions = useMemo(() => [ALL_TIME_LABEL, ...monthsNewestFirst.map(monthLabelLong)], [monthsNewestFirst]);
-  const labelToMonth = useMemo(() => {
-    const map: Record<string, string> = { [ALL_TIME_LABEL]: '' };
-    monthsNewestFirst.forEach((m) => { map[monthLabelLong(m)] = m; });
-    return map;
-  }, [monthsNewestFirst]);
-  const selectedLabel = month === '' ? ALL_TIME_LABEL : monthLabelLong(month);
+  const monthLabelToRaw = useMemo(() => new Map(monthsNewestFirst.map((m) => [monthLabelLong(m), m])), [monthsNewestFirst]);
+
+  function chooseRange(label: string) {
+    const next = RANGE_OPTIONS.find((o) => o.label === label)?.value;
+    if (!next) return;
+    if (next === 'CUSTOM' && (!startMonth || !endMonth) && report) {
+      // A custom run starts from the months already on screen, so its pickers are never empty.
+      setStartMonth(report.period.startMonth ?? '');
+      setEndMonth(report.period.endMonth ?? '');
+    }
+    // A comparison choice belongs to one period shape; changing the range starts from its default.
+    if (next !== range) setCompare(null);
+    setRange(next);
+    setExportError(null);
+  }
+
+  function open(filter: TransactionsFilter) {
+    trackNavigation('transactions', 'contextual');
+    navigation.getParent<BottomTabNavigationProp<AppTabParamList>>()?.navigate('Transactions', {
+      filters: { ...filter, nonce: Date.now() },
+    });
+  }
+
+  async function exportCsv() {
+    if (!report || !report.period.hasData || exporting) return;
+    setExportError(null);
+    setExporting(true);
+    try {
+      await shareAdvancedCsv(report);
+    } catch (e) {
+      setExportError(toUserMessage(e, 'Could not export this report as CSV.'));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function refresh() {
     setRefreshing(true);
     try {
-      // report-months included: it's the source of `month`'s own valid range, and Top
-      // Merchants/Categories key off it -- refreshing everything else but not this would mean a
-      // newly-imported month's own figures wouldn't be pickable until some other screen refetches it.
-      await Promise.all([
-        monthsQ.refetch(), topMerchantsQ.refetch(), topCategoriesQ.refetch(), internationalQ.refetch(),
-        trendQ.refetch(), confidenceQ.refetch(), learningQ.refetch(),
-        multiYearIncomeQ.refetch(), multiYearSpendQ.refetch(),
-        multiYearLifestyleQ.refetch(), multiYearCategoriesQ.refetch(),
-      ]);
+      await reportQ.refetch();
     } finally {
       setRefreshing(false);
     }
   }
 
+  const methods = report ? methodBreakdown(report.paymentMethods) : null;
+  const partial = period ? incompleteNote(period) : null;
+  const copy = period && !period.hasData ? noDataCopy(period) : null;
+
   return (
     <ScrollView
-      style={styles.flex}
-      contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
+      style={styles.flex} contentContainerStyle={padForTabBar(styles.content, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
       refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.primary} />}
     >
-      <Card style={styles.section}>
-        <View style={styles.periodRow}>
-          <View style={styles.periodTextCol}>
-            <Text style={[styles.periodLabel, { color: c.muted }]}>Period</Text>
-            <Pressable
-              onPress={() => setPickerOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={`Period: ${selectedLabel}`}
-            >
-              <Text style={[styles.periodValue, { color: c.ink }]}>{selectedLabel}</Text>
-            </Pressable>
-          </View>
-          <Text style={[styles.periodHint, { color: c.muted }]}>
-            Applies to Top Merchants, Top Categories and International Spend. The rest always cover your full history.
-          </Text>
-        </View>
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Top Merchants" />
-        {topMerchantsQ.isLoading ? (
-          <SectionSkeleton />
-        ) : topMerchantsQ.isError && topMerchantsQ.data === undefined ? (
-          <SectionFailed onRetry={() => void topMerchantsQ.refetch()} />
-        ) : (
-          <HorizontalBarList
-            rows={(topMerchantsQ.data ?? []).map((m) => ({
-              key: m.merchantId, label: m.merchantName, sub: `${m.transactionCount} txns`, value: m.totalSpend,
-            }))}
-            valueLabel={fmtCurrency}
-            emptyMessage="Import a statement or add transactions to see your top merchants."
-          />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Top Categories" />
-        {topCategoriesQ.isLoading ? (
-          <SectionSkeleton />
-        ) : topCategoriesQ.isError && topCategoriesQ.data === undefined ? (
-          <SectionFailed onRetry={() => void topCategoriesQ.refetch()} />
-        ) : (
-          <HorizontalBarList
-            rows={(topCategoriesQ.data ?? []).map((cat) => ({
-              key: cat.categoryId, label: cat.categoryName, sub: `${cat.transactionCount} txns`, value: cat.totalSpend,
-            }))}
-            valueLabel={fmtCurrency}
-            emptyMessage="Your top spending categories will appear here."
-          />
-        )}
-      </Card>
-
-      {/* Spend the statements themselves listed under "International Transactions", split into
-          foreign-currency purchases and everything else (GST, FX markup, rupee-billed). Mirrors web. */}
-      <Card style={styles.section}>
-        <SectionHeading title="International Spend" />
-        {internationalQ.isLoading ? (
-          <SkeletonGroup style={styles.sectionSkeleton}><SkeletonLines count={3} size="body" /></SkeletonGroup>
-        ) : internationalQ.isError && internationalQ.data === undefined ? (
-          <SectionFailed onRetry={() => void internationalQ.refetch()} />
-        ) : !internationalQ.data || internationalQ.data.transactionCount === 0 ? (
-          <Text style={[styles.panelHint, { color: c.muted }]}>
-            Card transactions your statement lists under International Transactions will appear here.
-          </Text>
-        ) : (
-          <View>
-            <View style={styles.intlStats}>
-              {[
-                { label: 'Total', value: internationalQ.data.totalSpend, sub: `${internationalQ.data.transactionCount} txns` },
-                { label: 'Foreign purchases', value: internationalQ.data.purchasesSpend },
-                { label: 'Other charges', value: internationalQ.data.otherChargesSpend },
-              ].map((s) => (
-                <View key={s.label} style={styles.intlStat}>
-                  <Text style={[styles.periodLabel, { color: c.muted }]}>{s.label}</Text>
-                  <Text style={[styles.intlValue, { color: c.ink }]}>{fmtCurrency(s.value)}</Text>
-                  {s.sub ? <Text style={[styles.panelHint, { color: c.muted }]}>{s.sub}</Text> : null}
-                </View>
-              ))}
-            </View>
-            <Text style={[styles.panelHint, { color: c.muted }]}>
-              Other charges are international rows with no foreign amount printed: GST, FX markup, and anything billed in rupees.
-            </Text>
-            {internationalQ.data.byCurrency.length > 0 ? (
-              <HorizontalBarList
-                rows={internationalQ.data.byCurrency.map((cur) => ({
-                  key: cur.currency,
-                  label: cur.currency,
-                  sub: `${fmtForeignAmount(cur.currency, cur.foreignTotal)} · ${cur.transactionCount} txns`,
-                  value: cur.rupeeTotal,
-                }))}
-                valueLabel={fmtCurrency}
-                emptyMessage=""
-              />
-            ) : null}
-          </View>
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Spend Trend" />
-        <Text style={[styles.panelHint, { color: c.muted }]}>Merchant-attributed spend over your trailing 6 months.</Text>
-        {trendQ.isLoading ? (
-          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
-        ) : (
-          <SpendTrendChart
-            points={(trendQ.data ?? []).map((p) => ({ label: monthLabel(p.month), value: p.totalSpend }))}
-            width={chartWidth}
-          />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Multi-Year Comparison" />
-        <Text style={[styles.panelHint, { color: c.muted }]}>
-          Income and spend, year over year. A partial year shows its real total, not a projection.
-        </Text>
-        <View style={styles.modeRow}>
-          <Pressable
-            onPress={() => { hapticSelectionIfChanged(comparisonMode, 'full'); setComparisonMode('full'); }}
-            accessibilityRole="button"
-            style={[styles.modeButton, { backgroundColor: comparisonMode === 'full' ? c.primary : c.card }]}
-          >
-            <Text style={{ color: comparisonMode === 'full' ? '#fff' : c.ink }}>Full Years</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { hapticSelectionIfChanged(comparisonMode, 'ytd'); setComparisonMode('ytd'); }}
-            accessibilityRole="button"
-            style={[styles.modeButton, { backgroundColor: comparisonMode === 'ytd' ? c.primary : c.card }]}
-          >
-            <Text style={{ color: comparisonMode === 'ytd' ? '#fff' : c.ink }}>This Year So Far</Text>
-          </Pressable>
-        </View>
-        {multiYearIncomeQ.isLoading || multiYearSpendQ.isLoading ? (
-          <SectionSkeleton />
-        ) : (multiYearIncomeQ.isError && multiYearIncomeQ.data === undefined)
-            || (multiYearSpendQ.isError && multiYearSpendQ.data === undefined) ? (
-          <SectionFailed onRetry={() => { void multiYearIncomeQ.refetch(); void multiYearSpendQ.refetch(); }} />
-        ) : (
-          <HorizontalBarList
-            rows={
-              comparisonMode === 'full'
-                ? (multiYearIncomeQ.data?.fullYears ?? []).map((p) => ({
-                    key: `income-${p.year}`,
-                    label: `${p.year} Income`,
-                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
-                    value: p.total,
-                  })).concat((multiYearSpendQ.data?.fullYears ?? []).map((p) => ({
-                    key: `spend-${p.year}`,
-                    label: `${p.year} Spend`,
-                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
-                    value: p.total,
-                  })))
-                : (multiYearIncomeQ.data?.thisYearSoFar.years ?? []).map((p) => ({
-                    key: `income-${p.year}`, label: `${p.year} Income (so far)`, sub: '', value: p.total,
-                  })).concat((multiYearSpendQ.data?.thisYearSoFar.years ?? []).map((p) => ({
-                    key: `spend-${p.year}`, label: `${p.year} Spend (so far)`, sub: '', value: p.total,
-                  })))
-            }
-            valueLabel={fmtCurrency}
-            emptyMessage="Once you have a full calendar year of data, it appears here."
-          />
-        )}
-      </Card>
-
-      {multiYearLifestyleQ.data && (
-        comparisonMode === 'full'
-          ? multiYearLifestyleQ.data.fullYears.length > 0
-          : multiYearLifestyleQ.data.thisYearSoFar.years.length > 0
-      ) && (
+      {/* The categorisation tab describes Fynora's learning, not a period of your money, so the period
+          pickers are not offered there. */}
+      {tab !== 'categorisation' ? (
         <Card style={styles.section}>
-          <SectionHeading title="Lifestyle Inflation" />
-          <Text style={[styles.panelHint, { color: c.muted }]}>
-            Spend as a share of income, per year -- a rising number means spend is growing faster than income.
-          </Text>
-          <HorizontalBarList
-            rows={
-              comparisonMode === 'full'
-                ? multiYearLifestyleQ.data.fullYears.map((p) => ({
-                    key: `lifestyle-${p.year}`,
-                    label: `${p.year}`,
-                    sub: p.isComplete ? '' : `${p.coverageMonths}/12 months`,
-                    // ratio is null when that year had zero income (division by zero, not a
-                    // genuine 0% spend-to-income ratio) -- NO_RATIO renders as "--" below, distinct
-                    // from a real 0. barFillPercent clamps any negative value to a 0-width bar.
-                    value: p.ratio === null ? NO_RATIO : p.ratio * 100,
-                  }))
-                : multiYearLifestyleQ.data.thisYearSoFar.years.map((p) => ({
-                    key: `lifestyle-${p.year}`,
-                    label: `${p.year} (so far)`,
-                    sub: '',
-                    value: p.ratio === null ? NO_RATIO : p.ratio * 100,
-                  }))
-            }
-            maxValue={100}
-            valueLabel={(v) => (v === NO_RATIO ? '--' : `${Math.round(v)}%`)}
-            emptyMessage="Once you have a full calendar year of data, it appears here."
-          />
+          <PickerField label="Period" value={rangeLabel} onPress={() => setPicker('range')} hint={period && range !== 'CUSTOM' ? periodSpan(period) : null} testID="period-field" />
+          {range === 'CUSTOM' ? (
+            <View style={styles.pair}>
+              <View style={styles.half}><PickerField label="From" value={startMonth ? monthLabelLong(startMonth) : 'Choose'} onPress={() => setPicker('start')} testID="start-field" /></View>
+              <View style={styles.half}><PickerField label="To" value={endMonth ? monthLabelLong(endMonth) : 'Choose'} onPress={() => setPicker('end')} testID="end-field" /></View>
+            </View>
+          ) : null}
+          {compareOptions.length > 1 && compareLabel ? (
+            <PickerField label="Compare with" value={compareLabel} onPress={() => setPicker('compare')} testID="compare-field" />
+          ) : null}
+          <Pressable
+            onPress={() => void exportCsv()} disabled={!report || !report.period.hasData || exporting || busy}
+            style={[styles.exportButton, { borderColor: c.border }, (!report || !report.period.hasData || exporting || busy) && styles.disabled]}
+            accessibilityRole="button" accessibilityLabel="Export as CSV"
+            accessibilityState={{ disabled: !report || !report.period.hasData || exporting || busy, busy: exporting }}
+          >
+            <Text style={[typography.labelM, { color: c.primary }]}>{exporting ? 'Preparing…' : 'Export CSV'}</Text>
+          </Pressable>
+          {exportError ? <Text style={[typography.bodyS, { color: c.dangerInk }]}>{exportError}</Text> : null}
         </Card>
-      )}
+      ) : null}
 
-      <Card style={styles.section}>
-        <SectionHeading title="Category Trends" />
-        <Text style={[styles.panelHint, { color: c.muted }]}>Your top spending categories, year over year.</Text>
-        {multiYearCategoriesQ.isLoading ? (
-          <SectionSkeleton />
-        ) : multiYearCategoriesQ.isError && multiYearCategoriesQ.data === undefined ? (
-          <SectionFailed onRetry={() => void multiYearCategoriesQ.refetch()} />
-        ) : (
-          <HorizontalBarList
-            rows={categoryYears.flatMap((y) => topCategoryNames.map((name) => ({
-              key: `${y.year}-${name}`,
-              label: `${y.year} ${name}`,
-              sub: '',
-              // sum, not find(): a deleted category always reports as "Uncategorized" (see
-              // AnalyticsService#toBreakdownList), so a year can legitimately hold more than one
-              // entry with that same name -- taking only the first would silently drop the rest.
-              value: y.categories.filter((cat) => cat.categoryName === name).reduce((sum, cat) => sum + cat.totalSpend, 0),
-            })))}
-            valueLabel={fmtCurrency}
-            emptyMessage="Once you have year-over-year category spend, it appears here."
-          />
-        )}
-      </Card>
+      <AdvancedTabs selected={tab} onSelect={setTab} />
 
-      <Card style={styles.section}>
-        <SectionHeading title="Category Confidence" />
-        <Text style={[styles.panelHint, { color: c.muted }]}>
-          How sure the categorization engine is about each category, on average, across your merchants.
-        </Text>
-        {confidenceQ.isLoading ? (
-          <SectionSkeleton />
-        ) : confidenceQ.isError && confidenceQ.data === undefined ? (
-          <SectionFailed onRetry={() => void confidenceQ.refetch()} />
-        ) : (
-          <HorizontalBarList
-            rows={(confidenceQ.data ?? []).map((p) => ({
-              key: p.category, label: p.category, sub: `${p.merchantCount} merchants`, value: p.avgConfidence,
-            }))}
-            maxValue={100}
-            valueLabel={(v) => `${Math.round(v)}%`}
-            emptyMessage="Confirm a few categorizations and this fills in."
-          />
-        )}
-      </Card>
-
-      <Card style={styles.section}>
-        <SectionHeading title="Learning Growth" />
-        <Text style={[styles.panelHint, { color: c.muted }]}>
-          Categorizations the engine learned on its own vs. ones you corrected, per month.
-        </Text>
-        {learningQ.isLoading ? (
-          <SkeletonGroup><SkeletonChart width={chartWidth} /></SkeletonGroup>
-        ) : (
-          <LearningGrowthChart
-            points={(learningQ.data ?? []).map((p) => ({
-              label: monthLabel(p.month), learnedCount: p.learnedCount, correctedCount: p.correctedCount,
-            }))}
-            width={chartWidth}
-          />
-        )}
-      </Card>
+      {tab === 'categorisation' ? (
+        <CategorisationSection />
+      ) : !customReady ? (
+        <Card style={styles.section}><EmptyState message="Choose a start and an end month. A custom period needs both, with the start not after the end." /></Card>
+      ) : reportQ.isLoading ? (
+        <BodySkeleton />
+      ) : reportQ.isError && !report ? (
+        <LoadFailed message="Couldn't load Advanced Reports." tone="danger" onRetry={() => void reportQ.refetch()} />
+      ) : report && copy ? (
+        <Card style={styles.section}>
+          <Text style={[typography.cardTitle, { color: c.ink }]}>{copy.title}</Text>
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>{copy.desc}</Text>
+        </Card>
+      ) : report ? (
+        <View style={styles.stack}>
+          <PeriodNotice report={report} />
+          {tab === 'overview' ? (
+            <>
+              <AdvancedKpis report={report} />
+              <FlowChart months={report.months} incompleteNote={partial} />
+              <InsightCards insights={report.insights} onOpen={open} />
+              <CategoryList report={report} limit={5} onViewAll={() => setTab('spending')} onOpen={open} />
+              <MerchantList report={report} limit={5} onViewAll={() => setTab('merchants')} onOpen={open} />
+              <PaymentMethods breakdown={methods} />
+            </>
+          ) : tab === 'spending' ? (
+            <>
+              <CategoryList report={report} onOpen={open} />
+              <CategoryTrendChart months={report.months} categories={report.categories.rows} />
+              <PaymentMethods breakdown={methods} />
+              <UnusualList items={report.unusualSpends} onOpen={open} />
+              <InternationalSection data={report.international} />
+            </>
+          ) : tab === 'income' ? (
+            <IncomeSection report={report} />
+          ) : (
+            <MerchantList report={report} onOpen={open} />
+          )}
+        </View>
+      ) : null}
 
       <OptionPickerModal
-        visible={pickerOpen}
-        title="Period"
-        options={monthOptions}
-        selected={selectedLabel}
+        visible={picker === 'range'} title="Period" options={RANGE_OPTIONS.map((o) => o.label)} selected={rangeLabel}
+        onSelect={(label) => { chooseRange(label); setPicker(null); }} onClose={() => setPicker(null)}
+      />
+      <OptionPickerModal
+        visible={picker === 'compare'} title="Compare with" options={compareOptions.map((o) => compareOptionLabel(o, period!))} selected={compareLabel}
         onSelect={(label) => {
-          setMonth(labelToMonth[label] ?? '');
-          setPickerOpen(false);
+          const next = compareOptions.find((o) => compareOptionLabel(o, period!) === label);
+          if (next) setCompare(next);
+          setPicker(null);
         }}
-        onClose={() => setPickerOpen(false)}
+        onClose={() => setPicker(null)}
+      />
+      <OptionPickerModal
+        visible={picker === 'start' || picker === 'end'} title={picker === 'end' ? 'To' : 'From'}
+        options={monthsNewestFirst.map(monthLabelLong)} selected={picker === 'end' ? (endMonth ? monthLabelLong(endMonth) : null) : (startMonth ? monthLabelLong(startMonth) : null)}
+        onSelect={(label) => {
+          const raw = monthLabelToRaw.get(label);
+          if (raw) (picker === 'end' ? setEndMonth : setStartMonth)(raw);
+          setPicker(null);
+        }}
+        onClose={() => setPicker(null)}
       />
     </ScrollView>
   );
 }
 
+function PickerField({ label, value, hint, onPress, testID }: { label: string; value: string; hint?: string | null; onPress: () => void; testID?: string }) {
+  const c = useTheme();
+  return (
+    <View style={styles.field}>
+      <Text style={[typography.eyebrow, { color: c.mutedInk }]}>{label}</Text>
+      <Pressable
+        onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}: ${value}. Change`} testID={testID}
+        style={[styles.picker, { backgroundColor: c.inputBg, borderColor: c.border }]}
+      >
+        <Text style={[typography.bodyM, { color: c.ink }]}>{value}</Text>
+        <Text style={[typography.bodyM, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">›</Text>
+      </Pressable>
+      {hint ? <Text style={[typography.caption, { color: c.mutedInk }]}>{hint}</Text> : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  intlStats: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
-  intlStat: { flex: 1 },
-  intlValue: { fontSize: 16, fontWeight: '700', marginTop: 2 },
   flex: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   titleRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
     paddingHorizontal: spacing.md, paddingTop: spacing.md, marginBottom: spacing.md,
   },
-  titleTextCol: { flex: 1 },
+  titleTextCol: { flex: 1, gap: 4 },
   titleWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { fontSize: 20, fontWeight: '700' },
-  subtitle: { fontSize: 13, marginTop: 4 },
-  section: { marginBottom: spacing.md },
+  section: { marginBottom: spacing.md, gap: spacing.sm },
+  stack: { gap: spacing.md },
   upgradePrompt: { marginHorizontal: spacing.md, marginBottom: spacing.md },
   upgradeHint: { fontSize: 12, fontWeight: '600', marginTop: spacing.sm, textAlign: 'center' },
-  periodRow: { gap: spacing.xs },
-  periodTextCol: { gap: 2 },
-  periodLabel: { fontSize: 11, textTransform: 'uppercase' },
-  periodValue: { fontSize: 15, fontWeight: '600' },
-  periodHint: { fontSize: 11 },
-  modeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
-  modeButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: 6 },
-  panelHint: { fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
-  sectionSkeleton: { gap: spacing.sm, paddingVertical: spacing.sm },
-  // HorizontalBarList's own list: rows 8 apart, no padding around them.
-  barListSkeleton: { gap: spacing.sm },
+  field: { gap: 4 },
+  pair: { flexDirection: 'row', gap: spacing.sm },
+  half: { flex: 1 },
+  picker: {
+    minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, paddingHorizontal: spacing.sm,
+  },
+  exportButton: { minHeight: 44, borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  disabled: { opacity: 0.5 },
 });

@@ -36,6 +36,12 @@ class MerchantBrandsTest {
             "air india, airindia.com",
             "irctc ticket booking, irctc.co.in",
             "bigtree entertainmen, bookmyshow.com",
+            "indigo airline, goindigo.in",
+            "interglobe aviation, goindigo.in",
+            "zeptonow, zeptonow.com",
+            "anthropicanthropic, anthropic.com",
+            "one97 co, paytm.com",
+            "paytm, paytm.com",
             "UPI/DR/600000000002/ZOMATO/YESB, zomato.com",
     })
     void aKnownBrandGivesItsOwnWebAddress(String label, String domain) {
@@ -50,6 +56,11 @@ class MerchantBrandsTest {
             "account transfer credit ref", "googly",
             // Bank text with identifiers: nothing in it names a brand.
             "UPI/DR/600000000002/SAMPLE SHOP/YESB", "31700ppf000000000624", "nwd 416021xxxxxx5853",
+            // Another business that only starts with a brand's letters must not wear its logo: a shop
+            // paid through a Paytm QR is not Paytm, and Indigo Paints is not the airline.
+            "amazonia restaurant", "paytmqr100000000001", "indigo paints", "airtelxyz traders",
+            // An abbreviation no one has confirmed as the brand stays initials.
+            "asspl",
             "", "   "})
     void anythingElseGivesNothing(String label) {
         assertThat(MerchantBrands.domainFor(label)).isNull();

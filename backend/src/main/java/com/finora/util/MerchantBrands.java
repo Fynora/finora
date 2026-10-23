@@ -17,19 +17,22 @@ import java.util.TreeSet;
  * corpus (2026-10-24, 34 statements, 1,965 rows), about half the distinct labels the classifier types
  * as BUSINESS are individuals' names (small vendors paid by UPI), and the UNKNOWN labels include
  * people's names and bank text with reference and account numbers. Looking those up by name sent them
- * to a third party. On the same corpus this list gives an address to 544 of the 1,298 rows that were
+ * to a third party. On the same corpus this list gives an address to 536 of the 1,298 rows that were
  * being looked up by name, through 56 distinct domains, and every match is the brand it names.
  *
- * <p>Matching is on whole words of the label, lowercased with punctuation turned into spaces. A brand
- * marked {@code fused} also matches the start of a word, because banks run words together
- * ("zomatoorder", "zeptoonline"); short brands never do, so "credit" is not CRED and "uberoi" is not
- * Uber. Add a brand only with a web address you have checked is its own.
+ * <p>Matching is on whole words of the label, lowercased with punctuation turned into spaces, so
+ * "credit" is not CRED, "amazonia" is not Amazon and a shop paid through a Paytm QR ("paytmqr...") is
+ * not Paytm. A brand marked {@code fused} also matches the start of a word; only brands that real
+ * statements run together with the next word are marked ("zomatoorder", "zeptoonline",
+ * "cloudflarecloudflare"). A wrong match shows one business another's logo, so add a brand, or mark
+ * one fused, only with evidence, and only with a web address you have checked is its own.
  */
 public final class MerchantBrands {
 
     private record Brand(List<String> words, String domain, boolean fused) {}
 
     private static final List<Brand> BRANDS = new ArrayList<>();
+    private static final java.util.regex.Pattern SEPARATORS = java.util.regex.Pattern.compile("[^a-z0-9]+");
 
     private static void add(String pattern, String domain) { add(pattern, domain, false); }
 
@@ -42,66 +45,67 @@ public final class MerchantBrands {
     static {
         // Food and groceries
         add("zomato", "zomato.com", true);
-        add("swiggy", "swiggy.com", true);
+        add("swiggy", "swiggy.com");
         add("zepto", "zeptonow.com", true);
-        add("blinkit", "blinkit.com", true);
-        add("bigbasket", "bigbasket.com", true);
+        add("blinkit", "blinkit.com");
+        add("bigbasket", "bigbasket.com");
         add("bbnow", "bigbasket.com");
-        add("dmart", "dmart.in", true);
-        add("eatclub", "eatclub.in", true);
-        add("tobox", "eatclub.in", true);
-        add("mcdonald", "mcdonalds.com", true);
+        add("dmart", "dmart.in");
+        add("eatclub", "eatclub.in");
+        add("tobox", "eatclub.in");
+        add("mcdonald", "mcdonalds.com");
         add("mcdonalds", "mcdonalds.com");
         add("mc donalds", "mcdonalds.com");
         add("mc donald", "mcdonalds.com");
         add("dominos", "dominos.co.in");
         add("domino", "dominos.co.in");
-        add("starbucks", "starbucks.com", true);
-        add("cinnabon", "cinnabon.com", true);
+        add("starbucks", "starbucks.com");
+        add("cinnabon", "cinnabon.com");
         add("tim hortons", "timhortons.com");
-        add("barbequenation", "barbequenation.com", true);
+        add("barbequenation", "barbequenation.com");
         add("blue tokai", "bluetokaicoffee.com");
-        add("jiomart", "jiomart.com", true);
+        add("jiomart", "jiomart.com");
         // Shopping
-        add("amazon", "amazon.in", true);
-        add("asspl", "amazon.in");
-        add("flipkart", "flipkart.com", true);
-        add("myntra", "myntra.com", true);
-        add("meesho", "meesho.com", true);
-        add("decathlon", "decathlon.in", true);
+        add("amazon", "amazon.in");
+        add("flipkart", "flipkart.com");
+        add("myntra", "myntra.com");
+        add("meesho", "meesho.com");
+        add("decathlon", "decathlon.in");
         add("tata cliq", "tatacliq.com");
         add("ekart", "ekartlogistics.com");
-        add("wakefit", "wakefit.co", true);
+        add("wakefit", "wakefit.co");
         add("dot and key", "dotandkey.com");
         add("mr diy", "mrdiy.com");
         add("reliance retail", "relianceretail.com");
         // Travel and transport
         add("uber", "uber.com");
-        add("rapido", "rapido.bike", true);
-        add("irctc", "irctc.co.in", true);
+        add("rapido", "rapido.bike");
+        add("irctc", "irctc.co.in");
         add("indian railways", "indianrail.gov.in");
         add("pune metro", "punemetrorail.org");
-        add("indigo", "goindigo.in");
-        add("interglobe", "goindigo.in", true);
+        add("indigo airline", "goindigo.in");
+        add("indigo airlines", "goindigo.in");
+        add("goindigo", "goindigo.in");
+        add("interglobe", "goindigo.in");
         add("air india express", "airindiaexpress.com");
         add("air india", "airindia.com");
-        add("ixigo", "ixigo.com", true);
+        add("ixigo", "ixigo.com");
         add("le travenues", "ixigo.com");
-        add("agoda", "agoda.com", true);
-        add("makemytrip", "makemytrip.com", true);
-        add("goibibo", "goibibo.com", true);
+        add("agoda", "agoda.com");
+        add("makemytrip", "makemytrip.com");
+        add("goibibo", "goibibo.com");
         // Telecom, apps and subscriptions
-        add("airtel", "airtel.in", true);
+        add("airtel", "airtel.in");
         add("jio", "jio.com");
         add("myjio", "jio.com");
-        add("google", "google.com", true);
+        add("google", "google.com");
         add("goog", "google.com");
         add("playstore", "google.com");
-        add("spotify", "spotify.com", true);
-        add("netflix", "netflix.com", true);
+        add("spotify", "spotify.com");
+        add("netflix", "netflix.com");
         add("prime video", "primevideo.com");
-        add("linkedin", "linkedin.com", true);
-        add("bookmyshow", "bookmyshow.com", true);
+        add("linkedin", "linkedin.com");
+        add("bookmyshow", "bookmyshow.com");
         add("bigtree entertainmen", "bookmyshow.com");
         add("bigtree entertainment", "bookmyshow.com");
         add("cloudflare", "cloudflare.com", true);
@@ -109,19 +113,19 @@ public final class MerchantBrands {
         add("urban company", "urbancompany.com");
         add("housingcom", "housing.com");
         // Payments and money
-        add("phonepe", "phonepe.com", true);
-        add("paytm", "paytm.com", true);
-        add("one97", "paytm.com", true);
+        add("phonepe", "phonepe.com");
+        add("paytm", "paytm.com");
+        add("one97", "paytm.com");
         add("one 97", "paytm.com");
         add("cred", "cred.club");
         add("credclub", "cred.club");
-        add("razorpay", "razorpay.com", true);
-        add("bharatpe", "bharatpe.com", true);
+        add("razorpay", "razorpay.com");
+        add("bharatpe", "bharatpe.com");
         add("groww", "groww.in");
-        add("zerodha", "zerodha.com", true);
-        add("icici", "icicibank.com", true);
-        add("healthians", "healthians.com", true);
-        add("fitpass", "fitpass.co.in", true);
+        add("zerodha", "zerodha.com");
+        add("icici", "icicibank.com");
+        add("healthians", "healthians.com");
+        add("fitpass", "fitpass.co.in");
         add("indfitpass", "fitpass.co.in");
         // Longest first, so "air india express" wins over "air india".
         BRANDS.sort(Comparator.comparingInt((Brand b) -> b.words().size()).reversed()
@@ -133,7 +137,7 @@ public final class MerchantBrands {
     /** The brand's web address when {@code label} names a listed brand, otherwise null. */
     public static String domainFor(String label) {
         if (label == null || label.isBlank()) return null;
-        String[] tokens = label.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim().split(" ");
+        String[] tokens = SEPARATORS.matcher(label.toLowerCase(Locale.ROOT)).replaceAll(" ").trim().split(" ");
         for (Brand brand : BRANDS) {
             int n = brand.words().size();
             for (int i = 0; i + n <= tokens.length; i++) {

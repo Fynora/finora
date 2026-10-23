@@ -216,6 +216,8 @@ class SupportTicketApiIT extends AbstractIntegrationTest {
     @Test
     void creatingATicket_queuesAnEmailAcknowledgementNamingTheTicketNumber() throws Exception {
         User user = createUser("USER");
+        user.setEmailVerified(true);
+        userRepository.save(user);
         UUID ticketId = createTicket(user, "Acknowledge me");
         String ticketNumber = ticketNumberOf(user, ticketId);
 

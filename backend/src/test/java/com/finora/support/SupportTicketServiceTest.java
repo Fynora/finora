@@ -2,7 +2,9 @@ package com.finora.support;
 
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.SupportTicket;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.repository.UserRepository;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
@@ -51,6 +53,7 @@ class SupportTicketServiceTest {
     private AuditService auditService;
     private NotificationService notificationService;
     private SupportAdminAlertService adminAlerts;
+    private UserRepository userRepository;
     private SupportTicketService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -66,14 +69,22 @@ class SupportTicketServiceTest {
         auditService = mock(AuditService.class);
         notificationService = mock(NotificationService.class);
         adminAlerts = mock(SupportAdminAlertService.class);
+        userRepository = mock(UserRepository.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService, notificationService, adminAlerts);
+                clientIdentity, auditService, notificationService, adminAlerts, userRepository);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(true)));
 
         when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(idGenerator.next()).thenReturn("SUP-000001");
         when(clientIdentity.platform()).thenReturn(ClientPlatform.WEB);
         when(clientIdentity.appVersion()).thenReturn(null);
+    }
+
+    private static User userWithEmailVerified(boolean verified) {
+        User user = new User();
+        user.setEmailVerified(verified);
+        return user;
     }
 
     // --- create() validation ---------------------------------------------------------------
@@ -130,6 +141,29 @@ class SupportTicketServiceTest {
         assertThat(request.category()).isEqualTo(NotificationCategory.SECURITY);
         // Only the number -- never the customer's own subject or description.
         assertThat(request.params()).isEqualTo(Map.of("ticketNumber", "SUP-000001"));
+    }
+
+    /** An address nobody has proven they own may belong to a stranger, so it gets no email -- but the
+     *  customer's ticket is created, audited and alerted to the admins exactly as normal. */
+    @Test
+    void anUnverifiedEmailGetsNoAcknowledgement_butTheTicketIsStillCreated() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(false)));
+
+        var detail = service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        assertThat(detail.ticketNumber()).isEqualTo("SUP-000001");
+        verifyNoInteractions(notificationService);
+        verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_CREATED"), eq("SupportTicket"), any(), any());
+        verify(adminAlerts).alertTicketRaised(any(), eq("SUP-000001"), any(), any(), any());
+    }
+
+    @Test
+    void aUserWhoCannotBeFoundIsTreatedAsUnverified() {
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        service.create(userId, "OTHER", "Subject", "Description", null);
+
+        verifyNoInteractions(notificationService);
     }
 
     /** The cap's boundary, both sides: the third ticket in a day is still acknowledged, the fourth is

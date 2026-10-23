@@ -34,6 +34,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,7 +65,12 @@ class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
     }
 
     private User createUser() {
+        return createUser(true);
+    }
+
+    private User createUser(boolean emailVerified) {
         User user = new User();
+        user.setEmailVerified(emailVerified);
         user.setEmail("ack-delivery-it-" + UUID.randomUUID() + "@example.com");
         user.setPasswordHash("irrelevant-for-this-test");
         user.setFullName("Ack Delivery IT User");
@@ -121,6 +127,21 @@ class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
                 .doesNotContain("private description")
                 .doesNotContain("{{");
         assertThat(acknowledgementFor(ticketId).getStatus()).isEqualTo(NotificationStatus.SENT);
+    }
+
+    /** Password signup never proved the address belongs to the registrant, so an unverified address
+     *  may be a stranger's: the ticket is created, but nothing is queued and nothing is sent to it. */
+    @Test
+    void anUnverifiedEmailIsNeverSentAnything() throws Exception {
+        User user = createUser(false);
+        UUID ticketId = createTicket(user, "From an unverified address");
+
+        dispatcher.drainOnce();
+
+        assertThat(acknowledgementFor(ticketId)).as("no outbox row at all").isNull();
+        ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider, atLeast(0)).send(sent.capture());
+        assertThat(sent.getAllValues()).noneMatch(m -> user.getEmail().equals(m.to()));
     }
 
     /** Ticket creation is not rate limited, and an account can be registered with someone else's

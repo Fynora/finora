@@ -934,3 +934,31 @@ are consequences of decisions made deliberately elsewhere in this document rathe
 If a production Grafana later gains alerting, a "no navigation events for 24h" rule is the shape
 this should take.
 
+
+## 14. Client IP diagnostics (temporary)
+
+`ClientIpDiagnostics` (`com.finora.observability`), fed by `ClientIpDiagnosticsFilter` for every
+request. It exists to answer one question with evidence: does `ClientIpResolver`
+(`trusted-proxy-hops: 1`, last `X-Forwarded-For` entry) give rate limiting, audit metadata and
+refresh-token sessions the visitor's real IP, now that Cloudflare sits in front of Railway, or the
+address of a Cloudflare edge? If it is an edge, unrelated users share one rate-limit bucket.
+Railway's own HTTP log records the real visitor IP for traffic through Cloudflare, but that does
+not show what reaches the app.
+
+**No IP is stored, logged or tagged.** Each request becomes bounded labels only:
+
+| Metric | Type | Tags | Meaning |
+|---|---|---|---|
+| `finora.client_ip.resolution` | counter | `host` (`api`/`other`), `hops` (`0`,`1`,`2`,`3+`), `resolved_cloudflare` (`true`/`false`), `cf_connecting_ip` (`match`/`differs`/`absent`), `first_hop` (`match`/`differs`/`absent`) | How the client IP was resolved for one request. |
+
+The same counts are logged as one line every 15 minutes ("Client IP diagnostics (last interval,
+labels only)"), so the answer can be read from the Railway log as well as Grafana.
+
+**Reading it:** mostly `resolved_cloudflare=true` on `host=api` means the resolver picks a Cloudflare
+edge and needs fixing (separate PR, with tests for single, multiple, missing and malformed hops).
+Mostly `resolved_cloudflare=false` with `cf_connecting_ip=match` means it already picks the visitor.
+Anything else is inconclusive, and the per-IP limits are then treated as not yet trusted for abuse
+protection.
+
+Switch off with `CLIENT_IP_DIAGNOSTICS_ENABLED=false`. Remove the class, the filter and this section
+once the question is answered.

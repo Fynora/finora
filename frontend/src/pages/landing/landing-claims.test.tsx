@@ -125,21 +125,17 @@ describe('landing page — marketing claims', () => {
   });
 
   /**
-   * AI insights (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §6, §8.4). Each
-   * line is backed by code: migration V283__ai_insight_texts.sql grants FYN_INSIGHTS to Free, Plus and
-   * Premium, and AiInsightService holds Free to the newest month's story and 5 "Why?" answers a
-   * calendar month, with no count limit on Plus and Premium.
+   * AI insights (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §6, §7) are not
+   * sold yet: the server shows AI text only to internal accounts (FYN_INSIGHTS_AUDIENCE=internal)
+   * until the launch gate passes, and "Why?" ships in mobile 1.1.0. Owner decision 2026-10-23: the
+   * plan lines ("AI month story and 5 AI explanations a month" on Free, "AI insights with no monthly
+   * limit" on Plus) go on the page in the PR that switches the audience to all, which turns this
+   * test around.
    */
-  it('lists the AI insights each plan gets, as the server enforces them', () => {
-    const free = PLANS.find((p) => p.id === 'free')!;
-    const plus = PLANS.find((p) => p.id === 'plus')!;
-    expect(free.features).toContain('AI month story and 5 AI explanations a month');
-    expect(plus.features).toContain('AI insights with no monthly limit');
-
+  it('sells no AI insights while customers cannot get them', () => {
+    expect(JSON.stringify(PLANS)).not.toMatch(/AI month story|AI explanations|AI insights/i);
     const { container } = renderLanding();
-    const pricing = container.querySelector('#pricing')?.textContent ?? '';
-    expect(pricing).toContain('AI month story and 5 AI explanations a month');
-    expect(pricing).toContain('AI insights with no monthly limit');
+    expect(container.querySelector('#pricing')?.textContent ?? '').not.toMatch(/AI month story|AI explanations|AI insights/i);
   });
 
   it("describes Premium without claiming a capability that isn't live (Gmail sync, bank feed)", () => {

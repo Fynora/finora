@@ -26,6 +26,7 @@ describe('Terms', () => {
     );
     const text = document.body.textContent ?? '';
     expect(text).not.toMatch(/does not use third-party AI\s+services/i);
-    expect(text).toMatch(/Anthropic's Claude: Ask Fyn, the summary on the Insights page, and category suggestions/i);
+    // AI insights (the month story and "Why?") replaced the Insights summary (AI insights spec §8.4).
+    expect(text).toMatch(/Anthropic's Claude: Ask Fyn, AI insights on the Insights page, and category suggestions/i);
   });
 });

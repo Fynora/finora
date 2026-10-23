@@ -1023,16 +1023,51 @@ export const recurringApi = {
 
 export const insightsApi = {
   get: (month?: string) => api.get<InsightsData>('/insights', { params: { month } }).then((r) => r.data),
-  // Its own endpoint, deliberately: a failure (not entitled, Fyn disabled/over budget, nothing to
-  // narrate yet, or an Anthropic outage) must never affect get() above -- see the backend's
-  // InsightsController.narration doc. Callers should catch and render nothing on failure, not an
-  // error message; this is a nice-to-have gloss on data the page already shows numerically.
-  narration: () => api.get<{ narration: string }>('/insights/narration').then((r) => r.data.narration),
   // The rows this user marked "Got it", on any device (V277). Mirrors mobile.
   acknowledgements: () =>
     api.get<InsightAcknowledgement[]>('/insights/acknowledgements').then((r) => r.data),
   acknowledge: (kind: AckKind, itemKey: string) =>
     api.post<void>('/insights/acknowledgements', { kind, itemKey }).then((r) => r.data),
+};
+
+// ---- AI insights (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §8.1, §8.4).
+// The website shows the month story only. Every refusal comes back as rules text or "none", never an
+// error; months are "YYYY-MM", omitted = the newest reporting month. Mirrors mobile's aiInsightsApi.
+
+/** "ready": `text` to show (AI or rules). "none": nothing to show, keep the page's own sentences.
+ *  "generating": another request is writing it, ask again shortly. */
+export type AiTextStatus = 'ready' | 'none' | 'generating';
+export type AiFeedbackRating = 'HELPFUL' | 'NOT_HELPFUL';
+export type AiFeedbackReason = 'WRONG_NUMBER' | 'NOT_USEFUL' | 'CONFUSING';
+export interface AiStory {
+  status: AiTextStatus;
+  /** The stored text's id, for thumbs; null on rules text and "none". */
+  id: string | null;
+  text: string | null;
+  writtenByAi: boolean;
+  /** What the text compares against, written by the server ("Compared with your usual month (Jul–Sep)"). */
+  basis: string | null;
+  /** POST /story is worth calling. */
+  canGenerate: boolean;
+  /** The thumb this user saved on the text; null when none is saved and on rules text. */
+  rating: AiFeedbackRating | null;
+  /** Only with NOT_HELPFUL. */
+  ratingReason: AiFeedbackReason | null;
+}
+// A field renamed on the server fails the type check here (FieldsOf is defined with the people shapes).
+const _aiStoryMatchesTheServer: FieldsOf<AiStory, GeneratedSchemas['StoryDto']> = true;
+void _aiStoryMatchesTheServer;
+
+export const aiInsightsApi = {
+  /** Reads only; never makes the server call the model. */
+  story: (month?: string) =>
+    api.get<AiStory>('/insights/story', { params: month ? { month } : {} }).then((r) => r.data),
+  /** Writes the story if it may. Idempotent: a repeat returns the stored or in-progress text. */
+  generateStory: (month?: string) =>
+    api.post<AiStory>('/insights/story', { month }).then((r) => r.data),
+  /** Thumbs on an AI text: null clears it; a reason goes only with NOT_HELPFUL. */
+  feedback: (id: string, rating: AiFeedbackRating | null, reason: AiFeedbackReason | null) =>
+    api.patch<void>(`/insights/ai-texts/${id}/feedback`, { rating, reason }).then(() => undefined),
 };
 
 /** What an Insights "Got it" names (V277, V281); the people kinds carry their key from the server. */

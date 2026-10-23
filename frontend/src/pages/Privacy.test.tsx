@@ -21,7 +21,11 @@ function policyText(): string {
  *     UserMerchantCategoryResolutionService (sends the description, never a person payment, with ids
  *     redacted and recognised names replaced, plus the user's category names; the description is free
  *     text, so the policy must not claim it holds no identifying detail).
- *   - Insights summary: FynInsightsNarrationService (category-level totals and category names).
+ *   - AI insights (the month story and "Why?"): AiInsightFacts is an allowlist of figures and
+ *     built-in category names; a category the user created is sent as a placeholder. Texts, the
+ *     figures behind them, thumbs and the monthly allowance live in ai_insight_texts and
+ *     ai_insight_usage (V283), which AccountPurgeSweepService deletes with the account.
+ *     Anthropic's terms as checked on 2026-10-22 (spec §9).
  *   - name shielding: FynNameShield (profile and account holder names, people in person payments,
  *     names in a screenshot's text).
  *   - shared learning: SharedCorpusService (>= 3 distinct users, only vpa:-keyed payees the
@@ -92,10 +96,33 @@ describe('Privacy policy matches what the product does', () => {
   // AI name shielding (PR #1894): what each AI use sends, and that recognised names are replaced.
   it('names every AI use and what each one sends', () => {
     const t = policyText();
-    expect(t).toMatch(/On the Insights page, Fyn writes a short\s+summary of your month from category-level totals and your category names/i);
+    expect(t).not.toMatch(/your category names/i);
+    expect(t).toMatch(/AI insights, described below/i);
     expect(t).toMatch(/the\s+description you typed and the names of your categories may be sent/i);
     expect(t).toMatch(/A\s+description that is a payment to a person is never sent/i);
     expect(t).toMatch(/reads its text on its own servers and sends that\s+text, not the image/i);
+  });
+
+  // AI insights spec §8.4: what is sent, history not advice, what is stored and its deletion, and
+  // Anthropic's standard terms.
+  it('describes AI insights: what is sent and never sent, history not advice, storage, and the provider terms', () => {
+    const t = policyText();
+    // FactSheet.modelJson: the month, subjects (built-in names or placeholders), facts' display forms.
+    expect(t).toMatch(/only figures from your own history: the month's amounts, counts and percentages, and the names\s+of Fynora's built-in categories/i);
+    // ai_insight_usage counts both stories and "Why?" answers; AiInsightGenerator writes an
+    // ai_audit_log row per request with no prompt or reply text; both go with the account.
+    expect(t).toMatch(/how many AI texts were written for you this month/i);
+    expect(t).toMatch(/a record of each request to the AI: the model, its cost, how long it took and whether the reply\s+passed the checks, never the text/i);
+    expect(t).toMatch(/never sends payee or people's names, the names of categories you create/i);
+    expect(t).toMatch(/account details or transaction descriptions/i);
+    expect(t).toMatch(/describes what happened in your past spending; it does not give financial advice/i);
+    expect(t).toMatch(/Fynora fills in every figure and name itself/i);
+    expect(t).toMatch(/marked "Written by AI"/i);
+    expect(t).toMatch(/all of this is deleted if you delete your account/i);
+    expect(t).toMatch(/under Anthropic's standard commercial terms/i);
+    expect(t).toMatch(/does not train its models on it/i);
+    expect(t).toMatch(/deletes it within 30 days/i);
+    expect(t).toMatch(/up to 2 years if it is flagged for misuse/i);
   });
 
   it('says recognised names are replaced with placeholders, and which names are not recognised', () => {

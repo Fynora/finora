@@ -116,6 +116,9 @@ export const PLANS: Plan[] = [
       'Automatic categorization that learns',
       'Budgets, goals and reports',
       'Financial dashboard and insights',
+      // AI insights spec §6: the newest month's story and 5 "Why?" answers a calendar month
+      // (AiInsightService; FYN_INSIGHTS granted to every plan in V283).
+      'AI month story and 5 AI explanations a month',
       'Ask Fyn, with a small daily limit',
     ],
   },
@@ -135,6 +138,8 @@ export const PLANS: Plan[] = [
       'Unlimited accounts',
       'Statements longer than one month',
       'Advanced reports: spend trend, top merchants, multi-year comparison',
+      // No count limit on Plus and Premium (AiInsightService); the per-user daily spend cap still applies.
+      'AI insights with no monthly limit',
       'Ask Fyn with no daily limit (fair use)',
     ],
   },

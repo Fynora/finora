@@ -135,9 +135,7 @@ export default function Privacy() {
           replaced with placeholders before it is sent.
         </p>
         <p>
-          Anthropic's service is also used in two other places. On the Insights page, Fyn writes a short
-          summary of your month from category-level totals and your category names; it is never sent your
-          transactions, merchant names or account details. And if you add a transaction by hand without
+          Anthropic's service is also used in two other places: AI insights, described below, and if you add a transaction by hand without
           choosing a category, and Fynora cannot work out a category from your own rules and corrections, its
           built-in rules, or a shared suggestion (see "Learning From Corrections Across Users" below), the
           description you typed and the names of your categories may be sent so it can suggest a category. A
@@ -158,6 +156,32 @@ export default function Privacy() {
           it, so Anthropic receives the placeholder, never the name. A name Fynora cannot recognise is sent
           as written: an uncommon name of someone you have never paid, or a name that is also an everyday
           word, such as Sunny, typed into a question.
+        </p>
+      </PublicSection>
+
+      <PublicSection title="AI insights">
+        <p>
+          On the Insights page, in the app and on the website, Fynora can write a short story of your month,
+          and in the app it can explain why a category is running higher than usual. For these, Fynora sends
+          Anthropic's Claude only figures from your own history: the month's amounts, counts and percentages, and the names
+          of Fynora's built-in categories. It never sends payee or people's names, the names of categories you create
+          (each is sent as a placeholder, and Fynora puts the name back before you see it), account details or
+          transaction descriptions.
+        </p>
+        <p>
+          The AI describes what happened in your past spending; it does not give financial advice. Fynora fills in
+          every figure and name itself, and the AI chooses which ones to use and writes the words around them.
+          Fynora checks every reply against fixed rules, including rules against advice, predictions and naming
+          financial products, and shows its own rule-based text instead of any reply that fails them. Text written
+          this way is marked "Written by AI".
+        </p>
+        <p>
+          Fynora stores each text with the figures it was written from, any thumbs up or down you give it and the
+          reason you pick, how many AI texts were written for you this month, and a record of each request to the AI:
+          the model, its cost, how long it took and whether the reply passed the checks, never the text. All of this is
+          deleted if you delete your account. Anthropic receives this data under Anthropic's standard commercial terms: Anthropic does not
+          train its models on it, and deletes it within 30 days, or keeps it for up to 2 years if it is flagged for
+          misuse of its service.
         </p>
       </PublicSection>
 
@@ -197,7 +221,7 @@ export default function Privacy() {
         <p>
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
           and financial insights (via Fynora's own rule-based logic, except for the three uses of an AI service
-          described under "Ask Fyn (AI Assistant)" above); detect duplicate or transfer transactions; and secure your account
+          described under "Ask Fyn (AI Assistant)" and "AI insights" above); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins).
         </p>
       </PublicSection>
@@ -239,7 +263,7 @@ export default function Privacy() {
           <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS/OTP delivery for phone verification.</li>
-          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, the Insights summary and category suggestions for hand-typed transactions, as described above.</li>
+          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, AI insights and category suggestions for hand-typed transactions, as described above.</li>
           <li><strong className="text-ink">Firebase Cloud Messaging</strong> (Google) — delivery of push notifications to the mobile app, using a device token for your phone.</li>
           <li><strong className="text-ink">Sentry</strong> — crash and error reporting for our apps and servers. Reports carry technical details of the error; the web and mobile apps remove form contents, your account identity and the identifying parts of page addresses before a report is sent. Session replay and performance tracing are switched off.</li>
           <li><strong className="text-ink">Razorpay</strong> — payment processing for subscriptions bought on the web. Your card, UPI or bank details are entered into Razorpay's checkout, not into Fynora. Fynora keeps only what Razorpay reports back to show on your Billing page — for a card, its network and last four digits — never the full number.</li>

@@ -32,6 +32,7 @@ function ticket(overrides: Partial<SupportTicketDetail> = {}): SupportTicketDeta
     createdAt: '2026-09-04T10:00:00Z', updatedAt: '2026-09-04T10:00:00Z',
     description: 'Progress bar froze at 60%.', source: 'MOBILE_ANDROID', appVersion: '1.0.0',
     resolvedAt: null, closedAt: null, attachments: [],
+    duplicateOfTicketId: null, duplicateOfTicketNumber: null,
     ...overrides,
   };
 }
@@ -77,6 +78,17 @@ describe('SupportTicketDetailScreen', () => {
     renderScreen('ticket-1');
 
     expect(await screen.findByText(/can't be reopened/)).toBeTruthy();
+  });
+
+  it('tells the customer a closed duplicate points at their earlier ticket, instead of "file a new ticket"', async () => {
+    api.detail.mockResolvedValue(ticket({
+      status: 'CLOSED', duplicateOfTicketId: 'ticket-0', duplicateOfTicketNumber: 'SUP-000000',
+    }));
+    renderScreen('ticket-1');
+
+    expect(await screen.findByText(/closed this as a duplicate of SUP-000000/)).toBeTruthy();
+    expect(screen.getByText(/you don't need to raise it again/i)).toBeTruthy();
+    expect(screen.queryByText(/file a new ticket/)).toBeNull();
   });
 
   it('shows the not-found state instead of crashing when ticketId is missing from route.params', async () => {

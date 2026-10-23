@@ -257,6 +257,22 @@ class EmailNotificationProviderTest {
         assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 
+    /** The ticket acknowledgement is the branded email with a button to the ticket, not the generic
+     *  template path -- and the button needs the id, which only survives in the persisted params. */
+    @Test
+    void send_delegatesTheTicketAcknowledgementWithItsReferenceAndTicketId() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.sendSupportTicketReceivedEmail(any(), any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+
+        provider.send(notification(NotificationType.SUPPORT_TICKET_RECEIVED,
+                Map.of("ticketNumber", "SUP-000123", "ticketId", "11111111-1111-1111-1111-111111111111")));
+
+        verify(emailProvider).sendSupportTicketReceivedEmail("user@example.com", "SUP-000123",
+                "11111111-1111-1111-1111-111111111111");
+        verify(emailProvider, never()).send(any());
+    }
+
     /** The notice that our team opened a statement is one a customer may well reply to. */
     @Test
     void send_usesTheSupportSenderForTheOpenedForFixNotice() {

@@ -131,7 +131,12 @@ export function SupportTicketDetailScreen({ route }: Props) {
           </View>
         ) : null}
 
-        {t.status === 'RESOLVED' || t.status === 'CLOSED' ? (
+        {t.duplicateOfTicketNumber ? (
+          <Text style={[styles.footerNote, { color: c.ink, borderTopColor: c.border }]}>
+            We closed this as a duplicate of {t.duplicateOfTicketNumber}, which you raised earlier. You
+            don&apos;t need to raise it again.
+          </Text>
+        ) : t.status === 'RESOLVED' || t.status === 'CLOSED' ? (
           <Text style={[styles.footerNote, { color: c.muted, borderTopColor: c.border }]}>
             This ticket is {t.status === 'RESOLVED' ? 'resolved' : 'closed'} and can&apos;t be
             reopened — file a new ticket if the issue comes back.

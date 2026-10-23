@@ -5,6 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.AuditLog;
 import com.finora.entity.User;
+import com.finora.notification.domain.Notification;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationType;
+import com.finora.notification.repository.NotificationRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.security.JwtService;
@@ -38,6 +42,7 @@ class SupportTicketApiIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private AuditLogRepository auditLogRepository;
+    @Autowired private NotificationRepository notificationRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User createUser(String role) {
@@ -200,6 +205,32 @@ class SupportTicketApiIT extends AbstractIntegrationTest {
         JsonNode data = mapper.readTree(response.getBody()).get("data");
         assertThat(data.get("ticketNumber").asText()).matches("SUP-\\d{6}");
         return UUID.fromString(data.get("id").asText());
+    }
+
+    /**
+     * The acknowledgement goes through the real outbox, template table and preference resolver -- a
+     * mocked {@code NotificationService} cannot show that V287's template row exists and renders, or
+     * that the request lands as an EMAIL row for the ticket's owner. The ticket number is read back
+     * from the API so the assertion is on the number the customer was actually shown.
+     */
+    @Test
+    void creatingATicket_queuesAnEmailAcknowledgementNamingTheTicketNumber() throws Exception {
+        User user = createUser("USER");
+        user.setEmailVerified(true);
+        userRepository.save(user);
+        UUID ticketId = createTicket(user, "Acknowledge me");
+        String ticketNumber = ticketNumberOf(user, ticketId);
+
+        Notification queued = notificationRepository
+                .findByNotificationKey("SUPPORT_TICKET_RECEIVED_" + ticketId + ":EMAIL")
+                .orElseThrow(() -> new AssertionError("no acknowledgement queued for ticket " + ticketNumber));
+
+        assertThat(queued.getUserId()).isEqualTo(user.getId());
+        assertThat(queued.getChannel()).isEqualTo(NotificationChannel.EMAIL);
+        assertThat(queued.getType()).isEqualTo(NotificationType.SUPPORT_TICKET_RECEIVED);
+        assertThat(queued.getTitle()).contains(ticketNumber).doesNotContain("{{");
+        assertThat(queued.getMessage()).contains(ticketNumber).contains("get back to you")
+                .doesNotContain("{{").doesNotContain("Acknowledge me");
     }
 
     @Test

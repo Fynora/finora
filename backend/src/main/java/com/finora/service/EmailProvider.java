@@ -101,4 +101,13 @@ public interface EmailProvider {
      *
      *  @param waitingCount how many statements it covers, at least 1 */
     EmailResult sendStatementConfirmReminderEmail(String toEmail, int waitingCount);
+
+    /** The receipt for a support ticket the customer just raised (SupportTicketService.create).
+     *  Same layout and support@ sender as the statement emails, with a button to that ticket. It
+     *  carries the ticket reference only -- never the customer's own subject or description -- and
+     *  no opt-out line, since the notification cannot be switched off.
+     *
+     *  @param ticketNumber the reference the customer quotes back, e.g. SUP-000123
+     *  @param ticketId the ticket's id for the button's link; blank or null renders no button */
+    EmailResult sendSupportTicketReceivedEmail(String toEmail, String ticketNumber, String ticketId);
 }

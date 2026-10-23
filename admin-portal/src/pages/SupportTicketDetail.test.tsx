@@ -18,7 +18,7 @@ vi.mock('../context/AdminAuthContext', () => ({
 vi.mock('../api/endpoints', () => ({
   adminSupportTicketApi: {
     get: vi.fn(), updateStatus: vi.fn(), notes: vi.fn(), addNote: vi.fn(),
-    claim: vi.fn(), unclaim: vi.fn(), downloadAttachment: vi.fn(),
+    claim: vi.fn(), unclaim: vi.fn(), downloadAttachment: vi.fn(), markDuplicate: vi.fn(),
   },
 }));
 
@@ -40,6 +40,8 @@ const ticket: SupportTicketDetailDto = {
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
   attachments: [],
+  duplicateOfTicketId: null,
+  duplicateOfTicketNumber: null,
 };
 
 /** claim()/unclaim()/updateStatus() return the row shape (SupportTicketRow), not the full detail
@@ -55,6 +57,8 @@ const claimedRow: SupportTicketRow = {
   claimedByAdminId: 'me',
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
+  duplicateOfTicketId: null,
+  duplicateOfTicketNumber: null,
 };
 
 const note: SupportTicketNote = {
@@ -184,5 +188,80 @@ describe('SupportTicketDetail', () => {
     await user.click(attachmentButton);
 
     expect(adminSupportTicketApi.downloadAttachment).toHaveBeenCalledWith(ticketId, 'att-1', 'screenshot.png');
+  });
+
+  describe('marking a duplicate', () => {
+    const referenceId = '44444444-4444-4444-4444-444444444444';
+
+    it('offers it for an open ticket, with the button off until a number is typed', async () => {
+      renderPage();
+      await screen.findByText('Import stuck at 60%');
+
+      expect(screen.getByText(/same issue, enter that ticket/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Mark as duplicate' })).toBeDisabled();
+    });
+
+    it('asks first, naming both tickets and that the customer is emailed, and only then sends it', async () => {
+      const user = userEvent.setup();
+      vi.mocked(adminSupportTicketApi.markDuplicate).mockResolvedValue({
+        ...claimedRow, status: 'CLOSED', claimedByAdminId: null,
+        duplicateOfTicketId: referenceId, duplicateOfTicketNumber: 'SUP-000041',
+      });
+      renderPage();
+      await screen.findByText('Import stuck at 60%');
+
+      await user.type(screen.getByLabelText(/number of the ticket this duplicates/i), 'sup-000041');
+      await user.click(screen.getByRole('button', { name: 'Mark as duplicate' }));
+
+      const dialog = within(screen.getByRole('dialog'));
+      expect(dialog.getByText(/SUP-000042 will be closed as a duplicate of SUP-000041 and the customer will be emailed/)).toBeInTheDocument();
+      // Nothing is sent, and nobody is emailed, until the admin confirms.
+      expect(adminSupportTicketApi.markDuplicate).not.toHaveBeenCalled();
+
+      await user.click(dialog.getByRole('button', { name: 'Close as duplicate' }));
+
+      expect(adminSupportTicketApi.markDuplicate).toHaveBeenCalledWith(ticketId, 'sup-000041');
+    });
+
+    it('cancelling the confirmation sends nothing', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Import stuck at 60%');
+      await user.type(screen.getByLabelText(/number of the ticket this duplicates/i), 'SUP-000041');
+      await user.click(screen.getByRole('button', { name: 'Mark as duplicate' }));
+
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /cancel/i }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(adminSupportTicketApi.markDuplicate).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's own reason when it refuses, and closes the confirmation", async () => {
+      const user = userEvent.setup();
+      vi.mocked(adminSupportTicketApi.markDuplicate).mockRejectedValue({
+        response: { data: { message: 'SUP-000041 belongs to a different customer.' } },
+      });
+      renderPage();
+      await screen.findByText('Import stuck at 60%');
+      await user.type(screen.getByLabelText(/number of the ticket this duplicates/i), 'SUP-000041');
+      await user.click(screen.getByRole('button', { name: 'Mark as duplicate' }));
+
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close as duplicate' }));
+
+      expect(await screen.findByText('SUP-000041 belongs to a different customer.')).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('is not offered for a closed ticket, and a duplicate says what it duplicates, with a link', async () => {
+      vi.mocked(adminSupportTicketApi.get).mockResolvedValue({
+        ...ticket, status: 'CLOSED', duplicateOfTicketId: referenceId, duplicateOfTicketNumber: 'SUP-000041',
+      });
+      renderPage();
+      await screen.findByText('Import stuck at 60%');
+
+      expect(screen.queryByRole('button', { name: 'Mark as duplicate' })).not.toBeInTheDocument();
+      expect(screen.getByText(/Closed as a duplicate of/)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'SUP-000041' })).toHaveAttribute('href', `/support-tickets/${referenceId}`);
+    });
   });
 });

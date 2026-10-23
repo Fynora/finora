@@ -95,7 +95,14 @@ function SupportTicketsContent() {
     },
     {
       header: 'Status',
-      render: (row) => <span className={`text-xs font-medium ${STATUS_TONE[row.status]}`}>{row.status.replace(/_/g, ' ')}</span>,
+      render: (row) => (
+        <div>
+          <span className={`text-xs font-medium ${STATUS_TONE[row.status]}`}>{row.status.replace(/_/g, ' ')}</span>
+          {row.duplicateOfTicketNumber && (
+            <p className="text-muted text-xs mt-0.5">Duplicate of {row.duplicateOfTicketNumber}</p>
+          )}
+        </div>
+      ),
     },
     {
       header: 'Claimed by',

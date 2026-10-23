@@ -124,6 +124,7 @@ export function SupportTicketsScreen() {
                 <Text style={[styles.subject, { color: c.ink }]} numberOfLines={1}>{t.subject}</Text>
                 <Text style={[styles.meta, { color: c.muted }]}>
                   Opened {fmtDate(t.createdAt)} · Updated {fmtDate(t.updatedAt)}
+                  {t.duplicateOfTicketNumber ? ` · Duplicate of ${t.duplicateOfTicketNumber}` : ''}
                 </Text>
               </View>
               <Text style={[styles.statusBadge, { backgroundColor: status.bg(c), color: status.fg(c) }]}>{status.label}</Text>

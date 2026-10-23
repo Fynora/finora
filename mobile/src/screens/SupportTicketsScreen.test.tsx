@@ -45,6 +45,7 @@ function summary(overrides: Partial<SupportTicketSummary> = {}): SupportTicketSu
   return {
     id: 'ticket-1', ticketNumber: 'SUP-000001', userId: 'user-1', category: 'STATEMENT_IMPORT',
     subject: 'Import stuck', status: 'OPEN', claimedByAdminId: null,
+    duplicateOfTicketId: null, duplicateOfTicketNumber: null,
     createdAt: '2026-09-04T10:00:00Z', updatedAt: '2026-09-04T10:00:00Z',
     ...overrides,
   };
@@ -89,6 +90,21 @@ describe('SupportTicketsScreen', () => {
     expect(await screen.findByText('Import stuck')).toBeTruthy();
     expect(screen.getByText('SUP-000001')).toBeTruthy();
     expect(screen.getByText('In Progress')).toBeTruthy();
+  });
+
+  it('says which ticket a closed duplicate duplicates, and nothing for an ordinary one', async () => {
+    api.list.mockResolvedValue({
+      content: [
+        summary({ id: 'ticket-1', ticketNumber: 'SUP-000001' }),
+        summary({ id: 'ticket-2', ticketNumber: 'SUP-000002', status: 'CLOSED',
+          duplicateOfTicketId: 'ticket-1', duplicateOfTicketNumber: 'SUP-000001' }),
+      ],
+      page: 0, size: 25, totalElements: 2, totalPages: 1,
+    });
+    renderScreen();
+
+    expect(await screen.findByText(/Duplicate of SUP-000001/)).toBeTruthy();
+    expect(screen.getAllByText(/Duplicate of/)).toHaveLength(1);
   });
 
   it('navigates to the ticket detail route when a row is pressed', async () => {

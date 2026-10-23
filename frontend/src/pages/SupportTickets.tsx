@@ -101,6 +101,7 @@ export default function SupportTickets() {
                   <p className="text-sm font-medium text-ink truncate mt-0.5">{t.subject}</p>
                   <p className="text-xs text-muted mt-0.5">
                     Opened {formatDate(t.createdAt)} · Updated {formatDate(t.updatedAt)}
+                    {t.duplicateOfTicketNumber && <> · Duplicate of {t.duplicateOfTicketNumber}</>}
                   </p>
                 </div>
                 <span className={`text-2xs uppercase font-semibold rounded px-2 py-1 flex-shrink-0 ${STATUS_STYLE[t.status].className}`}>

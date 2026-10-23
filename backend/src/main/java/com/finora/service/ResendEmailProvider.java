@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.HtmlUtils;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -431,6 +432,30 @@ public class ResendEmailProvider implements EmailProvider {
                 EmailLayout.Footer.SUPPORT_REPLY, emailProperties.getSupportFromAddress(),
                 notificationSettingsUrl());
         return EmailMessage.html(toEmail, heading, html, EmailMessage.Sender.SUPPORT);
+    }
+
+    @Override
+    public EmailResult sendSupportTicketReceivedEmail(String toEmail, String ticketNumber, String ticketId) {
+        return send(buildSupportTicketReceivedMessage(toEmail, ticketNumber, ticketId));
+    }
+
+    EmailMessage buildSupportTicketReceivedMessage(String toEmail, String ticketNumber, String ticketId) {
+        // No promised response time: nothing in the product commits to one for tickets. Same words
+        // as V287's template row. The reply invitation is the footer's, not repeated here.
+        String reference = HtmlUtils.htmlEscape(ticketNumber == null ? "" : ticketNumber);
+        String bodyHtml = """
+                <p>Thanks for contacting Fynora support.</p>
+                <p>We have received your request, reference <strong>%s</strong>, and our team is
+                working on it. We will get back to you by email as soon as we have an update.</p>
+                """.formatted(reference);
+        EmailLayout.CtaButton button = ticketId == null || ticketId.isBlank() ? null
+                : new EmailLayout.CtaButton("View your request",
+                        emailProperties.resolveBaseUrl(null) + "/app/support/" + HtmlUtils.htmlEscape(ticketId));
+        String subject = "We received your support request " + ticketNumber;
+        // Null opt-out URL: a SECURITY notification the user cannot switch off must not claim one.
+        String html = EmailLayout.wrap(subject, bodyHtml, button, EmailLayout.Footer.SUPPORT_REPLY,
+                emailProperties.getSupportFromAddress(), null);
+        return EmailMessage.html(toEmail, subject, html, EmailMessage.Sender.SUPPORT);
     }
 
     /** Every statement email is a FINANCIAL notification (StatementStatusNotifier), which the user

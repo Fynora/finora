@@ -44,8 +44,12 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED,
                     NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
                     NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
+                    // Our team closed the customer's ticket as a duplicate and invites a reply if it was not one.
+                    NotificationType.SUPPORT_TICKET_DUPLICATE,
                     // Our team applied a statement correction for the user; a reply should reach a person.
-                    NotificationType.STATEMENT_CORRECTED_BY_SUPPORT);
+                    NotificationType.STATEMENT_CORRECTED_BY_SUPPORT,
+                    // The customer's own ticket; a reply to this email is them adding to it.
+                    NotificationType.SUPPORT_TICKET_RECEIVED);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;
@@ -122,6 +126,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
             case IMPORT_STATEMENT_REJECTED -> emailProvider.sendStatementRejectedEmail(to);
             case IMPORT_STATEMENT_CONFIRM_REMINDER -> emailProvider.sendStatementConfirmReminderEmail(
                     to, waitingCount(params));
+            case SUPPORT_TICKET_RECEIVED -> emailProvider.sendSupportTicketReceivedEmail(
+                    to, params.get("ticketNumber"), params.get("ticketId"));
             default -> emailProvider.send(buildMessage(to, notification.getType(),
                     notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };

@@ -30,6 +30,7 @@ function ticket(overrides: Partial<SupportTicketDetail> = {}): SupportTicketDeta
   return {
     id: 'ticket-1', ticketNumber: 'SUP-000001', userId: 'user-1', category: 'STATEMENT_IMPORT',
     subject: 'Import stuck', status: 'OPEN', claimedByAdminId: null,
+    duplicateOfTicketId: null, duplicateOfTicketNumber: null,
     createdAt: '2026-09-04T10:00:00Z', updatedAt: '2026-09-04T10:00:00Z',
     description: 'Progress bar froze at 60%.', source: 'MOBILE_ANDROID', appVersion: '1.0.0',
     resolvedAt: null, closedAt: null, attachments: [],

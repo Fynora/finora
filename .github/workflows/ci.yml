@@ -112,8 +112,9 @@ permissions:
 #
 #   * The `smoke` job's Postgres is back to a `services:` container (service containers are a
 #     Linux-container feature and never worked on the old macOS runner at all).
-#   * `playwright install` carries `--with-deps` again, which shells out to apt-get and is what a
-#     bare ubuntu-latest image needs for Chromium's system libraries.
+#   * `playwright install` carried `--with-deps` again, on the assumption that a bare ubuntu-latest
+#     image needs it for Chromium's system libraries. Measured 2026-10-23, it does not, and the
+#     smoke job dropped it (see its Install Chromium step); e2e-nightly.yml keeps it.
 #
 # `python3` (never bare `python`) is kept regardless of runner: Ubuntu hasn't shipped the bare
 # `python` command since 20.04, and this spelling is also what `.husky/pre-commit` uses locally.
@@ -1538,11 +1539,16 @@ jobs:
       # pre-release check -- engine-specific rendering changes far less often than business logic,
       # and tripling this job's runtime to find out would not be a good trade on every PR.
       #
-      # --with-deps installs Chromium's system libraries via apt-get, which a bare ubuntu-latest
-      # image needs and does not carry by default.
+      # No --with-deps. On GitHub's ubuntu images it apt-installed nothing Chromium needs: nine font
+      # packages (CJK, Thai, Unifont -- only screenshot comparisons care, and these tests make none)
+      # and upgrades to eight libraries already present. It did make every run download ~26 MB from
+      # the Ubuntu mirror, usually in a second, but in 14 of the 90 runs up to 2026-10-22 in 2.5-12
+      # minutes (one fetch: 25.9 MB in 9m44s), about 113 minutes lost in total. If the image ever
+      # lacks a library Chromium needs, Playwright refuses to launch and names it -- a red run, not a
+      # silent one. e2e-nightly.yml keeps --with-deps: Firefox and WebKit do need extra packages.
       - name: Install Chromium
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       # Started here rather than by the suite's own stack script, which is built for a developer's
       # machine: it manages a Docker container (CI provides Postgres as a service) and detaches the

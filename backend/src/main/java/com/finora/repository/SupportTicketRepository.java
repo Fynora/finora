@@ -17,6 +17,10 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      *  so paging through the list returns each ticket exactly once. */
     Page<SupportTicket> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Pageable pageable);
 
+    /** How many tickets this account has raised since {@code since} -- {@code SupportSubmissionLimiter}'s
+     *  daily ceiling. Served by {@code idx_support_tickets_by_user}. */
+    long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
+
     /**
      * Ownership is a predicate on the fetch, not a check after it.
      *

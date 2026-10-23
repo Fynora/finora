@@ -148,6 +148,66 @@ describe('Feedback', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  describe('pagination', () => {
+    // Three pages of 25: the server decides what is on each page, so the mock answers by the page
+    // number the component actually asks for rather than returning one fixed response.
+    function mockThreePages() {
+      vi.mocked(adminFeedbackApi.list).mockImplementation(async (params) => {
+        const page = params.page ?? 0;
+        return {
+          content: [{ ...row, id: `fb-page-${page}`, message: `Message on page ${page + 1}` }],
+          page, size: 25, totalElements: 60, totalPages: 3,
+        };
+      });
+    }
+
+    it('starts on page 1 of 3 with Previous disabled, and asks the server for 25 per page', async () => {
+      mockThreePages();
+      renderPage();
+
+      expect(await screen.findByText('Message on page 1')).toBeInTheDocument();
+      expect(screen.getByText('Showing 1–25 of 60')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+      expect(adminFeedbackApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 0, size: 25 }));
+    });
+
+    it('walks forward to the last page, where Next is disabled, and back again', async () => {
+      const user = userEvent.setup();
+      mockThreePages();
+      renderPage();
+      await screen.findByText('Message on page 1');
+
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      expect(await screen.findByText('Message on page 2')).toBeInTheDocument();
+      expect(screen.getByText('Showing 26–50 of 60')).toBeInTheDocument();
+      expect(adminFeedbackApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }));
+
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      expect(await screen.findByText('Message on page 3')).toBeInTheDocument();
+      // The last page is partial: 51-60, not 51-75.
+      expect(screen.getByText('Showing 51–60 of 60')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+
+      await user.click(screen.getByRole('button', { name: 'Previous page' }));
+      expect(await screen.findByText('Message on page 2')).toBeInTheDocument();
+    });
+
+    it('returns to page 1 when a filter changes, instead of staying on a page the filter may not have', async () => {
+      const user = userEvent.setup();
+      mockThreePages();
+      renderPage();
+      await screen.findByText('Message on page 1');
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
+      await screen.findByText('Message on page 2');
+
+      await user.selectOptions(screen.getByLabelText(/filter by type/i), 'BUG');
+
+      expect(adminFeedbackApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ page: 0, type: 'BUG' }));
+      expect(await screen.findByText('Message on page 1')).toBeInTheDocument();
+    });
+  });
+
   it('breakdown is fetched once and never refetched when the list filter changes', async () => {
     const user = userEvent.setup();
     renderPage();

@@ -43,6 +43,7 @@ class SupportTicketServiceTest {
     private ClientIdentity clientIdentity;
     private AuditService auditService;
     private SupportAdminAlertService adminAlerts;
+    private SupportSubmissionLimiter submissionLimiter;
     private SupportTicketService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -57,8 +58,9 @@ class SupportTicketServiceTest {
         clientIdentity = mock(ClientIdentity.class);
         auditService = mock(AuditService.class);
         adminAlerts = mock(SupportAdminAlertService.class);
+        submissionLimiter = mock(SupportSubmissionLimiter.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService, adminAlerts);
+                clientIdentity, auditService, adminAlerts, submissionLimiter);
 
         when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -114,6 +116,36 @@ class SupportTicketServiceTest {
 
         verify(adminAlerts).alertTicketRaised(any(), eq("SUP-000001"), eq(SupportTicket.Category.TECHNICAL_ISSUE),
                 eq(ClientPlatform.WEB), any());
+    }
+
+    @Test
+    void anAccountOverItsDailyLimit_getsA429_andNothingIsSavedAuditedOrAnnounced() {
+        org.mockito.Mockito.doThrow(new ApiException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, "limit"))
+                .when(submissionLimiter).requireTicketAllowance(userId);
+
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "Subject", "Description", null))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus())
+                        .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+
+        verify(ticketRepository, org.mockito.Mockito.never()).save(any());
+        // A refused request must not use up a ticket number either.
+        verifyNoInteractions(idGenerator, auditService, adminAlerts);
+    }
+
+    @Test
+    void aMalformedRequest_answers400_withoutConsultingTheDailyLimit() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(submissionLimiter);
+    }
+
+    @Test
+    void aValidCreate_checksTheDailyLimitForThatAccount() {
+        service.create(userId, "OTHER", "Subject", "Description", null);
+
+        verify(submissionLimiter).requireTicketAllowance(userId);
     }
 
     @Test

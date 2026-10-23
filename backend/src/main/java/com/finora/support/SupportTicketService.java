@@ -98,6 +98,7 @@ public class SupportTicketService {
     private final ClientIdentity clientIdentity;
     private final AuditService auditService;
     private final SupportAdminAlertService adminAlerts;
+    private final SupportSubmissionLimiter submissionLimiter;
 
     public SupportTicketService(SupportTicketRepository ticketRepository,
                                  SupportTicketAttachmentRepository attachmentRepository,
@@ -105,7 +106,9 @@ public class SupportTicketService {
                                  SupportTicketIdGenerator idGenerator,
                                  ClientIdentity clientIdentity,
                                  AuditService auditService,
-                                 SupportAdminAlertService adminAlerts) {
+                                 SupportAdminAlertService adminAlerts,
+                                 SupportSubmissionLimiter submissionLimiter) {
+        this.submissionLimiter = submissionLimiter;
         this.ticketRepository = ticketRepository;
         this.attachmentRepository = attachmentRepository;
         this.noteRepository = noteRepository;
@@ -128,6 +131,9 @@ public class SupportTicketService {
         String trimmedDescription = requireNonBlank(description, "Description");
         SupportAttachmentUpload.Validated validated =
                 (file != null && !file.isEmpty()) ? SupportAttachmentUpload.validate(file) : null;
+        // After validation, so a malformed request still answers 400 and never reads as "limit
+        // reached"; before the ticket number is drawn, so a refused request uses none up.
+        submissionLimiter.requireTicketAllowance(userId);
 
         SupportTicket ticket = new SupportTicket();
         ticket.setTicketNumber(idGenerator.next());

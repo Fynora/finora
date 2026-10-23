@@ -12,10 +12,14 @@ import com.finora.service.EmailResult;
 import com.finora.util.EmailMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -45,6 +49,12 @@ import java.util.UUID;
  * for that. The caller passes the values it already holds instead of an id to re-read, so this
  * touches the database only to look up recipients, and always on its own thread.
  *
+ * <p><b>Capped.</b> Ticket and feedback submission are not rate limited, and each one emails every
+ * admin, so an {@link AlertThrottle} allows {@code app.support-alert.max-per-window} alerts per kind
+ * per {@code app.support-alert.window-minutes} (10 per 10 minutes by default; ordinary traffic never
+ * reaches it). Past the cap the email is held back and logged, and the next one that goes out says
+ * how many were held. The tickets and feedback themselves are never affected.
+ *
  * <p><b>Never throws, never blocks the ticket.</b> A failed send is logged with the address
  * masked and the next recipient still gets theirs. No recipients (permission held by nobody, or the
  * email provider not configured) is logged and is not an error: the ticket or feedback is already
@@ -63,18 +73,31 @@ public class SupportAdminAlertService {
     private final UserRepository userRepository;
     private final EmailProvider emailProvider;
     private final EmailProperties emailProperties;
+    private final AlertThrottle throttle;
 
+    @Autowired
     public SupportAdminAlertService(UserRepository userRepository, EmailProvider emailProvider,
-                                    EmailProperties emailProperties) {
+                                    EmailProperties emailProperties,
+                                    @Value("${app.support-alert.max-per-window:10}") int maxPerWindow,
+                                    @Value("${app.support-alert.window-minutes:10}") int windowMinutes) {
+        this(userRepository, emailProvider, emailProperties,
+                new AlertThrottle(Clock.systemUTC(), maxPerWindow, Duration.ofMinutes(windowMinutes)));
+    }
+
+    SupportAdminAlertService(UserRepository userRepository, EmailProvider emailProvider,
+                             EmailProperties emailProperties, AlertThrottle throttle) {
         this.userRepository = userRepository;
         this.emailProvider = emailProvider;
         this.emailProperties = emailProperties;
+        this.throttle = throttle;
     }
 
     /** A ticket was just saved. {@code ticketId} is what the portal's detail route is keyed on. */
     @Async("supportAlertExecutor")
     public void alertTicketRaised(UUID ticketId, String ticketNumber, SupportTicket.Category category,
                                   ClientPlatform source, Instant raisedAt) {
+        AlertThrottle.Admission admission = admit("ticket");
+        if (!admission.send()) return;
         String html = "<p>A customer raised a support ticket.</p>"
                 + "<ul>"
                 + "<li><strong>Ticket:</strong> " + escape(ticketNumber) + "</li>"
@@ -82,7 +105,8 @@ public class SupportAdminAlertService {
                 + "<li><strong>From:</strong> " + escape(label(source)) + "</li>"
                 + "<li><strong>Raised at:</strong> " + escape(formatTimestamp(raisedAt)) + "</li>"
                 + "</ul>"
-                + "<p><a href=\"" + adminBaseUrl() + "/support-tickets/" + ticketId + "\">Open this ticket</a></p>";
+                + "<p><a href=\"" + adminBaseUrl() + "/support-tickets/" + ticketId + "\">Open this ticket</a></p>"
+                + heldBackNote(admission, "tickets");
         sendToSupportAdmins("New support ticket — " + ticketNumber, html);
     }
 
@@ -90,6 +114,8 @@ public class SupportAdminAlertService {
     @Async("supportAlertExecutor")
     public void alertFeedbackReceived(FeedbackEntry.Type type, FeedbackEntry.Context context,
                                       ClientPlatform source, Instant sentAt) {
+        AlertThrottle.Admission admission = admit("feedback");
+        if (!admission.send()) return;
         String html = "<p>A customer sent feedback.</p>"
                 + "<ul>"
                 + "<li><strong>Type:</strong> " + escape(label(type)) + "</li>"
@@ -97,8 +123,25 @@ public class SupportAdminAlertService {
                 + "<li><strong>From:</strong> " + escape(label(source)) + "</li>"
                 + "<li><strong>Sent at:</strong> " + escape(formatTimestamp(sentAt)) + "</li>"
                 + "</ul>"
-                + "<p><a href=\"" + adminBaseUrl() + "/feedback\">Open the feedback page</a></p>";
+                + "<p><a href=\"" + adminBaseUrl() + "/feedback\">Open the feedback page</a></p>"
+                + heldBackNote(admission, "feedback entries");
         sendToSupportAdmins("New feedback — " + label(type), html);
+    }
+
+    private AlertThrottle.Admission admit(String kind) {
+        AlertThrottle.Admission admission = throttle.admit(kind);
+        if (!admission.send() && admission.firstHeldBackInWindow()) {
+            log.warn("Support alert emails for {} are being held back: more than the per-window cap arrived. "
+                    + "The items are saved and listed in the admin portal.", kind);
+        }
+        return admission;
+    }
+
+    /** The line that tells admins the cap held some back, so a quiet inbox never hides a busy queue. */
+    private static String heldBackNote(AlertThrottle.Admission admission, String what) {
+        if (admission.heldBackBefore() == 0) return "";
+        return "<p>" + admission.heldBackBefore() + " more " + what + " arrived while these emails were paused "
+                + "to avoid flooding your inbox. They are all in the portal.</p>";
     }
 
     private void sendToSupportAdmins(String subject, String html) {

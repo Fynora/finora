@@ -38,6 +38,7 @@ class SupportAdminAlertServiceTest {
 
     private UserRepository userRepository;
     private EmailProvider emailProvider;
+    private MutableClock clock;
     private SupportAdminAlertService service;
 
     @BeforeEach
@@ -47,7 +48,11 @@ class SupportAdminAlertServiceTest {
         EmailProperties emailProperties = mock(EmailProperties.class);
         when(emailProperties.getAdminAppBaseUrl()).thenReturn("https://admin.example.com");
         when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "msg-1"));
-        service = new SupportAdminAlertService(userRepository, emailProvider, emailProperties);
+        clock = new MutableClock(WHEN);
+        // Cap of 3 per 10 minutes: low enough to reach in a test, and the ordinary tests below send
+        // at most two of a kind.
+        service = new SupportAdminAlertService(userRepository, emailProvider, emailProperties,
+                new AlertThrottle(clock, 3, java.time.Duration.ofMinutes(10)));
     }
 
     private static User admin(String email, String status) {
@@ -156,6 +161,42 @@ class SupportAdminAlertServiceTest {
                 ClientPlatform.WEB, WHEN)).doesNotThrowAnyException();
 
         verify(emailProvider, never()).send(any());
+    }
+
+    @Test
+    void aFloodOfTickets_emailsOnlyUpToTheCap_andTheNextWindowSaysHowManyWereHeldBack() {
+        holders(admin("a@example.com", User.STATUS_ACTIVE));
+
+        for (int i = 0; i < 8; i++) {
+            service.alertTicketRaised(UUID.randomUUID(), "SUP-00000" + i, SupportTicket.Category.OTHER,
+                    ClientPlatform.WEB, WHEN);
+        }
+
+        // 3 allowed, 5 held back. Every held-back ticket is still saved; only the email is.
+        assertThat(sent(3)).extracting(EmailMessage::subject)
+                .containsExactly("New support ticket — SUP-000000", "New support ticket — SUP-000001",
+                        "New support ticket — SUP-000002");
+
+        clock.advance(java.time.Duration.ofMinutes(10));
+        service.alertTicketRaised(UUID.randomUUID(), "SUP-000008", SupportTicket.Category.OTHER,
+                ClientPlatform.WEB, WHEN);
+
+        EmailMessage next = sent(4).get(3);
+        assertThat(next.subject()).isEqualTo("New support ticket — SUP-000008");
+        assertThat(next.html()).contains("5 more tickets arrived while these emails were paused");
+    }
+
+    @Test
+    void aTicketFlood_neverSilencesFeedbackAlerts() {
+        holders(admin("a@example.com", User.STATUS_ACTIVE));
+        for (int i = 0; i < 6; i++) {
+            service.alertTicketRaised(UUID.randomUUID(), "SUP-00001" + i, SupportTicket.Category.OTHER,
+                    ClientPlatform.WEB, WHEN);
+        }
+
+        service.alertFeedbackReceived(FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, ClientPlatform.WEB, WHEN);
+
+        assertThat(sent(4)).extracting(EmailMessage::subject).contains("New feedback — Bug");
     }
 
     @Test

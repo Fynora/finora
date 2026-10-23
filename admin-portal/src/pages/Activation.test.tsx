@@ -23,6 +23,10 @@ const STEPS = [
   'READ_NOT_REVIEWED', 'REVIEWED_NOT_CONFIRMED', 'GOT_DATA_IN',
 ] as const;
 
+function zero(some: Partial<Record<(typeof STEPS)[number], number>>): Record<(typeof STEPS)[number], number> {
+  return { ...(Object.fromEntries(STEPS.map((s) => [s, 0])) as Record<(typeof STEPS)[number], number>), ...some };
+}
+
 function report(over: Partial<ActivationReport> = {}): ActivationReport {
   const counts = Object.fromEntries(STEPS.map((s, i) => [s, i + 1])) as Record<(typeof STEPS)[number], number>;
   return {
@@ -36,6 +40,16 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
     focusByStep: [{ step: 'SIGNED_UP', label: 'NONE', count: 2 }],
     trackingByStep: [{ step: 'SIGNED_UP', label: 'PAPER', count: 1 }],
     deletionReasons: [{ month: '2026-10-01', reason: 'NOTHING_USEFUL', count: 2 }],
+    // 23 Oct 2026 20:00 UTC is already 24 Oct in IST.
+    sourceTrackingStart: '2026-10-23T20:00:00Z',
+    bySource: [
+      { kind: 'UTM', utmSource: 'reel', counts: zero({ SIGNED_UP: 2, GOT_DATA_IN: 3 }), secondImport: { users: 2, medianDays: 4.5, cameBackLaterDay: 1 } },
+      { kind: 'GOOGLE', utmSource: null, counts: zero({ CHOSE_FILE: 1 }), secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 } },
+      { kind: 'REFERRAL', utmSource: null, counts: zero({ GOT_DATA_IN: 1 }), secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 } },
+      { kind: 'DIRECT', utmSource: null, counts: zero({}), secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 } },
+      { kind: 'UNKNOWN_BEFORE_TRACKING', utmSource: null, counts: zero({ GOT_DATA_IN: 1 }), secondImport: { users: 1, medianDays: 1, cameBackLaterDay: 1 } },
+    ],
+    secondImport: { users: 3, medianDays: 2, cameBackLaterDay: 2 },
     ...over,
   };
 }
@@ -151,6 +165,61 @@ describe('Activation', () => {
     expect(screen.getByText(/Notebook or paper: 1/)).toBeInTheDocument();
     expect(screen.getByText(/No answer: 2/)).toBeInTheDocument();
     expect(screen.queryByText(/NONE/)).not.toBeInTheDocument();
+  });
+
+  it('shows one row per source with steps in order and the second import', async () => {
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Funnel by signup source' });
+    const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual([
+      'Source', 'Signed up', 'Opened import', 'Chose a file', 'Refused', 'Read failed', 'Held',
+      'Read, not reviewed', 'Reviewed, not confirmed', 'Got data in', 'Second import', 'Median days to second',
+      'Came back another day',
+    ]);
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
+    expect(rows.map((r) => r[0])).toEqual([
+      'utm_source: reel', 'Google', "Friend's referral code", 'Direct (incl. mobile app)', 'Unknown (before tracking)',
+    ]);
+    expect(rows[0]).toEqual(['utm_source: reel', '2', '0', '0', '0', '0', '0', '0', '0', '3', '2', '4.5 days', '1']);
+    expect(rows[1].slice(-3)).toEqual(['0', '—', '0']);
+    expect(rows[4].slice(-3)).toEqual(['1', '1.0 day', '1']);
+    expect(within(table).queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('shows the second import beside the totals', async () => {
+    renderPage();
+
+    const totals = await screen.findByLabelText('Totals');
+    // weeks: counts 1..9 → 45 signups, 9 got data in.
+    expect(within(totals).getByText('Signups counted').nextSibling).toHaveTextContent('45');
+    expect(within(totals).getByText('Got data in').nextSibling).toHaveTextContent('9');
+    expect(within(totals).getByText('Second import').nextSibling).toHaveTextContent('3');
+    expect(within(totals).getByText('Median days, first to second import').nextSibling).toHaveTextContent('2.0 days');
+    expect(within(totals).getByText('Came back another day').nextSibling).toHaveTextContent('2');
+  });
+
+  it('dates the start of source tracking in IST and says what unknown means', async () => {
+    renderPage();
+
+    expect(await screen.findByText(
+      'Signup sources are recorded from 24 Oct 2026; earlier signups with nothing recorded show as unknown, not direct.',
+    )).toBeInTheDocument();
+  });
+
+  it('says when the start of source tracking is not known', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ sourceTrackingStart: null }));
+    renderPage();
+
+    expect(await screen.findByText(/When signup sources began to be recorded is not known/)).toBeInTheDocument();
+  });
+
+  it('shows a dash for the median when nobody has a second import', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 } }));
+    renderPage();
+
+    const totals = await screen.findByLabelText('Totals');
+    expect(within(totals).getByText('Median days, first to second import').nextSibling).toHaveTextContent('—');
   });
 
   it('says so when the report cannot load', async () => {

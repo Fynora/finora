@@ -41,12 +41,22 @@ public class AdminStatsService {
         this.signupAttributionRepository = signupAttributionRepository;
     }
 
-    /** V286: sign-ups by source, excluding the bootstrap account the same way overview() does
-     *  (internal and ADMIN-scope accounts are left out in the query itself). */
+    /**
+     * V286: sign-ups by source, excluding the bootstrap account the same way overview() does
+     * (internal, ADMIN-scope and deleted accounts are left out in the query itself). A tag that
+     * looks like contact details is shown withheld, as on the activation page, and the withheld
+     * lines are added together; the list stays largest first.
+     */
     @Transactional(readOnly = true)
     public java.util.List<SignupSourceCountDto> signupSources() {
-        return signupAttributionRepository.countBySource(BootstrapService.BOOTSTRAP_IDENTIFIER).stream()
-                .map(row -> new SignupSourceCountDto(row.getSource(), row.getUsers()))
+        java.util.Map<String, Long> merged = new java.util.LinkedHashMap<>();
+        for (var row : signupAttributionRepository.countBySource(BootstrapService.BOOTSTRAP_IDENTIFIER)) {
+            merged.merge(com.finora.activation.SignupSources.displayableUtm(row.getSource()), row.getUsers(), Long::sum);
+        }
+        return merged.entrySet().stream()
+                .map(e -> new SignupSourceCountDto(e.getKey(), e.getValue()))
+                .sorted(java.util.Comparator.comparingLong(SignupSourceCountDto::users).reversed()
+                        .thenComparing(SignupSourceCountDto::source))
                 .toList();
     }
 

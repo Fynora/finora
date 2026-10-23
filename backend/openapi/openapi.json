@@ -33536,6 +33536,68 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationDeletionReasonCount"
                         }
+                    },
+                    "sourceTrackingStart": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "bySource": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationSourceRow"
+                        }
+                    },
+                    "secondImport": {
+                        "$ref": "#/components/schemas/ActivationSecondImport"
+                    }
+                }
+            },
+            "ActivationSecondImport": {
+                "type": "object",
+                "properties": {
+                    "users": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "medianDays": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "cameBackLaterDay": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationSourceRow": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "UTM",
+                            "GOOGLE",
+                            "BING",
+                            "OTHER_SEARCH",
+                            "SOCIAL",
+                            "OTHER_SITE",
+                            "REFERRAL",
+                            "DIRECT",
+                            "UNKNOWN_BEFORE_TRACKING"
+                        ]
+                    },
+                    "utmSource": {
+                        "type": "string"
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    "secondImport": {
+                        "$ref": "#/components/schemas/ActivationSecondImport"
                     }
                 }
             },

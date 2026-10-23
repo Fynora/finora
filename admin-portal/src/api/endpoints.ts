@@ -759,6 +759,13 @@ export type FunnelStep = NonNullable<GeneratedSchemas['ActivationStepAnswerCount
 export type ActivationMomentName = NonNullable<GeneratedSchemas['ActivationAnswerCount']['moment']>;
 export type ActivationAnswerName = NonNullable<GeneratedSchemas['ActivationAnswerCount']['answer']>;
 export type DeletionReasonName = NonNullable<GeneratedSchemas['ActivationDeletionReasonCount']['reason']>;
+export type SignupSourceKind = NonNullable<GeneratedSchemas['ActivationSourceRow']['kind']>;
+/**
+ * People who imported a second, different statement file that brought transactions in (the sections
+ * of one statement and a re-import of the same file are one file), the median days from the first
+ * file to the second, and how many of them sent a file on a later day (IST) than their first.
+ */
+export interface ActivationSecondImport { users: number; medianDays: number | null; cameBackLaterDay: number }
 export interface ActivationReport {
   /** The earliest import-funnel date (YYYY-MM-DD), or null before the record has any rows. */
   funnelGoLive: string | null;
@@ -768,6 +775,11 @@ export interface ActivationReport {
   focusByStep: { step: FunnelStep; label: string; count: number }[];
   trackingByStep: { step: FunnelStep; label: string; count: number }[];
   deletionReasons: { month: string; reason: DeletionReasonName; count: number }[];
+  /** When sign-up sources began to be recorded (an ISO instant), or null when not known. */
+  sourceTrackingStart: string | null;
+  /** UTM rows first (utmSource set), then every fixed bucket, zeros included. Not range-bound. */
+  bySource: { kind: SignupSourceKind; utmSource: string | null; counts: Record<FunnelStep, number>; secondImport: ActivationSecondImport }[];
+  secondImport: ActivationSecondImport;
 }
 
 export const adminActivationApi = {

@@ -51,7 +51,8 @@ export interface PlatformStatsDto {
 }
 
 /** One line of the Dashboard's "sign-ups by source" list (AdminStatsController /signup-sources):
- *  the landing link's utm_source, else the referring host, else "referral" or "direct". */
+ *  the landing link's utm_source, else the referring host, else "referral", else "direct" (made
+ *  after sources were recorded) or "unknown (before tracking)". */
 export interface SignupSourceCountDto {
   source: string;
   users: number;

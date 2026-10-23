@@ -217,6 +217,23 @@ A new page under Analytics, gated by `PLATFORM_ANALYTICS_VIEW`. Counts only.
 3. **Answers next to steps.** For each furthest step, how those users answered, and their onboarding
    focus and spending-tracking answers (including "no answer").
 4. **Deletion reasons.** A count per reason per month.
+5. **Funnel by signup source** *(added 2026-10-24, after sign-up attribution, V286)*.
+   - Rows: one per `utm_source` value, then Google, Bing, other search engines, social sites, other
+     sites, friend's referral code, direct, and "unknown (before tracking)". Rules in
+     `SignupSources.java`: a `utm_source` wins over the referrer, the referrer over a referral;
+     with none of them, an account made before V286 was applied is unknown, not direct.
+   - Columns: the nine furthest steps, then the second-import count, median days and "came back
+     another day".
+   - A `utm_source` value that looks like an email or phone number is shown withheld. The
+     Dashboard's "Sign-ups by source" list follows the same unknown, deletion and withholding rules.
+6. **Second import.** Beside the totals: people who imported a second, different statement file
+   that brought in at least one transaction, the median days from the first file to the second,
+   and how many sent a file on a later IST day than their first. Files, not rows: one composite
+   statement writes a row per account section and a re-import writes another row for the same
+   file (same `content_hash`). A separate measure, not a tenth step: the steps are the way to a
+   *first* statement.
+
+Only the answers follow the date range; every other count covers all signups.
 
 **Rules:**
 - Excludes ADMIN-scope accounts.

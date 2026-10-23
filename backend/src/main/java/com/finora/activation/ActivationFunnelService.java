@@ -7,8 +7,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Date;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -25,12 +31,25 @@ import java.util.UUID;
  * <p>Counted: USER-scope accounts that are not marked internal and are not pending deletion or
  * deleted. Deletion reasons are kept with no link to anyone (V278), so they cannot be filtered that
  * way and are counted as stored.
+ *
+ * <p>The answers are the only part the date range bounds. The funnel by week, by source, the focus
+ * and tracking splits and the second-import measure count every counted user, whenever they signed
+ * up -- the same rule for all of them.
  */
 @Service
 public class ActivationFunnelService {
 
     static final int DEFAULT_RANGE_DAYS = 90;
     static final String NO_ANSWER = "NONE";
+
+    /**
+     * When V286 (signup_attributions) was applied to this database: the first moment a sign-up
+     * source could be stored. Compared inside Postgres so that Flyway's zone-less
+     * {@code installed_on} becomes an instant under the same session zone that wrote it. FACTS_SQL
+     * carries the same subquery inline (a text block cannot be concatenated into).
+     */
+    static final String TRACKING_START_SQL =
+            "SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h WHERE h.version = '286' AND h.success";
 
     /** One row per counted user, each fact an EXISTS over the table that records it (spec §3). */
     private static final String FACTS_SQL = """
@@ -48,11 +67,36 @@ public class ActivationFunnelService {
                    (EXISTS (SELECT 1 FROM statement_analysis_sessions s WHERE s.user_id = u.id AND s.outcome = 'PARSED')
                     OR EXISTS (SELECT 1 FROM import_jobs j WHERE j.user_id = u.id AND j.status = 'COMPLETED')) AS was_read,
                    EXISTS (SELECT 1 FROM import_funnel_days f WHERE f.user_id = u.id AND f.event = 'REVIEW_OPENED') AS review_opened,
-                   EXISTS (SELECT 1 FROM statement_imports i WHERE i.user_id = u.id) AS imported
+                   EXISTS (SELECT 1 FROM statement_imports i WHERE i.user_id = u.id) AS imported,
+                   (a.user_id IS NOT NULL) AS has_attribution,
+                   EXISTS (SELECT 1 FROM referrals r WHERE r.referred_user_id = u.id) AS referred,
+                   a.utm_source,
+                   a.referrer_host,
+                   -- No V286 row means the start is not known: everyone counts as before it, so nobody
+                   -- is called "direct" whom nothing was recording.
+                   COALESCE(u.created_at < (SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h
+                                             WHERE h.version = '286' AND h.success), true) AS before_tracking
               FROM users u
+              LEFT JOIN signup_attributions a ON a.user_id = u.id
              WHERE u.account_scope = 'USER'
                AND u.internal_account = false
                AND u.status NOT IN ('PENDING_DELETION', 'DELETED')
+            """;
+
+    /**
+     * Each distinct statement file a user imported that brought in at least one transaction, with
+     * when it was first imported. Grouped by the file, not by row: one composite statement writes a
+     * row per account section (ImportService.confirmMultiSection) and a re-import writes another
+     * row for the same file (confirmReimport), and neither is a person coming back. The file is
+     * {@code content_hash} (hex SHA-256 of the upload); a row from before that column was filled is
+     * hashed the same way from its inline bytes, and a row with neither stands alone. Deleted rows
+     * count, as they do for GOT_DATA_IN.
+     */
+    private static final String IMPORTED_FILES_SQL = """
+            SELECT i.user_id, min(i.imported_at) AS first_at
+              FROM statement_imports i
+             WHERE i.transactions_imported >= 1
+             GROUP BY i.user_id, COALESCE(i.content_hash, encode(sha256(i.file_content), 'hex'), i.id::text)
             """;
 
     private final JdbcTemplate jdbc;
@@ -63,7 +107,12 @@ public class ActivationFunnelService {
         this.reportingDay = reportingDay;
     }
 
-    private record Counted(FunnelStep step, LocalDate weekStart, String tracking) {}
+    /**
+     * {@code daysToSecondImport} is null for someone without a second file. {@code cameBackLaterDay}:
+     * a file first imported on a later reporting day than their first file.
+     */
+    record Counted(FunnelStep step, LocalDate weekStart, String tracking, SignupSources.Source source,
+                   Double daysToSecondImport, boolean cameBackLaterDay) {}
 
     /**
      * @param from first answer date counted, inclusive; null means {@code to} minus 90 days
@@ -77,14 +126,27 @@ public class ActivationFunnelService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "The start of the range is after its end.");
         }
 
+        Map<UUID, List<OffsetDateTime>> files = new HashMap<>();
+        jdbc.query(IMPORTED_FILES_SQL, rs -> {
+            files.computeIfAbsent(rs.getObject("user_id", UUID.class), u -> new ArrayList<>())
+                    .add(rs.getObject("first_at", OffsetDateTime.class));
+        });
+        ZoneId zone = reportingDay.zone();
+
         Map<UUID, Counted> users = new HashMap<>();
         jdbc.query(FACTS_SQL, rs -> {
             FunnelStep step = FunnelSteps.furthest(new FunnelSteps.UserFacts(
                     rs.getBoolean("opened_import"), rs.getBoolean("chose_file"), rs.getBoolean("refused"),
                     rs.getBoolean("read_failed"), rs.getBoolean("held"), rs.getBoolean("was_read"),
                     rs.getBoolean("review_opened"), rs.getBoolean("imported")));
-            users.put(rs.getObject("id", UUID.class),
-                    new Counted(step, rs.getObject("week_start", LocalDate.class), rs.getString("spending_tracking_method")));
+            SignupSources.Source source = SignupSources.classify(rs.getBoolean("has_attribution"),
+                    rs.getString("utm_source"), rs.getString("referrer_host"), rs.getBoolean("referred"),
+                    rs.getBoolean("before_tracking"));
+            UUID id = rs.getObject("id", UUID.class);
+            List<OffsetDateTime> imported = files.getOrDefault(id, List.of());
+            users.put(id, new Counted(step, rs.getObject("week_start", LocalDate.class),
+                    rs.getString("spending_tracking_method"), source,
+                    daysToSecond(imported), cameBackLaterDay(imported, zone)));
         }, reportingDay.zone().getId());
 
         return new ActivationReportDto(
@@ -94,7 +156,88 @@ public class ActivationFunnelService {
                 answersByStep(users, start, end),
                 focusByStep(users),
                 trackingByStep(users),
-                deletionReasons());
+                deletionReasons(),
+                trackingStart(),
+                bySource(users),
+                secondImport(users.values()));
+    }
+
+    /** Days from the first distinct file to the second, or null with fewer than two. */
+    static Double daysToSecond(List<OffsetDateTime> fileTimes) {
+        if (fileTimes.size() < 2) return null;
+        List<OffsetDateTime> sorted = new ArrayList<>(fileTimes);
+        sorted.sort(null);
+        return Duration.between(sorted.get(0), sorted.get(1)).toMillis() / (double) Duration.ofDays(1).toMillis();
+    }
+
+    /**
+     * Whether any file was first imported on a later day, in the reporting zone, than the first
+     * file. Two different statements sent in one sitting are a second import but not a return.
+     */
+    static boolean cameBackLaterDay(List<OffsetDateTime> fileTimes, ZoneId zone) {
+        if (fileTimes.size() < 2) return false;
+        LocalDate firstDay = null;
+        LocalDate lastDay = null;
+        for (OffsetDateTime t : fileTimes) {
+            LocalDate day = t.atZoneSameInstant(zone).toLocalDate();
+            if (firstDay == null || day.isBefore(firstDay)) firstDay = day;
+            if (lastDay == null || day.isAfter(lastDay)) lastDay = day;
+        }
+        return lastDay.isAfter(firstDay);
+    }
+
+    private Instant trackingStart() {
+        OffsetDateTime start = jdbc.queryForObject(TRACKING_START_SQL, OffsetDateTime.class);
+        return start == null ? null : start.toInstant();
+    }
+
+    /**
+     * One row per bucket: a row for each UTM value seen, in alphabetical order, then every fixed
+     * bucket in {@link SignupSourceKind} order, zeros included -- a bucket nobody came from is a
+     * finding, not a gap.
+     */
+    static List<ActivationReportDto.SourceRow> bySource(Map<UUID, Counted> users) {
+        Map<SignupSources.Source, List<Counted>> bySource = new HashMap<>();
+        for (Counted c : users.values()) {
+            bySource.computeIfAbsent(c.source(), s -> new ArrayList<>()).add(c);
+        }
+        TreeMap<String, List<Counted>> utm = new TreeMap<>();
+        bySource.forEach((source, people) -> {
+            if (source.kind() == SignupSourceKind.UTM) utm.put(source.utmSource(), people);
+        });
+        List<ActivationReportDto.SourceRow> rows = new ArrayList<>();
+        utm.forEach((value, people) -> rows.add(sourceRow(SignupSourceKind.UTM, value, people)));
+        for (SignupSourceKind kind : SignupSourceKind.values()) {
+            if (kind == SignupSourceKind.UTM) continue;
+            rows.add(sourceRow(kind, null, bySource.getOrDefault(new SignupSources.Source(kind, null), List.of())));
+        }
+        return rows;
+    }
+
+    private static ActivationReportDto.SourceRow sourceRow(SignupSourceKind kind, String utmSource, List<Counted> people) {
+        Map<FunnelStep, Long> counts = zeroSteps();
+        for (Counted c : people) counts.merge(c.step(), 1L, Long::sum);
+        return new ActivationReportDto.SourceRow(kind, utmSource, counts, secondImport(people));
+    }
+
+    static ActivationReportDto.SecondImport secondImport(Collection<Counted> people) {
+        List<Double> days = new ArrayList<>();
+        long laterDay = 0;
+        for (Counted c : people) {
+            if (c.daysToSecondImport() != null) days.add(c.daysToSecondImport());
+            if (c.cameBackLaterDay()) laterDay++;
+        }
+        return new ActivationReportDto.SecondImport(days.size(), median(days), laterDay);
+    }
+
+    /** The median, to one decimal; the mean of the middle two for an even count; null for none. */
+    static Double median(List<Double> values) {
+        if (values.isEmpty()) return null;
+        List<Double> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        int n = sorted.size();
+        double mid = n % 2 == 1 ? sorted.get(n / 2) : (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2;
+        return Math.round(mid * 10) / 10.0;
     }
 
     private static List<ActivationReportDto.WeekRow> weeks(Map<UUID, Counted> users) {

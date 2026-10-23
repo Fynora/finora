@@ -1,18 +1,32 @@
 import { render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { insightsApi, peopleApi, recurringApi } from '../api/endpoints';
+import { aiInsightsApi, insightsApi, peopleApi, recurringApi, type LookAtServerRow } from '../api/endpoints';
 import { useInsightsLookAtCount } from './useInsightsLookAtCount';
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn(), acknowledgements: jest.fn() },
   recurringApi: { list: jest.fn(), changedAmounts: jest.fn() },
   peopleApi: { suggestions: jest.fn() },
+  aiInsightsApi: { lookAt: jest.fn() },
 }));
 
 const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 const people = peopleApi as jest.Mocked<typeof peopleApi>;
+const ai = aiInsightsApi as jest.Mocked<typeof aiInsightsApi>;
+
+function serverRow(fields: Partial<LookAtServerRow> & Pick<LookAtServerRow, 'kind' | 'key'>): LookAtServerRow {
+  return {
+    ackKind: null, ackItemKey: null, month: null, total: null, count: null, cardName: null, cardLast4: null,
+    people: null, recurring: null, merchant: null, category: null, latestAmount: null, latestDate: null,
+    current: null, priorAverage: null, whyAvailable: null, ...fields,
+  };
+}
+const travel = serverRow({
+  kind: 'running-high', key: 'CATEGORY_HIGH|Travel|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Travel|2026-09',
+  month: '2026-09', category: 'Travel', current: 12000, priorAverage: 7000, whyAvailable: true,
+});
 
 function Probe() {
   return <Text testID="count">{String(useInsightsLookAtCount())}</Text>;
@@ -33,6 +47,8 @@ beforeEach(() => {
   recurring.list.mockReset().mockResolvedValue([]);
   recurring.changedAmounts.mockReset().mockResolvedValue([]);
   people.suggestions.mockReset().mockResolvedValue({ items: [], expected: [] });
+  // An older server: the count is the phone's own, as before.
+  ai.lookAt.mockReset().mockRejectedValue(Object.assign(new Error('Not Found'), { response: { status: 404 } }));
 });
 
 describe('useInsightsLookAtCount', () => {
@@ -66,6 +82,22 @@ describe('useInsightsLookAtCount', () => {
     show();
     await waitFor(() => expect(insights.acknowledgements).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('0'));
+  });
+
+  it('counts the server\'s rows, the ones Insights shows, when the server gives them', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
+    show();
+    await waitFor(() => expect(ai.lookAt).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('1'));
+  });
+
+  it('counts the server\'s rows less one marked "Got it" since, and even when insights fail', async () => {
+    insights.get.mockRejectedValue(new Error('down'));
+    ai.lookAt.mockResolvedValue({ rows: [travel, { ...travel, key: 'CATEGORY_HIGH|Rent|2026-09', category: 'Rent', ackItemKey: 'Rent|2026-09' }], orderedByAi: false });
+    insights.acknowledgements.mockResolvedValue([{ kind: 'CATEGORY_HIGH', itemKey: 'Rent|2026-09' }]);
+    show();
+    await waitFor(() => expect(insights.acknowledgements).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('count').props.children).toBe('1'));
   });
 
   it('is 0 while loading and when insights fail', async () => {

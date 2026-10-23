@@ -16,11 +16,16 @@ public final class AiInsightDtos {
     public static final String MONTH_PATTERN = "^\\d{4}-\\d{2}$";
 
     /** {@code status}: ready | none | generating. On "none", keep today's month line. {@code
-     *  canGenerate}: POST /story is worth calling. {@code basis}: what the text compares against. */
-    public record StoryDto(String status, UUID id, String text, boolean writtenByAi, String basis, boolean canGenerate) {}
+     *  canGenerate}: POST /story is worth calling. {@code basis}: what the text compares against.
+     *  {@code rating}, {@code ratingReason}: the thumb this user saved on the text (HELPFUL |
+     *  NOT_HELPFUL, and a reason only with NOT_HELPFUL); null when none is saved and on rules text. */
+    public record StoryDto(String status, UUID id, String text, boolean writtenByAi, String basis, boolean canGenerate,
+                           String rating, String ratingReason) {}
 
-    /** {@code freeLeftThisMonth}: "Why?" answers a Free user has left this month; null on Plus and Premium. */
-    public record WhyDto(String status, UUID id, String text, boolean writtenByAi, String basis, Integer freeLeftThisMonth) {}
+    /** {@code freeLeftThisMonth}: "Why?" answers a Free user has left this month; null on Plus and Premium.
+     *  {@code rating}, {@code ratingReason}: as on StoryDto. */
+    public record WhyDto(String status, UUID id, String text, boolean writtenByAi, String basis, Integer freeLeftThisMonth,
+                         String rating, String ratingReason) {}
 
     /** "To look at" rows in the order to show them; {@code orderedByAi} when that is the AI's order. */
     public record LookAtDto(List<LookAtRowDto> rows, boolean orderedByAi) {}

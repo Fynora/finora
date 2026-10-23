@@ -126,6 +126,9 @@ export const FINANCIAL_QUERY_KEYS = [
   // and a bill's shares. Every share, loan entry or rule moves both the figures and these, and
   // another device's answer arrives through the transactions section of the change stamp.
   'people',
+  // AI insights: the month story and the "To look at" rows are built from the same history and
+  // answers, so a write anywhere moves them (a new statement, an answered repeating payment).
+  'ai-insights',
 ] as const;
 
 /** Refreshes the financial queries and nothing else. */

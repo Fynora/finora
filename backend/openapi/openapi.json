@@ -18842,6 +18842,12 @@
                     },
                     "canGenerate": {
                         "type": "boolean"
+                    },
+                    "rating": {
+                        "type": "string"
+                    },
+                    "ratingReason": {
+                        "type": "string"
                     }
                 }
             },
@@ -18917,6 +18923,12 @@
                     "freeLeftThisMonth": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "rating": {
+                        "type": "string"
+                    },
+                    "ratingReason": {
+                        "type": "string"
                     }
                 }
             },

@@ -412,6 +412,33 @@ class AiInsightServiceTest {
     }
 
     @Test
+    void aSavedRatingComesBackWithTheText() {
+        AiInsightService.TextView made = service.generateStory(userId, null);
+        assertThat(made.rating()).isNull();
+        assertThat(made.ratingReason()).isNull();
+        service.feedback(userId, made.id(), "NOT_HELPFUL", "CONFUSING");
+
+        AiInsightService.TextView read = service.getStory(userId, null);
+        assertThat(read.rating()).isEqualTo("NOT_HELPFUL");
+        assertThat(read.ratingReason()).isEqualTo("CONFUSING");
+
+        AiInsightService.TextView why = service.why(userId, "CATEGORY_HIGH|Food|2026-09", null);
+        service.feedback(userId, why.id(), "HELPFUL", null);
+        AiInsightService.TextView reopened = service.why(userId, "CATEGORY_HIGH|Food|2026-09", null);
+        assertThat(reopened.rating()).isEqualTo("HELPFUL");
+        assertThat(reopened.ratingReason()).isNull();
+    }
+
+    @Test
+    void rulesTextCarriesNoRating() {
+        user.setInternalAccount(false);
+        AiInsightService.TextView rules = service.why(userId, "CATEGORY_HIGH|Food|2026-09", null);
+        assertThat(rules.writtenByAi()).isFalse();
+        assertThat(rules.rating()).isNull();
+        assertThat(rules.ratingReason()).isNull();
+    }
+
+    @Test
     void feedbackOnAnotherUsersTextIs404() {
         AiInsightService.TextView made = service.generateStory(userId, null);
         assertThatThrownBy(() -> service.feedback(UUID.randomUUID(), made.id(), "HELPFUL", null))

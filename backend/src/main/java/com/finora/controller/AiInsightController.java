@@ -58,7 +58,7 @@ public class AiInsightController {
         AiInsightService.TextView v = aiInsightService.why(currentUser.id(), request.kind() + "|" + request.itemKey(),
                 request.month());
         return ApiResponse.ok(new AiInsightDtos.WhyDto(v.status(), v.id(), v.text(), v.writtenByAi(), v.basis(),
-                v.freeLeftThisMonth()));
+                v.freeLeftThisMonth(), v.rating(), v.ratingReason()));
     }
 
     @PatchMapping("/ai-texts/{id}/feedback")
@@ -68,7 +68,8 @@ public class AiInsightController {
     }
 
     private static AiInsightDtos.StoryDto story(AiInsightService.TextView v) {
-        return new AiInsightDtos.StoryDto(v.status(), v.id(), v.text(), v.writtenByAi(), v.basis(), v.canGenerate());
+        return new AiInsightDtos.StoryDto(v.status(), v.id(), v.text(), v.writtenByAi(), v.basis(), v.canGenerate(),
+                v.rating(), v.ratingReason());
     }
 
     static String validMonth(String month) {

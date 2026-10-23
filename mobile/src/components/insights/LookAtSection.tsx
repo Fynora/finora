@@ -1,10 +1,13 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, SectionHeading } from '../Card';
 import { RecurringQuestion } from '../RecurringQuestion';
+import { SkeletonGroup, SkeletonLines } from '../skeletons/Skeletons';
+import { AiText } from './AiText';
 import { PeopleLookAtRow } from './PeopleLookAtRow';
 import { fmtCurrency, monthLabelLong } from '../../lib/format';
-import type { PeopleSuggestion } from '../../api/endpoints';
+import { aiInsightsApi, type AiWhy, type PeopleSuggestion } from '../../api/endpoints';
 import type { LookAtRow } from '../../lib/insightsFeed';
 import { radius, spacing, typography, useTheme } from '../../theme';
 
@@ -21,7 +24,24 @@ interface Props {
   onPickBill: (item: PeopleSuggestion) => void;
   onAsk: (item: PeopleSuggestion) => void;
   onOpenPayment: (item: PeopleSuggestion) => void;
+  /** The month the rows were asked for (undefined = the newest). "Why?" names the same one, so the
+   *  server finds the row on exactly the list it gave. */
+  requestMonth?: string;
+  /** Free's "Why?" allowance is used up: open the plans. */
+  onSeePlus: () => void;
+  /** An AI-written answer is now on screen. */
+  onAiText?: () => void;
 }
+
+type RunningHigh = Extract<LookAtRow, { kind: 'running-high' }>;
+type WhyState = { status: 'loading' } | { status: 'failed' } | { status: 'done'; answer: AiWhy };
+
+/** The line an exhausted Free allowance shows (AI insights spec §6), the only message about limits. */
+const FREE_USED_UP = "You've used this month's 5 AI explanations. Plus explains every row.";
+const NO_ANSWER: AiWhy = {
+  status: 'none', id: null, text: null, writtenByAi: false, basis: null, freeLeftThisMonth: null, rating: null,
+  ratingReason: null,
+};
 
 function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string {
   if (!row.cardName) return 'a credit card';
@@ -36,10 +56,138 @@ function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string
  * buttons nested in it from screen readers.
  */
 export function LookAtSection({
-  rows, monthLong, onOpenRow, onAck, onUpload, today, paidBackKindId, onPickBill, onAsk, onOpenPayment,
+  rows, monthLong, onOpenRow, onAck, onUpload, today, paidBackKindId, onPickBill, onAsk, onOpenPayment, requestMonth,
+  onSeePlus, onAiText,
 }: Props) {
   const c = useTheme();
   const divider = { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border };
+  // "Why?" answers by row key, kept while the screen is open so reopening one asks nothing.
+  const [whys, setWhys] = useState<Record<string, WhyState>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  // What is open right now, for an answer that lands after a tap closed it again.
+  const openNow = useRef<Record<string, boolean>>({});
+  // Rows with a request in flight: a second tap before the answer lands never sends another.
+  const asking = useRef(new Set<string>());
+
+  function setOpenFor(key: string, value: boolean) {
+    openNow.current = { ...openNow.current, [key]: value };
+    setOpen((o) => ({ ...o, [key]: value }));
+  }
+
+  /** An answer is now on screen: read it out, and tell the screen when the AI wrote it. */
+  function shown(answer: AiWhy) {
+    if (answer.status !== 'ready' || !answer.text) return;
+    AccessibilityInfo.announceForAccessibility(answer.text);
+    if (answer.writtenByAi) onAiText?.();
+  }
+
+  function ask(row: RunningHigh, key: string) {
+    if (asking.current.has(key)) return;
+    asking.current.add(key);
+    setWhys((w) => ({ ...w, [key]: { status: 'loading' } }));
+    aiInsightsApi.why(row.ackKind, row.ackItemKey, requestMonth)
+      .then((answer) => {
+        setWhys((w) => ({ ...w, [key]: { status: 'done', answer } }));
+        if (openNow.current[key]) shown(answer);
+      })
+      .catch((err: unknown) => {
+        // 404: the row is no longer on the server's list (an import since, or another device's
+        // "Got it") -- nothing to explain, and trying again would not change that.
+        const gone = (err as { response?: { status?: number } } | null)?.response?.status === 404;
+        setWhys((w) => ({ ...w, [key]: gone ? { status: 'done', answer: NO_ANSWER } : { status: 'failed' } }));
+      })
+      .finally(() => asking.current.delete(key));
+  }
+
+  function toggleWhy(row: RunningHigh, key: string) {
+    if (open[key]) {
+      setOpenFor(key, false);
+      return;
+    }
+    setOpenFor(key, true);
+    const state = whys[key];
+    if (!state || state.status === 'failed') ask(row, key);
+    else if (state.status === 'done') shown(state.answer);
+  }
+
+  function retry(row: RunningHigh, key: string) {
+    return (
+      <Pressable
+        onPress={() => ask(row, key)}
+        accessibilityRole="button"
+        accessibilityLabel="Try again"
+        style={[styles.chip, styles.retry, { borderColor: c.border }]}
+      >
+        <Text style={[typography.labelS, { color: c.ink }]}>Try again</Text>
+      </Pressable>
+    );
+  }
+
+  function whyAnswer(row: RunningHigh, key: string) {
+    const state = whys[key];
+    if (!state || state.status === 'loading') {
+      return (
+        <SkeletonGroup testID="why-loading">
+          <SkeletonLines count={2} size="body" />
+        </SkeletonGroup>
+      );
+    }
+    if (state.status === 'failed') {
+      return (
+        <View>
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>Couldn't load the explanation.</Text>
+          {retry(row, key)}
+        </View>
+      );
+    }
+    const { answer } = state;
+    if (answer.status === 'generating') {
+      return (
+        <View>
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>This is still being written. Try again in a moment.</Text>
+          {retry(row, key)}
+        </View>
+      );
+    }
+    if (answer.status !== 'ready' || !answer.text) {
+      return <Text style={[typography.bodyS, { color: c.mutedInk }]}>There is no explanation for this yet.</Text>;
+    }
+    const usedUp = answer.freeLeftThisMonth === 0 && !answer.writtenByAi;
+    return (
+      <View style={styles.answer}>
+        <AiText
+          key={answer.id ?? 'rules'}
+          id={answer.id}
+          text={answer.text}
+          writtenByAi={answer.writtenByAi}
+          basis={answer.basis}
+          freeLeft={answer.freeLeftThisMonth}
+          rating={answer.rating}
+          ratingReason={answer.ratingReason}
+          // Closing and reopening the answer draws it again from this copy, so it keeps the thumb too.
+          onFeedback={(rating, ratingReason) => setWhys((w) => {
+            const now = w[key];
+            return now?.status === 'done' && now.answer.id === answer.id
+              ? { ...w, [key]: { status: 'done', answer: { ...now.answer, rating, ratingReason } } }
+              : w;
+          })}
+        />
+        {usedUp ? (
+          <>
+            <Text style={[typography.bodyS, { color: c.mutedInk }]}>{FREE_USED_UP}</Text>
+            <Pressable
+              onPress={onSeePlus}
+              accessibilityRole="button"
+              accessibilityLabel="See Plus"
+              style={[styles.chip, styles.retry, { backgroundColor: c.primary, borderColor: c.primary }]}
+            >
+              <Text style={[typography.labelS, { color: c.onPrimary }]}>See Plus</Text>
+            </Pressable>
+          </>
+        ) : null}
+      </View>
+    );
+  }
 
   function gotIt(row: LookAtRow, name: string) {
     return (
@@ -50,6 +198,26 @@ export function LookAtSection({
         style={[styles.chip, { borderColor: c.border }]}
       >
         <Text style={[typography.labelS, { color: c.ink }]}>Got it</Text>
+      </Pressable>
+    );
+  }
+
+  function whyKey(row: RunningHigh): string {
+    return `${row.ackKind}|${row.ackItemKey}`;
+  }
+
+  function whyChip(row: RunningHigh) {
+    const key = whyKey(row);
+    const isOpen = open[key] === true;
+    return (
+      <Pressable
+        onPress={() => toggleWhy(row, key)}
+        accessibilityRole="button"
+        accessibilityLabel={isOpen ? `Hide why ${row.category} is above your usual month` : `Why is ${row.category} above your usual month?`}
+        accessibilityState={{ expanded: isOpen }}
+        style={[styles.chip, { borderColor: c.border }]}
+      >
+        <Text style={[typography.labelS, { color: c.primary }]}>{isOpen ? 'Hide why' : 'Why?'}</Text>
       </Pressable>
     );
   }
@@ -157,8 +325,10 @@ export function LookAtSection({
               <Ionicons name="chevron-forward" size={16} color={c.mutedInk} />
             </Pressable>
             <View style={styles.actions}>
+              {row.whyAvailable ? whyChip(row) : null}
               {gotIt(row, row.category)}
             </View>
+            {row.whyAvailable && open[whyKey(row)] ? <View style={styles.whyBody}>{whyAnswer(row, whyKey(row))}</View> : null}
           </View>
         );
       }
@@ -194,4 +364,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   empty: { paddingVertical: spacing.sm },
+  whyBody: { paddingLeft: 28 + spacing.sm, paddingTop: spacing.xs },
+  answer: { gap: spacing.xs },
+  retry: { alignSelf: 'flex-start', marginTop: spacing.xs },
 });

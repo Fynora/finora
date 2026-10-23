@@ -288,6 +288,41 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * An account deletion the purge sweep cannot complete: {@code failures} consecutive
+     * {@code ACCOUNT_PURGE_FAILED} rows since the deletion was requested at {@code since}, with the
+     * sweep still retrying every pass. Sent to every active Super Admin, once per stuck request
+     * ({@code AccountPurgeSweepService} records that it was sent and does not call again).
+     * Names the account only by its id, as a link into the admin portal; the error
+     * itself is in the backend log and in the {@code ACCOUNT_PURGE_FAILED} rows' metadata (the
+     * portal lists those rows without their metadata). The email carries no error text and no
+     * personal detail, same rule as every other alert here.
+     *
+     * <p>Why an alert at all, rather than the sweep giving up: the purge is the account's deletion
+     * promise, so it must keep retrying until it completes, and a retry costs one log line and one
+     * audit row per pass. What a stuck purge needs is a person. The first such case
+     * (2026-09-18 to 2026-09-23) failed on 524 consecutive passes over five days before anyone
+     * looked, because the only trace was the error log, and {@code sentry.logging.enabled} is
+     * {@code false} by design.
+     *
+     * @return whether at least one Super Admin was actually emailed -- unlike the other alerts
+     *         here, the caller needs to know, because it retries next pass until someone has been
+     *         told. {@code false} with no Super Admin or when every send failed.
+     */
+    public boolean alertAccountPurgeStuck(UUID userId, long failures, Instant since) {
+        List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);
+        if (superAdmins.isEmpty()) {
+            log.warn("No active Super Admin -- no stuck-purge alert sent for account {}", userId);
+            return false;
+        }
+        String html = "<p>One account's deletion has failed on " + failures + " consecutive purge attempts since "
+                + escape(formatTimestamp(since)) + ". The sweep keeps retrying every pass; it needs a person to "
+                + "look at why it fails. Each attempt's error is in the backend log (\"Account purge failed for "
+                + "user\") and in the metadata of the account's ACCOUNT_PURGE_FAILED audit rows.</p>"
+                + "<p><a href=\"" + adminBaseUrl() + "/users/" + userId + "\">Open the account in the admin portal</a></p>";
+        return send(superAdmins, "Account deletion stuck: " + failures + " failed purge attempts", html) > 0;
+    }
+
+    /**
      * Deliberately reads {@code getAdminAppBaseUrl()} directly rather than going through {@link
      * EmailProperties#resolveBaseUrl}, even though that method already has a null-fallback: its
      * fallback is the USER-facing frontend's URL, chosen for password-reset links where a request
@@ -325,12 +360,17 @@ public class HeldItemAdminAlertService {
         send(recipients, subject, html);
     }
 
-    /** One email each, so one failing address cannot stop the rest; addresses are masked in logs. */
-    private void send(List<User> recipients, String subject, String html) {
+    /** One email each, so one failing address cannot stop the rest; addresses are masked in logs.
+     *  @return how many were accepted by the provider -- most callers ignore it, {@link
+     *          #alertAccountPurgeStuck} does not */
+    private int send(List<User> recipients, String subject, String html) {
+        int sent = 0;
         for (User recipient : recipients) {
             try {
                 EmailResult result = emailProvider.send(EmailMessage.html(recipient.getEmail(), subject, html));
-                if (!result.success()) {
+                if (result.success()) {
+                    sent++;
+                } else {
                     log.warn("Held-item admin alert to {} failed: {}",
                             EmailMasking.mask(recipient.getEmail()), result.failureReason());
                 }
@@ -338,6 +378,7 @@ public class HeldItemAdminAlertService {
                 log.warn("Held-item admin alert to {} threw", EmailMasking.mask(recipient.getEmail()), e);
             }
         }
+        return sent;
     }
 
     /** Escapes every field placed in an HTML email body, via the same {@code HtmlUtils} Spring

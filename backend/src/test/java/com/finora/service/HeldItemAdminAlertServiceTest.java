@@ -368,6 +368,48 @@ class HeldItemAdminAlertServiceTest {
         verify(emailProvider, never()).send(any());
     }
 
+    @Test
+    void alertAccountPurgeStuck_emailsEverySuperAdmin_withTheCountAndALinkOnly() {
+        User superAdmin = adminUser("super-admin@example.com");
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE))
+                .thenReturn(List.of(superAdmin));
+        UUID stuckUserId = UUID.randomUUID();
+
+        boolean told = service.alertAccountPurgeStuck(stuckUserId, 4, Instant.parse("2026-09-18T07:51:00Z"));
+
+        assertThat(told).isTrue();
+        org.mockito.ArgumentCaptor<EmailMessage> sent = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(sent.capture());
+        assertThat(sent.getValue().to()).isEqualTo("super-admin@example.com");
+        assertThat(sent.getValue().subject()).isEqualTo("Account deletion stuck: 4 failed purge attempts");
+        assertThat(sent.getValue().html())
+                .contains("4 consecutive purge attempts")
+                .contains("18 Sep 2026, 07:51 UTC")
+                .contains("https://admin.example.com/users/" + stuckUserId)
+                // No error text and nothing personal: the email is a pointer, the audit log has the rest.
+                .doesNotContain("@example.com");
+    }
+
+    @Test
+    void alertAccountPurgeStuck_sendsNothingWithoutASuperAdmin() {
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE)).thenReturn(List.of());
+
+        boolean told = service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now());
+
+        assertThat(told).isFalse();
+        verify(emailProvider, never()).send(any());
+    }
+
+    /** The caller retries on false, so a provider failure must not read as "someone was told". */
+    @Test
+    void alertAccountPurgeStuck_reportsFalseWhenEverySendFails() {
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE))
+                .thenReturn(List.of(adminUser("super-admin@example.com")));
+        when(emailProvider.send(any())).thenReturn(EmailResult.failure(ProviderType.RESEND, "provider down"));
+
+        assertThat(service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now())).isFalse();
+    }
+
     private String overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus status) {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));

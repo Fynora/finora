@@ -3,6 +3,7 @@ package com.finora.support;
 import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.User;
 import com.finora.repository.FeedbackEntryRepository;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -15,8 +16,9 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /** The feedback API contract. Deliberately smaller than {@link SupportTicketDto} — feedback has
- *  one shape, not a list/detail split, because there is no per-row admin action to build a detail
- *  view around (§3.3 of the proposal). */
+ *  no list/detail split on the wire, because there is no per-row admin action to build a detail
+ *  view around (§3.3 of the proposal). The admin list's row ({@link AdminRow}) already carries the
+ *  whole message, so the admin page's detail drawer is a display choice, not a second endpoint. */
 public final class FeedbackDto {
 
     private FeedbackDto() {}
@@ -41,6 +43,40 @@ public final class FeedbackDto {
         public static Summary from(FeedbackEntry entry) {
             return new Summary(entry.getId(), entry.getUserId(), entry.getType(), entry.getContext(),
                     entry.getSource(), entry.getMessage(), entry.getCreatedAt());
+        }
+    }
+
+    /**
+     * One row of the admin feedback list: {@link Summary} plus who sent it.
+     *
+     * <p>A separate record rather than two more fields on {@code Summary} because {@code Summary}
+     * is also the submitter's own response body and the account-data export's shape, and neither
+     * of those has any business carrying the account's name and email.
+     *
+     * <p>{@code userName} and {@code userEmail} are null when there is no account to show: the
+     * column is nullable by design (see {@link FeedbackEntry#getUserId()}), and a user row can be
+     * gone by the time an admin looks. The page renders that as "Unknown", not as a blank that
+     * reads like a loading failure.
+     */
+    @Schema(name = "FeedbackAdminRow")
+    public record AdminRow(
+            UUID id,
+            UUID userId,
+            String userName,
+            String userEmail,
+            FeedbackEntry.Type type,
+            FeedbackEntry.Context context,
+            ClientPlatform source,
+            String message,
+            String appVersion,
+            Instant createdAt
+    ) {
+        public static AdminRow from(FeedbackEntry entry, User sender) {
+            return new AdminRow(entry.getId(), entry.getUserId(),
+                    sender == null ? null : sender.getFullName(),
+                    sender == null ? null : sender.getEmail(),
+                    entry.getType(), entry.getContext(), entry.getSource(), entry.getMessage(),
+                    entry.getAppVersion(), entry.getCreatedAt());
         }
     }
 

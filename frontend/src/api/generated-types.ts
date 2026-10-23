@@ -13299,10 +13299,10 @@ export interface components {
             /** Format: int64 */
             reprocessing?: number;
         };
-        ApiResponsePagedResponseFeedbackSummary: {
+        ApiResponsePagedResponseFeedbackAdminRow: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["PagedResponseFeedbackSummary"];
+            data?: components["schemas"]["PagedResponseFeedbackAdminRow"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -13311,8 +13311,26 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        PagedResponseFeedbackSummary: {
-            content?: components["schemas"]["FeedbackSummary"][];
+        FeedbackAdminRow: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            userId?: string;
+            userName?: string;
+            userEmail?: string;
+            /** @enum {string} */
+            type?: "BUG" | "FEATURE_REQUEST" | "IMPROVEMENT" | "GENERAL";
+            /** @enum {string} */
+            context?: "DASHBOARD" | "TRANSACTIONS" | "REPORTS" | "BUDGETS" | "GOALS" | "IMPORT_FLOW" | "ACCOUNTS" | "SETTINGS" | "HELP" | "OTHER";
+            /** @enum {string} */
+            source?: "WEB" | "MOBILE_ANDROID" | "MOBILE_IOS";
+            message?: string;
+            appVersion?: string;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        PagedResponseFeedbackAdminRow: {
+            content?: components["schemas"]["FeedbackAdminRow"][];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
@@ -23395,7 +23413,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseFeedbackSummary"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseFeedbackAdminRow"];
                 };
             };
         };

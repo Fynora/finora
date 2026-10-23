@@ -134,7 +134,7 @@ public class AiInsightService {
             return aiView(exact.get(), false, null);
         }
         if (exact.isPresent() && isFreshPending(exact.get())) return generating();
-        boolean canGenerate = refusal(userId, plan) == null && freeStoryMonthAllowed(userId, plan, month, sheet);
+        boolean canGenerate = refusal(userId) == null && freeStoryMonthAllowed(userId, plan, month, sheet);
         // A text written for earlier facts (or an earlier version) of this month still reads well
         // until a new one is written.
         Optional<AiInsightText> latest = texts.findLatestReady(userId, AiInsightText.KIND_STORY, STORY_SUBJECT, sheet.month());
@@ -146,7 +146,7 @@ public class AiInsightService {
      *  same facts give the same stored text, and parallel calls make one model call. */
     public TextView generateStory(UUID userId, String month) {
         String plan = planOf(userId);
-        AiInsightReason refused = refusal(userId, plan);
+        AiInsightReason refused = refusal(userId);
         if (refused != null) return refuse(userId, refused, none(false));
         Optional<FactSheet> maybeSheet = monthSheets.build(userId, month);
         if (maybeSheet.isEmpty()) return none(false);
@@ -227,7 +227,7 @@ public class AiInsightService {
         if (exact.isPresent() && AiInsightText.STATUS_READY.equals(exact.get().getStatus())) {
             return aiView(exact.get(), false, free ? left(userId, allowanceMonth) : null);
         }
-        AiInsightReason refused = refusal(userId, plan);
+        AiInsightReason refused = refusal(userId);
         if (refused != null) return refuse(userId, refused, rules);
         if (free && costGovernance.freeBudgetSpent()) return refuse(userId, AiInsightReason.FREE_BUDGET_SPENT, rules);
         if (exact.isPresent() && isFreshPending(exact.get())) return generating();
@@ -320,7 +320,7 @@ public class AiInsightService {
     }
 
     /** Null when this user may have AI text now; else why not. Plan rules beyond entitlement are the caller's. */
-    private AiInsightReason refusal(UUID userId, String plan) {
+    private AiInsightReason refusal(UUID userId) {
         if (!entitlements.hasEntitlement(userId, FeatureEntitlement.FYN_INSIGHTS)) return AiInsightReason.NOT_IN_AUDIENCE;
         if (!inAudience(userId)) return AiInsightReason.NOT_IN_AUDIENCE;
         if (!guard.insightsAvailableFor(userId)) {

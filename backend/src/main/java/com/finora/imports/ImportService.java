@@ -2369,7 +2369,7 @@ public class ImportService {
             if (na.accountNumberMasked() == null) {
                 log.warn("Account number extraction failed for bank={} session={} -- new account "
                         + "created without an identity key, so it cannot be matched on re-import",
-                        na.bankId(), request.sessionId());
+                        LogSanitizer.sanitize(na.bankId()), request.sessionId());
             }
 
             AccountDto created = accountService.create(userId, new AccountDto.CreateRequest(

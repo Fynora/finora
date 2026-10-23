@@ -119,7 +119,7 @@ public final class AiInsightFacts {
                 m.put("display", f.display());
                 // The display is unsigned, so a change fact says its direction: without it the model
                 // cannot tell a rise from a fall and guesses (checker rule 5).
-                if (isChange(f)) m.put("direction", f.value().signum() > 0 ? "UP" : f.value().signum() < 0 ? "DOWN" : "SAME");
+                if (isChange(f)) m.put("direction", direction(f));
                 return m;
             }).toList());
             if (!rows.isEmpty()) {
@@ -170,6 +170,13 @@ public final class AiInsightFacts {
     /** A change between this month and the usual month ({@code change_pct}, {@code money_out_change_pct}). */
     static boolean isChange(Fact f) {
         return f.unit() == Unit.PERCENT && f.metric().endsWith("change_pct");
+    }
+
+    /** UP, DOWN or SAME, as the figure is shown: a change that rounds to "0%" is SAME, so the model is
+     *  never told a 0.3% change "rose" and writes "rose 0%". Rounded as {@link #displayFor} rounds. */
+    static String direction(Fact f) {
+        int sign = f.value().setScale(0, RoundingMode.HALF_UP).signum();
+        return sign > 0 ? "UP" : sign < 0 ? "DOWN" : "SAME";
     }
 
     /** A fact with its display form rendered. {@code countNoun} names a COUNT ("payment"); null otherwise. */

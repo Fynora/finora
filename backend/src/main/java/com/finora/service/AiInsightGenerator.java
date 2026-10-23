@@ -93,7 +93,9 @@ public class AiInsightGenerator {
             usual figure to name. Write "this month" or "so far" only before a sentence's first \
             figure. Never call a USUAL figure this month's, nor a this-month figure usual.
             7. Say a figure went up or down only as its change fact's "direction" (UP, DOWN or SAME) \
-            says; with no change fact for a subject, say nothing about its direction. A change fact \
+            says; SAME means the change rounds to nothing, so never give it a change_pct or a \
+            direction (leave it out, or say it stayed level in a sentence of its own); with no change \
+            fact for a subject, say nothing about its direction. A change fact \
             goes only with its own figure: {month.money_out_change_pct} with {month.money_out}, never \
             with {month.total}. In a sentence that says up, down, more, less, fewer, higher, lower, \
             above, below, rose or fell, every subject must have moved that way: never "{food} rose \

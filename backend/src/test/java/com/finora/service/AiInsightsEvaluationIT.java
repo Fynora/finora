@@ -198,6 +198,13 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
             line.put("story", story.text());
             if (story.writtenByAi() && doubledWords(story.text())) doubled.add(shape.name() + " story: " + story.text());
             line.put("basis", story.basis());
+            // The month's two "spending" figures, side by side: the story may name either.
+            monthSheets.build(userId, null).ifPresent(sheet -> {
+                for (String id : List.of("month.total", "month.money_out", "month.money_out_change_pct")) {
+                    AiInsightFacts.Fact f = sheet.fact(id);
+                    line.put(id, f == null ? null : f.display());
+                }
+            });
             line.put("whys", whys);
             line.put("rulesOrder", rulesOrder);
             line.put("aiOrder", aiOrder);
@@ -281,6 +288,7 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
     }
 
     @Autowired private LookAtService lookAtService;
+    @Autowired private AiInsightMonthSheetBuilder monthSheets;
 
     private UUID seed(Shape shape, Random random) {
         User u = new User();

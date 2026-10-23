@@ -163,7 +163,9 @@ The model never writes a number or a category name. It returns JSON: a list of s
   rank. Asked for an order with no rows, the model copied the example row ids from the prompt (6 of 30
   evaluation histories on 2026-10-24).
 - Each change fact (`change_pct`, `money_out_change_pct`) is sent with a `direction` of UP, DOWN or SAME.
-  Its display is unsigned, so without it the model could not tell a rise from a fall (rule 5).
+  Its display is unsigned, so without it the model could not tell a rise from a fall (rule 5). The
+  direction follows the figure as shown: a change that rounds to "0%" is SAME, so the model is never told
+  that a 0.3% change rose.
 
 ### 5.2 Checks (all deterministic, all in one place, all versioned as the *policy version*)
 

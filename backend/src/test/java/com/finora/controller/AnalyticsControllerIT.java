@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.Account;
+import com.finora.entity.Merchant;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
+import com.finora.repository.MerchantRepository;
+import com.finora.util.CounterpartyType;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
@@ -46,6 +49,7 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private AccountRepository accountRepository;
     @Autowired private TransactionRepository transactionRepository;
+    @Autowired private MerchantRepository merchantRepository;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final List<String> ADVANCED_REPORTS_PATHS = List.of(
@@ -189,6 +193,60 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         assertThat(get("/api/v1/analytics/advanced?range=CUSTOM&startMonth=nope&endMonth=2026-01", user).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get("/api/v1/analytics/advanced?compare=SOMETIMES", user).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void advanced_marksAMerchantPaidToAPersonOnTheWire_soTheWebsiteNeverLooksTheNameUp() throws Exception {
+        // The website's Top merchants looks each name up on Logo.dev unless the row says `person`.
+        // This checks the flag survives the database, the service and the JSON, not just the service.
+        User user = plusUser();
+        Account account = new Account();
+        account.setUserId(user.getId());
+        account.setName("Advanced IT Person Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.ZERO);
+        account.setAccountHolderName("Analytics IT Test User");
+        UUID accountId = accountRepository.save(account).getId();
+        UUID friend = merchant(user, "Analytics IT Sample Person");
+        UUID shop = merchant(user, "Analytics IT Sample Shop");
+        // Whole months (first and last day) so the report has complete months to show.
+        for (YearMonth m = YearMonth.of(2026, 6); !m.isAfter(YearMonth.of(2026, 9)); m = m.plusMonths(1)) {
+            persistToMerchant(user, accountId, m.atDay(1), "700.00", friend, CounterpartyType.PERSON);
+            persistToMerchant(user, accountId, m.atEndOfMonth(), "500.00", shop, CounterpartyType.BUSINESS);
+        }
+
+        ResponseEntity<String> response = get("/api/v1/analytics/advanced?range=LAST_3_MONTHS", user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode rows = mapper.readTree(response.getBody()).get("data").get("merchants").get("rows");
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).get("name").asText()).isEqualTo("Analytics IT Sample Person");
+        assertThat(rows.get(0).get("person").isBoolean()).isTrue();
+        assertThat(rows.get(0).get("person").asBoolean()).isTrue();
+        assertThat(rows.get(1).get("name").asText()).isEqualTo("Analytics IT Sample Shop");
+        assertThat(rows.get(1).get("person").asBoolean()).isFalse();
+    }
+
+    private UUID merchant(User user, String name) {
+        Merchant m = new Merchant();
+        m.setUserId(user.getId());
+        m.setCanonicalName(name);
+        return merchantRepository.save(m).getId();
+    }
+
+    private void persistToMerchant(User user, UUID accountId, LocalDate date, String amount, UUID merchantId,
+                                   CounterpartyType counterparty) {
+        Transaction t = new Transaction();
+        t.setUserId(user.getId());
+        t.setAccountId(accountId);
+        t.setAmount(new BigDecimal(amount));
+        t.setTxnType(Transaction.Type.EXPENSE);
+        t.setTxnDate(date);
+        t.setDescription("Advanced IT payment");
+        t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
+        t.setMerchantId(merchantId);
+        t.setCounterpartyType(counterparty);
+        transactionRepository.save(t);
     }
 
     @Test

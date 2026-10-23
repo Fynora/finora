@@ -390,6 +390,51 @@ class AdvancedReportServiceTest {
     }
 
     @Test
+    void aMerchantRowPaidToAPersonSaysSoSoTheWebsiteNeverLooksTheNameUp() {
+        // Every imported row gets a merchant id, a payment to a friend included, so the friend's name
+        // reaches "Top merchants". The website looks a merchant's logo up by name on Logo.dev; a
+        // person's name must not be sent there, and only the server knows which rows are people.
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
+        Merchant friend = merchant("Sample Person");
+        Transaction toFriend = spend("2026-09-12", "4000", "Transfers");
+        toFriend.setMerchantId(friend.getId());
+        toFriend.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Merchant shop = merchant("Amazon");
+        Transaction toShop = spend("2026-09-10", "9000", "Shopping");
+        toShop.setMerchantId(shop.getId());
+        toShop.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Merchant untyped = merchant("Swiggy");
+        Transaction noType = spend("2026-09-11", "2000", "Food");
+        noType.setMerchantId(untyped.getId());
+
+        AdvancedReportDto dto = build(AdvancedRange.LAST_3_MONTHS);
+
+        assertThat(dto.merchants().rows())
+                .extracting(AdvancedReportDto.AdvancedMerchant::name, AdvancedReportDto.AdvancedMerchant::person)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("Amazon", false),
+                        org.assertj.core.groups.Tuple.tuple("Sample Person", true),
+                        org.assertj.core.groups.Tuple.tuple("Swiggy", false));
+    }
+
+    @Test
+    void aMerchantIsAPersonWhenAnyOfItsPaymentsIsToAPerson() {
+        // The flag errs toward privacy: one person-typed row is enough to keep the name off Logo.dev.
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
+        Merchant payee = merchant("Sample Person");
+        Transaction typed = spend("2026-09-12", "4000", "Transfers");
+        typed.setMerchantId(payee.getId());
+        typed.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Transaction untypedRow = spend("2026-08-12", "1000", "Transfers");
+        untypedRow.setMerchantId(payee.getId());
+
+        AdvancedReportDto dto = build(AdvancedRange.LAST_3_MONTHS);
+
+        assertThat(dto.merchants().rows()).hasSize(1);
+        assertThat(dto.merchants().rows().get(0).person()).isTrue();
+    }
+
+    @Test
     void merchantsAreRankedAndSaySoWhenMostSpendingHasNoMerchant() {
         steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
         Merchant amazon = merchant("Amazon");

@@ -11578,6 +11578,7 @@ export interface components {
             /** Format: double */
             changePct?: number;
             monthly?: number[];
+            person?: boolean;
         };
         AdvancedMerchants: {
             rows?: components["schemas"]["AdvancedMerchant"][];

@@ -28240,6 +28240,9 @@
                         "items": {
                             "type": "number"
                         }
+                    },
+                    "person": {
+                        "type": "boolean"
                     }
                 }
             },

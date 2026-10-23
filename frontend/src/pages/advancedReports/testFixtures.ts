@@ -37,8 +37,8 @@ export function fixtureReport(over: Partial<AdvancedReport> = {}): AdvancedRepor
     },
     merchants: {
       rows: [
-        { merchantId: 'm1', name: 'Amazon', amount: 30000, sharePct: 12.5, transactionCount: 9, previousAmount: 20000, changeAmount: 10000, changePct: 50, monthly: [5000, 5000, 5000, 5000, 5000, 5000] },
-        { merchantId: 'm2', name: 'Swiggy', amount: 24000, sharePct: 10, transactionCount: 30, previousAmount: 24000, changeAmount: 0, changePct: 0, monthly: [4000, 4000, 4000, 4000, 4000, 4000] },
+        { merchantId: 'm1', name: 'Amazon', amount: 30000, sharePct: 12.5, transactionCount: 9, previousAmount: 20000, changeAmount: 10000, changePct: 50, monthly: [5000, 5000, 5000, 5000, 5000, 5000], person: false },
+        { merchantId: 'm2', name: 'Swiggy', amount: 24000, sharePct: 10, transactionCount: 30, previousAmount: 24000, changeAmount: 0, changePct: 0, monthly: [4000, 4000, 4000, 4000, 4000, 4000], person: false },
       ],
       attributedSharePct: 62, topFiveSharePct: 45, merchantCount: 12,
     },

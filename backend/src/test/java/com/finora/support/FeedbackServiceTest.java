@@ -36,6 +36,7 @@ class FeedbackServiceTest {
     private ClientIdentity clientIdentity;
     private UserRepository userRepository;
     private SupportAdminAlertService adminAlerts;
+    private SupportSubmissionLimiter submissionLimiter;
     private FeedbackService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -46,7 +47,8 @@ class FeedbackServiceTest {
         clientIdentity = mock(ClientIdentity.class);
         userRepository = mock(UserRepository.class);
         adminAlerts = mock(SupportAdminAlertService.class);
-        service = new FeedbackService(repository, clientIdentity, userRepository, adminAlerts);
+        submissionLimiter = mock(SupportSubmissionLimiter.class);
+        service = new FeedbackService(repository, clientIdentity, userRepository, adminAlerts, submissionLimiter);
 
         when(repository.save(any(FeedbackEntry.class))).thenAnswer(inv -> inv.getArgument(0));
         when(clientIdentity.platform()).thenReturn(ClientPlatform.MOBILE_ANDROID);
@@ -72,6 +74,27 @@ class FeedbackServiceTest {
 
         verify(adminAlerts).alertFeedbackReceived(eq(FeedbackEntry.Type.BUG), eq(FeedbackEntry.Context.IMPORT_FLOW),
                 eq(ClientPlatform.MOBILE_ANDROID), any());
+    }
+
+    @Test
+    void submit_checksTheDailyLimitForThatAccount() {
+        service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, "x");
+
+        verify(submissionLimiter).requireFeedbackAllowance(userId);
+    }
+
+    @Test
+    void anAccountOverItsDailyLimit_getsA429_andNothingIsSavedOrAnnounced() {
+        org.mockito.Mockito.doThrow(new com.finora.exception.ApiException(
+                org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, "limit"))
+                .when(submissionLimiter).requireFeedbackAllowance(userId);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, "x"))
+                .isInstanceOf(com.finora.exception.ApiException.class);
+
+        verify(repository, org.mockito.Mockito.never()).save(any(FeedbackEntry.class));
+        org.mockito.Mockito.verifyNoInteractions(adminAlerts);
     }
 
     @Test

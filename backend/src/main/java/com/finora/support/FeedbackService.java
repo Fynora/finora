@@ -34,9 +34,12 @@ public class FeedbackService {
     private final ClientIdentity clientIdentity;
     private final UserRepository userRepository;
     private final SupportAdminAlertService adminAlerts;
+    private final SupportSubmissionLimiter submissionLimiter;
 
     public FeedbackService(FeedbackEntryRepository repository, ClientIdentity clientIdentity,
-                           UserRepository userRepository, SupportAdminAlertService adminAlerts) {
+                           UserRepository userRepository, SupportAdminAlertService adminAlerts,
+                           SupportSubmissionLimiter submissionLimiter) {
+        this.submissionLimiter = submissionLimiter;
         this.repository = repository;
         this.clientIdentity = clientIdentity;
         this.userRepository = userRepository;
@@ -45,6 +48,7 @@ public class FeedbackService {
 
     @Transactional
     public FeedbackDto.Summary submit(UUID userId, FeedbackEntry.Type type, FeedbackEntry.Context context, String message) {
+        submissionLimiter.requireFeedbackAllowance(userId);
         FeedbackEntry entry = new FeedbackEntry();
         entry.setUserId(userId);
         entry.setType(type);

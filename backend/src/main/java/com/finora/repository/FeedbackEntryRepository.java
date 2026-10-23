@@ -18,6 +18,11 @@ public interface FeedbackEntryRepository extends JpaRepository<FeedbackEntry, UU
      *  user-facing "my feedback" screen in v1, only the admin list below. */
     List<FeedbackEntry> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
+    /** How many feedback entries this account has sent since {@code since} --
+     *  {@code SupportSubmissionLimiter}'s daily ceiling. No user index exists on this table, so the
+     *  count walks the (small) last day of {@code idx_feedback_entries_recent}. */
+    long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
+
     /**
      * The admin list, optionally filtered by type and/or context, newest first — matching
      * {@code idx_feedback_entries_recent}. Same null-means-unfiltered shape as

@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
+import { MerchantLogo, logoSourceFor } from '../components/MerchantLogo';
 import type { Transaction } from '../types';
+
+/** The Logo.dev URL a rendered MerchantLogo would request with a token configured, or null. */
+const lookedUp = (p: Record<string, unknown>) =>
+  logoSourceFor(String(p.merchant), 64, 'test-token', p.person === true, p.lookup !== false);
 
 // The people part has its own tests; a stand-in that hands back the sheet's callbacks.
 jest.mock('../components/people/PeopleTransactionSection', () => {
@@ -71,6 +76,22 @@ function renderSheet(transaction: Transaction = TXN, overrides: Partial<{ unmark
 }
 
 describe('TransactionDetailSheet', () => {
+  // With no merchant name the sheet is titled by the bank narration, which can hold UPI ids, phone
+  // and reference numbers: that text must never be the name looked up on Logo.dev.
+  it('never sends a raw narration or a person to Logo.dev, and still looks a business up', () => {
+    const looked = (t: Transaction) => {
+      const { unmount } = render(
+        <TransactionDetailSheet transaction={t} unmarking={false} deleting={false} {...callbacks()} />
+      );
+      const url = lookedUp(screen.UNSAFE_getByType(MerchantLogo).props);
+      unmount();
+      return url;
+    };
+    expect(looked({ ...TXN, merchant: '', description: 'UPI/DR/600000000002/SAMPLE SHOP/YESB', counterpartyType: 'BUSINESS' })).toBeNull();
+    expect(looked({ ...TXN, merchant: 'sample person', counterpartyType: 'PERSON' })).toBeNull();
+    expect(looked({ ...TXN, merchant: 'Big Bazaar', counterpartyType: 'BUSINESS' })).toContain('img.logo.dev/name/Big%20Bazaar');
+  });
+
   it('hands the people answers to its host', () => {
     const cb = renderSheet();
     fireEvent.press(screen.getByRole('button', { name: 'people: share of a bill' }));

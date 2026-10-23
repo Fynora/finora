@@ -101,7 +101,7 @@ public class TransactionGroupingService {
      * from two separate queries that could drift apart.
      */
     public record MerchantGroup(UUID merchantId, String merchantName, List<UUID> transactionIds,
-                                 List<TransactionSummary> transactions) {}
+                                 List<TransactionSummary> transactions, boolean person) {}
 
     public List<MerchantGroup> groupNeedsReviewByMerchant(UUID userId) {
         List<Transaction> candidates = needsReviewCandidates(userId);
@@ -138,7 +138,11 @@ public class TransactionGroupingService {
                     txns.stream().map(Transaction::getDescription).toList());
             groups.add(new MerchantGroup(entry.getKey(), shownName,
                     txns.stream().map(Transaction::getId).toList(),
-                    txns.stream().map(TransactionSummary::from).toList()));
+                    txns.stream().map(TransactionSummary::from).toList(),
+                    // A payment to a friend gets a merchant id like any other row, so a group can
+                    // be a person. Any person-typed row is enough: the apps then never look the
+                    // name up on Logo.dev.
+                    txns.stream().anyMatch(t -> t.getCounterpartyType() == CounterpartyType.PERSON)));
         }
 
         groups.sort((a, b) -> b.transactionIds().size() - a.transactionIds().size());

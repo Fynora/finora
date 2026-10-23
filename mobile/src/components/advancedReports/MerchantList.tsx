@@ -37,7 +37,7 @@ export function MerchantList({
             return (
               <RankedRow
                 key={m.merchantId} testID={`merchant-${m.name}`} label={m.name} amount={m.amount} share={m.sharePct} bar={largest}
-                leading={<MerchantLogo merchant={m.name} size={28} />}
+                leading={<MerchantLogo merchant={m.name} size={28} person={m.person} />}
                 detail={`${m.transactionCount} ${m.transactionCount === 1 ? 'purchase' : 'purchases'}`}
                 change={<ChangeText previousAmount={m.previousAmount} changeAmount={m.changeAmount} changePct={m.changePct} />}
                 accessibilityLabel={`${m.name}: ${fmtCurrency(m.amount)}, ${shareText(m.sharePct)} of spending${change ? `, ${change}` : ''}`}

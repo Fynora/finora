@@ -82,6 +82,39 @@ class TransactionGroupingServiceTest {
     }
 
     /**
+     * A payment to a friend gets a merchant id like any other row, so a merchant group can be a
+     * person. The mobile review screen looks a group's name up on Logo.dev unless the group says it
+     * is a person; one person-typed row is enough.
+     */
+    @Test
+    void aGroupWithAnyPaymentToAPersonSaysSo() {
+        UUID friendId = UUID.randomUUID();
+        UUID shopId = UUID.randomUUID();
+        Transaction toFriend = txnFor(friendId);
+        toFriend.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Transaction untyped = txnFor(friendId);
+        Transaction shop1 = txnFor(shopId);
+        shop1.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Transaction shop2 = txnFor(shopId);
+
+        TransactionRepository transactionRepository = mock(TransactionRepository.class);
+        when(transactionRepository.findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(eq(userId), any()))
+                .thenReturn(List.of(toFriend, untyped, shop1, shop2));
+        MerchantRepository merchantRepository = mock(MerchantRepository.class);
+        when(merchantRepository.findByUserId(userId)).thenReturn(List.of(
+                merchantOf(friendId, "Sample Person"), merchantOf(shopId, "Sample Shop")));
+
+        TransactionGroupingService service = new TransactionGroupingService(transactionRepository, merchantRepository, accountRepositoryWithOneLiveAccount());
+        List<TransactionGroupingService.MerchantGroup> groups = service.groupNeedsReviewByMerchant(userId);
+
+        assertThat(groups).extracting(TransactionGroupingService.MerchantGroup::merchantName,
+                        TransactionGroupingService.MerchantGroup::person)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("Sample Person", true),
+                        org.assertj.core.groups.Tuple.tuple("Sample Shop", false));
+    }
+
+    /**
      * The review card is headed by the merchant's name. A merchant created before 2026-10-03 is
      * stored under its narration's first words, rail word first; the card shows the payee its
      * transactions name instead. Every narration here is invented.

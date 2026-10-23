@@ -2438,7 +2438,7 @@ class TransactionServiceTest {
                 .thenReturn(List.of(grouped1, grouped2, singleton));
         when(transactionGroupingService.groupNeedsReviewByMerchant(userId)).thenReturn(List.of(
                 new TransactionGroupingService.MerchantGroup(groupedMerchantId, "Ach Indian Clearing Corp",
-                        List.of(grouped1.getId(), grouped2.getId()), List.of())));
+                        List.of(grouped1.getId(), grouped2.getId()), List.of(), false)));
 
         List<TransactionDto> result = transactionService.needsReview(userId);
 

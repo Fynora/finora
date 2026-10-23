@@ -217,6 +217,9 @@ export interface MerchantGroup {
   merchantId: string;
   merchantName: string;
   transactionIds: string[];
+  /** Any payment in the group went to a person: the name is never looked up on Logo.dev. Optional
+   *  because a server from before the flag sends none, which reads as not a person. */
+  person?: boolean;
 }
 
 /** A preview row inside a MerchantGroup/CounterpartyGroup -- enough to show what's in the group

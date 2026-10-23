@@ -227,6 +227,37 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         assertThat(rows.get(1).get("person").asBoolean()).isFalse();
     }
 
+    @Test
+    void needsReviewMerchantGroups_markAGroupPaidToAPersonOnTheWire() throws Exception {
+        // The mobile review screen looks a merchant group's name up on Logo.dev unless the group
+        // says `person`; this checks the flag survives the database, the service and the JSON.
+        User user = plusUser();
+        Account account = new Account();
+        account.setUserId(user.getId());
+        account.setName("Review IT Person Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.ZERO);
+        account.setAccountHolderName("Analytics IT Test User");
+        UUID accountId = accountRepository.save(account).getId();
+        UUID friend = merchant(user, "Review IT Sample Person");
+        UUID shop = merchant(user, "Review IT Sample Shop");
+        for (int day = 1; day <= 2; day++) {
+            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "300.00", friend, CounterpartyType.PERSON, true);
+            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "200.00", shop, CounterpartyType.BUSINESS, true);
+        }
+
+        ResponseEntity<String> response = get("/api/v1/transactions/groups/needs-review", user);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        java.util.Map<String, Boolean> personByName = new java.util.HashMap<>();
+        for (JsonNode g : mapper.readTree(response.getBody()).get("data")) {
+            assertThat(g.get("person").isBoolean()).isTrue();
+            personByName.put(g.get("merchantName").asText(), g.get("person").asBoolean());
+        }
+        assertThat(personByName).containsEntry("Review IT Sample Person", true)
+                .containsEntry("Review IT Sample Shop", false);
+    }
+
     private UUID merchant(User user, String name) {
         Merchant m = new Merchant();
         m.setUserId(user.getId());
@@ -236,6 +267,11 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
 
     private void persistToMerchant(User user, UUID accountId, LocalDate date, String amount, UUID merchantId,
                                    CounterpartyType counterparty) {
+        persistToMerchant(user, accountId, date, amount, merchantId, counterparty, false);
+    }
+
+    private void persistToMerchant(User user, UUID accountId, LocalDate date, String amount, UUID merchantId,
+                                   CounterpartyType counterparty, boolean needsReview) {
         Transaction t = new Transaction();
         t.setUserId(user.getId());
         t.setAccountId(accountId);
@@ -246,6 +282,7 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
         t.setMerchantId(merchantId);
         t.setCounterpartyType(counterparty);
+        t.setNeedsCategoryReview(needsReview);
         transactionRepository.save(t);
     }
 

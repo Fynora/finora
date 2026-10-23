@@ -9844,6 +9844,7 @@ export interface components {
             merchantName?: string;
             transactionIds?: string[];
             transactions?: components["schemas"]["TransactionSummary"][];
+            person?: boolean;
         };
         TransactionSummary: {
             /** Format: uuid */

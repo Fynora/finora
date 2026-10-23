@@ -117,7 +117,7 @@ export function TransactionDetailSheet({
             </View>
 
             <View style={styles.summary}>
-              <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} person={t.counterpartyType === 'PERSON'} />
+              <MerchantLogo merchant={t.merchant || t.description || '?'} size={44} person={t.counterpartyType === 'PERSON'} lookup={!!t.merchant} />
               <View style={styles.summaryText}>
                 {/* Titled as the list row is, so a payment keeps one name a tap apart. The bank's
                     own text stays under it, in full and selectable, for checking against the

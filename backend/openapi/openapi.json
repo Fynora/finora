@@ -23780,6 +23780,9 @@
                         "items": {
                             "$ref": "#/components/schemas/TransactionSummary"
                         }
+                    },
+                    "person": {
+                        "type": "boolean"
                     }
                 }
             },

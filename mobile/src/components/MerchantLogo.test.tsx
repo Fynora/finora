@@ -56,4 +56,15 @@ describe('logoSourceFor', () => {
   it('still builds one for a business', () => {
     expect(logoSourceFor('Swiggy', 64, 'test-token', false)).toBe(logoDevUrl('Swiggy', 64, 'test-token'));
   });
+
+  it('never builds one for text that is not a merchant name, such as a bank narration', () => {
+    expect(logoSourceFor('UPI/DR/600000000002/SAMPLE SHOP/YESB', 64, 'test-token', false, false)).toBeNull();
+  });
+});
+
+describe('MerchantLogo with lookup off', () => {
+  it('shows initials from the text it was given', () => {
+    render(<MerchantLogo merchant="Sample Shop" lookup={false} />);
+    expect(screen.getByText('SS')).toBeTruthy();
+  });
 });

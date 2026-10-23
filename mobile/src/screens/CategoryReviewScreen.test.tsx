@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Dimensions, StyleSheet } from 'react-native';
 import { CategoryReviewScreen } from './CategoryReviewScreen';
 import { CategoryPickerModal } from '../components/CategoryPickerModal';
-import { MerchantLogo } from '../components/MerchantLogo';
+import { MerchantLogo, logoSourceFor } from '../components/MerchantLogo';
 import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { ToastProvider } from '../context/ToastContext';
 import { fmtDate } from '../lib/format';
@@ -79,6 +79,10 @@ function txn(over: Partial<Transaction> = {}): Transaction {
     ...over,
   };
 }
+
+/** The Logo.dev URL a rendered MerchantLogo would request with a token configured, or null. */
+const lookedUp = (p: Record<string, unknown>) =>
+  logoSourceFor(String(p.merchant), 64, 'test-token', p.person === true, p.lookup !== false);
 
 function group(over: Partial<MerchantGroup> = {}): MerchantGroup {
   return { merchantId: 'm-1', merchantName: 'Swiggy', transactionIds: ['t-9', 't-8', 't-7'], ...over };
@@ -670,6 +674,34 @@ describe('rows written the way the Ledger writes them', () => {
       expect(screen.UNSAFE_getAllByType(MerchantLogo)).toHaveLength(3);
       expect(screen.getByText('-₹900')).toBeTruthy();
       expect(screen.queryByTestId('review-amount-below-t-1')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // A merchant group can be a friend (every payment gets a merchant id), a payee group's label is
+  // the latest row's bank narration, and a single row with no merchant name is titled by its
+  // narration too. None of those may reach Logo.dev; a business merchant still gets its logo.
+  it('never sends a person or a raw narration to Logo.dev from a review row', async () => {
+    const spy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+    try {
+      transactions.needsReviewGroups.mockResolvedValue([
+        group({ merchantId: 'm-1', merchantName: 'Swiggy', person: false }),
+        group({ merchantId: 'm-2', merchantName: 'Sample Person', person: true, transactionIds: ['t-6', 't-5', 't-4'] }),
+      ]);
+      transactions.needsReviewByCounterparty.mockResolvedValue([
+        counterpartyGroup({ counterpartyType: 'BUSINESS', label: 'UPI/DR/600000000001/SAMPLE SHOP/YESB' }),
+      ]);
+      transactions.needsReview.mockResolvedValue([txn({ merchant: '', description: 'UPI/DR/600000000002/SAMPLE SHOP/YESB' })]);
+      renderScreen();
+      await waitFor(() => expect(screen.UNSAFE_getAllByType(MerchantLogo)).toHaveLength(4));
+      const looked = screen.UNSAFE_getAllByType(MerchantLogo).map((l) => ({ name: l.props.merchant, url: lookedUp(l.props) }));
+      expect(looked).toEqual(expect.arrayContaining([
+        { name: 'Swiggy', url: expect.stringContaining('img.logo.dev/name/Swiggy') },
+        { name: 'Sample Person', url: null },
+        { name: 'UPI/DR/600000000001/SAMPLE SHOP/YESB', url: null },
+        { name: 'UPI/DR/600000000002/SAMPLE SHOP/YESB', url: null },
+      ]));
     } finally {
       spy.mockRestore();
     }

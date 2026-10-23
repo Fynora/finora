@@ -13,6 +13,10 @@ interface MerchantLogoProps {
    *  a Logo.dev name search for a person's name returns whichever company matches best -- so no
    *  lookup is made. Mirrors web's MerchantLogo. */
   person?: boolean;
+  /** False when `merchant` is not a merchant name but text shown in its place -- a row's bank
+   *  narration, used as the title when the row has no merchant name. Narration can hold UPI ids,
+   *  phone and reference numbers, so it is shown as initials and never sent to Logo.dev. */
+  lookup?: boolean;
 }
 
 const LOGODEV_TOKEN = process.env.EXPO_PUBLIC_LOGODEV_TOKEN;
@@ -63,18 +67,19 @@ function colorFor(name: string): string {
  * integration is broken. Each row's Image loads independently and falls back on its own.
  */
 /** The Logo.dev URL to try for this row, or null when none should be requested: no token, no
- *  name, or a person (see MerchantLogoProps.person). */
+ *  name, a person (see MerchantLogoProps.person), or text that is not a merchant name (see
+ *  MerchantLogoProps.lookup). */
 export function logoSourceFor(merchant: string, sizePx: number, token: string | undefined,
-                              person: boolean): string | null {
-  return person ? null : logoDevUrl(merchant, sizePx, token);
+                              person: boolean, lookup = true): string | null {
+  return person || !lookup ? null : logoDevUrl(merchant, sizePx, token);
 }
 
-export function MerchantLogo({ merchant, size = 32, fallback, style, person = false }: MerchantLogoProps) {
+export function MerchantLogo({ merchant, size = 32, fallback, style, person = false, lookup = true }: MerchantLogoProps) {
   const sizePx = Math.max(64, Math.round(size * 2));
-  const src = logoSourceFor(merchant, sizePx, LOGODEV_TOKEN, person);
+  const src = logoSourceFor(merchant, sizePx, LOGODEV_TOKEN, person, lookup);
 
   const [stage, setStage] = useState<Stage>(() => (src ? 'logodev' : 'fallback'));
-  const trackedKey = `${person ? 'person' : 'business'}|${merchant}`;
+  const trackedKey = `${person ? 'person' : 'business'}|${lookup ? 'name' : 'text'}|${merchant}`;
   const [trackedMerchant, setTrackedMerchant] = useState(trackedKey);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

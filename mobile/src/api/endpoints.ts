@@ -1791,6 +1791,8 @@ export interface AdvancedMerchant {
   changeAmount: number | null;
   changePct: number | null;
   monthly: number[];
+  /** Any of the period's payments to this merchant went to a person: never look its name up on Logo.dev. */
+  person: boolean;
 }
 export interface AdvancedMerchants {
   rows: AdvancedMerchant[];

@@ -26,6 +26,10 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      */
     Optional<SupportTicket> findByIdAndUserId(UUID id, UUID userId);
 
+    /** How many tickets this user raised since {@code since} -- the basis of the cap on
+     *  acknowledgement emails (see {@code SupportTicketService.acknowledge}). */
+    long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
+
     /** The reference a customer quotes back to support. */
     Optional<SupportTicket> findByTicketNumber(String ticketNumber);
 

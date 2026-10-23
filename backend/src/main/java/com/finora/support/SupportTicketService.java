@@ -17,6 +17,8 @@ import com.finora.repository.SupportTicketRepository;
 import com.finora.service.AuditService;
 import com.finora.util.AfterCommit;
 import com.finora.util.PageBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -24,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -96,7 +99,11 @@ import java.util.UUID;
 @Service
 public class SupportTicketService {
 
+    private static final Logger log = LoggerFactory.getLogger(SupportTicketService.class);
+
     private static final int MAX_SUBJECT_LENGTH = 120;
+    static final int MAX_ACKNOWLEDGEMENTS_PER_DAY = 3;
+    private static final Duration ACKNOWLEDGEMENT_WINDOW = Duration.ofHours(24);
 
     private final SupportTicketRepository ticketRepository;
     private final SupportTicketAttachmentRepository attachmentRepository;
@@ -183,8 +190,23 @@ public class SupportTicketService {
      * <p>SECURITY, which {@code DatabaseNotificationPreferenceResolver} never suppresses: the
      * customer asked us a question and expects a receipt, so a switched-off "financial" preference
      * or a stepped-away account status must not silently swallow it. EMAIL only -- see V287.
+     *
+     * <p><b>Capped per customer, because ticket creation is not rate limited and the address is not
+     * proven.</b> Password signup never verified email ownership (see V93), so someone can register
+     * an account with another person's address and then raise tickets in a loop; without a cap every
+     * one would mail that person from {@code support@}. The first {@link #MAX_ACKNOWLEDGEMENTS_PER_DAY}
+     * tickets a customer raises in 24 hours are acknowledged and the rest are not -- the tickets
+     * themselves are untouched and all appear in "My Tickets" and the admin queue. Counted in the
+     * database, so it holds across instances. The ticket just saved is already in the count.
      */
     private void acknowledge(SupportTicket ticket) {
+        long raisedToday = ticketRepository.countByUserIdAndCreatedAtAfter(
+                ticket.getUserId(), Instant.now().minus(ACKNOWLEDGEMENT_WINDOW));
+        if (raisedToday > MAX_ACKNOWLEDGEMENTS_PER_DAY) {
+            log.info("Not acknowledging support ticket {}: this customer has raised {} in the last day",
+                    ticket.getTicketNumber(), raisedToday);
+            return;
+        }
         notificationService.request(NotificationRequest.of(
                 ticket.getUserId(),
                 NotificationType.SUPPORT_TICKET_RECEIVED,

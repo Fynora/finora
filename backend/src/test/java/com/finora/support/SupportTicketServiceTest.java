@@ -132,6 +132,23 @@ class SupportTicketServiceTest {
         assertThat(request.params()).isEqualTo(Map.of("ticketNumber", "SUP-000001"));
     }
 
+    /** The cap's boundary, both sides: the third ticket in a day is still acknowledged, the fourth is
+     *  not -- and the ticket itself is created either way. */
+    @Test
+    void theThirdTicketInADayIsAcknowledged_theFourthIsNot_butIsStillCreated() {
+        when(ticketRepository.countByUserIdAndCreatedAtAfter(eq(userId), any()))
+                .thenReturn((long) SupportTicketService.MAX_ACKNOWLEDGEMENTS_PER_DAY);
+        service.create(userId, "OTHER", "Third", "Description", null);
+        verify(notificationService, org.mockito.Mockito.times(1)).request(any(NotificationRequest.class));
+
+        when(ticketRepository.countByUserIdAndCreatedAtAfter(eq(userId), any()))
+                .thenReturn((long) SupportTicketService.MAX_ACKNOWLEDGEMENTS_PER_DAY + 1);
+        var detail = service.create(userId, "OTHER", "Fourth", "Description", null);
+
+        assertThat(detail.ticketNumber()).isEqualTo("SUP-000001");
+        verify(notificationService, org.mockito.Mockito.times(1)).request(any(NotificationRequest.class));
+    }
+
     @Test
     void aRejectedCreate_neverQueuesAnAcknowledgement() {
         assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))

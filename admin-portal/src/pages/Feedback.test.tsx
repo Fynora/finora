@@ -129,7 +129,8 @@ describe('Feedback', () => {
     renderPage();
 
     // The table cell is cut at 80 characters; the full text only exists once the drawer is open.
-    const open = await screen.findByRole('button', { name: /open feedback/i });
+    const open = await screen.findByRole('button', { name: /Why is my card bill counted twice/ });
+    expect(open).toHaveAttribute('aria-haspopup', 'dialog');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByText(/Second paragraph stays separate/)).not.toBeInTheDocument();
 

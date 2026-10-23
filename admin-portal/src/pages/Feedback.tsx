@@ -48,9 +48,12 @@ function SenderCell({ row }: { row: FeedbackRow }) {
     return <span className="text-muted text-xs">Unknown</span>;
   }
   return (
-    <div className="min-w-0">
-      {row.userName && <p className="text-ink text-sm truncate">{row.userName}</p>}
-      {row.userEmail && <p className="text-muted text-xs truncate">{row.userEmail}</p>}
+    // The width cap lives on this block, not on the <td>: max-width on a table cell is not
+    // honoured in auto table layout, so a long address would widen the whole column instead of
+    // truncating. The drawer shows the untruncated values.
+    <div className="max-w-[14rem]">
+      {row.userName && <p className="text-ink text-sm truncate" title={row.userName}>{row.userName}</p>}
+      {row.userEmail && <p className="text-muted text-xs truncate" title={row.userEmail}>{row.userEmail}</p>}
     </div>
   );
 }
@@ -151,7 +154,6 @@ function FeedbackContent() {
     {
       header: 'From',
       render: (row) => <SenderCell row={row} />,
-      cellClassName: 'max-w-[14rem]',
     },
     {
       header: 'Type',
@@ -169,13 +171,15 @@ function FeedbackContent() {
       header: 'Message',
       render: (row) => (
         // A button, not a click handler on the row: the table shell has no row-level click, and a
-        // button is reachable by keyboard and announced as actionable. The full text also stays on
-        // `title` as a hover preview, but the drawer is the way to actually read it.
+        // button is reachable by keyboard and announced as actionable. No aria-label: the visible
+        // text is the accessible name (an aria-label that does not start with it fails WCAG 2.5.3).
+        // The full text also stays on `title` as a hover preview, but the drawer is the way to
+        // actually read it.
         <button
           type="button"
           onClick={() => setSelected(row)}
           title={row.message}
-          aria-label={`Open feedback: ${row.message.slice(0, 40)}`}
+          aria-haspopup="dialog"
           className="text-left text-ink text-sm hover:text-primary"
         >
           {row.message.length > 80 ? `${row.message.slice(0, 80)}…` : row.message}

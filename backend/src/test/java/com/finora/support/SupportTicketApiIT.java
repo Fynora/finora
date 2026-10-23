@@ -398,6 +398,44 @@ class SupportTicketApiIT extends AbstractIntegrationTest {
         assertThat(found).isTrue();
     }
 
+    /**
+     * What {@code FeedbackServiceTest}'s mocks cannot prove: that the admin list, through the real
+     * repository, user lookup and JSON serialisation, names who sent each entry and returns the
+     * whole message untouched -- and that the submitter's own response does NOT carry account
+     * details, which is why the admin row is a separate type from {@code FeedbackDto.Summary}.
+     */
+    @Test
+    void adminFeedbackList_namesTheSenderAndReturnsTheFullMultiLineMessage() throws Exception {
+        User user = createUser("USER");
+        User admin = createUser("ADMIN");
+        // Well past the 80 characters the admin table shows, with a paragraph break and non-ASCII
+        // text -- the shape of the real submission that made the full message necessary.
+        String message = "Why is my card bill counted twice as an expense? ".repeat(4)
+                + "\n\nSecond paragraph ₹ stays separate. " + UUID.randomUUID();
+        String payload = mapper.writeValueAsString(java.util.Map.of(
+                "type", "BUG", "context", "OTHER", "message", message));
+
+        ResponseEntity<String> submit = restTemplate.exchange("/api/v1/feedback", HttpMethod.POST,
+                new HttpEntity<>(payload, jsonBearerFor(user)), String.class);
+        assertThat(submit.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode submitted = mapper.readTree(submit.getBody()).get("data");
+        assertThat(submitted.has("userEmail")).isFalse();
+        assertThat(submitted.has("userName")).isFalse();
+
+        ResponseEntity<String> list = restTemplate.exchange("/api/v1/admin/feedback?size=100", HttpMethod.GET,
+                new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode mine = null;
+        for (JsonNode entry : mapper.readTree(list.getBody()).get("data").get("content")) {
+            if (entry.get("message").asText().equals(message)) mine = entry;
+        }
+        assertThat(mine).as("this test's feedback appears in the admin list, message intact").isNotNull();
+        assertThat(mine.get("userId").asText()).isEqualTo(user.getId().toString());
+        assertThat(mine.get("userName").asText()).isEqualTo("Support IT User");
+        assertThat(mine.get("userEmail").asText()).isEqualTo(user.getEmail());
+        assertThat(mine.get("source").asText()).isNotBlank();
+    }
+
     @Test
     void plainUser_isForbiddenFromTheFeedbackBreakdown() {
         User user = createUser("USER");

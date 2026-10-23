@@ -510,11 +510,27 @@ public class AccountPurgeSweepService {
                 failed++;
                 String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 log.error("Account purge failed for user {}: {}", userId, message, e);
-                auditService.record(userId, "ACCOUNT_PURGE_FAILED", "User", userId, Map.of("error", message));
+                recordFailure(userId, message);
                 alertIfStuck(userId);
             }
         }
         return new Result(purged, failed);
+    }
+
+    /**
+     * The {@code ACCOUNT_PURGE_FAILED} row, in its own try/catch: it is written from inside {@link
+     * #sweep}'s per-user catch, so if the write itself threw (the database going away mid-pass is
+     * the realistic case) the exception would escape that catch and end the pass with every
+     * remaining candidate unattempted. The row is bookkeeping around the failure, never a second
+     * way for the pass to fail; a missed row only delays {@link #alertIfStuck}'s count by one
+     * pass. Same shape as {@link #sendDeletedConfirmation}'s own audit write.
+     */
+    private void recordFailure(UUID userId, String message) {
+        try {
+            auditService.record(userId, "ACCOUNT_PURGE_FAILED", "User", userId, Map.of("error", message));
+        } catch (RuntimeException e) {
+            log.error("Could not record the purge failure of account {}: {}", userId, e.getMessage(), e);
+        }
     }
 
     /** Written once a stuck-purge alert actually reached at least one Super Admin; what makes

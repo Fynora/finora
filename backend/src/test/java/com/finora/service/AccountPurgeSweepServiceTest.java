@@ -804,6 +804,34 @@ class AccountPurgeSweepServiceTest {
         verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
     }
 
+    /** The failure's own audit write is bookkeeping, never a second way for the pass to fail: if
+     *  it throws (database gone mid-pass), the next candidate is still attempted and the result
+     *  still counts the failure. */
+    @Test
+    void sweep_failureAuditWriteThrowing_doesNotEndThePass() {
+        UUID failingUserId = UUID.randomUUID();
+        UUID succeedingUserId = UUID.randomUUID();
+        User failing = pendingDeletionUser();
+        ReflectionTestUtils.setField(failing, "id", failingUserId);
+        User succeeding = pendingDeletionUser();
+        ReflectionTestUtils.setField(succeeding, "id", succeedingUserId);
+
+        when(userRepository.findIdsByStatusAndDeletionRequestedAtBefore(eq(User.STATUS_PENDING_DELETION), any(), any(PageRequest.class)))
+                .thenReturn(List.of(failingUserId, succeedingUserId));
+        when(userRepository.findById(failingUserId)).thenReturn(java.util.Optional.of(failing));
+        when(userRepository.findById(succeedingUserId)).thenReturn(java.util.Optional.of(succeeding));
+        doThrow(new RuntimeException("boom")).when(gmailConnectionService).disconnect(failingUserId, failingUserId);
+        doThrow(new IllegalStateException("database away"))
+                .when(auditService).record(eq(failingUserId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(failingUserId), any());
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(failing.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
+        assertThat(succeeding.getStatus()).isEqualTo(User.STATUS_DELETED);
+    }
+
     @Test
     void sweep_onePurgeFailure_doesNotBlockTheRestOfTheBatch() {
         UUID failingUserId = UUID.randomUUID();

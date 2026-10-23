@@ -1151,6 +1151,88 @@ export const insightsApi = {
     api.post<void>('/insights/acknowledgements', { kind, itemKey }).then((r) => r.data),
 };
 
+// ---- AI insights (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §8.1). Every
+// refusal comes back as rules text or "none", never an error; months are "YYYY-MM", omitted = the
+// newest reporting month. Each shape is checked against the generated API types below.
+
+/** "ready": `text` to show (AI or rules). "none": nothing to show, keep today's line. "generating":
+ *  another request is writing it, ask again shortly. */
+export type AiTextStatus = 'ready' | 'none' | 'generating';
+export interface AiStory {
+  status: AiTextStatus;
+  /** The stored text's id, for thumbs; null on rules text and "none". */
+  id: string | null;
+  text: string | null;
+  writtenByAi: boolean;
+  /** What the text compares against, written by the server ("Compared with your usual month (Jul–Sep)"). */
+  basis: string | null;
+  /** POST /story is worth calling. */
+  canGenerate: boolean;
+}
+export interface AiWhy {
+  status: AiTextStatus;
+  id: string | null;
+  text: string | null;
+  writtenByAi: boolean;
+  basis: string | null;
+  /** "Why?" answers a Free user has left this month; null on Plus and Premium. */
+  freeLeftThisMonth: number | null;
+}
+/** One "To look at" row as the server builds it (LookAtRowDto); each kind fills only its own fields. */
+export interface LookAtServerRow {
+  kind: 'card-statement' | 'people' | 'new-recurring' | 'amount-changed' | 'running-high';
+  key: string;
+  ackKind: AckKind | null;
+  ackItemKey: string | null;
+  month: string | null;
+  total: number | null;
+  count: number | null;
+  cardName: string | null;
+  cardLast4: string | null;
+  people: PeopleSuggestion | null;
+  recurring: RecurringItem | null;
+  merchant: string | null;
+  category: string | null;
+  latestAmount: number | null;
+  latestDate: string | null;
+  current: number | null;
+  priorAverage: number | null;
+  whyAvailable: boolean | null;
+}
+export interface LookAtResponse {
+  rows: LookAtServerRow[];
+  orderedByAi: boolean;
+}
+export type AiFeedbackRating = 'HELPFUL' | 'NOT_HELPFUL';
+export type AiFeedbackReason = 'WRONG_NUMBER' | 'NOT_USEFUL' | 'CONFUSING';
+
+const _aiInsightShapesMatchTheServer: [
+  FieldsOf<AiStory, GeneratedSchemas['StoryDto']>,
+  FieldsOf<AiWhy, GeneratedSchemas['WhyDto']>,
+  FieldsOf<LookAtServerRow, GeneratedSchemas['LookAtRowDto']>,
+  FieldsOf<LookAtResponse, GeneratedSchemas['LookAtDto']>,
+  FieldsOf<RecurringItem, GeneratedSchemas['RecurringDto']>,
+] = [true, true, true, true, true];
+void _aiInsightShapesMatchTheServer;
+
+export const aiInsightsApi = {
+  /** Reads only; never makes the server call the model. */
+  story: (month?: string) =>
+    api.get<AiStory>('/insights/story', { params: month ? { month } : {} }).then((r) => r.data),
+  /** Writes the story if it may. Idempotent: a repeat returns the stored or in-progress text. */
+  generateStory: (month?: string) =>
+    api.post<AiStory>('/insights/story', { month }).then((r) => r.data),
+  /** "To look at", in the order to show it. */
+  lookAt: (month?: string) =>
+    api.get<LookAtResponse>('/insights/look-at', { params: month ? { month } : {} }).then((r) => r.data),
+  /** "Why?" on a running-high row, by the row's "Got it" kind and key. Idempotent per row. */
+  why: (kind: AckKind, itemKey: string, month?: string) =>
+    api.post<AiWhy>('/insights/look-at/why', { kind, itemKey, month }).then((r) => r.data),
+  /** Thumbs on an AI text: null clears it; a reason goes only with NOT_HELPFUL. */
+  feedback: (id: string, rating: AiFeedbackRating | null, reason: AiFeedbackReason | null) =>
+    api.patch<void>(`/insights/ai-texts/${id}/feedback`, { rating, reason }).then(() => undefined),
+};
+
 // ---- Shared payments and loans (docs/superpowers/specs/2026-10-18-shared-payments-and-loans-design.md).
 // Amounts are rupees; dates are "YYYY-MM-DD". Each shape is checked against the generated API types
 // below, so a field renamed on the server fails the type check here.

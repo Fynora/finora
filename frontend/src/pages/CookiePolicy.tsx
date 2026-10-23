@@ -65,8 +65,10 @@ export default function CookiePolicy() {
           A few things on the site load from other companies' servers rather than ours: the website's
           typefaces (Google Fonts) on every page; the "Sign in with Google" and "Sign in with Apple"
           scripts on the sign-in and sign-up screens, and Google's again when a Google account
-          re-confirms its identity (for example, before deleting the account); and Razorpay's checkout
-          script, only when you start a payment. Loading them sends that company your IP address and
+          re-confirms its identity (for example, before deleting the account); bank and merchant logos
+          from Logo.dev, on pages that show your accounts or transactions, where the request also names
+          the bank's web address or the merchant; and Razorpay's checkout script, only when you start a
+          payment. Loading them sends that company your IP address and
           browser details, and it may apply its own cookies to those requests under its own privacy
           policy. Fynora does not set, read, or receive any of those cookies. To make the Google button
           appear faster, every page also opens a connection to Google's sign-in server in advance; that

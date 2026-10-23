@@ -87,6 +87,25 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/three or more users but no shared\s+suggestion, currently have no scheduled deletion date/i);
   });
 
+  // SmsProperties / TwoFactorSmsProvider.sendTransactionAlert: 2Factor sends only the alert for a
+  // hand-added transaction (TransactionService.doSendTransactionAlert, verified phone only), and
+  // phone-verification codes go through Firebase Phone Authentication.
+  it('describes TwoFactor as transaction alerts, not verification codes', () => {
+    const t = policyText();
+    expect(t).not.toMatch(/SMS\/OTP delivery for phone verification/i);
+    expect(t).toMatch(/TwoFactor\s*—\s*SMS alerts for transactions you add by hand, sent only to a verified phone number/i);
+    expect(t).toMatch(/the amount, whether it was debited or credited, and the description you typed/i);
+    expect(t).toMatch(/phone-verification codes are sent by Firebase Authentication, not TwoFactor/i);
+  });
+
+  // BankLogo and MerchantLogo request img.logo.dev from the browser with the bank's domain or the
+  // merchant name in the URL, whenever VITE_LOGODEV_TOKEN is set (it is in the production build).
+  it('lists Logo.dev and what a logo request sends', () => {
+    const t = policyText();
+    expect(t).toMatch(/Logo\.dev\s*—\s*bank and merchant logos on the website/i);
+    expect(t).toMatch(/the bank's web address or the merchant name shown on the page, along with your IP address/i);
+  });
+
   it('lists Anthropic as a provider, and covers AI features in the cross-border note', () => {
     const t = policyText();
     expect(t).toMatch(/Anthropic\s*—\s*the AI service behind Ask Fyn/i);

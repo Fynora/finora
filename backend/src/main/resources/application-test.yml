@@ -173,6 +173,13 @@ app:
     redaction:
       enabled: false
 
+  # A background thread giving test-planted cache locks an expiry mid-test would race
+  # CacheLockExpiryIT's own assertions. That test calls CacheLockExpiry.expireLocksLeftWithoutOne()
+  # directly, which does not consult this flag; the startup check still runs.
+  cache:
+    lock-repair:
+      enabled: false
+
   # Short enough that an integration test with an unreachable scanner does not sit out the
   # production 25 s, long enough that UploadScanGateIT can watch a scanner wake on its second try.
   malware-scan:

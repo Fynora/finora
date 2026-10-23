@@ -169,10 +169,13 @@ public class CacheConfig implements CachingConfigurer {
         // never reached Redis -- a timed-out command (this client's timeout is 200 ms), or the
         // process stopping mid-load -- left every later read of that cache hanging for good,
         // each holding its request's database connection. That took production down on
-        // 2026-10-23 (feature flags; RecurringService.detectForUser checks one first). Every load
-        // behind these caches is one short query, so 5 s is far past a real load; a load slower
-        // than that only lets a second caller load the same value too. CacheLockExpiry fixes up
-        // a lock an older build left behind.
+        // 2026-10-23 (feature flags; RecurringService.detectForUser checks one first). The lock is
+        // per cache, not per key, and every read of the cache waits on it, hits included -- so
+        // this expiry is also the longest any read can wait. Every load behind these caches is a
+        // short database read, so 5 s is far past a real one. A load slower than that lets a
+        // second caller load too, and the first one's unlock then removes the second's lock
+        // (Spring Data Redis does not check who owns it): more loads at once, never a hang.
+        // CacheLockExpiry gives an expiry to a lock an older build left without one.
         RedisCacheWriter writer = RedisCacheWriter.lockingRedisCacheWriter(connectionFactory, Duration.ofMillis(50),
                 RedisCacheWriter.TtlFunction.just(CACHE_LOCK_TTL), BatchStrategies.keys());
 

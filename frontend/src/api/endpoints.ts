@@ -1682,8 +1682,8 @@ export interface AdvancedMerchant {
   changeAmount: number | null;
   changePct: number | null;
   monthly: number[];
-  /** Any of the period's payments to this merchant went to a person: never look its name up on Logo.dev. */
-  person: boolean;
+  /** The web address to ask Logo.dev for (server MerchantBrands); null means initials, no request. */
+  logoDomain: string | null;
 }
 export interface AdvancedMerchants {
   rows: AdvancedMerchant[];

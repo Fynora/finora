@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Dimensions, StyleSheet } from 'react-native';
-import { MerchantLogo, logoSourceFor } from '../MerchantLogo';
+import { MerchantLogo, logoDevUrl } from '../MerchantLogo';
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fixtureReport } from '../../lib/advancedReports/testFixtures';
@@ -20,7 +20,7 @@ const wrap = (node: ReactNode) => render(
 const open = jest.fn();
 /** The Logo.dev URL a rendered MerchantLogo would request with a token configured, or null. */
 const lookedUp = (p: Record<string, unknown>) =>
-  logoSourceFor(String(p.merchant), 64, 'test-token', p.person === true, p.lookup !== false);
+  logoDevUrl((p.domain ?? null) as string | null, 64, 'test-token');
 const colorOf = (node: { props: { style?: unknown } }) => (StyleSheet.flatten(node.props.style as never) as { color?: string }).color;
 beforeEach(() => open.mockClear());
 
@@ -119,20 +119,22 @@ describe('MerchantList', () => {
     expect(screen.queryByTestId('merchant-coverage')).toBeNull();
   });
 
-  // A payment to a friend gets a merchant id like any other row, so a friend can rank here under
-  // their own name. The row's `person` flag must reach MerchantLogo, or the name goes to Logo.dev.
-  it('never looks a person up on Logo.dev, and still looks a business up', () => {
+  // A friend or a small vendor can rank here under their own name (every payment gets a merchant
+  // id). Logo.dev is asked only by the row's `logoDomain`, so a name never reaches it.
+  it('asks Logo.dev only by the row\'s address, never with a name', () => {
     const spy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
     try {
       const base = fixtureReport();
       wrap(<MerchantList report={fixtureReport({ merchants: { ...base.merchants, rows: [
-        { ...base.merchants.rows[0], merchantId: 'm1', name: 'Amazon', person: false },
-        { ...base.merchants.rows[1], merchantId: 'm2', name: 'Sample Person', person: true },
+        { ...base.merchants.rows[0], merchantId: 'm1', name: 'Amazon', logoDomain: 'amazon.in' },
+        { ...base.merchants.rows[1], merchantId: 'm2', name: 'Sample Person', logoDomain: null },
+        { ...base.merchants.rows[1], merchantId: 'm3', name: 'Sample Vendor Name', logoDomain: null },
       ] } })} onOpen={open} />);
       const looked = screen.UNSAFE_getAllByType(MerchantLogo).map((l) => ({ name: l.props.merchant, url: lookedUp(l.props) }));
       expect(looked).toEqual([
-        { name: 'Amazon', url: expect.stringContaining('img.logo.dev/name/Amazon') },
+        { name: 'Amazon', url: expect.stringContaining('img.logo.dev/amazon.in?') },
         { name: 'Sample Person', url: null },
+        { name: 'Sample Vendor Name', url: null },
       ]);
     } finally {
       spy.mockRestore();

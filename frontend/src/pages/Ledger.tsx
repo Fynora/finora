@@ -865,7 +865,7 @@ export default function Ledger() {
                     </td>
                     <td className="p-3">
                       <div className="flex items-start gap-2">
-                        <MerchantLogo merchant={t.merchant} size={28} person={t.counterpartyType === 'PERSON'} />
+                        <MerchantLogo merchant={t.merchant} domain={t.logoDomain} size={28} />
                         <div className="min-w-0">
                           <p className="text-ink font-medium truncate">{t.merchant || t.description}</p>
                           <p className="text-muted text-xs truncate">

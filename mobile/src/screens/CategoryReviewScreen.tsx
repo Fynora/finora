@@ -247,10 +247,10 @@ export function CategoryReviewScreen() {
   }
 
   // A logo, as the Ledger's rows have. Left out at large text sizes, as there, to give the words
-  // the width. `lookup` is false when `name` is bank narration standing in for a merchant name:
-  // that text is never sent to Logo.dev (see MerchantLogo).
-  const logo = (name: string, person: boolean, lookup = true) => (largeText ? null : (
-    <MerchantLogo merchant={name || '?'} size={LOGO_SIZE} person={person} lookup={lookup && !!name} style={styles.logo} />
+  // the width. Only the server's `logoDomain` is ever sent to Logo.dev (see MerchantLogo); `name`
+  // is shown as initials.
+  const logo = (name: string, domain: string | null | undefined) => (largeText ? null : (
+    <MerchantLogo merchant={name || '?'} domain={domain ?? null} size={LOGO_SIZE} style={styles.logo} />
   ));
   const chevron = <Ionicons name="chevron-forward" size={16} color={c.mutedInk} />;
 
@@ -316,7 +316,7 @@ export function CategoryReviewScreen() {
                   accessibilityLabel={`${g.merchantName}, ${g.transactionIds.length} transactions`}
                   accessibilityHint="Opens the category picker for every transaction from this merchant"
                 >
-                  {logo(g.merchantName, g.person === true)}
+                  {logo(g.merchantName, g.logoDomain)}
                   <View style={styles.rowMain}>
                     <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                       {g.merchantName}
@@ -359,7 +359,7 @@ export function CategoryReviewScreen() {
                     accessibilityHint="Opens the category picker for every transaction with this counterparty"
                   >
                     {/* The label is the latest row's bank narration (TransactionGroupingService), not a name. */}
-                    {logo(g.label, g.counterpartyType === 'PERSON', false)}
+                    {logo(g.label, null)}
                     <View style={styles.rowMain}>
                       <View style={styles.counterpartyTitleRow}>
                         <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
@@ -445,7 +445,7 @@ export function CategoryReviewScreen() {
                   )}, ${fmtDate(t.date) ?? t.date}${t.categoryName ? `, now ${t.categoryName}` : ''}`}
                   accessibilityHint="Opens the category picker for this transaction"
                 >
-                  {logo(t.merchant || t.description, t.counterpartyType === 'PERSON', !!t.merchant)}
+                  {logo(t.merchant || t.description, t.logoDomain)}
                   {/* Titled, dated and signed as the Ledger's rows are (rowTitle, LedgerDayCard):
                       the bank's raw narration and an ISO date read as noise, and without a sign a
                       salary credit looked exactly like a purchase. */}

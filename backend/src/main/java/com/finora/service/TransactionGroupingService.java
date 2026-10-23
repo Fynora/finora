@@ -7,6 +7,7 @@ import com.finora.repository.MerchantRepository;
 import com.finora.repository.TransactionRepository;
 import com.finora.util.CounterpartyIdentity;
 import com.finora.util.CounterpartyType;
+import com.finora.util.MerchantBrands;
 import com.finora.util.MerchantNames;
 import org.springframework.stereotype.Service;
 
@@ -99,9 +100,13 @@ public class TransactionGroupingService {
      * expansion (Ledger's MerchantGroupReviewCard). The two are never allowed to disagree: both are
      * derived from the same {@code List<Transaction>} per merchant in one pass below, not built
      * from two separate queries that could drift apart.
+     *
+     * <p>{@code logoDomain} is the web address the apps may ask Logo.dev for (MerchantBrands): null
+     * unless the name is a listed brand, and null when any payment in the group went to a person. The
+     * apps never send a name to Logo.dev.
      */
     public record MerchantGroup(UUID merchantId, String merchantName, List<UUID> transactionIds,
-                                 List<TransactionSummary> transactions, boolean person) {}
+                                 List<TransactionSummary> transactions, String logoDomain) {}
 
     public List<MerchantGroup> groupNeedsReviewByMerchant(UUID userId) {
         List<Transaction> candidates = needsReviewCandidates(userId);
@@ -140,9 +145,9 @@ public class TransactionGroupingService {
                     txns.stream().map(Transaction::getId).toList(),
                     txns.stream().map(TransactionSummary::from).toList(),
                     // A payment to a friend gets a merchant id like any other row, so a group can
-                    // be a person. Any person-typed row is enough: the apps then never look the
-                    // name up on Logo.dev.
-                    txns.stream().anyMatch(t -> t.getCounterpartyType() == CounterpartyType.PERSON)));
+                    // be a person: any person-typed row means no logo address at all.
+                    txns.stream().anyMatch(t -> t.getCounterpartyType() == CounterpartyType.PERSON)
+                            ? null : MerchantBrands.domainFor(shownName)));
         }
 
         groups.sort((a, b) -> b.transactionIds().size() - a.transactionIds().size());

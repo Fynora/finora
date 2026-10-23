@@ -76,7 +76,12 @@ public record TransactionDto(
          *  marks the row, because it repeats part of an earlier purchase that spending totals also
          *  count when that purchase is in the ledger. Read from the row's own words each time, not
          *  stored, so it follows an edited description. */
-        boolean cardInstalment
+        boolean cardInstalment,
+        /** The web address the apps may ask Logo.dev for, from
+         *  {@link com.finora.util.MerchantBrands}: null for a merchant label that is not a listed
+         *  brand, for a payment to a person, and for a row with no merchant label. The apps never
+         *  send a name or narration to Logo.dev. */
+        String logoDomain
 ) {
     public static TransactionDto from(Transaction t, String categoryName) {
         return new TransactionDto(t.getId(), t.getAccountId(), t.getCategoryId(), categoryName, t.getTxnDate(),
@@ -92,7 +97,9 @@ public record TransactionDto(
                 t.isInternational(), t.getForeignCurrency(), t.getForeignAmount(),
                 t.isTransfer() && t.getTransferPairId() == null,
                 t.getReferenceNumber(), t.getBalanceAfter(),
-                com.finora.util.BankActivityCategory.isCardInstalment(t.getDescription(), t.getTxnType()));
+                com.finora.util.BankActivityCategory.isCardInstalment(t.getDescription(), t.getTxnType()),
+                t.getCounterpartyType() == com.finora.util.CounterpartyType.PERSON ? null
+                        : com.finora.util.MerchantBrands.domainFor(t.getMerchant()));
     }
 
     // Bug fix: neither request record had any Bean Validation at all, and TransactionController's

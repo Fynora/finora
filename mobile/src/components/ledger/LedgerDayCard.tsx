@@ -61,7 +61,7 @@ const LedgerRow = memo(function LedgerRow({ t, deleting, divider, largeText, onO
       style={[styles.row, divider && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
     >
       {largeText ? null : (
-        <MerchantLogo merchant={t.merchant || t.description || '?'} size={40} person={t.counterpartyType === 'PERSON'} lookup={!!t.merchant} />
+        <MerchantLogo merchant={t.merchant || t.description || '?'} domain={t.logoDomain} size={40} />
       )}
       <View style={styles.rowMain}>
         <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? undefined : 1}>

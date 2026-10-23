@@ -196,66 +196,77 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void advanced_marksAMerchantPaidToAPersonOnTheWire_soTheWebsiteNeverLooksTheNameUp() throws Exception {
-        // The website's Top merchants looks each name up on Logo.dev unless the row says `person`.
-        // This checks the flag survives the database, the service and the JSON, not just the service.
+    void advanced_givesALogoAddressOnTheWireOnlyForAListedBrand() throws Exception {
+        // The apps ask Logo.dev only for `logoDomain`, an address from MerchantBrands. This checks it
+        // survives the database, the service and the JSON: a brand gets its address, a person and a
+        // vendor's own name get null.
         User user = plusUser();
-        Account account = new Account();
-        account.setUserId(user.getId());
-        account.setName("Advanced IT Person Savings");
-        account.setAccountType(Account.Type.SAVINGS);
-        account.setBalance(BigDecimal.ZERO);
-        account.setAccountHolderName("Analytics IT Test User");
-        UUID accountId = accountRepository.save(account).getId();
+        UUID accountId = account(user, "Advanced IT Logo Savings");
         UUID friend = merchant(user, "Analytics IT Sample Person");
-        UUID shop = merchant(user, "Analytics IT Sample Shop");
+        UUID brand = merchant(user, "Zomato");
+        UUID vendor = merchant(user, "Analytics IT Sample Vendor");
         // Whole months (first and last day) so the report has complete months to show.
         for (YearMonth m = YearMonth.of(2026, 6); !m.isAfter(YearMonth.of(2026, 9)); m = m.plusMonths(1)) {
             persistToMerchant(user, accountId, m.atDay(1), "700.00", friend, CounterpartyType.PERSON);
-            persistToMerchant(user, accountId, m.atEndOfMonth(), "500.00", shop, CounterpartyType.BUSINESS);
+            persistToMerchant(user, accountId, m.atDay(2), "600.00", brand, CounterpartyType.BUSINESS);
+            persistToMerchant(user, accountId, m.atEndOfMonth(), "500.00", vendor, CounterpartyType.BUSINESS);
         }
 
         ResponseEntity<String> response = get("/api/v1/analytics/advanced?range=LAST_3_MONTHS", user);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode rows = mapper.readTree(response.getBody()).get("data").get("merchants").get("rows");
-        assertThat(rows).hasSize(2);
+        assertThat(rows).hasSize(3);
         assertThat(rows.get(0).get("name").asText()).isEqualTo("Analytics IT Sample Person");
-        assertThat(rows.get(0).get("person").isBoolean()).isTrue();
-        assertThat(rows.get(0).get("person").asBoolean()).isTrue();
-        assertThat(rows.get(1).get("name").asText()).isEqualTo("Analytics IT Sample Shop");
-        assertThat(rows.get(1).get("person").asBoolean()).isFalse();
+        assertThat(rows.get(0).get("logoDomain").isNull()).isTrue();
+        assertThat(rows.get(1).get("name").asText()).isEqualTo("Zomato");
+        assertThat(rows.get(1).get("logoDomain").asText()).isEqualTo("zomato.com");
+        assertThat(rows.get(2).get("name").asText()).isEqualTo("Analytics IT Sample Vendor");
+        assertThat(rows.get(2).get("logoDomain").isNull()).isTrue();
     }
 
     @Test
-    void needsReviewMerchantGroups_markAGroupPaidToAPersonOnTheWire() throws Exception {
-        // The mobile review screen looks a merchant group's name up on Logo.dev unless the group
-        // says `person`; this checks the flag survives the database, the service and the JSON.
+    void needsReviewGroupsAndTransactions_giveALogoAddressOnTheWireOnlyForAListedBrand() throws Exception {
         User user = plusUser();
+        UUID accountId = account(user, "Review IT Logo Savings");
+        UUID friend = merchant(user, "Review IT Sample Person");
+        UUID brand = merchant(user, "Swiggy");
+        UUID vendor = merchant(user, "Review IT Sample Vendor");
+        for (int day = 1; day <= 2; day++) {
+            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "300.00", friend, CounterpartyType.PERSON, true);
+            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "250.00", brand, CounterpartyType.BUSINESS, true);
+            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "200.00", vendor, CounterpartyType.BUSINESS, true);
+        }
+
+        ResponseEntity<String> groups = get("/api/v1/transactions/groups/needs-review", user);
+        assertThat(groups.getStatusCode()).isEqualTo(HttpStatus.OK);
+        java.util.Map<String, String> groupDomain = new java.util.HashMap<>();
+        for (JsonNode g : mapper.readTree(groups.getBody()).get("data")) {
+            assertThat(g.has("logoDomain")).isTrue();
+            groupDomain.put(g.get("merchantName").asText(), g.get("logoDomain").isNull() ? null : g.get("logoDomain").asText());
+        }
+        assertThat(groupDomain).containsEntry("Review IT Sample Person", null).containsEntry("Swiggy", "swiggy.com")
+                .containsEntry("Review IT Sample Vendor", null);
+
+        ResponseEntity<String> list = get("/api/v1/transactions?accountId=" + accountId, user);
+        assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
+        java.util.Map<String, String> rowDomain = new java.util.HashMap<>();
+        for (JsonNode t : mapper.readTree(list.getBody()).get("data").get("content")) {
+            assertThat(t.has("logoDomain")).isTrue();
+            rowDomain.put(t.get("merchant").asText(), t.get("logoDomain").isNull() ? null : t.get("logoDomain").asText());
+        }
+        assertThat(rowDomain).containsEntry("Review IT Sample Person", null).containsEntry("Swiggy", "swiggy.com")
+                .containsEntry("Review IT Sample Vendor", null);
+    }
+
+    private UUID account(User user, String name) {
         Account account = new Account();
         account.setUserId(user.getId());
-        account.setName("Review IT Person Savings");
+        account.setName(name);
         account.setAccountType(Account.Type.SAVINGS);
         account.setBalance(BigDecimal.ZERO);
         account.setAccountHolderName("Analytics IT Test User");
-        UUID accountId = accountRepository.save(account).getId();
-        UUID friend = merchant(user, "Review IT Sample Person");
-        UUID shop = merchant(user, "Review IT Sample Shop");
-        for (int day = 1; day <= 2; day++) {
-            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "300.00", friend, CounterpartyType.PERSON, true);
-            persistToMerchant(user, accountId, LocalDate.of(2026, 9, day), "200.00", shop, CounterpartyType.BUSINESS, true);
-        }
-
-        ResponseEntity<String> response = get("/api/v1/transactions/groups/needs-review", user);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        java.util.Map<String, Boolean> personByName = new java.util.HashMap<>();
-        for (JsonNode g : mapper.readTree(response.getBody()).get("data")) {
-            assertThat(g.get("person").isBoolean()).isTrue();
-            personByName.put(g.get("merchantName").asText(), g.get("person").asBoolean());
-        }
-        assertThat(personByName).containsEntry("Review IT Sample Person", true)
-                .containsEntry("Review IT Sample Shop", false);
+        return accountRepository.save(account).getId();
     }
 
     private UUID merchant(User user, String name) {
@@ -282,6 +293,8 @@ class AnalyticsControllerIT extends AbstractIntegrationTest {
         t.setReconciliationStatus(Transaction.ReconciliationStatus.OK);
         t.setMerchantId(merchantId);
         t.setCounterpartyType(counterparty);
+        // The label the importer stores beside the merchant id; the transaction list reads it.
+        t.setMerchant(merchantRepository.findById(merchantId).orElseThrow().getCanonicalName());
         t.setNeedsCategoryReview(needsReview);
         transactionRepository.save(t);
     }

@@ -132,12 +132,13 @@ public record AdvancedReportDto(
                                     int merchantCount) {}
 
     /** {@code sharePct} is of the period's total spending. The comparison fields follow
-     *  {@link AdvancedCategory}. {@code person} is true when any of the period's payments to this
-     *  merchant went to a person (a transfer to a friend gets a merchant id like any other row), so
-     *  a client never looks the name up on a logo service. */
+     *  {@link AdvancedCategory}. {@code logoDomain} is the web address the apps may ask Logo.dev for
+     *  (MerchantBrands): null unless the name is a listed brand, and null when any of the period's
+     *  payments to this merchant went to a person (a transfer to a friend gets a merchant id like any
+     *  other row). The apps never send a name to Logo.dev. */
     public record AdvancedMerchant(UUID merchantId, String name, BigDecimal amount, double sharePct,
                                    int transactionCount, BigDecimal previousAmount, BigDecimal changeAmount,
-                                   Double changePct, List<BigDecimal> monthly, boolean person) {}
+                                   Double changePct, List<BigDecimal> monthly, String logoDomain) {}
 
     /**
      * @param sources            income by what it was (the user's kind, or the automatic reading), largest first

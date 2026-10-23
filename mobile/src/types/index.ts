@@ -140,6 +140,9 @@ export interface Transaction {
   // Display only: the row is marked (lib/cardInstalment.ts) and no total reads it. Absent from a
   // server that predates it, which reads as "not marked". Mirrors frontend/src/types/index.ts.
   cardInstalment?: boolean;
+  // The web address to ask Logo.dev for, chosen by the server from its brand list (MerchantBrands).
+  // Null or absent means initials and no request: a name is never sent to Logo.dev.
+  logoDomain?: string | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see
@@ -217,9 +220,9 @@ export interface MerchantGroup {
   merchantId: string;
   merchantName: string;
   transactionIds: string[];
-  /** Any payment in the group went to a person: the name is never looked up on Logo.dev. Optional
-   *  because a server from before the flag sends none, which reads as not a person. */
-  person?: boolean;
+  /** The web address to ask Logo.dev for (server MerchantBrands): null unless the name is a listed
+   *  brand with no payment to a person. Absent from an older server, which means no request. */
+  logoDomain?: string | null;
 }
 
 /** A preview row inside a MerchantGroup/CounterpartyGroup -- enough to show what's in the group

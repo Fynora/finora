@@ -83,35 +83,41 @@ class TransactionGroupingServiceTest {
 
     /**
      * A payment to a friend gets a merchant id like any other row, so a merchant group can be a
-     * person. The mobile review screen looks a group's name up on Logo.dev unless the group says it
-     * is a person; one person-typed row is enough.
+     * person or a small vendor's own name. The apps ask Logo.dev only for an address from
+     * MerchantBrands; any person-typed row in the group means no address, even under a brand name.
      */
     @Test
-    void aGroupWithAnyPaymentToAPersonSaysSo() {
-        UUID friendId = UUID.randomUUID();
-        UUID shopId = UUID.randomUUID();
-        Transaction toFriend = txnFor(friendId);
+    void aGroupCarriesALogoAddressOnlyForAListedBrandWithNoPaymentToAPerson() {
+        UUID personUnderBrandId = UUID.randomUUID();
+        UUID brandId = UUID.randomUUID();
+        UUID vendorId = UUID.randomUUID();
+        Transaction toFriend = txnFor(personUnderBrandId);
         toFriend.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
-        Transaction untyped = txnFor(friendId);
-        Transaction shop1 = txnFor(shopId);
-        shop1.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
-        Transaction shop2 = txnFor(shopId);
+        Transaction untyped = txnFor(personUnderBrandId);
+        Transaction brand1 = txnFor(brandId);
+        brand1.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Transaction brand2 = txnFor(brandId);
+        Transaction vendor1 = txnFor(vendorId);
+        vendor1.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Transaction vendor2 = txnFor(vendorId);
 
         TransactionRepository transactionRepository = mock(TransactionRepository.class);
         when(transactionRepository.findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(eq(userId), any()))
-                .thenReturn(List.of(toFriend, untyped, shop1, shop2));
+                .thenReturn(List.of(toFriend, untyped, brand1, brand2, vendor1, vendor2));
         MerchantRepository merchantRepository = mock(MerchantRepository.class);
         when(merchantRepository.findByUserId(userId)).thenReturn(List.of(
-                merchantOf(friendId, "Sample Person"), merchantOf(shopId, "Sample Shop")));
+                merchantOf(personUnderBrandId, "Zomato"), merchantOf(brandId, "Swiggy"),
+                merchantOf(vendorId, "Sample Vendor Name")));
 
         TransactionGroupingService service = new TransactionGroupingService(transactionRepository, merchantRepository, accountRepositoryWithOneLiveAccount());
         List<TransactionGroupingService.MerchantGroup> groups = service.groupNeedsReviewByMerchant(userId);
 
         assertThat(groups).extracting(TransactionGroupingService.MerchantGroup::merchantName,
-                        TransactionGroupingService.MerchantGroup::person)
+                        TransactionGroupingService.MerchantGroup::logoDomain)
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple("Sample Person", true),
-                        org.assertj.core.groups.Tuple.tuple("Sample Shop", false));
+                        org.assertj.core.groups.Tuple.tuple("Zomato", null),
+                        org.assertj.core.groups.Tuple.tuple("Swiggy", "swiggy.com"),
+                        org.assertj.core.groups.Tuple.tuple("Sample Vendor Name", null));
     }
 
     /**

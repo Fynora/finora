@@ -783,7 +783,8 @@ if they disagree — nothing at runtime would notice, the OS would simply stop d
 
 **Claimed, exactly:** `/verify-email`, `/email-change-verify`, `/verify-phone`, `/register`,
 `/reset-password`, `/app/settings`. **Claimed with everything beneath it:** `/app/imports` (the link
-carries a job id).
+carries a job id) and `/app/support` (the ticket acknowledgement email links to
+`/app/support/<ticket id>`).
 Claim exactly what the backend emails and no wider, and only where the app does something sensible with
 it: a broader claim diverts links the app can't route specifically — e.g. a deeper
 `/app/settings/bank-sync/<id>/confirm` would open the app at the Settings root and lose its target,

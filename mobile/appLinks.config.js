@@ -40,9 +40,10 @@ const APP_LINK_EXACT_PATHS = [
 ];
 
 /**
- * Matched as a prefix (Android `pathPrefix`; iOS the path and `path/*`). Only for the one link that
- * carries an id: `/app/imports/<jobId>`.
+ * Matched as a prefix (Android `pathPrefix`; iOS the path and `path/*`). Only for the links that
+ * carry an id: `/app/imports/<jobId>` and `/app/support/<ticketId>` (the support-ticket
+ * acknowledgement email's "View your request" button, which useAppPathDeepLink opens on the ticket).
  */
-const APP_LINK_PATH_PREFIXES = ['/app/imports'];
+const APP_LINK_PATH_PREFIXES = ['/app/imports', '/app/support'];
 
 module.exports = { APP_LINK_HOSTS, APP_LINK_EXACT_PATHS, APP_LINK_PATH_PREFIXES };

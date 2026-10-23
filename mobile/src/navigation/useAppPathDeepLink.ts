@@ -7,17 +7,28 @@ import type { RootParamList } from './types';
 // See createLaunchUrlGuard: a remount (RootErrorBoundary "Try again") must not replay the launch link.
 const isFirstLaunchDelivery = createLaunchUrlGuard();
 
-export type AppPathRoute = 'Settings' | 'SettingsGeneral' | 'Statements';
+/** A screen in the More stack that needs nothing but its name to open. */
+export type AppPathRoute = 'Settings' | 'SettingsGeneral' | 'Statements' | 'SupportTickets';
+
+/** Where an emailed link lands: a plain More-stack screen, or one support ticket by id. */
+export type AppPathTarget =
+  | { screen: AppPathRoute }
+  | { screen: 'SupportTicketDetail'; ticketId: string };
+
+// Ticket ids are UUIDs (SupportTicket extends BaseEntity). Anything else under /app/support/ is not a
+// link the backend emails, so it is ignored rather than opened as a ticket that cannot exist.
+const TICKET_PATH = /^\/app\/support\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /**
  * Where an emailed web-app link lands in the app: the security alert links to /app/settings (a
- * FINANCIAL email's opt-out link to /app/settings?tab=notifications, which opens General) and
- * the statement-import emails to /app/imports/<jobId>. The app has no per-job screen, so every
- * import link goes to Statement History, which is where a finished or held import is listed (the
- * same destination a tapped IMPORT_STATEMENT_* push already uses). /app/billing is not here on
- * purpose -- see APP_LINK_PATH_PREFIXES in appLinks.config.js.
+ * FINANCIAL email's opt-out link to /app/settings?tab=notifications, which opens General), the
+ * statement-import emails to /app/imports/<jobId>, and the support-ticket acknowledgement email to
+ * /app/support/<ticketId>. The app has no per-job screen, so every import link goes to Statement
+ * History, which is where a finished or held import is listed (the same destination a tapped
+ * IMPORT_STATEMENT_* push already uses). A ticket does have its own screen, so that link opens it.
+ * /app/billing is not here on purpose -- see APP_LINK_PATH_PREFIXES in appLinks.config.js.
  */
-export function parseAppPathDeepLink(url: string): AppPathRoute | null {
+export function parseAppPathDeepLink(url: string): AppPathTarget | null {
   const link = parseAppLink(url);
   if (!link) return null;
   // Exact, matching what is claimed: a deeper settings page has no mapping here, so it is ignored
@@ -26,9 +37,14 @@ export function parseAppPathDeepLink(url: string): AppPathRoute | null {
   // .NOTIFICATION_SETTINGS_PATH). On mobile those switches live in General, not on the Settings
   // list, so land there directly rather than one tap short of the switch the email promised.
   if (link.path === '/app/settings') {
-    return link.params.tab === 'notifications' ? 'SettingsGeneral' : 'Settings';
+    return { screen: link.params.tab === 'notifications' ? 'SettingsGeneral' : 'Settings' };
   }
-  if (pathIsUnder(link.path, '/app/imports')) return 'Statements';
+  if (pathIsUnder(link.path, '/app/imports')) return { screen: 'Statements' };
+  // The list for the bare path (the web's "My Tickets"); one ticket for /app/support/<id>. Anything
+  // deeper, or an id that is not a UUID, is not a link the backend emails.
+  if (link.path === '/app/support') return { screen: 'SupportTickets' };
+  const ticket = TICKET_PATH.exec(link.path);
+  if (ticket) return { screen: 'SupportTicketDetail', ticketId: ticket[1] };
   return null;
 }
 
@@ -47,24 +63,28 @@ export function useAppPathDeepLink(
   ready: boolean,
   signedIn: boolean,
 ) {
-  const pendingRef = useRef<AppPathRoute | null>(null);
+  const pendingRef = useRef<AppPathTarget | null>(null);
   const readyRef = useRef(ready);
   const wasSignedInRef = useRef(signedIn);
 
   const tryConsume = useCallback(() => {
     if (!readyRef.current) return;
     if (!navigationRef.current || !navigationRef.isReady()) return;
-    const route = pendingRef.current;
-    if (!route) return;
+    const target = pendingRef.current;
+    if (!target) return;
     pendingRef.current = null;
-    navigationRef.navigate('More', { screen: route });
+    if (target.screen === 'SupportTicketDetail') {
+      navigationRef.navigate('More', { screen: 'SupportTicketDetail', params: { ticketId: target.ticketId } });
+    } else {
+      navigationRef.navigate('More', { screen: target.screen });
+    }
   }, [navigationRef]);
 
   useEffect(() => {
     function handleUrl(url: string) {
-      const route = parseAppPathDeepLink(url);
-      if (!route) return;
-      pendingRef.current = route;
+      const target = parseAppPathDeepLink(url);
+      if (!target) return;
+      pendingRef.current = target;
       tryConsume();
     }
 

@@ -251,4 +251,33 @@ class LookAtServiceTest {
         assertThat(LookAtService.applyOrder(rules, List.of())).extracting(LookAtRowDto::category)
                 .containsExactly("B", "C", "A");
     }
+
+    // ---- reading the sources ----
+
+    /** Detection reads every one of the user's rows; "To look at" (and the AI month sheet, which
+     *  builds on rowsWithAll) ran it twice per request, once more inside changedAmounts. */
+    @Test
+    void rowsWithAll_runsRecurringDetectionOnce_andHandsItsGroupsToChangedAmounts() {
+        UUID userId = UUID.randomUUID();
+        RecurringService recurringService = org.mockito.Mockito.mock(RecurringService.class);
+        RecurringAnswerService answers = org.mockito.Mockito.mock(RecurringAnswerService.class);
+        com.finora.people.PeopleService people = org.mockito.Mockito.mock(com.finora.people.PeopleService.class);
+        InsightAcknowledgementService acks = org.mockito.Mockito.mock(InsightAcknowledgementService.class);
+        List<RecurringDto> groups = List.of(recurring(RecurringDto.QuestionState.NEEDS_ANSWER));
+        org.mockito.Mockito.when(recurringService.detectForUser(userId)).thenReturn(groups);
+        org.mockito.Mockito.when(answers.changedAmounts(userId, groups)).thenReturn(List.of());
+        org.mockito.Mockito.when(people.suggestions(userId))
+                .thenReturn(new com.finora.people.PeopleSuggestions.PeopleSuggestionsResult(List.of(), List.of()));
+        org.mockito.Mockito.when(acks.list(userId)).thenReturn(List.of());
+        LookAtService service = new LookAtService(org.mockito.Mockito.mock(InsightsService.class), recurringService,
+                answers, people, acks);
+
+        LookAtService.Rows rows = service.rowsWithAll(userId,
+                new InsightsService.Built(insights(), BASELINES, BigDecimal.ZERO, List.of(), null));
+
+        assertThat(rows.shown()).extracting(LookAtRowDto::kind).containsExactly("new-recurring");
+        org.mockito.Mockito.verify(recurringService, org.mockito.Mockito.times(1)).detectForUser(userId);
+        org.mockito.Mockito.verify(answers).changedAmounts(userId, groups);
+        org.mockito.Mockito.verify(answers, org.mockito.Mockito.never()).changedAmounts(userId);
+    }
 }

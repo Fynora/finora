@@ -216,12 +216,25 @@ public class RecurringAnswerService {
      * their own RecurringDto instead, so they are left out here.
      */
     public List<ChangedAmountDto> changedAmounts(UUID userId) {
+        return changedAmounts(userId, () -> recurringService.detectForUser(userId));
+    }
+
+    /**
+     * As {@link #changedAmounts(UUID)}, for a caller that already has this request's
+     * {@code detectForUser} result -- "To look at" and the AI month sheet. Detection reads every one
+     * of the user's rows, so running it a second time in the same request only repeats that work.
+     */
+    public List<ChangedAmountDto> changedAmounts(UUID userId, List<RecurringDto> detectedGroups) {
+        return changedAmounts(userId, () -> detectedGroups);
+    }
+
+    private List<ChangedAmountDto> changedAmounts(UUID userId, java.util.function.Supplier<List<RecurringDto>> detection) {
         if (!featureFlagService.isEnabled(FEATURE_FLAG)) return List.of();
         List<CategoryRule> answers = categoryRuleRepository.findUserPayeeRules(userId);
         if (answers.isEmpty()) return List.of();
         // A detected group reports AMOUNT_CHANGED on its own row, for the payments it holds; dismissed
         // payees the user asked not to see.
-        Set<String> detected = recurringService.detectForUser(userId).stream()
+        Set<String> detected = detection.get().stream()
                 .map(r -> payeeKey(r.merchant()))
                 .collect(Collectors.toSet());
         Set<String> dismissed = recurringService.dismissedPayees(userId).stream()

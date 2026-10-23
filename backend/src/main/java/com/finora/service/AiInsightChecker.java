@@ -20,15 +20,17 @@ import java.util.regex.Pattern;
  * so stored texts written under the old policy are regenerated rather than served (§5.4).
  *
  * <p>Order of the checks (only the recorded reason depends on it -- every failing reply is rejected):
- * schema and placeholders, then literal numbers and names, then policy (advice, products, predictions),
- * then fact binding, direction and period, then the row order. A filter, not a compliance proof: the
- * offline evaluation (§7.2) measures what it wrongly passes and wrongly rejects.
+ * schema and placeholders, then literal numbers and names, then words a figure repeats, then policy
+ * (advice, products, predictions), then fact binding, direction and period, then the row order. A
+ * filter, not a compliance proof: the offline evaluation (§7.2) measures what it wrongly passes and
+ * wrongly rejects.
  */
 public final class AiInsightChecker {
 
     private AiInsightChecker() {}
 
-    public static final String POLICY_VERSION = "policy-v1";
+    /** v2 (2026-10-24): rule 3b, a figure's own words repeated right after it. */
+    public static final String POLICY_VERSION = "policy-v2";
 
     static final Set<String> SENTENCE_TYPES = Set.of("OBSERVATION", "COMPARISON", "EXPLANATION");
     static final int MAX_SENTENCES = 4;
@@ -125,6 +127,15 @@ public final class AiInsightChecker {
                 return AiInsightReason.LITERAL_NUMBER;
             }
         }
+        // 3b. No figure's own words written again right after it: "{food.payments_this_month} payments"
+        // renders "6 payments payments", "{food.usual} in a usual month" renders the phrase twice.
+        for (AiInsightTemplate.Sentence s : t.sentences()) {
+            Matcher m = PLACEHOLDER.matcher(s.template());
+            while (m.find()) {
+                Fact f = m.group(1).contains(".") ? sheet.fact(m.group(1)) : null;
+                if (f != null && repeatsItsOwnWords(f, s.template().substring(m.end()))) return AiInsightReason.REPEATED_WORDS;
+            }
+        }
         // 7-9. Policy.
         for (AiInsightTemplate.Sentence s : t.sentences()) {
             List<Token> tokens = tokens(s.template());
@@ -196,6 +207,34 @@ public final class AiInsightChecker {
             }
         }
         return AiInsightReason.OK;
+    }
+
+    private static final String USUAL_SUFFIX = " in a usual month";
+    private static final Pattern NEXT_WORD = Pattern.compile("^\\s+([a-z]+)");
+
+    /** True when {@code after} (the template text right after {@code f}'s placeholder) opens with a word
+     *  that ends the figure's display -- its count noun, singular or plural ("payment", "payee", "bill",
+     *  "gap"), or the "in a usual month" a usual figure already carries. */
+    private static boolean repeatsItsOwnWords(Fact f, String after) {
+        String rest = after.toLowerCase(Locale.ROOT);
+        String display = f.display().toLowerCase(Locale.ROOT);
+        if (display.endsWith(USUAL_SUFFIX)) {
+            if (rest.stripLeading().startsWith(USUAL_SUFFIX.strip())) return true;
+            display = display.substring(0, display.length() - USUAL_SUFFIX.length());
+        }
+        if (f.unit() != AiInsightFacts.Unit.COUNT) return false;
+        Matcher next = NEXT_WORD.matcher(rest);
+        if (!next.find()) return false;
+        String[] shown = display.split(" ");
+        if (shown.length < 2) return false; // a bare number: no noun to repeat
+        for (int i = 1; i < shown.length; i++) {
+            if (singular(shown[i]).equals(singular(next.group(1)))) return true;
+        }
+        return false;
+    }
+
+    private static String singular(String word) {
+        return word.endsWith("s") ? word.substring(0, word.length() - 1) : word;
     }
 
     private static List<Token> tokens(String template) {

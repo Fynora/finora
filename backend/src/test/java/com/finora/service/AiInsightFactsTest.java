@@ -1,5 +1,6 @@
 package com.finora.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.entity.Category;
 import com.finora.service.AiInsightFacts.Fact;
 import com.finora.service.AiInsightFacts.FactSheet;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,6 +88,36 @@ class AiInsightFactsTest {
                 List.of(new Row("row_1", "CATEGORY_HIGH|Friend K rent|2026-10", "running-high", rent.id())), List.of());
         String json = sheet.modelJson();
         assertThat(json).doesNotContain("Friend K").doesNotContain("rent|").contains("[category-2]").contains("row_1");
+    }
+
+    @Test
+    void aChangeFactTellsTheModelItsDirectionAndNothingElseDoes() throws Exception {
+        FactSheet sheet = new FactSheet("2026-10", List.of(AiInsightFacts.MONTH, new Subject("food", "Food", "Food"),
+                new Subject("fuel", "Fuel", "Fuel"), new Subject("travel", "Travel", "Travel")),
+                List.of(AiInsightFacts.fact("food", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("24"), null),
+                        AiInsightFacts.fact("fuel", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("-20"), null),
+                        AiInsightFacts.fact("travel", "change_pct", Period.THIS_MONTH, Unit.PERCENT, BigDecimal.ZERO, null),
+                        AiInsightFacts.fact("month", "money_out_change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("-7.5"), null),
+                        AiInsightFacts.fact("groceries", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("0.3"), null),
+                        AiInsightFacts.fact("shopping", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("-0.4"), null),
+                        AiInsightFacts.fact("rent", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("0.5"), null),
+                        AiInsightFacts.fact("gifts", "change_pct", Period.THIS_MONTH, Unit.PERCENT, new BigDecimal("-0.5"), null),
+                        AiInsightFacts.fact("food", "this_month", Period.THIS_MONTH, Unit.RUPEES, new BigDecimal("6200"), null)),
+                List.of(), List.of());
+        Map<String, String> direction = new HashMap<>();
+        for (var f : new ObjectMapper().readTree(sheet.modelJson()).get("facts")) {
+            direction.put(f.get("id").asText(), f.has("direction") ? f.get("direction").asText() : null);
+        }
+        assertThat(direction).containsEntry("food.change_pct", "UP").containsEntry("fuel.change_pct", "DOWN")
+                .containsEntry("travel.change_pct", "SAME").containsEntry("month.money_out_change_pct", "DOWN")
+                .containsEntry("food.this_month", null)
+                // As shown: 0.3% and -0.4% both read "0%", so neither is a rise or a fall; 0.5% reads "1%".
+                .containsEntry("groceries.change_pct", "SAME").containsEntry("shopping.change_pct", "SAME")
+                .containsEntry("rent.change_pct", "UP").containsEntry("gifts.change_pct", "DOWN");
+        assertThat(sheet.fact("groceries.change_pct").display()).isEqualTo("0%");
+        assertThat(sheet.fact("gifts.change_pct").display()).isEqualTo("1%");
+        // The display stays unsigned: the sign reaches the model only as the direction word.
+        assertThat(sheet.fact("fuel.change_pct").display()).isEqualTo("20%");
     }
 
     @Test

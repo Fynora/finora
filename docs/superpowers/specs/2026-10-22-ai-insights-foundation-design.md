@@ -159,7 +159,13 @@ The model never writes a number or a category name. It returns JSON: a list of s
 - `type` is one of OBSERVATION, COMPARISON or EXPLANATION.
 - `{subject}` placeholders render the category's name.
 - `{fact}` placeholders render the fact's display form.
-- `order` appears only in the month call, and only when ranking is switched on.
+- `order` appears only in the month call, and only when ranking is switched on and the sheet has rows to
+  rank. Asked for an order with no rows, the model copied the example row ids from the prompt (6 of 30
+  evaluation histories on 2026-10-24).
+- Each change fact (`change_pct`, `money_out_change_pct`) is sent with a `direction` of UP, DOWN or SAME.
+  Its display is unsigned, so without it the model could not tell a rise from a fall (rule 5). The
+  direction follows the figure as shown: a change that rounds to "0%" is SAME, so the model is never told
+  that a 0.3% change rose.
 
 ### 5.2 Checks (all deterministic, all in one place, all versioned as the *policy version*)
 
@@ -172,6 +178,9 @@ recorded (§5.5).
 3. The template contains no digits, no number words (one, twice, half, double, dozen, lakh, crore,
    thousand and so on), no currency signs, no month or day names, and no category or product names.
    Every figure and name comes from a placeholder.
+3b. No figure is followed by words its display already holds: a count's noun ("{food.payments_this_month}
+   payments" renders "6 payments payments") or a usual figure's "in a usual month". Added in policy-v2
+   (2026-10-24): under the first prompt these texts passed every other check and reached the reader.
 
 **Fact binding**
 4. In each sentence, every category-scoped fact must belong to the nearest category placeholder before it.
@@ -247,6 +256,7 @@ Rows are deleted with the account, through `ON DELETE CASCADE` to `users` and a 
 - `SCHEMA_MISMATCH`
 - `UNKNOWN_FACT`
 - `LITERAL_NUMBER`
+- `REPEATED_WORDS`
 - `FACT_BINDING`
 - `DIRECTION_MISMATCH`
 - `PERIOD_MISMATCH`

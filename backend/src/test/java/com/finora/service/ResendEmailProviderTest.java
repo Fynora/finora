@@ -197,6 +197,38 @@ class ResendEmailProviderTest {
                 .contains("upload them again later").contains("Review statements");
     }
 
+    @Test
+    void ticketReceived_namesTheReferenceLinksToTheTicketAndSendsFromSupport() {
+        EmailMessage message = provider.buildSupportTicketReceivedMessage("user@example.test", "SUP-000123",
+                "11111111-1111-1111-1111-111111111111");
+
+        assertThat(message.subject()).isEqualTo("We received your support request SUP-000123");
+        assertThat(message.html()).contains("reference <strong>SUP-000123</strong>")
+                .contains("get back to you by email")
+                .contains("https://app.fynora.net/app/support/11111111-1111-1111-1111-111111111111\"")
+                .contains("View your request");
+        assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
+    /** The reply invitation is the footer's alone, and a notification the user cannot switch off
+     *  must not point at a settings page that has no switch for it. */
+    @Test
+    void ticketReceived_saysReplyOnceAndCarriesNoOptOutLine() {
+        String html = provider.buildSupportTicketReceivedMessage("user@example.test", "SUP-000123",
+                "11111111-1111-1111-1111-111111111111").html();
+
+        assertThat(html.split("reply to this email", -1)).hasSize(2);
+        assertThat(html).doesNotContain("notification settings").doesNotContain("Turn them off");
+    }
+
+    @Test
+    void ticketReceived_withNoTicketIdHasNoButton_andEscapesTheReference() {
+        String html = provider.buildSupportTicketReceivedMessage("user@example.test", "SUP-<1>", null).html();
+
+        assertThat(html).doesNotContain("View your request").doesNotContain("/app/support/")
+                .contains("SUP-&lt;1&gt;").doesNotContain("SUP-<1>");
+    }
+
     /** Both statement emails are FINANCIAL notifications a user can switch off, so both say where. */
     @Test
     void statementEmails_linkToTheNotificationSettingsWhereTheyCanBeTurnedOff() {

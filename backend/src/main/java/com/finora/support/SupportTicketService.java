@@ -4,13 +4,23 @@ import com.finora.dto.PagedResponse;
 import com.finora.entity.SupportTicket;
 import com.finora.entity.SupportTicketAttachment;
 import com.finora.entity.SupportTicketInternalNote;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.notification.api.NotificationRequest;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationPriority;
+import com.finora.notification.domain.NotificationType;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
 import com.finora.util.AfterCommit;
 import com.finora.util.PageBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -18,10 +28,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -89,7 +101,11 @@ import java.util.UUID;
 @Service
 public class SupportTicketService {
 
+    private static final Logger log = LoggerFactory.getLogger(SupportTicketService.class);
+
     private static final int MAX_SUBJECT_LENGTH = 120;
+    static final int MAX_ACKNOWLEDGEMENTS_PER_DAY = 3;
+    private static final Duration ACKNOWLEDGEMENT_WINDOW = Duration.ofHours(24);
 
     private final SupportTicketRepository ticketRepository;
     private final SupportTicketAttachmentRepository attachmentRepository;
@@ -97,8 +113,10 @@ public class SupportTicketService {
     private final SupportTicketIdGenerator idGenerator;
     private final ClientIdentity clientIdentity;
     private final AuditService auditService;
+    private final NotificationService notificationService;
     private final SupportAdminAlertService adminAlerts;
     private final SupportSubmissionLimiter submissionLimiter;
+    private final UserRepository userRepository;
 
     public SupportTicketService(SupportTicketRepository ticketRepository,
                                  SupportTicketAttachmentRepository attachmentRepository,
@@ -106,8 +124,10 @@ public class SupportTicketService {
                                  SupportTicketIdGenerator idGenerator,
                                  ClientIdentity clientIdentity,
                                  AuditService auditService,
+                                 NotificationService notificationService,
                                  SupportAdminAlertService adminAlerts,
-                                 SupportSubmissionLimiter submissionLimiter) {
+                                 SupportSubmissionLimiter submissionLimiter,
+                                 UserRepository userRepository) {
         this.submissionLimiter = submissionLimiter;
         this.ticketRepository = ticketRepository;
         this.attachmentRepository = attachmentRepository;
@@ -115,7 +135,9 @@ public class SupportTicketService {
         this.idGenerator = idGenerator;
         this.clientIdentity = clientIdentity;
         this.auditService = auditService;
+        this.notificationService = notificationService;
         this.adminAlerts = adminAlerts;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -161,11 +183,62 @@ public class SupportTicketService {
 
         auditService.record(userId, "SUPPORT_TICKET_CREATED", "SupportTicket", saved.getId(),
                 Map.of("ticketNumber", saved.getTicketNumber(), "category", category.name()));
+        acknowledge(saved);
         // Tell the admins once the ticket is durable, never for one that then rolls back. Hands over
         // what it needs rather than the entity: the alert runs later, on its own thread.
         AfterCommit.run("support ticket admin alert", () -> adminAlerts.alertTicketRaised(
                 saved.getId(), saved.getTicketNumber(), saved.getCategory(), saved.getSource(), saved.getCreatedAt()));
         return SupportTicketDto.Detail.from(saved, attachments);
+    }
+
+    /**
+     * Queues the "we received your request" email in the ticket's own transaction -- the outbox
+     * pattern {@code NotificationService.request} documents -- so the ticket and its acknowledgement
+     * commit together and the email is sent only once the ticket is durable. {@code request} never
+     * throws, so a notification problem cannot fail a ticket the customer just took the trouble to
+     * write.
+     *
+     * <p>SECURITY, which {@code DatabaseNotificationPreferenceResolver} never suppresses: the
+     * customer asked us a question and expects a receipt, so a switched-off "financial" preference
+     * or a stepped-away account status must not silently swallow it. EMAIL only -- see V287.
+     *
+     * <p><b>Only to a verified email address (product decision).</b> Password signup never verified
+     * email ownership (see V93), so an account can be registered with another person's address; an
+     * acknowledgement to an address nobody has proven they own would land in that stranger's inbox,
+     * from {@code support@}. A customer whose email is unverified gets no email -- the ticket is
+     * created and shown as normal. Nothing is queued, so there is no row to dead-letter either.
+     *
+     * <p><b>And capped per customer</b>, as a second line of defence: ticket creation is not rate
+     * limited, so even a verified account looping tickets would otherwise mail its owner without
+     * limit. The first {@link #MAX_ACKNOWLEDGEMENTS_PER_DAY} tickets a customer raises in 24 hours
+     * are acknowledged and the rest are not -- the tickets themselves are untouched and all appear
+     * in "My Tickets" and the admin queue. Counted in the database, so it holds across instances.
+     * The ticket just saved is already in the count.
+     */
+    private void acknowledge(SupportTicket ticket) {
+        boolean emailVerified = userRepository.findById(ticket.getUserId())
+                .map(User::isEmailVerified).orElse(false);
+        if (!emailVerified) {
+            log.info("Not acknowledging support ticket {}: the customer's email is not verified",
+                    ticket.getTicketNumber());
+            return;
+        }
+        long raisedToday = ticketRepository.countByUserIdAndCreatedAtAfter(
+                ticket.getUserId(), Instant.now().minus(ACKNOWLEDGEMENT_WINDOW));
+        if (raisedToday > MAX_ACKNOWLEDGEMENTS_PER_DAY) {
+            log.info("Not acknowledging support ticket {}: this customer has raised {} in the last day",
+                    ticket.getTicketNumber(), raisedToday);
+            return;
+        }
+        notificationService.request(NotificationRequest.of(
+                ticket.getUserId(),
+                NotificationType.SUPPORT_TICKET_RECEIVED,
+                NotificationCategory.SECURITY,
+                NotificationPriority.NORMAL,
+                "SUPPORT_TICKET_RECEIVED_" + ticket.getId(),
+                Set.of(NotificationChannel.EMAIL),
+                // ticketId is for the email's "View your request" button; the template ignores it.
+                Map.of("ticketNumber", ticket.getTicketNumber(), "ticketId", ticket.getId().toString())));
     }
 
     @Transactional(readOnly = true)

@@ -57,6 +57,11 @@ public enum NotificationType {
     // names the account; never an amount or a narration. Templates in V284. Keyed
     // "STATEMENT_CORRECTED_" + the refresh run id, so one correction is told once.
     STATEMENT_CORRECTED_BY_SUPPORT,
+    // Sent to the customer the moment they raise a support ticket -- see SupportTicketService.create.
+    // EMAIL only, fixed copy seeded in V287 with {{ticketNumber}} as its one param (never the
+    // ticket's subject or description, which are the customer's own words). Keyed
+    // "SUPPORT_TICKET_RECEIVED_" + ticket id, so a retried create can never send a second one.
+    SUPPORT_TICKET_RECEIVED,
     // An admin push campaign (com.finora.notification.campaign). Like IMPORT_STATEMENT_RESOLVED the
     // wording is operator-authored: the PUSH template (V261) is {{title}} / {{message}}. PUSH only,
     // no EMAIL row, so a request for any other channel would dead-letter -- the campaign sender

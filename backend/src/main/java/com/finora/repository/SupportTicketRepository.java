@@ -18,7 +18,9 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
     Page<SupportTicket> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Pageable pageable);
 
     /** How many tickets this account has raised since {@code since} -- {@code SupportSubmissionLimiter}'s
-     *  daily ceiling. Served by {@code idx_support_tickets_by_user}. */
+     *  daily ceiling, and the cap on
+     *  acknowledgement emails ({@code SupportTicketService.acknowledge}). Served by
+     *  {@code idx_support_tickets_by_user}. */
     long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
 
     /**

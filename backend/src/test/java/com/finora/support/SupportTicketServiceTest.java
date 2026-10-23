@@ -2,19 +2,28 @@ package com.finora.support;
 
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.SupportTicket;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
+import com.finora.repository.UserRepository;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.notification.api.NotificationRequest;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationType;
 import com.finora.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,12 +51,15 @@ class SupportTicketServiceTest {
     private SupportTicketIdGenerator idGenerator;
     private ClientIdentity clientIdentity;
     private AuditService auditService;
+    private NotificationService notificationService;
     private SupportAdminAlertService adminAlerts;
     private SupportSubmissionLimiter submissionLimiter;
+    private UserRepository userRepository;
     private SupportTicketService service;
 
     private final UUID userId = UUID.randomUUID();
     private final UUID adminId = UUID.randomUUID();
+    private final UUID ticketId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
@@ -57,16 +69,31 @@ class SupportTicketServiceTest {
         idGenerator = mock(SupportTicketIdGenerator.class);
         clientIdentity = mock(ClientIdentity.class);
         auditService = mock(AuditService.class);
+        notificationService = mock(NotificationService.class);
         adminAlerts = mock(SupportAdminAlertService.class);
         submissionLimiter = mock(SupportSubmissionLimiter.class);
+        userRepository = mock(UserRepository.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService, adminAlerts, submissionLimiter);
+                clientIdentity, auditService, notificationService, adminAlerts, submissionLimiter,
+                userRepository);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(true)));
 
-        when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+        // The real repository assigns the id on save; the acknowledgement's button link needs it.
+        when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> {
+            SupportTicket saved = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(saved, "id", ticketId);
+            return saved;
+        });
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(idGenerator.next()).thenReturn("SUP-000001");
         when(clientIdentity.platform()).thenReturn(ClientPlatform.WEB);
         when(clientIdentity.appVersion()).thenReturn(null);
+    }
+
+    private static User userWithEmailVerified(boolean verified) {
+        User user = new User();
+        user.setEmailVerified(verified);
+        return user;
     }
 
     // --- create() validation ---------------------------------------------------------------
@@ -107,6 +134,73 @@ class SupportTicketServiceTest {
 
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_CREATED"), eq("SupportTicket"), any(),
                 eq(Map.of("ticketNumber", "SUP-000001", "category", "TECHNICAL_ISSUE")));
+    }
+
+    @Test
+    void creatingATicketQueuesAnEmailOnlyAcknowledgementCarryingTheTicketNumber() {
+        service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        ArgumentCaptor<NotificationRequest> captor = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(notificationService).request(captor.capture());
+        NotificationRequest request = captor.getValue();
+        assertThat(request.userId()).isEqualTo(userId);
+        assertThat(request.type()).isEqualTo(NotificationType.SUPPORT_TICKET_RECEIVED);
+        assertThat(request.channels()).isEqualTo(Set.of(NotificationChannel.EMAIL));
+        // Never suppressible by a notification preference: the customer asked us something.
+        assertThat(request.category()).isEqualTo(NotificationCategory.SECURITY);
+        // The number, and the id for the email's button -- never the customer's own subject or
+        // description.
+        assertThat(request.params())
+                .isEqualTo(Map.of("ticketNumber", "SUP-000001", "ticketId", ticketId.toString()));
+        assertThat(request.notificationKey()).isEqualTo("SUPPORT_TICKET_RECEIVED_" + ticketId);
+    }
+
+    /** An address nobody has proven they own may belong to a stranger, so it gets no email -- but the
+     *  customer's ticket is created, audited and alerted to the admins exactly as normal. */
+    @Test
+    void anUnverifiedEmailGetsNoAcknowledgement_butTheTicketIsStillCreated() {
+        when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(false)));
+
+        var detail = service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        assertThat(detail.ticketNumber()).isEqualTo("SUP-000001");
+        verifyNoInteractions(notificationService);
+        verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_CREATED"), eq("SupportTicket"), any(), any());
+        verify(adminAlerts).alertTicketRaised(any(), eq("SUP-000001"), any(), any(), any());
+    }
+
+    @Test
+    void aUserWhoCannotBeFoundIsTreatedAsUnverified() {
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        service.create(userId, "OTHER", "Subject", "Description", null);
+
+        verifyNoInteractions(notificationService);
+    }
+
+    /** The cap's boundary, both sides: the third ticket in a day is still acknowledged, the fourth is
+     *  not -- and the ticket itself is created either way. */
+    @Test
+    void theThirdTicketInADayIsAcknowledged_theFourthIsNot_butIsStillCreated() {
+        when(ticketRepository.countByUserIdAndCreatedAtAfter(eq(userId), any()))
+                .thenReturn((long) SupportTicketService.MAX_ACKNOWLEDGEMENTS_PER_DAY);
+        service.create(userId, "OTHER", "Third", "Description", null);
+        verify(notificationService, org.mockito.Mockito.times(1)).request(any(NotificationRequest.class));
+
+        when(ticketRepository.countByUserIdAndCreatedAtAfter(eq(userId), any()))
+                .thenReturn((long) SupportTicketService.MAX_ACKNOWLEDGEMENTS_PER_DAY + 1);
+        var detail = service.create(userId, "OTHER", "Fourth", "Description", null);
+
+        assertThat(detail.ticketNumber()).isEqualTo("SUP-000001");
+        verify(notificationService, org.mockito.Mockito.times(1)).request(any(NotificationRequest.class));
+    }
+
+    @Test
+    void aRejectedCreate_neverQueuesAnAcknowledgement() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test

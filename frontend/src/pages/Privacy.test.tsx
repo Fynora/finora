@@ -107,7 +107,12 @@ describe('Privacy policy matches what the product does', () => {
   // Anthropic's standard terms.
   it('describes AI insights: what is sent and never sent, history not advice, storage, and the provider terms', () => {
     const t = policyText();
-    expect(t).toMatch(/only figures from your own history: amounts, counts, percentages and dates, and the names\s+of Fynora's built-in categories/i);
+    // FactSheet.modelJson: the month, subjects (built-in names or placeholders), facts' display forms.
+    expect(t).toMatch(/only figures from your own history: the month's amounts, counts and percentages, and the names\s+of Fynora's built-in categories/i);
+    // ai_insight_usage counts both stories and "Why?" answers; AiInsightGenerator writes an
+    // ai_audit_log row per request with no prompt or reply text; both go with the account.
+    expect(t).toMatch(/how many AI texts were written for you this month/i);
+    expect(t).toMatch(/a record of each request to the AI: the model, its cost, how long it took and whether the reply\s+passed the checks, never the text/i);
     expect(t).toMatch(/never sends payee or people's names, the names of categories you create/i);
     expect(t).toMatch(/account details or transaction descriptions/i);
     expect(t).toMatch(/describes what happened in your past spending; it does not give financial advice/i);

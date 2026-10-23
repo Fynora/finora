@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Insights from './Insights';
 import {
-  aiInsightsApi, insightsApi, peopleApi, recurringApi, onboardingApi, usageApi,
+  aiInsightsApi, categoriesApi, insightsApi, peopleApi, recurringApi, onboardingApi, usageApi,
   type AiStory, type InsightsData, type RecurringItem,
 } from '../api/endpoints';
 
@@ -60,6 +60,7 @@ beforeEach(() => {
   vi.mocked(aiInsightsApi.story).mockReset().mockResolvedValue(story());
   vi.mocked(aiInsightsApi.generateStory).mockReset().mockResolvedValue(story());
   vi.mocked(aiInsightsApi.feedback).mockReset().mockResolvedValue(undefined);
+  vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
 });
 
 function insights(overrides: Partial<InsightsData> = {}): InsightsData {
@@ -487,6 +488,28 @@ describe('Insights — AI month story', () => {
     expect(aiInsightsApi.story).toHaveBeenCalledWith();
   });
 
+  it('writes a new story when the stored one was written for older figures, and shows the new one', async () => {
+    // GET /story serves the newest story it has while a new one may be written (canGenerate).
+    vi.mocked(aiInsightsApi.story).mockResolvedValue({ ...AI_STORY, canGenerate: true });
+    vi.mocked(aiInsightsApi.generateStory).mockResolvedValue({ ...AI_STORY, id: 'story-2', text: 'Rewritten for the new figures.' });
+
+    renderInsights();
+
+    expect(await screen.findByText('Rewritten for the new figures.')).toBeInTheDocument();
+    expect(screen.queryByText(AI_STORY.text!)).not.toBeInTheDocument();
+    expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps showing the stored story when writing a new one fails', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue({ ...AI_STORY, canGenerate: true });
+    vi.mocked(aiInsightsApi.generateStory).mockRejectedValue(new Error('server error'));
+
+    renderInsights();
+
+    await waitFor(() => expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+  });
+
   it('keeps the sentences when writing the story fails', async () => {
     vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ canGenerate: true }));
     vi.mocked(aiInsightsApi.generateStory).mockRejectedValue(new Error('server error'));
@@ -607,6 +630,82 @@ describe('Insights: money with people', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Lent to Friend K' }));
     await waitFor(() => expect(insightsApi.get).toHaveBeenCalledTimes(2));
     expect(recurringApi.list).toHaveBeenCalledTimes(2);
+  });
+
+  function lentQuestion() {
+    vi.mocked(peopleApi.suggestions).mockResolvedValue({
+      items: [{
+        kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', relatedTxnId: null, personKey: 'vpa:friend.k', label: 'Friend K',
+        amount: 2000, date: '2026-08-03', category: null, bills: [], owed: null,
+      }],
+      expected: [],
+    });
+    vi.mocked(peopleApi.addEntry).mockResolvedValue({} as never);
+  }
+
+  // An answer moves the month's figures, so the story written from them is read again, and
+  // rewritten when the server allows it.
+  it('reads the story again after an answer, and shows the one written for the new figures', async () => {
+    lentQuestion();
+    vi.mocked(aiInsightsApi.story)
+      .mockResolvedValueOnce(AI_STORY)
+      .mockResolvedValueOnce({ ...AI_STORY, canGenerate: true });
+    vi.mocked(aiInsightsApi.generateStory).mockResolvedValue({ ...AI_STORY, id: 'story-2', text: 'Rewritten after the answer.' });
+    renderInsights();
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+    expect(aiInsightsApi.generateStory).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Lent to Friend K' }));
+
+    expect(await screen.findByText('Rewritten after the answer.')).toBeInTheDocument();
+    expect(aiInsightsApi.story).toHaveBeenCalledTimes(2);
+    expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes the story away when the read after an answer finds none', async () => {
+    lentQuestion();
+    vi.mocked(aiInsightsApi.story).mockResolvedValueOnce(AI_STORY).mockResolvedValueOnce(story());
+    renderInsights();
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Lent to Friend K' }));
+
+    await waitFor(() => expect(screen.queryByText(AI_STORY.text!)).not.toBeInTheDocument());
+    expect(screen.getByText(/You spent more on Food/)).toBeInTheDocument();
+  });
+
+  it('ignores an earlier read that answers after a later one', async () => {
+    lentQuestion();
+    let answerFirst: (s: AiStory) => void = () => {};
+    vi.mocked(aiInsightsApi.story)
+      .mockReturnValueOnce(new Promise<AiStory>((resolve) => { answerFirst = resolve; }))
+      .mockResolvedValueOnce(story());
+    renderInsights();
+    await userEvent.click(await screen.findByRole('button', { name: 'Lent to Friend K' }));
+    await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(2));
+
+    answerFirst(AI_STORY);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(screen.queryByText(AI_STORY.text!)).not.toBeInTheDocument();
+  });
+
+  // Answering a repeating payment re-files its past payments (RecurringAnswerService), which moves
+  // the month's figures just as a people answer does.
+  it('re-reads the figures and the story after a repeating-payment answer', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({
+      merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000,
+    })]);
+    vi.mocked(categoriesApi.list).mockResolvedValue(
+      [{ id: 'cat-1', name: 'Rent', isSystem: true, icon: 'tag', color: 'gray' }] as never,
+    );
+    vi.mocked(recurringApi.categorize).mockResolvedValue(undefined);
+    renderInsights();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Rent' }));
+
+    await waitFor(() => expect(insightsApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(2));
   });
 
   it('lists who owes whom under With people', async () => {

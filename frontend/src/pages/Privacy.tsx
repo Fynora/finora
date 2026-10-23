@@ -163,7 +163,7 @@ export default function Privacy() {
         <p>
           On the Insights page, in the app and on the website, Fynora can write a short story of your month,
           and in the app it can explain why a category is running higher than usual. For these, Fynora sends
-          Anthropic's Claude only figures from your own history: amounts, counts, percentages and dates, and the names
+          Anthropic's Claude only figures from your own history: the month's amounts, counts and percentages, and the names
           of Fynora's built-in categories. It never sends payee or people's names, the names of categories you create
           (each is sent as a placeholder, and Fynora puts the name back before you see it), account details or
           transaction descriptions.
@@ -177,8 +177,9 @@ export default function Privacy() {
         </p>
         <p>
           Fynora stores each text with the figures it was written from, any thumbs up or down you give it and the
-          reason you pick, and how many explanations you have used this month; all of this is deleted if you delete
-          your account. Anthropic receives this data under Anthropic's standard commercial terms: Anthropic does not
+          reason you pick, how many AI texts were written for you this month, and a record of each request to the AI:
+          the model, its cost, how long it took and whether the reply passed the checks, never the text. All of this is
+          deleted if you delete your account. Anthropic receives this data under Anthropic's standard commercial terms: Anthropic does not
           train its models on it, and deletes it within 30 days, or keeps it for up to 2 years if it is flagged for
           misuse of its service.
         </p>

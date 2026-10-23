@@ -48,7 +48,8 @@ describe('AiText', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Wrong number' }));
     await waitFor(() => expect(feedback).toHaveBeenLastCalledWith('t-1', 'NOT_HELPFUL', 'WRONG_NUMBER'));
     expect(feedback).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Thanks for telling us.')).toBeInTheDocument();
+    // Announced, so a screen reader hears the reason was taken.
+    expect(screen.getByRole('status')).toHaveTextContent('Thanks for telling us.');
     expect(screen.queryByRole('button', { name: 'Wrong number' })).not.toBeInTheDocument();
   });
 

@@ -83,7 +83,7 @@ export function AiText({
       )}
       {rateable && rating === 'NOT_HELPFUL' && (
         reason ? (
-          <p className="text-xs text-muted">Thanks for telling us.</p>
+          <p role="status" className="text-xs text-muted">Thanks for telling us.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {REASONS.map((r) => (

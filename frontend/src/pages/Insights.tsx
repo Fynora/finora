@@ -110,6 +110,8 @@ export default function Insights() {
   // A poll must not outlive the page. Its own effect, so StrictMode's cleanup-remount sets it back.
   const mounted = useRef(true);
   const storyPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which story load is the newest; an older one's answers are dropped.
+  const storyLoad = useRef(0);
   // Two endpoints, two sets of flags. These used to share one `loading` and one `error` behind a
   // single Promise.all, which conflated sources that have no dependency on each other: /recurring
   // feeds only the Recurring card, /insights only the Observations and Movers cards. That shared
@@ -176,12 +178,41 @@ export default function Insights() {
   const reloadRecurring = () => {
     recurringApi.list().then(setRecurring).catch(() => {});
   };
-  // A share, a loan or a rule moves the month's figures and a repeating bill's share, both of which
-  // this page keeps in local state (see above): re-read them, as an answer elsewhere would not.
-  const reloadAfterPeopleAnswer = () => {
+  // A share, a loan, a rule or a repeating-payment answer (which re-files past payments) moves the
+  // month's figures and a repeating bill's share, which this page keeps in local state (see above):
+  // re-read them, and the story written from those figures, as an answer elsewhere would not.
+  const reloadAfterAnswer = () => {
     insightsApi.get().then(setData).catch(() => {});
     reloadRecurring();
+    loadStory();
   };
+
+  function loadStory() {
+    const load = ++storyLoad.current;
+    if (storyPoll.current) clearTimeout(storyPoll.current);
+    let polls = 0;
+    const current = () => mounted.current && load === storyLoad.current;
+    const take = (s: AiStory) => {
+      if (!current()) return;
+      setStory(s);
+      if (s.status === 'generating' && polls < STORY_POLLS) {
+        polls += 1;
+        storyPoll.current = setTimeout(() => {
+          aiInsightsApi.story().then(take).catch(() => {});
+        }, STORY_POLL_MS);
+      }
+    };
+    aiInsightsApi.story()
+      .then((s) => {
+        if (!current()) return;
+        take(s);
+        // Never a second write from this load, whatever the polls answer.
+        if (s.canGenerate && s.status !== 'generating') {
+          aiInsightsApi.generateStory().then(take).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }
 
   useEffect(() => {
     insightsApi.get()
@@ -202,28 +233,15 @@ export default function Insights() {
     };
   }, []);
 
-  // The story for the newest reporting month (no month sent), the month get() above describes. Read
-  // it; ask the server to write it only when the read says it may; while another request is writing
-  // it, read again a couple of times. Never a second write from here.
+  // The story for the newest reporting month (no month sent), the month get() above describes. Each
+  // load reads it once and, when the read says a story may be written (canGenerate -- none yet, or
+  // the one shown was written for older figures), asks the server to write it once; while another
+  // request is writing it, it reads again a couple of times. The page shows what the newest answer
+  // says: an AI story, or nothing. A load started later wins over one still answering.
   useEffect(() => {
     if (storyRequested.current) return;
     storyRequested.current = true;
-    let polls = 0;
-    const take = (s: AiStory) => {
-      if (!mounted.current) return;
-      if (s.status === 'ready') {
-        setStory(s);
-      } else if (s.status === 'generating' && polls < STORY_POLLS) {
-        polls += 1;
-        storyPoll.current = setTimeout(() => {
-          aiInsightsApi.story().then(take).catch(() => {});
-        }, STORY_POLL_MS);
-      }
-    };
-    aiInsightsApi.story()
-      .then((s) => (s.status !== 'ready' && s.canGenerate ? aiInsightsApi.generateStory() : s))
-      .then(take)
-      .catch(() => {});
+    loadStory();
   }, []);
 
   useEffect(() => {
@@ -356,7 +374,7 @@ export default function Insights() {
         )}
       </FinoraCard>
 
-      <PeopleQuestionsCard onChanged={reloadAfterPeopleAnswer} />
+      <PeopleQuestionsCard onChanged={reloadAfterAnswer} />
 
       <FinoraCard>
         <SectionHeader title="Recurring Payments & Subscriptions" />
@@ -417,7 +435,7 @@ export default function Insights() {
                   answer={r.answer ?? null}
                   amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
                   label={r.label}
-                  onSaved={reloadRecurring}
+                  onSaved={reloadAfterAnswer}
                 />
               </div>
               </div>
@@ -426,7 +444,7 @@ export default function Insights() {
               <div key={`changed-${c.merchant}`} className="border-b border-dashed py-2 pl-9">
                 <RecurringQuestion
                   merchant={c.merchant} state="AMOUNT_CHANGED" answer={c.category} amount={c.latestAmount}
-                  onSaved={reloadRecurring}
+                  onSaved={reloadAfterAnswer}
                 />
               </div>
             ))}

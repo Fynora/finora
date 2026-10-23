@@ -42,6 +42,7 @@ class SupportTicketServiceTest {
     private SupportTicketIdGenerator idGenerator;
     private ClientIdentity clientIdentity;
     private AuditService auditService;
+    private SupportAdminAlertService adminAlerts;
     private SupportTicketService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -55,8 +56,9 @@ class SupportTicketServiceTest {
         idGenerator = mock(SupportTicketIdGenerator.class);
         clientIdentity = mock(ClientIdentity.class);
         auditService = mock(AuditService.class);
+        adminAlerts = mock(SupportAdminAlertService.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService);
+                clientIdentity, auditService, adminAlerts);
 
         when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -103,6 +105,33 @@ class SupportTicketServiceTest {
 
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_CREATED"), eq("SupportTicket"), any(),
                 eq(Map.of("ticketNumber", "SUP-000001", "category", "TECHNICAL_ISSUE")));
+    }
+
+    @Test
+    void creatingATicketTellsTheAdmins_withTheTicketNumberCategoryAndSourceButNoneOfTheText() {
+        // No transaction here, so AfterCommit runs the alert immediately -- the real call, not a stub.
+        service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        verify(adminAlerts).alertTicketRaised(any(), eq("SUP-000001"), eq(SupportTicket.Category.TECHNICAL_ISSUE),
+                eq(ClientPlatform.WEB), any());
+    }
+
+    @Test
+    void aRejectedCreate_tellsNoOne() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(adminAlerts);
+    }
+
+    @Test
+    void anAlertThatFailsToStart_doesNotFailTheTicket() {
+        org.mockito.Mockito.doThrow(new RuntimeException("executor shut down")).when(adminAlerts)
+                .alertTicketRaised(any(), any(), any(), any(), any());
+
+        var detail = service.create(userId, "OTHER", "Subject", "Description", null);
+
+        assertThat(detail.ticketNumber()).isEqualTo("SUP-000001");
     }
 
     @Test

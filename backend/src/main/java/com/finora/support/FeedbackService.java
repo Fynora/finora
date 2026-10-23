@@ -5,6 +5,7 @@ import com.finora.entity.FeedbackEntry;
 import com.finora.entity.User;
 import com.finora.repository.FeedbackEntryRepository;
 import com.finora.repository.UserRepository;
+import com.finora.util.AfterCommit;
 import com.finora.util.PageBounds;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -32,12 +33,14 @@ public class FeedbackService {
     private final FeedbackEntryRepository repository;
     private final ClientIdentity clientIdentity;
     private final UserRepository userRepository;
+    private final SupportAdminAlertService adminAlerts;
 
     public FeedbackService(FeedbackEntryRepository repository, ClientIdentity clientIdentity,
-                           UserRepository userRepository) {
+                           UserRepository userRepository, SupportAdminAlertService adminAlerts) {
         this.repository = repository;
         this.clientIdentity = clientIdentity;
         this.userRepository = userRepository;
+        this.adminAlerts = adminAlerts;
     }
 
     @Transactional
@@ -49,7 +52,11 @@ public class FeedbackService {
         entry.setMessage(message.trim());
         entry.setSource(clientIdentity.platform());
         entry.setAppVersion(clientIdentity.appVersion());
-        return FeedbackDto.Summary.from(repository.save(entry));
+        FeedbackEntry saved = repository.save(entry);
+        // Tell the admins once the feedback is durable. No message text and no sender in the alert.
+        AfterCommit.run("feedback admin alert", () -> adminAlerts.alertFeedbackReceived(
+                saved.getType(), saved.getContext(), saved.getSource(), saved.getCreatedAt()));
+        return FeedbackDto.Summary.from(saved);
     }
 
     /**

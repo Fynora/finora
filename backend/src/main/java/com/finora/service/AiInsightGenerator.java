@@ -34,8 +34,13 @@ public class AiInsightGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(AiInsightGenerator.class);
 
-    public static final String STORY_PROMPT_VERSION = "ai-story-v1";
-    public static final String WHY_PROMPT_VERSION = "ai-why-v1";
+    /** v2 (2026-10-24): the checker's rules the v1 replies broke most -- multiples such as "double",
+     *  days of the month, "one" as a count, a figure before its subject, "usual" beside a this-month
+     *  figure, mixed directions, "going to" -- as a numbered list with the form to write instead; a
+     *  story with no rows is not asked to rank; each change fact carries its direction. Measured by
+     *  AiInsightsEvaluationIT on its 30 histories, before and after (the PR has the numbers). */
+    public static final String STORY_PROMPT_VERSION = "ai-story-v2";
+    public static final String WHY_PROMPT_VERSION = "ai-why-v2";
 
     /** A story written with a ranking asked for is a different prompt, so a different stored text:
      *  turning ranking on regenerates each story once rather than leaving it without an order. */
@@ -61,10 +66,45 @@ public class AiInsightGenerator {
             - {fact} for a figure, using a fact id from "facts", for example {food.this_month}.
             Each placeholder is replaced with the exact name or figure the app shows, so never write \
             a digit, a number word, a currency, a percent, a month or day name, or a category name \
-            yourself. Put a figure right after its own subject: write "{food} came to \
-            {food.this_month}", never a figure of one subject after another subject's name. A fact \
-            whose period is USUAL already reads "in a usual month"; never call it this month's, and \
-            never call a this-month figure usual. Only say a figure went up if it did, down if it did.
+            yourself. Never work out a figure yourself, such as the difference between two facts: use \
+            only the facts given.
+
+            An automatic check rejects the whole reply if any sentence breaks one of these rules, and \
+            then the person sees none of it:
+            1. No multiple or fraction: never double, doubled, twice, triple, three times or half. To \
+            say how much a figure changed, use its change_pct fact: "{food} came to \
+            {food.this_month}, up {food.change_pct} from {food.usual}".
+            2. No "one" as a count: write "a payment" or "the largest payment", or use a count fact \
+            such as {food.payments_this_month}.
+            3. No day of the month such as "the 6th": use its day fact, as in "on the \
+            {food.largest_1_day}".
+            4. A subject's name comes first, then its own figures, before any other subject's name: \
+            "{fuel} came to {fuel.this_month}", never "{fuel.this_month} went on {fuel}", and never \
+            "{food} and {fuel} rose {food.change_pct} and {fuel.change_pct}" (write "{food} rose \
+            {food.change_pct} and {fuel} rose {fuel.change_pct}").
+            5. A fact whose period is USUAL already ends with "in a usual month" ({food.usual} reads \
+            "₹4,000 in a usual month"), and a count fact already holds its noun \
+            ({food.payments_this_month} reads "6 payments"): never write a noun or "in a usual month" \
+            right after such a figure. Write "{food} had {food.payments_this_month}, against \
+            {food.payments_usual}", which reads "Food had 6 payments, against 2 payments in a usual \
+            month".
+            6. Never write the words usual, usually, normally, typically or average yourself, except \
+            as "from a usual month" at the very end of a sentence, after a change_pct figure with no \
+            usual figure to name. Write "this month" or "so far" only before a sentence's first \
+            figure. Never call a USUAL figure this month's, nor a this-month figure usual.
+            7. Say a figure went up or down only as its change fact's "direction" (UP, DOWN or SAME) \
+            says; SAME means the change rounds to nothing, so never give it a change_pct or a \
+            direction (leave it out, or say it stayed level in a sentence of its own); with no change \
+            fact for a subject, say nothing about its direction. A change fact \
+            goes only with its own figure: {month.money_out_change_pct} with {month.money_out}, never \
+            with {month.total}. In a sentence that says up, down, more, less, fewer, higher, lower, \
+            above, below, rose or fell, every subject must have moved that way: never "{food} rose \
+            {food.change_pct}, while {fuel} stayed level" -- put subjects that moved the other way, \
+            or stayed level, in a sentence of their own. Use those words only for a change, never in \
+            another sense ("fell on a weekend").
+            8. Never write "going to" or "going on", even about the past ("with {rent.this_month} \
+            going to {rent}"): the check reads it as a prediction. Write "with {rent} at \
+            {rent.this_month}".
 
             Describe what already happened. Never give advice or an instruction, never suggest an \
             action, a budget or a plan, never mention an investment, fund, SIP, stock, insurance, \
@@ -75,7 +115,7 @@ public class AiInsightGenerator {
 
     private static final String STORY_TASK = """
             Task: write 2 to 4 sentences about this month, choosing what matters most to this person \
-            from the facts.
+            from the facts. Give every category its own figures: never one figure for two categories.
             """;
 
     private static final String RANKING_TASK = """
@@ -87,9 +127,13 @@ public class AiInsightGenerator {
             """;
 
     private static final String WHY_TASK = """
-            Task: in 1 or 2 sentences, explain why this category is higher than usual this month, \
-            using only the facts given (how many payments, their size, the largest ones, weekends, \
-            new payees).
+            Task: in 1 or 2 sentences, explain why spending in this category rose this month, using \
+            only the facts given (how many payments, their size, the largest ones, weekends, \
+            new payees), written like these, each ending at its last figure: "The largest payment was \
+            {food.largest_1}, on the {food.largest_1_day}, while a payment averaged \
+            {food.avg_payment_usual}." (it reads "... while a payment averaged ₹1,500 in a usual \
+            month."); "{food} had {food.payments_this_month}, against {food.payments_usual}."; \
+            "{food.new_payees_total} went to {food.new_payees_count}."
             """;
 
     private final LlmClient llmClient;
@@ -127,8 +171,11 @@ public class AiInsightGenerator {
 
     private Result call(UUID userId, String kind, FactSheet sheet, boolean wantOrder, String planCode) {
         boolean story = com.finora.entity.AiInsightText.KIND_STORY.equals(kind);
+        // With no rows there is nothing to rank: asked anyway, the model copies the example ids from
+        // the prompt and the reply fails BAD_ORDER (6 of 30 evaluation histories on 2026-10-24).
+        boolean askOrder = story && wantOrder && !sheet.rows().isEmpty();
         FynNameShield shield = nameShields.forUser(userId);
-        LlmRequest request = LlmRequest.singleTurn(systemPrompt(kind, wantOrder), shield.shield(sheet.modelJson()),
+        LlmRequest request = LlmRequest.singleTurn(systemPrompt(kind, askOrder), shield.shield(sheet.modelJson()),
                 story ? STORY_MAX_TOKENS : WHY_MAX_TOKENS);
         String promptVersion = story ? storyPromptVersion(wantOrder) : WHY_PROMPT_VERSION;
         String toolName = story ? "AI_INSIGHT_STORY" : "AI_INSIGHT_WHY";
@@ -156,7 +203,7 @@ public class AiInsightGenerator {
 
         AiInsightTemplate.Parsed parsed = AiInsightTemplate.parse(completion.content());
         AiInsightReason reason = parsed.reason() != null ? parsed.reason()
-                : AiInsightChecker.check(parsed.template(), sheet, story && wantOrder);
+                : AiInsightChecker.check(parsed.template(), sheet, askOrder);
         audit(userId, toolName, promptVersion, completion.model(), completion.tokensIn(), completion.tokensOut(), cost,
                 latencyMs, planCode, reason, costError);
         return reason == AiInsightReason.OK

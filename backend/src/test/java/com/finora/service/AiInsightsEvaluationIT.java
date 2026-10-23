@@ -9,6 +9,9 @@ import com.finora.entity.LoanEntry;
 import com.finora.entity.ShareLink;
 import com.finora.entity.Transaction;
 import com.finora.entity.User;
+import com.finora.integrations.anthropic.LlmClient;
+import com.finora.integrations.anthropic.LlmClient.LlmCompletion;
+import com.finora.integrations.anthropic.LlmClient.LlmRequest;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.LoanEntryRepository;
@@ -17,11 +20,15 @@ import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.CounterpartyType;
 import com.finora.util.UserZone;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -34,9 +41,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * The AI insights launch gate's offline evaluation
@@ -58,10 +70,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * nothing about quality</b>: the gate is 0 incorrect claims and 0 advice, predictions or instructions
  * found by a person reading every output, and a check pass rate of at least 90%. This test only fails
  * when a history could not be run at all.
+ *
+ * <p>Also writes {@code replies.jsonl} (every raw model reply, with the words in it that the literal
+ * number check, rule 3, rejects) and {@code summary.md} (how many texts of each kind ended with each
+ * reason). Every input is synthetic, so the replies may be kept for review; production never logs them.
+ * {@code -Dai.eval.ranking=false} measures the story prompt production sends while ranking is off.
  */
 @EnabledIfEnvironmentVariable(named = "ANTHROPIC_API_KEY", matches = ".+")
-@TestPropertySource(properties = {"app.fyn.insights-audience=all", "app.fyn.insights-ai-ranking=true",
-        "app.fyn.insights-max-concurrent=1"})
+@TestPropertySource(properties = {"app.fyn.insights-audience=all", "app.fyn.insights-max-concurrent=1"})
 class AiInsightsEvaluationIT extends AbstractIntegrationTest {
 
     @Autowired private AiInsightService aiInsightService;
@@ -73,6 +89,28 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
     @Autowired private ShareLinkRepository shareLinkRepository;
     @Autowired private LoanEntryRepository loanEntryRepository;
     @Autowired private JdbcTemplate jdbc;
+    @MockitoSpyBean private LlmClient llmClient;
+
+    @DynamicPropertySource
+    static void ranking(DynamicPropertyRegistry registry) {
+        registry.add("app.fyn.insights-ai-ranking", () -> System.getProperty("ai.eval.ranking", "true"));
+    }
+
+    /** One model call as the harness saw it: which kind, and the raw reply. */
+    private record Reply(String kind, String content) {}
+
+    private final List<Reply> replies = new ArrayList<>();
+
+    @BeforeEach
+    void recordEveryReply() {
+        doAnswer(invocation -> {
+            LlmRequest request = invocation.getArgument(0);
+            LlmCompletion completion = (LlmCompletion) invocation.callRealMethod();
+            replies.add(new Reply(request.maxTokens() == AiInsightGenerator.STORY_MAX_TOKENS ? "STORY" : "WHY",
+                    completion.content()));
+            return completion;
+        }).when(llmClient).complete(any());
+    }
 
     private final YearMonth month = YearMonth.now(UserZone.DEFAULT);
     private final ObjectMapper mapper = new ObjectMapper();
@@ -124,12 +162,16 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
         StringBuilder sideBySide = new StringBuilder("# AI order vs rules order (A/B, source hidden)\n\n");
         StringBuilder key = new StringBuilder("# Key: which of A/B is the AI order\n\n");
         Random coin = new Random(20261022L);
+        List<String> replyLines = new ArrayList<>();
+        Map<String, Map<String, Integer>> reasonCounts = new TreeMap<>();
+        List<String> doubled = new ArrayList<>();
 
         List<Shape> shapes = shapes();
         assertThat(shapes).hasSize(30);
         for (int i = 0; i < shapes.size(); i++) {
             Shape shape = shapes.get(i);
             UUID userId = seed(shape, new Random(1000L + i));
+            int repliesBefore = replies.size();
 
             AiInsightService.TextView story = aiInsightService.generateStory(userId, null);
             AiInsightService.LookAt ordered = aiInsightService.lookAt(userId, null);
@@ -145,6 +187,7 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
                 w.put("row", row.key());
                 w.put("writtenByAi", why.writtenByAi());
                 w.put("text", why.text());
+                if (why.writtenByAi() && doubledWords(why.text())) doubled.add(shape.name() + " why: " + why.text());
                 whys.add(w);
             }
 
@@ -153,14 +196,35 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
             line.put("storyStatus", story.status());
             line.put("storyWrittenByAi", story.writtenByAi());
             line.put("story", story.text());
+            if (story.writtenByAi() && doubledWords(story.text())) doubled.add(shape.name() + " story: " + story.text());
             line.put("basis", story.basis());
+            // The month's two "spending" figures, side by side: the story may name either.
+            monthSheets.build(userId, null).ifPresent(sheet -> {
+                for (String id : List.of("month.total", "month.money_out", "month.money_out_change_pct")) {
+                    AiInsightFacts.Fact f = sheet.fact(id);
+                    line.put(id, f == null ? null : f.display());
+                }
+            });
             line.put("whys", whys);
             line.put("rulesOrder", rulesOrder);
             line.put("aiOrder", aiOrder);
-            line.put("reasons", jdbc.queryForList(
+            List<Map<String, Object>> reasons = jdbc.queryForList(
                     "SELECT kind, subject, status, reason_code FROM ai_insight_texts WHERE user_id = ? ORDER BY created_at",
-                    userId));
+                    userId);
+            line.put("reasons", reasons);
             lines.add(mapper.writeValueAsString(line));
+            for (Map<String, Object> r : reasons) {
+                reasonCounts.computeIfAbsent((String) r.get("kind"), k -> new TreeMap<>())
+                        .merge(String.valueOf(r.get("reason_code")), 1, Integer::sum);
+            }
+            for (Reply reply : replies.subList(repliesBefore, replies.size())) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("history", shape.name());
+                r.put("kind", reply.kind());
+                r.put("literalHits", literalHits(reply.content()));
+                r.put("reply", reply.content());
+                replyLines.add(mapper.writeValueAsString(r));
+            }
 
             List<String> aiTop = aiOrder.stream().limit(3).toList();
             List<String> rulesTop = rulesOrder.stream().limit(3).toList();
@@ -174,7 +238,49 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
         Files.write(out.resolve("outputs.jsonl"), lines);
         Files.writeString(out.resolve("side-by-side.md"), sideBySide.toString());
         Files.writeString(out.resolve("side-by-side-key.md"), key.toString());
+        Files.write(out.resolve("replies.jsonl"), replyLines);
+        StringBuilder summary = new StringBuilder("# Reasons by kind\n\n");
+        reasonCounts.forEach((kind, counts) -> {
+            int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+            summary.append("## ").append(kind).append(" (").append(total).append(")\n\n");
+            counts.forEach((reason, n) -> summary.append("- ").append(reason).append(": ").append(n).append('\n'));
+            summary.append('\n');
+        });
+        summary.append("## AI texts with doubled words (").append(doubled.size()).append(")\n\n");
+        doubled.forEach(d -> summary.append("- ").append(d).append('\n'));
+        Files.writeString(out.resolve("summary.md"), summary.toString());
         assertThat(lines).hasSize(30);
+    }
+
+    private static final Pattern REPEATED_WORD = Pattern.compile("\\b(\\w+) \\1\\b");
+    private static final Pattern REPEATED_USUAL = Pattern.compile("in a usual month (in a usual month|payments?\\b)");
+
+    /** A rendered text that passed every check yet reads "2 payments payments" or "in a usual month in
+     *  a usual month": the model wrote a noun or the usual-month phrase that the figure already holds. */
+    private static boolean doubledWords(String text) {
+        return text != null && (REPEATED_WORD.matcher(text).find() || REPEATED_USUAL.matcher(text).find());
+    }
+
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{[^{}]*}");
+    private static final Pattern TEMPLATE = Pattern.compile("\"template\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+
+    /** The words and symbols in a raw reply's templates that rule 3 rejects -- the same lists the
+     *  checker uses, so a failure can be traced to the exact word without logging anything in production. */
+    private static List<String> literalHits(String reply) {
+        List<String> hits = new ArrayList<>();
+        if (reply == null) return hits;
+        Matcher templates = TEMPLATE.matcher(reply);
+        while (templates.find()) {
+            String prose = PLACEHOLDER.matcher(templates.group(1)).replaceAll(" ");
+            Matcher symbols = Pattern.compile("[0-9₹$€£%]+").matcher(prose);
+            while (symbols.find()) hits.add(symbols.group());
+            String lower = " " + String.join(" ", prose.toLowerCase(java.util.Locale.ROOT).replace('’', '\'')
+                    .split("[^a-z'\\-]+")) + " ";
+            for (String w : AiInsightChecker.NUMBER_WORDS) if (lower.contains(" " + w + " ")) hits.add(w);
+            for (String w : AiInsightChecker.DATE_WORDS) if (lower.contains(" " + w + " ")) hits.add(w);
+            if (Pattern.compile("(?<!^)(?<![.!?]\\s)\\bMay\\b").matcher(prose.strip()).find()) hits.add("May");
+        }
+        return hits;
     }
 
     private List<LookAtRowDto> rulesRows(UUID userId) {
@@ -182,6 +288,7 @@ class AiInsightsEvaluationIT extends AbstractIntegrationTest {
     }
 
     @Autowired private LookAtService lookAtService;
+    @Autowired private AiInsightMonthSheetBuilder monthSheets;
 
     private UUID seed(Shape shape, Random random) {
         User u = new User();

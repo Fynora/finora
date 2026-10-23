@@ -103,6 +103,37 @@ class AiInsightGeneratorTest {
     }
 
     @Test
+    void aStoryWithNoRowsIsNotAskedForAnOrderNorJudgedOnOne() {
+        FactSheet noRows = new FactSheet(SHEET.month(), SHEET.subjects(), SHEET.facts(), List.of(), SHEET.usualMonths());
+        // The reply the v1 prompt drew on a sheet with no rows: the example ids copied from the prompt.
+        when(llmClient.complete(any())).thenReturn(reply("""
+                {"sentences":[{"type":"OBSERVATION","template":"Spending came to {month.total}."}],"order":["row_1","row_2"]}"""));
+
+        AiInsightGenerator.Result result = generator.generate(userId, "STORY", noRows, true, "PLUS");
+
+        assertThat(result.reason()).isEqualTo(AiInsightReason.OK);
+        ArgumentCaptor<LlmRequest> sent = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(llmClient).complete(sent.capture());
+        assertThat(sent.getValue().systemPrompt()).doesNotContain("rank").doesNotContain("\"order\"");
+        ArgumentCaptor<AiAuditLog> row = ArgumentCaptor.forClass(AiAuditLog.class);
+        verify(auditLog).save(row.capture());
+        assertThat(row.getValue().getPromptVersion()).as("same stored-text key as any ranked story")
+                .isEqualTo("ai-story-v2-ranked");
+    }
+
+    @Test
+    void thePromptsNameTheLiteralFormsTheCheckerRejectsAndWhatToWriteInstead() {
+        for (String prompt : List.of(AiInsightGenerator.systemPrompt("STORY", false), AiInsightGenerator.systemPrompt("WHY", false))) {
+            assertThat(prompt).contains("never double, doubled, twice, triple, three times or half")
+                    .contains("use its change_pct fact").contains("No \"one\" as a count").contains("{food.largest_1_day}")
+                    .contains("never \"{fuel.this_month} went on {fuel}\"").contains("Never write the words usual").contains("never write a noun")
+                    .contains("\"direction\" (UP, DOWN or SAME)").contains("Never write \"going to\" or \"going on\"");
+        }
+        assertThat(AiInsightGenerator.WHY_PROMPT_VERSION).isEqualTo("ai-why-v2");
+        assertThat(AiInsightGenerator.storyPromptVersion(false)).isEqualTo("ai-story-v2");
+    }
+
+    @Test
     void auditRowHasPlanAndReasonButNoText() {
         when(llmClient.complete(any())).thenReturn(reply(PASSING_REPLY));
 
@@ -116,7 +147,7 @@ class AiInsightGeneratorTest {
         assertThat(row.getValue().getPlanCode()).isEqualTo("FREE");
         assertThat(row.getValue().getReasonCode()).isEqualTo("OK");
         assertThat(row.getValue().getToolName()).isEqualTo("AI_INSIGHT_STORY");
-        assertThat(row.getValue().getPromptVersion()).isEqualTo("ai-story-v1-ranked");
+        assertThat(row.getValue().getPromptVersion()).isEqualTo("ai-story-v2-ranked");
         assertThat(row.getValue().getToolInputs()).isNull();
         assertThat(row.getValue().getToolOutputs()).isNull();
         assertThat(row.getValue().getTokensIn()).isEqualTo(1200);

@@ -10,6 +10,7 @@ import { Card, EmptyState } from '../components/Card';
 import { GlassScreen } from '../components/GlassScreen';
 import { OptionPickerModal } from '../components/OptionPickerModal';
 import { SkeletonCard, SkeletonGroup } from '../components/skeletons/Skeletons';
+import { AiText } from '../components/insights/AiText';
 import { ComingUpSection } from '../components/insights/ComingUpSection';
 import { InsightsQuestions, type InsightsSection } from '../components/insights/InsightsQuestions';
 import { LookAtSection } from '../components/insights/LookAtSection';
@@ -18,8 +19,8 @@ import { WithPeopleSection } from '../components/insights/WithPeopleSection';
 import { useAskForMoney } from '../components/people/AskForMoney';
 import { BillPickerSheet } from '../components/people/BillPickerSheet';
 import {
-  accountsApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi, usageApi,
-  type AckKind, type InsightAcknowledgement, type PeopleSuggestion, type RecurringItem,
+  accountsApi, aiInsightsApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi, usageApi,
+  type AckKind, type AiStory, type InsightAcknowledgement, type PeopleSuggestion, type RecurringItem,
 } from '../api/endpoints';
 import { withBypass } from '../lib/changeSync';
 import {
@@ -41,6 +42,10 @@ function monthNameOf(month: string): string {
   const [y, m] = month.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long' });
 }
+
+/** How many times the screen asks again for a story still being written, and how far apart. */
+const STORY_POLLS = 2;
+const STORY_POLL_MS = 2000;
 
 /** The YYYY-MM before {@code month}. */
 function previousMonth(month: string): string {
@@ -152,6 +157,53 @@ export function InsightsScreen() {
       : `${Math.abs(pct)}% ${pct > 0 ? 'more' : 'less'} than ${beforeName}`;
     return `You spent ${fmtCurrency(current.expense)} in ${monthLong}, ${comparison}.`;
   }, [reportingMonth, trendQ.data]);
+
+  // The month story (AI insights spec §8.3): read it, write it when the server says it may, ask again
+  // briefly while it is being written. Until one is ready the month line above stays, and any
+  // failure keeps it silently -- the story adds to the screen, it never takes anything away.
+  const storyKey = ['ai-insights', 'story', month ?? null];
+  const storyQ = useQuery({ queryKey: storyKey, queryFn: () => aiInsightsApi.story(month), retry: false });
+  const story = storyQ.data;
+  // One POST per read that allowed it: a re-render reuses the same read, so it can never post twice.
+  const postedFor = useRef<number | null>(null);
+  const generate = useMutation({
+    mutationFn: (forMonth: string | undefined) => aiInsightsApi.generateStory(forMonth),
+    onSuccess: (result, forMonth) => {
+      queryClient.setQueryData<AiStory>(['ai-insights', 'story', forMonth ?? null], result);
+    },
+  });
+  useEffect(() => {
+    if (!story?.canGenerate || story.status === 'generating') return;
+    if (postedFor.current === storyQ.dataUpdatedAt) return;
+    postedFor.current = storyQ.dataUpdatedAt;
+    generate.mutate(month);
+    // `generate` is a new object each render; the read it answers is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [story, storyQ.dataUpdatedAt, month]);
+  const polls = useRef(0);
+  useEffect(() => { polls.current = 0; }, [month]);
+  useEffect(() => {
+    if (story?.status !== 'generating' || polls.current >= STORY_POLLS) return;
+    const timer = setTimeout(() => {
+      polls.current += 1;
+      void storyQ.refetch();
+    }, STORY_POLL_MS);
+    return () => clearTimeout(timer);
+    // storyQ.refetch is stable; dataUpdatedAt moves on every answer, even an identical one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [story?.status, storyQ.dataUpdatedAt]);
+  const storyText = story?.status === 'ready' && story.text ? story : null;
+  // A story written while the screen is open may carry the AI order of "To look at": ask for the rows
+  // again once it turns ready. One that was ready on the first read was ordered already.
+  const lastStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const was = lastStatus.current;
+    lastStatus.current = story?.status;
+    if (story?.status === 'ready' && was !== undefined && was !== 'ready') {
+      void queryClient.invalidateQueries({ queryKey: ['ai-insights', 'look-at'] });
+    }
+  }, [story?.status, queryClient]);
+  const aiOnScreen = storyText?.writtenByAi === true;
 
   const scrollRef = useRef<ScrollView>(null);
   // A second tap on the Insights tab scrolls this screen back to the top.
@@ -270,7 +322,7 @@ export function InsightsScreen() {
     // withBypass: a pull is a read, not an edit -- it must not wait for the change stamp (lib/changeSync.ts).
     withBypass(() => {
       for (const key of [['insights'], ['recurring'], ['recurring-changed-amounts'], ['insight-acknowledgements'],
-        ['report-months'], ['report', 'trend'], ['accounts'], ['people']]) {
+        ['report-months'], ['report', 'trend'], ['accounts'], ['people'], ['ai-insights']]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
     });
@@ -333,7 +385,11 @@ export function InsightsScreen() {
             </Pressable>
           </View>
 
-          {monthLine ? <Text style={[typography.bodyM, styles.monthLine, { color: c.ink }]}>{monthLine}</Text> : null}
+          {storyText ? (
+            <View style={styles.monthLine}>
+              <AiText id={storyText.id} text={storyText.text as string} writtenByAi={storyText.writtenByAi} basis={storyText.basis} />
+            </View>
+          ) : monthLine ? <Text style={[typography.bodyM, styles.monthLine, { color: c.ink }]}>{monthLine}</Text> : null}
 
           {caveat ? (
             <Pressable
@@ -427,7 +483,9 @@ export function InsightsScreen() {
           )}
 
           <Text style={[typography.caption, styles.note, { color: c.mutedInk }]}>
-            These are rule-based statistical observations from your own transaction history — not an AI-generated assistant.
+            {aiOnScreen
+              ? 'Text marked "Written by AI" is written by AI from your own figures. Everything else here is rule-based, from your own transaction history.'
+              : 'These are rule-based statistical observations from your own transaction history — not an AI-generated assistant.'}
           </Text>
         </ScrollView>
       </GlassScreen>

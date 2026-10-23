@@ -6,14 +6,15 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { InsightsScreen } from './InsightsScreen';
 import { expectHaptics, resetHapticCalls } from '../test/haptics';
 import {
-  accountsApi, categoriesApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi, usageApi,
-  type InsightsData, type PeopleSuggestion,
+  accountsApi, aiInsightsApi, categoriesApi, inflowApi, insightsApi, onboardingApi, peopleApi, recurringApi, reportsApi,
+  usageApi, type AiStory, type InsightsData, type LookAtServerRow, type PeopleSuggestion,
 } from '../api/endpoints';
 
 // Every name and amount here is invented.
 
 jest.mock('../api/endpoints', () => ({
   insightsApi: { get: jest.fn(), acknowledgements: jest.fn(), acknowledge: jest.fn() },
+  aiInsightsApi: { story: jest.fn(), generateStory: jest.fn(), lookAt: jest.fn(), why: jest.fn(), feedback: jest.fn() },
   recurringApi: { list: jest.fn(), dismiss: jest.fn(), categorize: jest.fn(), changedAmounts: jest.fn() },
   reportsApi: { availableMonths: jest.fn(), trend: jest.fn() },
   accountsApi: { list: jest.fn() },
@@ -35,6 +36,23 @@ const insights = insightsApi as jest.Mocked<typeof insightsApi>;
 const recurring = recurringApi as jest.Mocked<typeof recurringApi>;
 const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const people = peopleApi as jest.Mocked<typeof peopleApi>;
+const ai = aiInsightsApi as jest.Mocked<typeof aiInsightsApi>;
+
+const NO_STORY: AiStory = { status: 'none', id: null, text: null, writtenByAi: false, basis: null, canGenerate: false };
+const STORY: AiStory = {
+  status: 'ready', id: 'story-1', text: 'September cost ₹48,000, ₹8,000 more than August, mostly Food.',
+  writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', canGenerate: false,
+};
+const MONTH_LINE = 'You spent ₹48,000 in September 2026, 20% more than August.';
+
+/** A server "To look at" row with every field the kind does not use left null. */
+function serverRow(fields: Partial<LookAtServerRow> & Pick<LookAtServerRow, 'kind' | 'key'>): LookAtServerRow {
+  return {
+    ackKind: null, ackItemKey: null, month: null, total: null, count: null, cardName: null, cardLast4: null,
+    people: null, recurring: null, merchant: null, category: null, latestAmount: null, latestDate: null,
+    current: null, priorAverage: null, whyAvailable: null, ...fields,
+  };
+}
 // The shared navigation stub (test/setup.ts), read inside a callback as the other screen tests do.
 let navigate: jest.Mock;
 
@@ -68,6 +86,13 @@ beforeEach(() => {
   insights.get.mockReset().mockResolvedValue(insightsData());
   insights.acknowledgements.mockReset().mockResolvedValue([]);
   insights.acknowledge.mockReset().mockResolvedValue(undefined);
+  // By default the server has no story to show and no "To look at" of its own (an older server), so
+  // the screen builds its rows on the phone as before.
+  ai.story.mockReset().mockResolvedValue(NO_STORY);
+  ai.generateStory.mockReset().mockResolvedValue(NO_STORY);
+  ai.lookAt.mockReset().mockRejectedValue(Object.assign(new Error('Not Found'), { response: { status: 404 } }));
+  ai.why.mockReset();
+  ai.feedback.mockReset().mockResolvedValue(undefined);
   recurring.list.mockReset().mockResolvedValue([
     // Dates far from any real "today", so past and ahead never depend on the clock.
     { merchant: 'sample gym', label: 'Monthly', averageAmount: 1500, occurrences: 3, lastDate: '2019-12-05', nextEstimate: '2020-01-05', state: 'NEEDS_ANSWER' },
@@ -258,6 +283,99 @@ describe('InsightsScreen', () => {
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Settings' }));
     expect(navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+  });
+});
+
+// A test that has seen what it needs still has queries in flight; let them land inside act, before
+// the screen is unmounted, so their updates are not reported as stray.
+// React Query hands its results to React on a timer tick, so wait a few real ticks, not one.
+afterEach(async () => {
+  jest.useRealTimers();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+});
+
+describe('the month story', () => {
+  it('shows the month line while the story is not ready, and asks for none it may not write', async () => {
+    renderScreen();
+    expect(await screen.findByText(MONTH_LINE)).toBeTruthy();
+    await waitFor(() => expect(ai.story).toHaveBeenCalledWith(undefined));
+    expect(ai.generateStory).not.toHaveBeenCalled();
+    expect(screen.queryByText('Written by AI')).toBeNull();
+  });
+
+  it('writes the story when it may, once, and shows it with its label in place of the month line', async () => {
+    ai.story.mockResolvedValue({ ...NO_STORY, canGenerate: true });
+    ai.generateStory.mockResolvedValue(STORY);
+    renderScreen();
+    expect(await screen.findByText(STORY.text as string)).toBeTruthy();
+    expect(screen.getByText('Written by AI')).toBeTruthy();
+    expect(screen.getByText('Compared with your usual month (Jun–Aug)')).toBeTruthy();
+    expect(screen.queryByText(MONTH_LINE)).toBeNull();
+    expect(ai.generateStory).toHaveBeenCalledTimes(1);
+    expect(ai.generateStory).toHaveBeenCalledWith(undefined);
+    // The footnote no longer says nothing here is AI.
+    expect(screen.queryByText(/not an AI-generated assistant/)).toBeNull();
+    expect(screen.getByText(/Text marked "Written by AI" is written by AI from your own figures/)).toBeTruthy();
+  });
+
+  it('shows a story the server already has without asking for a new one', async () => {
+    ai.story.mockResolvedValue(STORY);
+    renderScreen();
+    expect(await screen.findByText(STORY.text as string)).toBeTruthy();
+    expect(ai.generateStory).not.toHaveBeenCalled();
+  });
+
+  it('asks again twice, 2 seconds apart, while the story is being written, then stops', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    ai.story.mockResolvedValue({ ...NO_STORY, status: 'generating' });
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    expect(ai.story).toHaveBeenCalledTimes(1);
+    await act(async () => { await jest.advanceTimersByTimeAsync(1900); });
+    expect(ai.story).toHaveBeenCalledTimes(1);
+    // Each poll is 2 s after the answer it follows, which React's effect sees a moment after it lands.
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(ai.story).toHaveBeenCalledTimes(2);
+    await act(async () => { await jest.advanceTimersByTimeAsync(2100); });
+    expect(ai.story).toHaveBeenCalledTimes(3);
+    await act(async () => { await jest.advanceTimersByTimeAsync(10000); });
+    expect(ai.story).toHaveBeenCalledTimes(3);
+    expect(screen.getByText(MONTH_LINE)).toBeTruthy();
+    jest.useRealTimers();
+  });
+
+  it('shows the story once a poll finds it ready', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    ai.story.mockResolvedValueOnce({ ...NO_STORY, status: 'generating' }).mockResolvedValue(STORY);
+    renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(2100); });
+    expect(screen.getByText(STORY.text as string)).toBeTruthy();
+    jest.useRealTimers();
+  });
+
+  it('keeps the month line, with no message, when the story cannot be written or read', async () => {
+    ai.story.mockResolvedValue({ ...NO_STORY, canGenerate: true });
+    ai.generateStory.mockRejectedValue(new Error('down'));
+    renderScreen();
+    await waitFor(() => expect(ai.generateStory).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(MONTH_LINE)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't/)).toBeNull();
+    expect(screen.getAllByText(/not an AI-generated assistant/)).toHaveLength(1);
+  });
+
+  it('keeps the month line when the story cannot be read at all', async () => {
+    ai.story.mockRejectedValue(new Error('Not Found'));
+    renderScreen();
+    expect(await screen.findByText(MONTH_LINE)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't/)).toBeNull();
+  });
+
+  it('asks for the picked month\'s story', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    await waitFor(() => expect(ai.story).toHaveBeenCalledWith('2026-08'));
   });
 });
 

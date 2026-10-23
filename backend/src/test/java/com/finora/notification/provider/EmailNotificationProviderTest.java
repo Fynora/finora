@@ -287,6 +287,36 @@ class EmailNotificationProviderTest {
     }
 
     /**
+     * The "closed as a duplicate" notice (SupportTicketDuplicateService) invites the customer to reply
+     * if it was not a duplicate, so it must reach a person: support@, not noreply@. It is a plain
+     * DB-template email, with no dedicated builder like the ticket acknowledgement has, so this also
+     * pins that it takes the generic path and sends the stored title and message as written.
+     */
+    @Test
+    void send_sendsTheDuplicateNoticeAsSupportThroughTheGenericTemplatePath() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+        Notification duplicate = Notification.create(UUID.randomUUID(), NotificationType.SUPPORT_TICKET_DUPLICATE,
+                NotificationCategory.SECURITY, NotificationChannel.EMAIL, NotificationPriority.NORMAL,
+                "SUPPORT_TICKET_DUPLICATE_x:EMAIL", "Your support request SUP-000043 is a duplicate",
+                "We have closed SUP-000043 as a duplicate of SUP-000042, which you raised earlier.",
+                Map.of("ticketNumber", "SUP-000043", "referenceNumber", "SUP-000042"), Instant.now());
+
+        ChannelSendResult result = provider.send(duplicate);
+
+        assertThat(result.success()).isTrue();
+        verify(emailProvider).send(captor.capture());
+        EmailMessage sent = captor.getValue();
+        assertThat(sent.to()).isEqualTo("user@example.com");
+        assertThat(sent.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+        assertThat(sent.subject()).isEqualTo("Your support request SUP-000043 is a duplicate");
+        assertThat(sent.html()).contains("SUP-000043").contains("SUP-000042");
+        // Not the ticket acknowledgement's dedicated builder.
+        verify(emailProvider, never()).sendSupportTicketReceivedEmail(any(), any(), any());
+    }
+
+    /**
      * The message is operator-typed free text placed in a customer's inbox. It must arrive as text:
      * markup an admin pastes (or a compromised admin session injects) is escaped, never rendered.
      */

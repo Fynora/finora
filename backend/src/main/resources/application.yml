@@ -435,6 +435,12 @@ app:
       # account's real-world worst case close to 45 minutes rather than hours.
       interval-ms: ${ACCOUNT_PURGE_SWEEP_INTERVAL_MS:900000}
       initial-delay-ms: ${ACCOUNT_PURGE_SWEEP_INITIAL_DELAY_MS:300000}
+      # After this many consecutive failed purge attempts on one account, the sweep emails the
+      # Super Admins once (HeldItemAdminAlertService.alertAccountPurgeStuck) and keeps retrying.
+      # It never stops retrying: the purge is the deletion the account was promised. 4 passes at
+      # the 15-minute interval is about an hour. The first stuck account (2026-09-18 to 09-23) ran
+      # 524 failed passes before anyone looked, because the error log was its only trace. 0 = off.
+      alert-after-failures: ${ACCOUNT_PURGE_SWEEP_ALERT_AFTER_FAILURES:4}
   counterparty-backfill:
     sweep:
       # CounterpartyBackfillSweepService. Types the counterparty on rows that predate the

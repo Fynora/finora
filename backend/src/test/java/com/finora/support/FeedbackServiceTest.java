@@ -35,6 +35,7 @@ class FeedbackServiceTest {
     private FeedbackEntryRepository repository;
     private ClientIdentity clientIdentity;
     private UserRepository userRepository;
+    private SupportAdminAlertService adminAlerts;
     private FeedbackService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -44,7 +45,8 @@ class FeedbackServiceTest {
         repository = mock(FeedbackEntryRepository.class);
         clientIdentity = mock(ClientIdentity.class);
         userRepository = mock(UserRepository.class);
-        service = new FeedbackService(repository, clientIdentity, userRepository);
+        adminAlerts = mock(SupportAdminAlertService.class);
+        service = new FeedbackService(repository, clientIdentity, userRepository, adminAlerts);
 
         when(repository.save(any(FeedbackEntry.class))).thenAnswer(inv -> inv.getArgument(0));
         when(clientIdentity.platform()).thenReturn(ClientPlatform.MOBILE_ANDROID);
@@ -61,6 +63,25 @@ class FeedbackServiceTest {
         assertThat(result.source()).isEqualTo(ClientPlatform.MOBILE_ANDROID);
         // Trimmed, same as SupportTicketService's own field handling.
         assertThat(result.message()).isEqualTo("broken");
+    }
+
+    @Test
+    void submit_tellsTheAdmins_withTypeContextAndSourceButNeitherTheMessageNorTheSender() {
+        // No transaction here, so AfterCommit runs the alert immediately -- the real call, not a stub.
+        service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.IMPORT_FLOW, "broken");
+
+        verify(adminAlerts).alertFeedbackReceived(eq(FeedbackEntry.Type.BUG), eq(FeedbackEntry.Context.IMPORT_FLOW),
+                eq(ClientPlatform.MOBILE_ANDROID), any());
+    }
+
+    @Test
+    void submit_stillSucceeds_whenTheAlertCannotStart() {
+        org.mockito.Mockito.doThrow(new RuntimeException("executor shut down")).when(adminAlerts)
+                .alertFeedbackReceived(any(), any(), any(), any());
+
+        FeedbackDto.Summary result = service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, "x");
+
+        assertThat(result.message()).isEqualTo("x");
     }
 
     @Test

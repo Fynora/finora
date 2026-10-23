@@ -15,6 +15,7 @@ import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.service.AuditService;
+import com.finora.util.AfterCommit;
 import com.finora.util.PageBounds;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -104,6 +105,7 @@ public class SupportTicketService {
     private final ClientIdentity clientIdentity;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final SupportAdminAlertService adminAlerts;
 
     public SupportTicketService(SupportTicketRepository ticketRepository,
                                  SupportTicketAttachmentRepository attachmentRepository,
@@ -111,7 +113,8 @@ public class SupportTicketService {
                                  SupportTicketIdGenerator idGenerator,
                                  ClientIdentity clientIdentity,
                                  AuditService auditService,
-                                 NotificationService notificationService) {
+                                 NotificationService notificationService,
+                                 SupportAdminAlertService adminAlerts) {
         this.ticketRepository = ticketRepository;
         this.attachmentRepository = attachmentRepository;
         this.noteRepository = noteRepository;
@@ -119,6 +122,7 @@ public class SupportTicketService {
         this.clientIdentity = clientIdentity;
         this.auditService = auditService;
         this.notificationService = notificationService;
+        this.adminAlerts = adminAlerts;
     }
 
     /**
@@ -162,6 +166,10 @@ public class SupportTicketService {
         auditService.record(userId, "SUPPORT_TICKET_CREATED", "SupportTicket", saved.getId(),
                 Map.of("ticketNumber", saved.getTicketNumber(), "category", category.name()));
         acknowledge(saved);
+        // Tell the admins once the ticket is durable, never for one that then rolls back. Hands over
+        // what it needs rather than the entity: the alert runs later, on its own thread.
+        AfterCommit.run("support ticket admin alert", () -> adminAlerts.alertTicketRaised(
+                saved.getId(), saved.getTicketNumber(), saved.getCategory(), saved.getSource(), saved.getCreatedAt()));
         return SupportTicketDto.Detail.from(saved, attachments);
     }
 

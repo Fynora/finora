@@ -73,10 +73,17 @@ export function useAppPathDeepLink(
     const target = pendingRef.current;
     if (!target) return;
     pendingRef.current = null;
+    // initial: false keeps More's home underneath. An emailed link usually arrives before the More
+    // tab has ever been opened, and the stack is then built from the link alone: by default the
+    // target becomes its ONLY screen, so a screen with a native header (Settings, a ticket) has no
+    // back button and nothing to go back to. Once the stack exists the flag changes nothing.
+    // useAppPathDeepLink.integration.test.tsx shows both outcomes against the real router.
     if (target.screen === 'SupportTicketDetail') {
-      navigationRef.navigate('More', { screen: 'SupportTicketDetail', params: { ticketId: target.ticketId } });
+      navigationRef.navigate('More', {
+        screen: 'SupportTicketDetail', params: { ticketId: target.ticketId }, initial: false,
+      });
     } else {
-      navigationRef.navigate('More', { screen: target.screen });
+      navigationRef.navigate('More', { screen: target.screen, initial: false });
     }
   }, [navigationRef]);
 

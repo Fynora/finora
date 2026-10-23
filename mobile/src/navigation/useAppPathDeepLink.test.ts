@@ -77,7 +77,7 @@ describe('useAppPathDeepLink', () => {
 
     urlListener?.({ url: 'https://app.fynora.net/app/imports/job-1' });
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
   });
 
   it('opens the ticket itself, with its id, when the support link arrives', async () => {
@@ -90,6 +90,7 @@ describe('useAppPathDeepLink', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', {
       screen: 'SupportTicketDetail',
       params: { ticketId: '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' },
+      initial: false,
     });
   });
 
@@ -109,6 +110,7 @@ describe('useAppPathDeepLink', () => {
     expect(navigationRef.navigate).toHaveBeenCalledWith('More', {
       screen: 'SupportTicketDetail',
       params: { ticketId: '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' },
+      initial: false,
     });
   });
 
@@ -126,7 +128,7 @@ describe('useAppPathDeepLink', () => {
     rerender({ ready: true, signedIn: true });
 
     expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
   });
 
   it('keeps a held link through a transient ready dip while still signed in', async () => {
@@ -143,7 +145,7 @@ describe('useAppPathDeepLink', () => {
     expect(navigationRef.navigate).not.toHaveBeenCalled();
 
     rerender({ ready: true, signedIn: true });
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('drops a held link on a real sign-out so the next person to sign in does not inherit it', async () => {
@@ -173,7 +175,7 @@ describe('useAppPathDeepLink', () => {
     containerReady = true;
     result.current.onNavigationReady();
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('picks up a cold-launch link from getInitialURL', async () => {
@@ -183,7 +185,7 @@ describe('useAppPathDeepLink', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('ignores links that are not one of its paths', async () => {
@@ -233,7 +235,7 @@ describe('useAppPathDeepLink', () => {
       urlListener?.({ url: LAUNCH });
 
       expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
-      expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+      expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
     });
   });
 

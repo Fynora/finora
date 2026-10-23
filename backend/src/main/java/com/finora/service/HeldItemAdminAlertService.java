@@ -288,6 +288,37 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * An account deletion the purge sweep cannot complete: {@code failures} consecutive
+     * {@code ACCOUNT_PURGE_FAILED} rows since the deletion was requested at {@code since}, with the
+     * sweep still retrying every pass. Sent to every active Super Admin, once per stuck request
+     * ({@code AccountPurgeSweepService} calls this only when the count lands exactly on its
+     * threshold). Names the account only by its id, as a link into the admin portal; the error
+     * itself is in the backend log and in the {@code ACCOUNT_PURGE_FAILED} rows' metadata (the
+     * portal lists those rows without their metadata). The email carries no error text and no
+     * personal detail, same rule as every other alert here.
+     *
+     * <p>Why an alert at all, rather than the sweep giving up: the purge is the account's deletion
+     * promise, so it must keep retrying until it completes, and a retry costs one log line and one
+     * audit row per pass. What a stuck purge needs is a person. The first such case
+     * (2026-09-18 to 2026-09-23) failed on 524 consecutive passes over five days before anyone
+     * looked, because the only trace was the error log, and {@code sentry.logging.enabled} is
+     * {@code false} by design.
+     */
+    public void alertAccountPurgeStuck(UUID userId, long failures, Instant since) {
+        List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);
+        if (superAdmins.isEmpty()) {
+            log.warn("No active Super Admin -- no stuck-purge alert sent for account {}", userId);
+            return;
+        }
+        String html = "<p>One account's deletion has failed on " + failures + " consecutive purge attempts since "
+                + escape(formatTimestamp(since)) + ". The sweep keeps retrying every pass; it needs a person to "
+                + "look at why it fails. Each attempt's error is in the backend log (\"Account purge failed for "
+                + "user\") and in the metadata of the account's ACCOUNT_PURGE_FAILED audit rows.</p>"
+                + "<p><a href=\"" + adminBaseUrl() + "/users/" + userId + "\">Open the account in the admin portal</a></p>";
+        send(superAdmins, "Account deletion stuck: " + failures + " failed purge attempts", html);
+    }
+
+    /**
      * Deliberately reads {@code getAdminAppBaseUrl()} directly rather than going through {@link
      * EmailProperties#resolveBaseUrl}, even though that method already has a null-fallback: its
      * fallback is the USER-facing frontend's URL, chosen for password-reset links where a request

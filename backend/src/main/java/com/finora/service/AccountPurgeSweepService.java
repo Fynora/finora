@@ -118,6 +118,14 @@ import java.util.UUID;
  * GmailConnectionService.disconnect} throws a catchable 404 once there is nothing left to
  * disconnect.
  *
+ * <h2>Retries forever, but not silently</h2>
+ * A failed account is retried on every pass with no cap: the purge is the deletion the account was
+ * promised, and giving up would leave its real email and data in place indefinitely. What the
+ * sweep adds is a person: after {@code alertAfterFailures} consecutive failures on one account it
+ * emails the Super Admins once ({@link #alertIfStuck}). Without that, the only trace of a stuck
+ * account is this class's error log, which does not reach Sentry ({@code sentry.logging.enabled}
+ * is {@code false} on purpose); the first stuck account ran 524 failed passes over five days.
+ *
  * <h2>Not class-level {@code @Transactional}</h2>
  * Gmail revocation and Razorpay subscription cancellation are both outbound HTTPS calls; running
  * either with a pooled database connection held open is the BH-016/BH-047 failure mode this
@@ -194,6 +202,20 @@ public class AccountPurgeSweepService {
      *  unbounded pass. */
     @Value("${app.account-purge.sweep.batch-size:200}")
     private int batchSize;
+
+    /**
+     * After how many consecutive failed purge attempts on one account the sweep tells the Super
+     * Admins, once ({@link #alertIfStuck}). The sweep never stops retrying: the purge is the
+     * account's deletion promise, a retry costs one log line and one audit row, and a transient
+     * cause (storage down) clears itself. What it must not do is retry silently. The first stuck
+     * account (2026-09-18 to 2026-09-23) failed on 524 consecutive passes over five days before
+     * anyone looked, because the error log was the only trace and {@code sentry.logging.enabled}
+     * is deliberately {@code false}. Four passes at the 15-minute interval is about an hour: long
+     * enough to skip a single transient failure, short enough that a real bug reaches a person
+     * the same day. {@code 0} turns the alert off.
+     */
+    @Value("${app.account-purge.sweep.alert-after-failures:4}")
+    private int alertAfterFailures;
 
     private final UserRepository userRepository;
     private final GmailConnectionService gmailConnectionService;
@@ -272,6 +294,7 @@ public class AccountPurgeSweepService {
     private final TransactionTemplate transactionTemplate;
     private final AuditLogRepository auditLogRepository;
     private final EmailProvider emailProvider;
+    private final HeldItemAdminAlertService adminAlerts;
 
     public AccountPurgeSweepService(UserRepository userRepository,
                                      GmailConnectionService gmailConnectionService,
@@ -349,7 +372,9 @@ public class AccountPurgeSweepService {
                                      PasswordEncoder passwordEncoder,
                                      TransactionTemplate transactionTemplate,
                                      AuditLogRepository auditLogRepository,
-                                     EmailProvider emailProvider) {
+                                     EmailProvider emailProvider,
+                                     HeldItemAdminAlertService adminAlerts) {
+        this.adminAlerts = adminAlerts;
         this.userRepository = userRepository;
         this.gmailConnectionService = gmailConnectionService;
         this.gmailConnectionRepository = gmailConnectionRepository;
@@ -486,9 +511,37 @@ public class AccountPurgeSweepService {
                 String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 log.error("Account purge failed for user {}: {}", userId, message, e);
                 auditService.record(userId, "ACCOUNT_PURGE_FAILED", "User", userId, Map.of("error", message));
+                alertIfStuck(userId);
             }
         }
         return new Result(purged, failed);
+    }
+
+    /**
+     * Tells the Super Admins, once, when one account's purge has now failed {@link
+     * #alertAfterFailures} times in a row -- see that field's doc for why the sweep alerts rather
+     * than giving up. "In a row" is every {@code ACCOUNT_PURGE_FAILED} row since the account's
+     * current {@code deletionRequestedAt}: a reactivated account that asks again gets a fresh
+     * count, and a purged account never reaches this sweep again. The count includes the row
+     * {@link #sweep} just recorded (no ambient transaction here, so it is already committed), and
+     * fires only when it lands exactly on the threshold, which is what makes the alert
+     * once-per-stuck-request without any state of its own.
+     *
+     * <p>Never throws: a failed alert is logged, and the account is still retried next pass.
+     */
+    private void alertIfStuck(UUID userId) {
+        if (alertAfterFailures <= 0) return;
+        try {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null || user.getDeletionRequestedAt() == null) return;
+            long failures = auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
+                    userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt());
+            if (failures == alertAfterFailures) {
+                adminAlerts.alertAccountPurgeStuck(userId, failures, user.getDeletionRequestedAt());
+            }
+        } catch (RuntimeException e) {
+            log.error("Could not check whether the purge of account {} is stuck: {}", userId, e.getMessage(), e);
+        }
     }
 
     /**

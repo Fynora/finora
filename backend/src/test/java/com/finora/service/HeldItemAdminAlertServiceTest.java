@@ -368,6 +368,36 @@ class HeldItemAdminAlertServiceTest {
         verify(emailProvider, never()).send(any());
     }
 
+    @Test
+    void alertAccountPurgeStuck_emailsEverySuperAdmin_withTheCountAndALinkOnly() {
+        User superAdmin = adminUser("super-admin@example.com");
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE))
+                .thenReturn(List.of(superAdmin));
+        UUID stuckUserId = UUID.randomUUID();
+
+        service.alertAccountPurgeStuck(stuckUserId, 4, Instant.parse("2026-09-18T07:51:00Z"));
+
+        org.mockito.ArgumentCaptor<EmailMessage> sent = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(sent.capture());
+        assertThat(sent.getValue().to()).isEqualTo("super-admin@example.com");
+        assertThat(sent.getValue().subject()).isEqualTo("Account deletion stuck: 4 failed purge attempts");
+        assertThat(sent.getValue().html())
+                .contains("4 consecutive purge attempts")
+                .contains("18 Sep 2026, 07:51 UTC")
+                .contains("https://admin.example.com/users/" + stuckUserId)
+                // No error text and nothing personal: the email is a pointer, the audit log has the rest.
+                .doesNotContain("@example.com");
+    }
+
+    @Test
+    void alertAccountPurgeStuck_sendsNothingWithoutASuperAdmin() {
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE)).thenReturn(List.of());
+
+        service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now());
+
+        verify(emailProvider, never()).send(any());
+    }
+
     private String overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus status) {
         ImportJob job = heldJob();
         when(importJobRepository.findById(job.getId())).thenReturn(Optional.of(job));

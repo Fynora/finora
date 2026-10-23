@@ -104,6 +104,15 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
     List<AuditLog> findTop50ByUserIdAndActionInOrderByCreatedAtDesc(UUID userId, List<String> actions);
 
     /**
+     * How many times one action was recorded for a user after a point in time. {@code
+     * AccountPurgeSweepService} counts {@code ACCOUNT_PURGE_FAILED} rows since the account's
+     * {@code deletionRequestedAt} to decide when a purge that keeps failing has gone on long enough
+     * to tell an admin -- one count per failed sweep, on a stuck account only, so a derived
+     * {@code COUNT(*)} is all this needs.
+     */
+    long countByUserIdAndActionAndCreatedAtAfter(UUID userId, String action, Instant after);
+
+    /**
      * Admin Portal Phase 4 (EntityDrawer reference implementation, Banks page's Audit tab) --
      * BANK_CREATED/BANK_UPDATED/BANK_DELETED all record entityId as null (Bank.id is a String
      * natural key, e.g. "hdfc", not a UUID -- see this entity's entityId column type), carrying

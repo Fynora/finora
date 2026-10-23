@@ -84,6 +84,7 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -127,6 +128,7 @@ class AccountPurgeSweepServiceTest {
     private TransactionTemplate transactionTemplate;
     private AuditLogRepository auditLogRepository;
     private EmailProvider emailProvider;
+    private HeldItemAdminAlertService adminAlerts;
     private AccountPurgeSweepService service;
     private final UUID userId = UUID.randomUUID();
 
@@ -134,6 +136,7 @@ class AccountPurgeSweepServiceTest {
     void setUp() {
         auditLogRepository = mock(AuditLogRepository.class);
         emailProvider = mock(EmailProvider.class);
+        adminAlerts = mock(HeldItemAdminAlertService.class);
         userRepository = mock(UserRepository.class);
         gmailConnectionService = mock(GmailConnectionService.class);
         gmailConnectionRepository = mock(GmailConnectionRepository.class);
@@ -219,10 +222,11 @@ class AccountPurgeSweepServiceTest {
                 mock(com.finora.repository.InflowKindRepository.class),
                 mock(com.finora.repository.SenderInflowRuleRepository.class),
                 auditService, passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider);
+                auditLogRepository, emailProvider, adminAlerts);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);
+        ReflectionTestUtils.setField(service, "alertAfterFailures", 4);
     }
 
     private User pendingDeletionUser() {
@@ -700,6 +704,75 @@ class AccountPurgeSweepServiceTest {
         verify(transactionRepository, never()).hardDeleteByUserId(any());
         verify(userRepository, never()).save(any());
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(userId), any());
+    }
+
+    /** A failure that is now the fourth in a row since the deletion was requested tells the Super
+     *  Admins; the count the decision rests on is the committed audit rows, not state in memory. */
+    @Test
+    void sweep_fourthConsecutiveFailure_tellsTheSuperAdmins() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
+                .when(gmailConnectionService).disconnect(userId, userId);
+        when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
+                userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt())).thenReturn(4L);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(adminAlerts).alertAccountPurgeStuck(userId, 4L, user.getDeletionRequestedAt());
+        // Still retryable: the alert changes nothing about the account.
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
+    }
+
+    /** Once, not on every pass past the threshold: the third failure is too early, the fifth
+     *  already alerted on the fourth. */
+    @Test
+    void sweep_failuresEitherSideOfTheThreshold_doNotAlert() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
+                .when(gmailConnectionService).disconnect(userId, userId);
+        when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
+                userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt())).thenReturn(3L, 5L);
+
+        service.sweep();
+        service.sweep();
+
+        verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
+        verify(auditService, times(2)).record(eq(userId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(userId), any());
+    }
+
+    @Test
+    void sweep_alertSwitchedOff_neverCounts() {
+        ReflectionTestUtils.setField(service, "alertAfterFailures", 0);
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
+                .when(gmailConnectionService).disconnect(userId, userId);
+
+        service.sweep();
+
+        verify(auditLogRepository, never()).countByUserIdAndActionAndCreatedAtAfter(any(), any(), any());
+        verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
+    }
+
+    /** The stuck check is bookkeeping around the failure, never a second way for the sweep to
+     *  fail: a broken count still leaves the failure recorded and the batch result intact. */
+    @Test
+    void sweep_stuckCheckThrowing_doesNotChangeTheSweepResult() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
+                .when(gmailConnectionService).disconnect(userId, userId);
+        when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(any(), any(), any()))
+                .thenThrow(new IllegalStateException("database away"));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        verify(auditService).record(eq(userId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(userId), any());
+        verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
     }
 
     @Test

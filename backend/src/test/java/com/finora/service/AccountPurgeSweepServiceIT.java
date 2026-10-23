@@ -245,6 +245,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private TransactionTemplate transactionTemplate;
     @Autowired private AuditLogRepository auditLogRepository;
     private EmailProvider emailProvider;
+    private HeldItemAdminAlertService adminAlerts;
     @Autowired private RoleRepository roleRepository;
     @Autowired private EntityManager entityManager;
 
@@ -255,7 +256,30 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @BeforeEach
     void setUp() {
         emailProvider = org.mockito.Mockito.mock(EmailProvider.class);
-        service = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
+        adminAlerts = org.mockito.Mockito.mock(HeldItemAdminAlertService.class);
+        service = buildService(statementStorageSweepService);
+
+        User user = new User();
+        user.setEmail("purge-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Purge Test User");
+        user.setStatus(User.STATUS_PENDING_DELETION);
+        user.setDeletionRequestedAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        userId = userRepository.save(user).getId();
+
+        Account account = new Account();
+        account.setUserId(userId);
+        account.setName("Test Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.valueOf(1000));
+        account.setAccountHolderName("Purge Test User");
+        accountId = accountRepository.save(account).getId();
+    }
+
+    /** The real service over the real repositories, with one seam: the storage sweep, so a test
+     *  can make {@code purgeOne} fail at the one step that throws rather than logs. */
+    private AccountPurgeSweepService buildService(StatementStorageSweepService statementStorageSweepService) {
+        AccountPurgeSweepService built = new AccountPurgeSweepService(userRepository, gmailConnectionService, gmailConnectionRepository,
                 gateway, transactionRepository, transactionRelationshipRepository,
                 merchantLearningEventRepository, merchantLearningAuditRepository,
                 merchantCategoryLearningRepository, merchantAliasRepository, merchantCategoryMapRepository,
@@ -279,26 +303,12 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider);
-        ReflectionTestUtils.setField(service, "sweepEnabled", true);
-        ReflectionTestUtils.setField(service, "retentionHours", 0);
-        ReflectionTestUtils.setField(service, "batchSize", 200);
-
-        User user = new User();
-        user.setEmail("purge-" + UUID.randomUUID() + "@example.com");
-        user.setPasswordHash("irrelevant-for-this-test");
-        user.setFullName("Purge Test User");
-        user.setStatus(User.STATUS_PENDING_DELETION);
-        user.setDeletionRequestedAt(Instant.now().minus(1, ChronoUnit.HOURS));
-        userId = userRepository.save(user).getId();
-
-        Account account = new Account();
-        account.setUserId(userId);
-        account.setName("Test Savings");
-        account.setAccountType(Account.Type.SAVINGS);
-        account.setBalance(BigDecimal.valueOf(1000));
-        account.setAccountHolderName("Purge Test User");
-        accountId = accountRepository.save(account).getId();
+                auditLogRepository, emailProvider, adminAlerts);
+        ReflectionTestUtils.setField(built, "sweepEnabled", true);
+        ReflectionTestUtils.setField(built, "retentionHours", 0);
+        ReflectionTestUtils.setField(built, "batchSize", 200);
+        ReflectionTestUtils.setField(built, "alertAfterFailures", 4);
+        return built;
     }
 
     private Transaction saveTransaction(BigDecimal amount) {
@@ -1343,5 +1353,41 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(userId, List.of("EMAIL_SENT")))
                 .singleElement()
                 .satisfies(entry -> assertThat(entry.getMetadata()).containsEntry("success", false));
+    }
+
+    /**
+     * The stuck-purge alert end to end against the real audit table: the sweep fails at the one
+     * step that throws rather than logs (the storage reclaim, see {@code purgeOne}), once per pass,
+     * and the fourth consecutive failure is the one that tells the Super Admins -- not the third,
+     * not the fifth. Then the cause clears and the next pass finishes the purge: the alert never
+     * stopped the retrying. No ambient transaction, as in production, so each pass's audit row is
+     * committed before the next pass counts it.
+     */
+    @Test
+    void sweep_fourthConsecutiveFailure_tellsTheSuperAdminsOnce_andKeepsRetryingUntilThePurgeCompletes() {
+        StatementStorageSweepService storageDown = org.mockito.Mockito.mock(StatementStorageSweepService.class);
+        org.mockito.Mockito.when(storageDown.reclaimImportJobObjectsOf(userId))
+                .thenThrow(new IllegalStateException("object store unreachable"));
+        AccountPurgeSweepService failing = buildService(storageDown);
+
+        for (int pass = 1; pass <= 5; pass++) {
+            failing.sweep();
+        }
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of("ACCOUNT_PURGE_FAILED"))).hasSize(5);
+        org.mockito.Mockito.verify(adminAlerts, org.mockito.Mockito.times(1)).alertAccountPurgeStuck(
+                org.mockito.ArgumentMatchers.eq(userId), org.mockito.ArgumentMatchers.eq(4L),
+                org.mockito.ArgumentMatchers.any());
+
+        // Storage is back: the real sweep completes the purge on its next pass, and the alert
+        // count stays at one.
+        service.sweep();
+
+        assertThat(userRepository.findById(userId).orElseThrow().getStatus()).isEqualTo(User.STATUS_DELETED);
+        org.mockito.Mockito.verify(adminAlerts, org.mockito.Mockito.times(1)).alertAccountPurgeStuck(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any());
     }
 }

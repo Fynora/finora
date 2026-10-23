@@ -1751,6 +1751,9 @@ export interface SupportTicketRow {
   claimedByAdminId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Set when an admin closed this ticket as a duplicate of another of the same customer's. */
+  duplicateOfTicketId: string | null;
+  duplicateOfTicketNumber: string | null;
 }
 
 /** Every filter is optional -- same shape as HeldStatementQuery. `q` searches ticket number and
@@ -1790,6 +1793,8 @@ export interface SupportTicketDetail {
   createdAt: string;
   updatedAt: string;
   attachments: SupportTicketAttachment[];
+  duplicateOfTicketId: string | null;
+  duplicateOfTicketNumber: string | null;
 }
 
 /** Mirrors SupportTicketDto.NoteDto -- admin-only, never reachable from the user-facing endpoint. */

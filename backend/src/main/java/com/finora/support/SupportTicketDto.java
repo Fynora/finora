@@ -31,12 +31,15 @@ public final class SupportTicketDto {
             SupportTicket.Status status,
             UUID claimedByAdminId,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            UUID duplicateOfTicketId,
+            String duplicateOfTicketNumber
     ) {
         public static Summary from(SupportTicket ticket) {
             return new Summary(ticket.getId(), ticket.getTicketNumber(), ticket.getUserId(),
                     ticket.getCategory(), ticket.getSubject(), ticket.getStatus(),
-                    ticket.getClaimedByAdminId(), ticket.getCreatedAt(), ticket.getUpdatedAt());
+                    ticket.getClaimedByAdminId(), ticket.getCreatedAt(), ticket.getUpdatedAt(),
+                    ticket.getDuplicateOfTicketId(), ticket.getDuplicateOfTicketNumber());
         }
     }
 
@@ -59,14 +62,16 @@ public final class SupportTicketDto {
             Instant closedAt,
             Instant createdAt,
             Instant updatedAt,
-            List<AttachmentSummary> attachments
+            List<AttachmentSummary> attachments,
+            UUID duplicateOfTicketId,
+            String duplicateOfTicketNumber
     ) {
         public static Detail from(SupportTicket ticket, List<AttachmentSummary> attachments) {
             return new Detail(ticket.getId(), ticket.getTicketNumber(), ticket.getUserId(),
                     ticket.getCategory(), ticket.getSubject(), ticket.getDescription(), ticket.getStatus(),
                     ticket.getSource(), ticket.getAppVersion(), ticket.getClaimedByAdminId(),
                     ticket.getResolvedAt(), ticket.getClosedAt(), ticket.getCreatedAt(), ticket.getUpdatedAt(),
-                    attachments);
+                    attachments, ticket.getDuplicateOfTicketId(), ticket.getDuplicateOfTicketNumber());
         }
     }
 
@@ -80,6 +85,10 @@ public final class SupportTicketDto {
     }
 
     public record UpdateStatusRequest(@NotNull(message = "status is required") SupportTicket.Status status) {}
+
+    /** The ticket number (SUP-000042) of the ticket this one duplicates, as an admin reads it off the queue. */
+    public record MarkDuplicateRequest(
+            @NotBlank(message = "referenceTicketNumber is required") String referenceTicketNumber) {}
 
     /** An internal note, as returned to an admin. Never constructed from, or exposed to, a
      *  user-facing endpoint — see {@link SupportTicketInternalNote}'s own doc for why that must

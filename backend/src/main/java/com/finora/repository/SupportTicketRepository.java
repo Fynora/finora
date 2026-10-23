@@ -1,9 +1,11 @@
 package com.finora.repository;
 
 import com.finora.entity.SupportTicket;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,6 +30,26 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
 
     /** The reference a customer quotes back to support. */
     Optional<SupportTicket> findByTicketNumber(String ticketNumber);
+
+    /** Just the id behind a ticket number, without loading the row: {@code SupportTicketDuplicateService}
+     *  must take its row locks BEFORE it reads any ticket's state, and a loaded entity would sit in the
+     *  persistence context and be handed back stale by the locking read. */
+    @Query("SELECT t.id FROM SupportTicket t WHERE t.ticketNumber = :ticketNumber")
+    Optional<UUID> findIdByTicketNumber(@Param("ticketNumber") String ticketNumber);
+
+    /**
+     * One ticket, read under a row lock ({@code SELECT ... FOR UPDATE}), so what the caller then
+     * decides is decided on the state nobody else can change until this transaction ends.
+     *
+     * <p>Used to mark a duplicate. Without it, two admins acting at once could each see the other's
+     * ticket as an ordinary open one: A marks X a duplicate of Y while B marks Y a duplicate of X,
+     * and both succeed, leaving two closed tickets pointing at each other and the customer told
+     * contradictory things. The same lock stops one ticket being marked, and its customer emailed,
+     * twice. Callers take locks in ascending id order so two of them can never wait on each other.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM SupportTicket t WHERE t.id = :id")
+    Optional<SupportTicket> findByIdForUpdate(@Param("id") UUID id);
 
     /**
      * The admin queue, optionally filtered by status and/or category and/or a free-text search,

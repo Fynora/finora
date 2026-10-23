@@ -29,6 +29,8 @@ const row: SupportTicketRow = {
   claimedByAdminId: null,
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
+  duplicateOfTicketId: null,
+  duplicateOfTicketNumber: null,
 };
 
 function renderPage() {
@@ -77,6 +79,24 @@ describe('SupportTickets', () => {
     expect(table.getByText('Statement import')).toBeInTheDocument();
     expect(table.getByText('OPEN')).toBeInTheDocument();
     expect(table.getByText('—')).toBeInTheDocument(); // unclaimed
+  });
+
+  it('says which ticket a closed duplicate duplicates, and says nothing for an ordinary ticket', async () => {
+    mockAuth(['SUPPORT_MANAGE']);
+    vi.mocked(adminSupportTicketApi.list).mockResolvedValue({
+      content: [
+        row,
+        { ...row, id: '33333333-3333-3333-3333-333333333333', ticketNumber: 'SUP-000043', status: 'CLOSED',
+          duplicateOfTicketId: row.id, duplicateOfTicketNumber: 'SUP-000042' },
+      ],
+      page: 0, size: 25, totalElements: 2, totalPages: 1,
+    });
+    renderPage();
+
+    await screen.findByText('SUP-000043');
+    const table = within(screen.getByRole('table'));
+    expect(table.getAllByText(/Duplicate of/)).toHaveLength(1);
+    expect(table.getByText('Duplicate of SUP-000042')).toBeInTheDocument();
   });
 
   it('links the ticket number into the detail route', async () => {

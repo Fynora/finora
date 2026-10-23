@@ -117,6 +117,9 @@ public final class AiInsightFacts {
                 m.put("period", f.period().name());
                 m.put("unit", f.unit().name());
                 m.put("display", f.display());
+                // The display is unsigned, so a change fact says its direction: without it the model
+                // cannot tell a rise from a fall and guesses (checker rule 5).
+                if (isChange(f)) m.put("direction", f.value().signum() > 0 ? "UP" : f.value().signum() < 0 ? "DOWN" : "SAME");
                 return m;
             }).toList());
             if (!rows.isEmpty()) {
@@ -162,6 +165,11 @@ public final class AiInsightFacts {
             List<String> usualMonths = (List<String>) m.getOrDefault("usualMonths", List.of());
             return new FactSheet((String) m.get("month"), subjects, facts, rows, usualMonths);
         }
+    }
+
+    /** A change between this month and the usual month ({@code change_pct}, {@code money_out_change_pct}). */
+    static boolean isChange(Fact f) {
+        return f.unit() == Unit.PERCENT && f.metric().endsWith("change_pct");
     }
 
     /** A fact with its display form rendered. {@code countNoun} names a COUNT ("payment"); null otherwise. */

@@ -370,6 +370,29 @@ class RecurringAnswerServiceTest {
         assertThat(c.amountMax()).isEqualByComparingTo("12000.00");
     }
 
+    /** Given the groups a caller already detected this request, the answer is the same and detection
+     *  is not run a second time. */
+    @Test
+    void changedAmounts_withGroupsAlreadyDetected_givesTheSameAnswerWithoutDetectingAgain() {
+        List<RecurringDto> groups = List.of(new RecurringDto("sample detected", "Monthly",
+                new BigDecimal("100"), 3, LocalDate.of(2026, 7, 3), LocalDate.of(2026, 8, 3)));
+        CategoryRule moved = savedRule("Rent", "8000.00", "12000.00");
+        CategoryRule detectedAnswer = savedRule("Utilities", "1.00", "2.00");
+        detectedAnswer.setComparisonValue("Sample Detected");
+        when(ruleRepository.findUserPayeeRules(userId)).thenReturn(List.of(moved, detectedAnswer));
+        row(LABEL, Transaction.Type.EXPENSE, "12500", 7);
+        row("sample detected", Transaction.Type.EXPENSE, "999", 7);
+
+        List<ChangedAmountDto> changed = service.changedAmounts(userId, groups);
+
+        // The detected payee is left out (it reports on its own group); only the undetected one moved.
+        assertThat(changed).extracting(ChangedAmountDto::merchant).containsExactly(LABEL);
+        verify(recurringService, never()).detectForUser(any());
+
+        when(recurringService.detectForUser(userId)).thenReturn(groups);
+        assertThat(service.changedAmounts(userId)).isEqualTo(changed);
+    }
+
     /** "Still Rent?" must not ask about a payment the user filed by hand, nor about a transfer. */
     @Test
     void changedAmounts_ignoresALatestPaymentFiledByHandOrMarkedATransfer() {

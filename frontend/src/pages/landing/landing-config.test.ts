@@ -72,7 +72,7 @@ describe('reframed landing copy', () => {
     expect(aiAnswer?.[1]).toMatch(/Anthropic/);
     expect(aiAnswer?.[1]).toMatch(/Importing a statement does not send it/i);
     // All three AI uses the privacy policy lists, not only Ask Fyn.
-    expect(aiAnswer?.[1]).toMatch(/summary on the Insights page is written by Anthropic's Claude/i);
+    expect(aiAnswer?.[1]).toMatch(/AI insights on the Insights page are written by Anthropic's Claude/i);
     expect(aiAnswer?.[1]).toMatch(/add a transaction by hand/i);
   });
 });

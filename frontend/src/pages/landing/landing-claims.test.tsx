@@ -124,6 +124,24 @@ describe('landing page — marketing claims', () => {
     expect(claims.filter((p) => p.test(text)).map(String)).toEqual([]);
   });
 
+  /**
+   * AI insights (docs/superpowers/specs/2026-10-22-ai-insights-foundation-design.md §6, §8.4). Each
+   * line is backed by code: migration V283__ai_insight_texts.sql grants FYN_INSIGHTS to Free, Plus and
+   * Premium, and AiInsightService holds Free to the newest month's story and 5 "Why?" answers a
+   * calendar month, with no count limit on Plus and Premium.
+   */
+  it('lists the AI insights each plan gets, as the server enforces them', () => {
+    const free = PLANS.find((p) => p.id === 'free')!;
+    const plus = PLANS.find((p) => p.id === 'plus')!;
+    expect(free.features).toContain('AI month story and 5 AI explanations a month');
+    expect(plus.features).toContain('AI insights with no monthly limit');
+
+    const { container } = renderLanding();
+    const pricing = container.querySelector('#pricing')?.textContent ?? '';
+    expect(pricing).toContain('AI month story and 5 AI explanations a month');
+    expect(pricing).toContain('AI insights with no monthly limit');
+  });
+
   it("describes Premium without claiming a capability that isn't live (Gmail sync, bank feed)", () => {
     const premium = PLANS.find((p) => p.id === 'premium')!;
     const copy = [premium.blurb, premium.promise, premium.stage.outcome, ...premium.features].join(' ');
@@ -410,6 +428,10 @@ describe('landing page — the reframe', () => {
     expect(pageText()).toContain(item![0]);
     expect(item![1]).toMatch(/Anthropic/);
     expect(item![1]).toMatch(/Importing a statement does not send it/i);
+    // AI insights send built-in category names only (AiInsightFacts: a category the user created is
+    // sent as a placeholder), so the answer must not say "your category names".
+    expect(item![1]).toMatch(/built-in category names/i);
+    expect(item![1]).not.toMatch(/your category names/i);
   });
 
   it('claims no scanned-statement support', () => {

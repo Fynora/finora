@@ -30,6 +30,12 @@
           },
           {
             "/": "/app/imports/*"
+          },
+          {
+            "/": "/app/support"
+          },
+          {
+            "/": "/app/support/*"
           }
         ]
       }

@@ -16,8 +16,19 @@ describe('parseAppPathDeepLink', () => {
     ['https://app.fynora.net/app/settings?tab=notifications', 'SettingsGeneral'],
     // Any other tab has no mobile equivalent mapped, so it keeps the plain Settings landing.
     ['https://app.fynora.net/app/settings?tab=security', 'Settings'],
+    // The web's "My Tickets" page.
+    ['https://app.fynora.net/app/support', 'SupportTickets'],
   ])('%s -> %s', (url, route) => {
-    expect(parseAppPathDeepLink(url)).toBe(route);
+    expect(parseAppPathDeepLink(url)).toEqual({ screen: route });
+  });
+
+  // The ticket acknowledgement email's "View your request" button.
+  it.each([
+    ['https://app.fynora.net/app/support/3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90', '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90'],
+    ['https://dev-app.fynora.net/app/support/3F0C9A52-7E1B-4D6A-9C34-2B8E5A1F7D90', '3F0C9A52-7E1B-4D6A-9C34-2B8E5A1F7D90'],
+    ['finora://app/support/3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90', '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90'],
+  ])('%s opens that ticket', (url, ticketId) => {
+    expect(parseAppPathDeepLink(url)).toEqual({ screen: 'SupportTicketDetail', ticketId });
   });
 
   it.each([
@@ -27,6 +38,10 @@ describe('parseAppPathDeepLink', () => {
     'https://app.fynora.net/app/settings/bank-sync/abc/confirm',
     'https://app.fynora.net/app/dashboard',
     'https://app.fynora.net/app/settingsX',
+    // Not a link the backend emails: an id that is not a UUID, and anything beneath a ticket.
+    'https://app.fynora.net/app/support/not-a-ticket-id',
+    'https://app.fynora.net/app/support/3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90/extra',
+    'https://app.fynora.net/app/supportX',
     'https://app.fynora.net/reset-password?token=abc',
     'https://evil.example/app/settings',
     'not a url',
@@ -62,7 +77,41 @@ describe('useAppPathDeepLink', () => {
 
     urlListener?.({ url: 'https://app.fynora.net/app/imports/job-1' });
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
+  });
+
+  it('opens the ticket itself, with its id, when the support link arrives', async () => {
+    const navigationRef = fakeNavigationRef();
+    renderHook(() => useAppPathDeepLink(navigationRef, true, true));
+    await Promise.resolve();
+
+    urlListener?.({ url: 'https://app.fynora.net/app/support/3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' });
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', {
+      screen: 'SupportTicketDetail',
+      params: { ticketId: '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' },
+      initial: false,
+    });
+  });
+
+  it('holds a ticket link that arrives while signed out and opens it once the app is ready', async () => {
+    const navigationRef = fakeNavigationRef();
+    const { rerender } = renderHook(
+      ({ ready, signedIn }: { ready: boolean; signedIn: boolean }) => useAppPathDeepLink(navigationRef, ready, signedIn),
+      { initialProps: { ready: false, signedIn: false } },
+    );
+    await Promise.resolve();
+
+    urlListener?.({ url: 'https://app.fynora.net/app/support/3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' });
+    expect(navigationRef.navigate).not.toHaveBeenCalled();
+    rerender({ ready: true, signedIn: true });
+
+    expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', {
+      screen: 'SupportTicketDetail',
+      params: { ticketId: '3f0c9a52-7e1b-4d6a-9c34-2b8e5a1f7d90' },
+      initial: false,
+    });
   });
 
   it('holds a link that arrives while signed out and replays it once the app is ready', async () => {
@@ -79,7 +128,7 @@ describe('useAppPathDeepLink', () => {
     rerender({ ready: true, signedIn: true });
 
     expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
   });
 
   it('keeps a held link through a transient ready dip while still signed in', async () => {
@@ -96,7 +145,7 @@ describe('useAppPathDeepLink', () => {
     expect(navigationRef.navigate).not.toHaveBeenCalled();
 
     rerender({ ready: true, signedIn: true });
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('drops a held link on a real sign-out so the next person to sign in does not inherit it', async () => {
@@ -126,7 +175,7 @@ describe('useAppPathDeepLink', () => {
     containerReady = true;
     result.current.onNavigationReady();
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('picks up a cold-launch link from getInitialURL', async () => {
@@ -136,7 +185,7 @@ describe('useAppPathDeepLink', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings' });
+    expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Settings', initial: false });
   });
 
   it('ignores links that are not one of its paths', async () => {
@@ -186,7 +235,7 @@ describe('useAppPathDeepLink', () => {
       urlListener?.({ url: LAUNCH });
 
       expect(navigationRef.navigate).toHaveBeenCalledTimes(1);
-      expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements' });
+      expect(navigationRef.navigate).toHaveBeenCalledWith('More', { screen: 'Statements', initial: false });
     });
   });
 

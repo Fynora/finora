@@ -2,14 +2,22 @@ package com.finora.support;
 
 import com.finora.dto.PagedResponse;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.User;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.UserRepository;
 import com.finora.util.PageBounds;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Orchestration for feedback: submission and the admin list. Smaller than
@@ -23,10 +31,13 @@ public class FeedbackService {
 
     private final FeedbackEntryRepository repository;
     private final ClientIdentity clientIdentity;
+    private final UserRepository userRepository;
 
-    public FeedbackService(FeedbackEntryRepository repository, ClientIdentity clientIdentity) {
+    public FeedbackService(FeedbackEntryRepository repository, ClientIdentity clientIdentity,
+                           UserRepository userRepository) {
         this.repository = repository;
         this.clientIdentity = clientIdentity;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -41,11 +52,29 @@ public class FeedbackService {
         return FeedbackDto.Summary.from(repository.save(entry));
     }
 
+    /**
+     * One page of feedback with who sent each entry. Senders are fetched in one batch for the
+     * page rather than per row; the page is at most {@code PageBounds}' ceiling, so this is a
+     * single {@code IN} query either way.
+     */
     @Transactional(readOnly = true)
-    public PagedResponse<FeedbackDto.Summary> adminList(FeedbackEntry.Type type, FeedbackEntry.Context context,
-                                                         int page, int size) {
+    public PagedResponse<FeedbackDto.AdminRow> adminList(FeedbackEntry.Type type, FeedbackEntry.Context context,
+                                                          int page, int size) {
         Pageable pageable = PageRequest.of(PageBounds.safePage(page), PageBounds.safeSize(size));
-        return PagedResponse.of(repository.findForAdmin(type, context, pageable).map(FeedbackDto.Summary::from));
+        Page<FeedbackEntry> entries = repository.findForAdmin(type, context, pageable);
+
+        List<UUID> senderIds = entries.getContent().stream()
+                .map(FeedbackEntry::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<UUID, User> senders = senderIds.isEmpty()
+                ? Map.of()
+                : userRepository.findAllById(senderIds).stream()
+                        .collect(Collectors.toMap(User::getId, Function.identity(), (a, b) -> a));
+
+        return PagedResponse.of(entries.map(e ->
+                FeedbackDto.AdminRow.from(e, e.getUserId() == null ? null : senders.get(e.getUserId()))));
     }
 
     /** Phase 9's counts panel — unfiltered by design, same as {@code countGrouped()}'s own doc

@@ -22,10 +22,13 @@ vi.mock('../api/endpoints', () => ({
 const row: FeedbackRow = {
   id: 'fb-1',
   userId: '22222222-2222-2222-2222-222222222222',
+  userName: 'Test Sender',
+  userEmail: 'sender@example.com',
   type: 'BUG',
   context: 'IMPORT_FLOW',
   source: 'WEB',
   message: 'Import silently drops rows when the file has a BOM.',
+  appVersion: '1.0.0',
   createdAt: '2026-09-01T08:00:00Z',
 };
 
@@ -94,6 +97,54 @@ describe('Feedback', () => {
     expect(table.getByText('Import flow')).toBeInTheDocument();
     expect(table.getByText('WEB')).toBeInTheDocument();
     expect(table.getByText(/Import silently drops rows/)).toBeInTheDocument();
+  });
+
+  it('shows who sent each feedback in a From column', async () => {
+    renderPage();
+    await screen.findByText(/Import silently drops rows/);
+
+    const table = within(screen.getByRole('table'));
+    expect(table.getByRole('columnheader', { name: 'From' })).toBeInTheDocument();
+    expect(table.getByText('Test Sender')).toBeInTheDocument();
+    expect(table.getByText('sender@example.com')).toBeInTheDocument();
+  });
+
+  it('says "Unknown" rather than leaving From blank when there is no account to show', async () => {
+    vi.mocked(adminFeedbackApi.list).mockResolvedValue({
+      content: [{ ...row, userId: null, userName: null, userEmail: null }],
+      page: 0, size: 25, totalElements: 1, totalPages: 1,
+    });
+    renderPage();
+    await screen.findByText(/Import silently drops rows/);
+
+    expect(within(screen.getByRole('table')).getByText('Unknown')).toBeInTheDocument();
+  });
+
+  it('opens the full message, with its line breaks, in a drawer when the row is clicked', async () => {
+    const user = userEvent.setup();
+    const long = `${'Why is my card bill counted twice? '.repeat(4)}\n\nSecond paragraph stays separate.`;
+    vi.mocked(adminFeedbackApi.list).mockResolvedValue({
+      content: [{ ...row, message: long }], page: 0, size: 25, totalElements: 1, totalPages: 1,
+    });
+    renderPage();
+
+    // The table cell is cut at 80 characters; the full text only exists once the drawer is open.
+    const open = await screen.findByRole('button', { name: /open feedback/i });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Second paragraph stays separate/)).not.toBeInTheDocument();
+
+    await user.click(open);
+
+    const dialog = within(await screen.findByRole('dialog'));
+    const body = dialog.getByText(/Second paragraph stays separate/);
+    expect(body.textContent).toBe(long);
+    expect(body).toHaveClass('whitespace-pre-wrap');
+    expect(dialog.getByText('Test Sender · sender@example.com')).toBeInTheDocument();
+    expect(dialog.getByText('1.0.0')).toBeInTheDocument();
+    expect(dialog.getByText(row.userId as string)).toBeInTheDocument();
+
+    await user.click(dialog.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('breakdown is fetched once and never refetched when the list filter changes', async () => {

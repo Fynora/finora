@@ -13247,7 +13247,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseFeedbackSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseFeedbackAdminRow"
                                 }
                             }
                         }
@@ -32474,7 +32474,7 @@
                     }
                 }
             },
-            "ApiResponsePagedResponseFeedbackSummary": {
+            "ApiResponsePagedResponseFeedbackAdminRow": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -32484,7 +32484,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/PagedResponseFeedbackSummary"
+                        "$ref": "#/components/schemas/PagedResponseFeedbackAdminRow"
                     },
                     "timestamp": {
                         "type": "string",
@@ -32502,13 +32502,74 @@
                     }
                 }
             },
-            "PagedResponseFeedbackSummary": {
+            "FeedbackAdminRow": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userName": {
+                        "type": "string"
+                    },
+                    "userEmail": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "BUG",
+                            "FEATURE_REQUEST",
+                            "IMPROVEMENT",
+                            "GENERAL"
+                        ]
+                    },
+                    "context": {
+                        "type": "string",
+                        "enum": [
+                            "DASHBOARD",
+                            "TRANSACTIONS",
+                            "REPORTS",
+                            "BUDGETS",
+                            "GOALS",
+                            "IMPORT_FLOW",
+                            "ACCOUNTS",
+                            "SETTINGS",
+                            "HELP",
+                            "OTHER"
+                        ]
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": [
+                            "WEB",
+                            "MOBILE_ANDROID",
+                            "MOBILE_IOS"
+                        ]
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "PagedResponseFeedbackAdminRow": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/FeedbackSummary"
+                            "$ref": "#/components/schemas/FeedbackAdminRow"
                         }
                     },
                     "page": {

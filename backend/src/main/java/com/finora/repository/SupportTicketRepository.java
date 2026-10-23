@@ -17,6 +17,12 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      *  so paging through the list returns each ticket exactly once. */
     Page<SupportTicket> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, Pageable pageable);
 
+    /** How many tickets this account has raised since {@code since} -- {@code SupportSubmissionLimiter}'s
+     *  daily ceiling, and the cap on
+     *  acknowledgement emails ({@code SupportTicketService.acknowledge}). Served by
+     *  {@code idx_support_tickets_by_user}. */
+    long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
+
     /**
      * Ownership is a predicate on the fetch, not a check after it.
      *
@@ -25,10 +31,6 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      * cannot express the user id has no business reading the row.
      */
     Optional<SupportTicket> findByIdAndUserId(UUID id, UUID userId);
-
-    /** How many tickets this user raised since {@code since} -- the basis of the cap on
-     *  acknowledgement emails (see {@code SupportTicketService.acknowledge}). */
-    long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
 
     /** The reference a customer quotes back to support. */
     Optional<SupportTicket> findByTicketNumber(String ticketNumber);

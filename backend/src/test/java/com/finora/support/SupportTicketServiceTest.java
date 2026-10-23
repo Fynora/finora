@@ -53,6 +53,7 @@ class SupportTicketServiceTest {
     private AuditService auditService;
     private NotificationService notificationService;
     private SupportAdminAlertService adminAlerts;
+    private SupportSubmissionLimiter submissionLimiter;
     private UserRepository userRepository;
     private SupportTicketService service;
 
@@ -70,9 +71,11 @@ class SupportTicketServiceTest {
         auditService = mock(AuditService.class);
         notificationService = mock(NotificationService.class);
         adminAlerts = mock(SupportAdminAlertService.class);
+        submissionLimiter = mock(SupportSubmissionLimiter.class);
         userRepository = mock(UserRepository.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService, notificationService, adminAlerts, userRepository);
+                clientIdentity, auditService, notificationService, adminAlerts, submissionLimiter,
+                userRepository);
         when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(true)));
 
         // The real repository assigns the id on save; the acknowledgement's button link needs it.
@@ -207,6 +210,36 @@ class SupportTicketServiceTest {
 
         verify(adminAlerts).alertTicketRaised(any(), eq("SUP-000001"), eq(SupportTicket.Category.TECHNICAL_ISSUE),
                 eq(ClientPlatform.WEB), any());
+    }
+
+    @Test
+    void anAccountOverItsDailyLimit_getsA429_andNothingIsSavedAuditedOrAnnounced() {
+        org.mockito.Mockito.doThrow(new ApiException(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS, "limit"))
+                .when(submissionLimiter).requireTicketAllowance(userId);
+
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "Subject", "Description", null))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getStatus())
+                        .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS));
+
+        verify(ticketRepository, org.mockito.Mockito.never()).save(any());
+        // A refused request must not use up a ticket number either.
+        verifyNoInteractions(idGenerator, auditService, adminAlerts);
+    }
+
+    @Test
+    void aMalformedRequest_answers400_withoutConsultingTheDailyLimit() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(submissionLimiter);
+    }
+
+    @Test
+    void aValidCreate_checksTheDailyLimitForThatAccount() {
+        service.create(userId, "OTHER", "Subject", "Description", null);
+
+        verify(submissionLimiter).requireTicketAllowance(userId);
     }
 
     @Test

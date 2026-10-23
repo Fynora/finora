@@ -231,7 +231,8 @@ public class SupportTicketService {
                 NotificationPriority.NORMAL,
                 "SUPPORT_TICKET_RECEIVED_" + ticket.getId(),
                 Set.of(NotificationChannel.EMAIL),
-                Map.of("ticketNumber", ticket.getTicketNumber())));
+                // ticketId is for the email's "View your request" button; the template ignores it.
+                Map.of("ticketNumber", ticket.getTicketNumber(), "ticketId", ticket.getId().toString())));
     }
 
     @Transactional(readOnly = true)

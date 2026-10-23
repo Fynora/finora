@@ -58,6 +58,7 @@ class SupportTicketServiceTest {
 
     private final UUID userId = UUID.randomUUID();
     private final UUID adminId = UUID.randomUUID();
+    private final UUID ticketId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
@@ -74,7 +75,12 @@ class SupportTicketServiceTest {
                 clientIdentity, auditService, notificationService, adminAlerts, userRepository);
         when(userRepository.findById(userId)).thenReturn(Optional.of(userWithEmailVerified(true)));
 
-        when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+        // The real repository assigns the id on save; the acknowledgement's button link needs it.
+        when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> {
+            SupportTicket saved = inv.getArgument(0);
+            org.springframework.test.util.ReflectionTestUtils.setField(saved, "id", ticketId);
+            return saved;
+        });
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(idGenerator.next()).thenReturn("SUP-000001");
         when(clientIdentity.platform()).thenReturn(ClientPlatform.WEB);
@@ -139,8 +145,11 @@ class SupportTicketServiceTest {
         assertThat(request.channels()).isEqualTo(Set.of(NotificationChannel.EMAIL));
         // Never suppressible by a notification preference: the customer asked us something.
         assertThat(request.category()).isEqualTo(NotificationCategory.SECURITY);
-        // Only the number -- never the customer's own subject or description.
-        assertThat(request.params()).isEqualTo(Map.of("ticketNumber", "SUP-000001"));
+        // The number, and the id for the email's button -- never the customer's own subject or
+        // description.
+        assertThat(request.params())
+                .isEqualTo(Map.of("ticketNumber", "SUP-000001", "ticketId", ticketId.toString()));
+        assertThat(request.notificationKey()).isEqualTo("SUPPORT_TICKET_RECEIVED_" + ticketId);
     }
 
     /** An address nobody has proven they own may belong to a stranger, so it gets no email -- but the

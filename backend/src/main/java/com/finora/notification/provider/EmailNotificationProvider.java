@@ -124,6 +124,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
             case IMPORT_STATEMENT_REJECTED -> emailProvider.sendStatementRejectedEmail(to);
             case IMPORT_STATEMENT_CONFIRM_REMINDER -> emailProvider.sendStatementConfirmReminderEmail(
                     to, waitingCount(params));
+            case SUPPORT_TICKET_RECEIVED -> emailProvider.sendSupportTicketReceivedEmail(
+                    to, params.get("ticketNumber"), params.get("ticketId"));
             default -> emailProvider.send(buildMessage(to, notification.getType(),
                     notification.getCategory(), notification.getTitle(), notification.getMessage()));
         };

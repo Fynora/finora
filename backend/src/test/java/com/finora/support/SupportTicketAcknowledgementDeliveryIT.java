@@ -10,14 +10,12 @@ import com.finora.notification.worker.NotificationDispatcher;
 import com.finora.repository.RefreshTokenRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
-import com.finora.service.EmailMessage;
 import com.finora.service.EmailProvider;
 import com.finora.service.EmailResult;
 import com.finora.service.ProviderType;
 import com.finora.testsupport.TestSessions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
@@ -34,17 +32,18 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeast;
-import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The acknowledgement email all the way out: a ticket raised over HTTP, the outbox row, the real
- * dispatcher draining it, and the message handed to the email provider -- the recipient, the sender,
- * and what the customer would actually read. {@code SupportTicketApiIT} stops at the queued row; this
- * is the half that proves the email is delivered to the right person and says the right thing. Only
- * the provider at the very edge is replaced, so nothing is sent for real.
+ * The acknowledgement email out to the provider: a ticket raised over HTTP, the outbox row, the real
+ * dispatcher draining it, and the call handed to the email provider -- the recipient, the reference
+ * and the ticket id. {@code SupportTicketApiIT} stops at the queued row; this is the half that
+ * proves the right person is emailed, once, and only when they should be. Only the provider at the
+ * very edge is replaced, so nothing is sent for real; the message it would render is covered by
+ * {@code ResendEmailProviderTest}.
  */
 class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
 
@@ -61,7 +60,8 @@ class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
     @BeforeEach
     void emailProviderIsConfiguredAndSucceeds() {
         when(emailProvider.isConfigured()).thenReturn(true);
-        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        when(emailProvider.sendSupportTicketReceivedEmail(any(), any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
     }
 
     private User createUser() {
@@ -113,19 +113,10 @@ class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
 
         dispatcher.drainOnce();
 
-        ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
-        verify(emailProvider, atLeastOnce()).send(sent.capture());
-        EmailMessage message = sent.getAllValues().stream()
-                .filter(m -> user.getEmail().equals(m.to())).findFirst()
-                .orElseThrow(() -> new AssertionError("no email was sent to the customer"));
-        assertThat(message.sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
-        assertThat(message.subject()).contains(ticketNumber);
-        assertThat(message.text()).contains(ticketNumber).contains("get back to you");
-        assertThat(message.html()).contains(ticketNumber).contains("reply to this email");
-        assertThat(message.text() + message.html())
-                .doesNotContain("Distinctive subject line")
-                .doesNotContain("private description")
-                .doesNotContain("{{");
+        // Handed to the provider's dedicated method with the customer's own address, the reference
+        // and the ticket id for the button. What that method renders -- wording, button, support@
+        // sender, no echo of the customer's text -- is ResendEmailProviderTest's to prove.
+        verify(emailProvider).sendSupportTicketReceivedEmail(user.getEmail(), ticketNumber, ticketId.toString());
         assertThat(acknowledgementFor(ticketId).getStatus()).isEqualTo(NotificationStatus.SENT);
     }
 
@@ -139,9 +130,7 @@ class SupportTicketAcknowledgementDeliveryIT extends AbstractIntegrationTest {
         dispatcher.drainOnce();
 
         assertThat(acknowledgementFor(ticketId)).as("no outbox row at all").isNull();
-        ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
-        verify(emailProvider, atLeast(0)).send(sent.capture());
-        assertThat(sent.getAllValues()).noneMatch(m -> user.getEmail().equals(m.to()));
+        verify(emailProvider, never()).sendSupportTicketReceivedEmail(eq(user.getEmail()), any(), any());
     }
 
     /** Ticket creation is not rate limited, and an account can be registered with someone else's

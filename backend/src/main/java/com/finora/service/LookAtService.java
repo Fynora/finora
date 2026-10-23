@@ -76,7 +76,8 @@ public class LookAtService {
         Set<String> acks = acknowledgementService.list(userId).stream()
                 .map(LookAtService::ackEntry).collect(Collectors.toSet());
         List<RecurringDto> recurring = recurringService.detectForUser(userId);
-        List<ChangedAmountDto> changed = recurringAnswerService.changedAmounts(userId);
+        // The groups just detected, not a second detection run: it would read every row again.
+        List<ChangedAmountDto> changed = recurringAnswerService.changedAmounts(userId, recurring);
         List<PeopleSuggestions.Suggestion> people = peopleService.suggestions(userId).items();
         return new Rows(build(built.dto(), recurring, changed, acks, people, built.baselineMonths()),
                 build(built.dto(), recurring, changed, Set.of(), people, built.baselineMonths()));

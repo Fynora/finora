@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -371,12 +372,161 @@ describe('the month story', () => {
     expect(screen.queryByText(/Couldn't/)).toBeNull();
   });
 
+  it('does not carry a thumb over to a newer story', async () => {
+    let finish: (s: AiStory) => void = () => {};
+    ai.story.mockResolvedValue({ ...STORY, canGenerate: true });
+    ai.generateStory.mockImplementation(() => new Promise<AiStory>((r) => { finish = r; }));
+    renderScreen();
+    await screen.findByText(STORY.text as string);
+    fireEvent.press(screen.getByRole('button', { name: 'Helpful' }));
+    await waitFor(() => expect(ai.feedback).toHaveBeenCalledWith('story-1', 'HELPFUL', null));
+    await act(async () => { finish({ ...STORY, id: 'story-2', text: 'September cost ₹49,000, mostly Food.' }); });
+    expect(await screen.findByText('September cost ₹49,000, mostly Food.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: false }),
+    );
+  });
+
+  it('polls again for a story written later, after an earlier one was polled out', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const generating = { ...NO_STORY, status: 'generating' as const };
+    ai.story
+      .mockResolvedValueOnce(generating).mockResolvedValueOnce(generating).mockResolvedValueOnce(generating)
+      .mockResolvedValueOnce(STORY)
+      .mockResolvedValueOnce(generating)
+      .mockResolvedValue(STORY);
+    const { UNSAFE_getByType } = renderScreen();
+    await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(2100); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(2100); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(10000); });
+    expect(ai.story).toHaveBeenCalledTimes(3);
+    const pull = () => UNSAFE_getByType(ScrollView).props.refreshControl.props.onRefresh();
+    // A pull finds it ready; a later pull finds a rewrite under way, which is polled like the first.
+    await act(async () => { pull(); await jest.advanceTimersByTimeAsync(0); });
+    expect(ai.story).toHaveBeenCalledTimes(4);
+    await act(async () => { pull(); await jest.advanceTimersByTimeAsync(0); });
+    expect(ai.story).toHaveBeenCalledTimes(5);
+    await act(async () => { await jest.advanceTimersByTimeAsync(2100); });
+    expect(ai.story).toHaveBeenCalledTimes(6);
+    expect(screen.getByText(STORY.text as string)).toBeTruthy();
+    jest.useRealTimers();
+  });
+
   it('asks for the picked month\'s story', async () => {
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
     fireEvent.press(await screen.findByText('August 2026'));
     await waitFor(() => expect(ai.story).toHaveBeenCalledWith('2026-08'));
   });
+});
+
+describe('"To look at" from the server', () => {
+  const travel = serverRow({
+    kind: 'running-high', key: 'CATEGORY_HIGH|Travel|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Travel|2026-09',
+    month: '2026-09', category: 'Travel', current: 12000, priorAverage: 7000, whyAvailable: true,
+  });
+  const cardRow = serverRow({
+    kind: 'card-statement', key: 'CARD_STATEMENT_MISSING|2026-09', ackKind: 'CARD_STATEMENT_MISSING',
+    ackItemKey: '2026-09', month: '2026-09', total: 21400, count: 2, cardName: 'Sample Card', cardLast4: '0001',
+  });
+
+  it('shows the server\'s rows in the server\'s order', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel, cardRow], orderedByAi: true });
+    renderScreen();
+    expect(await screen.findByText('Travel is ₹5,000 above your usual month')).toBeTruthy();
+    // The phone's own rules would have put the card statement first and found Food, not Travel.
+    expect(screen.queryByText('Food is ₹3,100 above your usual month')).toBeNull();
+    const shown = screen.getAllByText(/above your usual month$|no card statement uploaded/).map((n) => n.props.children);
+    expect(shown[0]).toBe('Travel is ₹5,000 above your usual month');
+    expect(shown[1]).toMatch(/no card statement uploaded/);
+    expect(ai.lookAt).toHaveBeenCalledWith(undefined);
+  });
+
+  it('builds the rows on the phone when the server cannot give them', async () => {
+    renderScreen();
+    expect(await screen.findByText('Food is ₹3,100 above your usual month')).toBeTruthy();
+    await waitFor(() => expect(ai.lookAt).toHaveBeenCalled());
+    expect(screen.getByText(/toward your Sample Card ending 0001/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Why is / })).toBeNull();
+  });
+
+  it('hides a server row marked "Got it" at once', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel, cardRow], orderedByAi: false });
+    renderScreen();
+    await screen.findByText('Travel is ₹5,000 above your usual month');
+    fireEvent.press(screen.getByRole('button', { name: 'Got it: Travel' }));
+    await waitFor(() => expect(screen.queryByText('Travel is ₹5,000 above your usual month')).not.toBeOnTheScreen());
+    expect(insights.acknowledge).toHaveBeenCalledWith('CATEGORY_HIGH', 'Travel|2026-09');
+  });
+
+  it('answers "Why?" under the row and changes the footnote for an AI answer', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
+    ai.why.mockResolvedValue({
+      status: 'ready', id: 'why-1', text: 'Travel was ₹5,000 above your usual month, mostly one fare.',
+      writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', freeLeftThisMonth: 4,
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));
+    expect(await screen.findByText('Travel was ₹5,000 above your usual month, mostly one fare.')).toBeTruthy();
+    expect(ai.why).toHaveBeenCalledWith('CATEGORY_HIGH', 'Travel|2026-09', undefined);
+    expect(screen.getByText('4 of 5 left this month')).toBeTruthy();
+    expect(screen.queryByText(/not an AI-generated assistant/)).toBeNull();
+  });
+
+  it('opens the plans from "See Plus" once the free explanations are used', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
+    ai.why.mockResolvedValue({
+      status: 'ready', id: null, text: 'Travel was ₹12,000 this month against ₹7,000 in a usual month.',
+      writtenByAi: false, basis: null, freeLeftThisMonth: 0,
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));
+    fireEvent.press(await screen.findByRole('button', { name: 'See Plus' }));
+    expect(trackNavigation).toHaveBeenCalledWith('subscription', 'contextual');
+    expect(navigate).toHaveBeenCalledWith('More', { screen: 'Subscription' });
+    expect(screen.getAllByText(/not an AI-generated assistant/)).toHaveLength(1);
+  });
+
+  it('shows the server\'s rows when the older insights call fails', async () => {
+    insights.get.mockRejectedValue(new Error('down'));
+    ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
+    renderScreen();
+    expect(await screen.findByText('Travel is ₹5,000 above your usual month')).toBeTruthy();
+    expect(screen.queryByText("Couldn't load what needs a look. Pull down to try again.")).toBeNull();
+  });
+
+  it('goes back to the plain footnote for another month', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
+    ai.why.mockResolvedValue({
+      status: 'ready', id: 'why-1', text: 'Travel was ₹5,000 above your usual month, mostly one fare.',
+      writtenByAi: true, basis: null, freeLeftThisMonth: null,
+    });
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));
+    await screen.findByText('Travel was ₹5,000 above your usual month, mostly one fare.');
+    expect(screen.queryByText(/not an AI-generated assistant/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    expect(await screen.findByText(/not an AI-generated assistant/)).toBeTruthy();
+  });
+
+  it('asks for the picked month\'s rows', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    await waitFor(() => expect(ai.lookAt).toHaveBeenCalledWith('2026-08'));
+  });
+
+  it('asks for "To look at" again once a new story arrives, for its order', async () => {
+    ai.lookAt.mockResolvedValue({ rows: [], orderedByAi: false });
+    ai.story.mockResolvedValue({ ...NO_STORY, canGenerate: true });
+    ai.generateStory.mockResolvedValue(STORY);
+    renderScreen();
+    await screen.findByText(STORY.text as string);
+    await waitFor(() => expect(ai.lookAt).toHaveBeenCalledTimes(2));
+  });
+
 });
 
 describe('money with people', () => {

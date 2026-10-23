@@ -28,7 +28,8 @@ import {
 } from '../lib/format';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import {
-  ackEntry, buildToLookAt, comingUp, expectedSharesIn, paidRegularly, withPeople, type LookAtRow,
+  ackEntry, buildToLookAt, comingUp, expectedSharesIn, isAcked, lookAtRowsFromServer, paidRegularly, withPeople,
+  type LookAtRow,
 } from '../lib/insightsFeed';
 import { deriveRefreshing } from '../lib/refreshingIndicator';
 import { usePreventScreenCapture } from '../lib/screenCapture';
@@ -116,12 +117,23 @@ export function InsightsScreen() {
     () => new Set((acksQ.data ?? []).map((a) => ackEntry(a.kind, a.itemKey))),
     [acksQ.data],
   );
-  const lookAt = useMemo(
-    () => buildToLookAt({
+  // "To look at" from the server (AI insights spec §8.2): the same rules as the phone's, in the order
+  // to show them, with "Why?" where it can explain. Until it answers, and whenever it fails (an older
+  // server), the phone builds the list itself as before. A row marked "Got it" leaves at once either way.
+  const lookAtQ = useQuery({
+    queryKey: ['ai-insights', 'look-at', month ?? null],
+    queryFn: () => aiInsightsApi.lookAt(month),
+    retry: false,
+  });
+  const lookAt = useMemo(() => {
+    if (lookAtQ.data) return lookAtRowsFromServer(lookAtQ.data.rows).filter((r) => !isAcked(r, acks));
+    return buildToLookAt({
       insights: insightsQ.data, recurring, changed: changedQ.data ?? [], acks, people: peopleSuggestionsQ.data?.items ?? [],
-    }),
-    [insightsQ.data, recurring, changedQ.data, acks, peopleSuggestionsQ.data],
-  );
+    });
+  }, [lookAtQ.data, insightsQ.data, recurring, changedQ.data, acks, peopleSuggestionsQ.data]);
+  // The month an AI "Why?" answer was opened for, for the footnote: another month's rows are new rows.
+  const [aiWhyFor, setAiWhyFor] = useState<{ month: string | undefined } | null>(null);
+  const aiWhyShown = aiWhyFor !== null && aiWhyFor.month === month;
   const expectedIn = useMemo(() => expectedSharesIn(peopleSuggestionsQ.data?.expected ?? []), [peopleSuggestionsQ.data]);
   const people = useMemo(() => withPeople(peopleQ.data ?? []), [peopleQ.data]);
   const peopleCount = people.owedToYou.length + people.youOwe.length;
@@ -180,10 +192,15 @@ export function InsightsScreen() {
     // `generate` is a new object each render; the read it answers is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [story, storyQ.dataUpdatedAt, month]);
+  // Polls since the story was last seen being written; a later rewrite gets its own polls.
   const polls = useRef(0);
   useEffect(() => { polls.current = 0; }, [month]);
   useEffect(() => {
-    if (story?.status !== 'generating' || polls.current >= STORY_POLLS) return;
+    if (story?.status !== 'generating') {
+      polls.current = 0;
+      return;
+    }
+    if (polls.current >= STORY_POLLS) return;
     const timer = setTimeout(() => {
       polls.current += 1;
       void storyQ.refetch();
@@ -203,7 +220,7 @@ export function InsightsScreen() {
       void queryClient.invalidateQueries({ queryKey: ['ai-insights', 'look-at'] });
     }
   }, [story?.status, queryClient]);
-  const aiOnScreen = storyText?.writtenByAi === true;
+  const aiOnScreen = storyText?.writtenByAi === true || aiWhyShown;
 
   const scrollRef = useRef<ScrollView>(null);
   // A second tap on the Insights tab scrolls this screen back to the top.
@@ -282,6 +299,12 @@ export function InsightsScreen() {
     navigation.navigate('More', { screen: 'Reports', params: reportingMonth ? { month: reportingMonth } : undefined });
   }
 
+  // The plans live in the More stack, as from Import.
+  function openPlans() {
+    trackNavigation('subscription', 'contextual');
+    navigation.navigate('More', { screen: 'Subscription' });
+  }
+
   function openImport() {
     trackNavigation('import-statement', 'contextual');
     navigation.navigate('Import');
@@ -335,7 +358,7 @@ export function InsightsScreen() {
   // Nothing to say yet: no month with spending and nothing repeating -- a first-run screen, not empty sections.
   const nothingYet = !loading && insightsQ.data !== undefined && !insightsQ.data.reportingMonth && recurring.length === 0;
   // The insights call failed with nothing cached: say so rather than an empty "To look at".
-  const insightsFailed = insightsQ.isError && !insightsQ.data;
+  const insightsFailed = insightsQ.isError && !insightsQ.data && !lookAtQ.data;
   const monthOptions = useMemo(() => [...(monthsQ.data ?? [])].reverse(), [monthsQ.data]);
 
   function section(key: InsightsSection, child: React.ReactNode) {
@@ -387,7 +410,8 @@ export function InsightsScreen() {
 
           {storyText ? (
             <View style={styles.monthLine}>
-              <AiText id={storyText.id} text={storyText.text as string} writtenByAi={storyText.writtenByAi} basis={storyText.basis} />
+              {/* Keyed by the text, so a new story never inherits the last one's thumb. */}
+              <AiText key={storyText.id ?? 'rules'} id={storyText.id} text={storyText.text as string} writtenByAi={storyText.writtenByAi} basis={storyText.basis} />
             </View>
           ) : monthLine ? <Text style={[typography.bodyM, styles.monthLine, { color: c.ink }]}>{monthLine}</Text> : null}
 
@@ -449,6 +473,9 @@ export function InsightsScreen() {
                   onPickBill={setPicking}
                   onAsk={(item) => askForMoney({ label: item.label, owed: item.owed ?? item.amount })}
                   onOpenPayment={openPayment}
+                  requestMonth={month}
+                  onSeePlus={openPlans}
+                  onAiText={() => setAiWhyFor({ month })}
                 />
               ))}
               {upcoming.rows.length > 0 || expectedIn.length > 0 ? section('comingUp', (

@@ -1,5 +1,9 @@
-import type { ChangedAmountItem, ExpectedShare, InsightsData, PeopleSuggestion, RecurringItem } from '../api/endpoints';
-import { ackKey, buildToLookAt, comingUp, expectedSharesIn, paidRegularly, withPeople } from './insightsFeed';
+import type {
+  ChangedAmountItem, ExpectedShare, InsightsData, LookAtServerRow, PeopleSuggestion, RecurringItem,
+} from '../api/endpoints';
+import {
+  ackKey, buildToLookAt, comingUp, expectedSharesIn, lookAtRowsFromServer, paidRegularly, withPeople,
+} from './insightsFeed';
 
 // Every name and amount here is invented.
 
@@ -287,5 +291,87 @@ describe('paidRegularly', () => {
 
   it('is empty with nothing repeating', () => {
     expect(paidRegularly([])).toEqual({ rows: [], monthlyTotal: 0, yearlyTotal: 0 });
+  });
+});
+
+describe('lookAtRowsFromServer', () => {
+  /** A server row with every field its kind does not use left null. */
+  function row(fields: Partial<LookAtServerRow> & Pick<LookAtServerRow, 'kind' | 'key'>): LookAtServerRow {
+    return {
+      ackKind: null, ackItemKey: null, month: null, total: null, count: null, cardName: null, cardLast4: null,
+      people: null, recurring: null, merchant: null, category: null, latestAmount: null, latestDate: null,
+      current: null, priorAverage: null, whyAvailable: null, ...fields,
+    };
+  }
+  const person: PeopleSuggestion = {
+    kind: 'SHARE_CHECK', ackKey: 't-1', txnId: 't-1', relatedTxnId: null, personKey: 'vpa:flatmate.a',
+    label: 'Flatmate A', amount: 9000, date: '2026-10-04', category: 'Rent', bills: [], owed: null,
+  };
+
+  it('gives every kind the shape the phone builds, in the server\'s order', () => {
+    const rows = lookAtRowsFromServer([
+      row({
+        kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+        month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300, whyAvailable: true,
+      }),
+      row({
+        kind: 'card-statement', key: 'CARD_STATEMENT_MISSING|2026-09', ackKind: 'CARD_STATEMENT_MISSING',
+        ackItemKey: '2026-09', month: '2026-09', total: 21400, count: 2, cardName: 'Sample Card', cardLast4: '0001',
+      }),
+      row({ kind: 'people', key: 'SHARE_CHECK|t-1', ackKind: 'SHARE_CHECK', ackItemKey: 't-1', people: person }),
+      row({ kind: 'new-recurring', key: 'NEW_RECURRING|sample gym', recurring: recurring({ state: 'NEEDS_ANSWER' }) }),
+      row({
+        kind: 'amount-changed', key: 'AMOUNT_CHANGED|sample tv|2026-09-12', ackKind: 'AMOUNT_CHANGED',
+        ackItemKey: 'sample tv|2026-09-12', merchant: 'Sample TV', category: 'Subscriptions', latestAmount: 649,
+        latestDate: '2026-09-12',
+      }),
+    ]);
+    expect(rows).toEqual([
+      {
+        kind: 'running-high', category: 'Food', current: 9400, priorAverage: 6300, month: '2026-09',
+        ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09', whyAvailable: true,
+      },
+      {
+        kind: 'card-statement', month: '2026-09', total: 21400, count: 2, cardName: 'Sample Card', cardLast4: '0001',
+        ackKind: 'CARD_STATEMENT_MISSING', ackItemKey: '2026-09',
+      },
+      { kind: 'people', item: person },
+      { kind: 'new-recurring', item: recurring({ state: 'NEEDS_ANSWER' }) },
+      {
+        kind: 'amount-changed', merchant: 'Sample TV', category: 'Subscriptions', latestAmount: 649,
+        latestDate: '2026-09-12', state: 'AMOUNT_CHANGED', ackKind: 'AMOUNT_CHANGED', ackItemKey: 'sample tv|2026-09-12',
+      },
+    ]);
+  });
+
+  it('builds the same rows from the same data as buildToLookAt', () => {
+    // The server port (LookAtService) keeps the phone's rules; a running-high row reads the same either way.
+    const local = buildToLookAt({
+      insights: insights({ movers: [{ category: 'Food', current: 9400, priorAverage: 6300, pctChange: 49 }] }),
+      recurring: [], changed: [], acks: new Set(),
+    });
+    const server = lookAtRowsFromServer([row({
+      kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+      month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300, whyAvailable: false,
+    })]);
+    expect(server).toEqual(local.map((r) => ({ ...r, whyAvailable: false })));
+  });
+
+  it('drops a row of a kind it does not know, or missing what it needs, rather than drawing it broken', () => {
+    const rows = lookAtRowsFromServer([
+      row({ kind: 'some-new-kind' as LookAtServerRow['kind'], key: 'X|1' }),
+      row({ kind: 'people', key: 'SHARE_CHECK|t-1' }),
+      row({ kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', category: 'Food' }),
+      row({ kind: 'card-statement', key: 'CARD_STATEMENT_MISSING|2026-09', month: '2026-09' }),
+    ]);
+    expect(rows).toEqual([]);
+  });
+
+  it('keeps an amount-changed row with no category, as the phone does', () => {
+    const [only] = lookAtRowsFromServer([row({
+      kind: 'amount-changed', key: 'AMOUNT_CHANGED|sample tv|2026-09-12', ackKind: 'AMOUNT_CHANGED',
+      ackItemKey: 'sample tv|2026-09-12', merchant: 'Sample TV', latestAmount: 649, latestDate: '2026-09-12',
+    })]);
+    expect(only).toEqual(expect.objectContaining({ kind: 'amount-changed', category: '' }));
   });
 });

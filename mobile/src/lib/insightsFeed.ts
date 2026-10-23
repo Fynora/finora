@@ -1,6 +1,6 @@
 import type {
-  AckKind, ChangedAmountItem, ExpectedShare, InsightsData, PeopleSuggestion, PeopleSuggestionKind, PersonBalance,
-  RecurringItem, UnlinkedCardBills,
+  AckKind, ChangedAmountItem, ExpectedShare, InsightsData, LookAtServerRow, PeopleSuggestion, PeopleSuggestionKind,
+  PersonBalance, RecurringItem, UnlinkedCardBills,
 } from '../api/endpoints';
 
 /**
@@ -43,7 +43,12 @@ export type LookAtRow =
       latestDate: string;
       state: 'AMOUNT_CHANGED';
     } & Dismissible)
-  | ({ kind: 'running-high'; category: string; current: number; priorAverage: number; month: string } & Dismissible);
+  | ({
+      kind: 'running-high'; category: string; current: number; priorAverage: number; month: string;
+      /** The server can explain it ("Why?"): its usual month holds at least 2 months. Never set on
+       *  rows built on the phone. */
+      whyAvailable?: boolean;
+    } & Dismissible);
 
 /** The key an acknowledgement is stored under for each kind, exactly as V277 documents it. The
  *  people kinds (V281) carry their key from the server instead. */
@@ -146,6 +151,59 @@ export function buildToLookAt(input: {
     }
   }
   return rows;
+}
+
+/**
+ * The server's "To look at" rows (AI insights spec §8.2), in its order, as the rows buildToLookAt
+ * makes. A row of a kind this app does not know, or missing a field its kind needs, is left out
+ * rather than drawn broken -- a newer server may add kinds.
+ */
+export function lookAtRowsFromServer(rows: LookAtServerRow[]): LookAtRow[] {
+  const out: LookAtRow[] = [];
+  for (const r of rows) {
+    switch (r.kind) {
+      case 'card-statement':
+        if (r.month && r.total != null && r.count != null && r.ackKind && r.ackItemKey) {
+          out.push({
+            kind: 'card-statement', month: r.month, total: r.total, count: r.count, cardName: r.cardName,
+            cardLast4: r.cardLast4, ackKind: r.ackKind, ackItemKey: r.ackItemKey,
+          });
+        }
+        break;
+      case 'people':
+        if (r.people) out.push({ kind: 'people', item: r.people });
+        break;
+      case 'new-recurring':
+        if (r.recurring) out.push({ kind: 'new-recurring', item: r.recurring });
+        break;
+      case 'amount-changed':
+        if (r.merchant && r.latestAmount != null && r.latestDate && r.ackKind && r.ackItemKey) {
+          out.push({
+            kind: 'amount-changed', merchant: r.merchant, category: r.category ?? '', latestAmount: r.latestAmount,
+            latestDate: r.latestDate, state: 'AMOUNT_CHANGED', ackKind: r.ackKind, ackItemKey: r.ackItemKey,
+          });
+        }
+        break;
+      case 'running-high':
+        if (r.category && r.current != null && r.priorAverage != null && r.month && r.ackKind && r.ackItemKey) {
+          out.push({
+            kind: 'running-high', category: r.category, current: r.current, priorAverage: r.priorAverage,
+            month: r.month, ackKind: r.ackKind, ackItemKey: r.ackItemKey, whyAvailable: r.whyAvailable === true,
+          });
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
+}
+
+/** Whether a row was marked "Got it": by its kind's key, as the server stores it. */
+export function isAcked(row: LookAtRow, acks: Set<string>): boolean {
+  if (row.kind === 'new-recurring') return false;
+  if (row.kind === 'people') return acks.has(ackEntry(row.item.kind, row.item.ackKey));
+  return acks.has(ackEntry(row.ackKind, row.ackItemKey));
 }
 
 /**

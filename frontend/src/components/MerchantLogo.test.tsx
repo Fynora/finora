@@ -1,118 +1,95 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { logoDevUrl, MerchantLogo } from './MerchantLogo';
 
-describe('logoDevUrl', () => {
-  it('builds a name/ lookup URL with size, png format, and fallback=404', () => {
-    expect(logoDevUrl('Swiggy', 80, 'test-token')).toBe(
-      'https://img.logo.dev/name/Swiggy?token=test-token&size=80&format=png&fallback=404'
-    );
-  });
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
-  it('URL-encodes a merchant name with spaces and special characters', () => {
-    expect(logoDevUrl('Big Bazaar & Co', 80, 'test-token')).toBe(
-      'https://img.logo.dev/name/Big%20Bazaar%20%26%20Co?token=test-token&size=80&format=png&fallback=404'
+/**
+ * Logo.dev is asked only for a web address the server chose from its own brand list
+ * (MerchantBrands, sent as `logoDomain`). A merchant name, a person's name or a bank narration is
+ * never part of a request: with no address there is no request at all.
+ */
+describe('logoDevUrl', () => {
+  it('builds a domain lookup URL with size, png format, and fallback=404', () => {
+    expect(logoDevUrl('swiggy.com', 80, 'test-token')).toBe(
+      'https://img.logo.dev/swiggy.com?token=test-token&size=80&format=png&fallback=404'
     );
   });
 
   it('returns null when no token is configured', () => {
-    expect(logoDevUrl('Swiggy', 80, undefined)).toBeNull();
+    expect(logoDevUrl('swiggy.com', 80, undefined)).toBeNull();
   });
 
-  it('returns null for a blank merchant name', () => {
+  it('returns null with no address', () => {
+    expect(logoDevUrl(null, 80, 'test-token')).toBeNull();
+    expect(logoDevUrl(undefined, 80, 'test-token')).toBeNull();
     expect(logoDevUrl('   ', 80, 'test-token')).toBeNull();
   });
 
-  it('never looks up the interest label, which names no company', () => {
-    expect(logoDevUrl('interest', 80, 'test-token')).toBeNull();
-    expect(logoDevUrl(' Interest ', 80, 'test-token')).toBeNull();
-    expect(logoDevUrl('interest paid till 31', 80, 'test-token')).not.toBeNull();
+  it('refuses anything that is not a bare domain, so a name can never be sent by mistake', () => {
+    expect(logoDevUrl('Sample Person', 80, 'test-token')).toBeNull();
+    expect(logoDevUrl('UPI/DR/600000000002/SAMPLE SHOP/YESB', 80, 'test-token')).toBeNull();
+    expect(logoDevUrl('swiggy', 80, 'test-token')).toBeNull();
+    expect(logoDevUrl('zomato.com/name', 80, 'test-token')).toBeNull();
   });
 });
 
 /**
- * The token is read once at module load (see MerchantLogo.tsx's own top-level
- * `const LOGODEV_TOKEN = import.meta.env.VITE_LOGODEV_TOKEN`) -- so these tests, which need the
- * "unconfigured" fallback stage specifically, must not merely rely on no .env file existing.
- * Someone running the suite locally with a real `frontend/.env.local` (e.g. to browser-test the
- * actual Logo.dev integration, as this component's own PR did) would otherwise flip these to the
- * `logodev` image stage and break, non-deterministically depending on what's on that developer's
- * disk. Explicitly stubbed to '' and the module freshly re-imported, the same pattern
- * BankLogo.test.tsx already uses for its own token-dependent tests.
+ * The token is read once at module load (`const LOGODEV_TOKEN = import.meta.env.VITE_LOGODEV_TOKEN`),
+ * so each test stubs it and imports the module fresh, the pattern BankLogo.test.tsx uses.
  */
-describe('MerchantLogo fallback', () => {
-  async function freshMerchantLogo() {
-    vi.stubEnv('VITE_LOGODEV_TOKEN', '');
-    vi.resetModules();
-    const mod = await import('./MerchantLogo');
-    return mod.MerchantLogo;
-  }
+async function logoWithToken(token: string) {
+  vi.stubEnv('VITE_LOGODEV_TOKEN', token);
+  vi.resetModules();
+  return (await import('./MerchantLogo')).MerchantLogo;
+}
 
-  it('renders a colored-initials badge from the merchant name when no fallback is supplied', async () => {
-    const FreshMerchantLogo = await freshMerchantLogo();
-    const { container } = render(<FreshMerchantLogo merchant="Swiggy Bangalore" />);
-    expect(container.firstChild).not.toBeNull();
+describe('MerchantLogo', () => {
+  it('requests the logo by the given address only, never by the name shown', async () => {
+    const WithToken = await logoWithToken('test-token');
+    const { container } = render(<WithToken merchant="Swiggy Instamart" domain="swiggy.com" />);
+    const src = container.querySelector('img')?.getAttribute('src') ?? '';
+    expect(src).toContain('img.logo.dev/swiggy.com?');
+    expect(src).not.toMatch(/instamart|name\//i);
+  });
+
+  it('makes no request without an address, even for a name that looks like a brand', async () => {
+    const WithToken = await logoWithToken('test-token');
+    const { container } = render(<WithToken merchant="Swiggy" domain={null} />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('SW')).toBeTruthy();
+  });
+
+  it('shows initials for a person, with no request', async () => {
+    const WithToken = await logoWithToken('test-token');
+    const { container } = render(<WithToken merchant="Sample Person" />);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText('SP')).toBeTruthy();
+  });
+
+  it('renders a colored-initials badge when unconfigured', async () => {
+    const NoToken = await logoWithToken('');
+    render(<NoToken merchant="Swiggy Bangalore" domain="swiggy.com" />);
     expect(screen.getByText('SB')).toBeTruthy();
-    vi.unstubAllEnvs();
   });
 
-  it('uses a single-word merchant name\'s first two letters', async () => {
-    const FreshMerchantLogo = await freshMerchantLogo();
-    render(<FreshMerchantLogo merchant="Amazon" />);
-    expect(screen.getByText('AM')).toBeTruthy();
-    vi.unstubAllEnvs();
-  });
-
-  it('falls back to "?" for an empty merchant name rather than rendering nothing', () => {
-    // No token stubbing needed -- an empty name makes logoDevUrl return null regardless of
-    // whether a token is configured, so this one is deterministic either way.
-    render(<MerchantLogo merchant="" />);
+  it('falls back to "?" for an empty name rather than rendering nothing', async () => {
+    const NoToken = await logoWithToken('');
+    render(<NoToken merchant="" />);
     expect(screen.getByText('?')).toBeTruthy();
   });
 
   it('renders the caller-supplied fallback instead of the default initials badge when given one', async () => {
-    const FreshMerchantLogo = await freshMerchantLogo();
-    render(<FreshMerchantLogo merchant="Swiggy" fallback={<span>category-icon</span>} />);
+    const NoToken = await logoWithToken('');
+    render(<NoToken merchant="Swiggy" fallback={<span>category-icon</span>} />);
     expect(screen.getByText('category-icon')).toBeTruthy();
-    vi.unstubAllEnvs();
   });
 
-  it('always renders something identifiable, whichever stage it lands on', async () => {
-    const FreshMerchantLogo = await freshMerchantLogo();
-    const { container } = render(<FreshMerchantLogo merchant="Uber" />);
-    expect(container.firstChild).not.toBeNull();
+  it('always renders something identifiable', async () => {
+    const NoToken = await logoWithToken('');
+    render(<NoToken merchant="Uber" />);
     expect(screen.getByTitle('Uber')).toBeTruthy();
-    vi.unstubAllEnvs();
-  });
-
-  it('never looks a person up on Logo.dev, even with a token configured', async () => {
-    // A payment to a friend is named after the friend. A name search for "Sample Person" returns
-    // whatever company matches best, so a person gets initials and no request at all.
-    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
-    vi.resetModules();
-    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
-    const { container } = render(<WithToken merchant="Sample Person" person />);
-    expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByText('SP')).toBeTruthy();
-    vi.unstubAllEnvs();
-  });
-
-  it('shows initials for an interest credit and makes no request, even with a token configured', async () => {
-    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
-    vi.resetModules();
-    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
-    const { container } = render(<WithToken merchant="interest" />);
-    expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByText('IN')).toBeTruthy();
-    vi.unstubAllEnvs();
-  });
-
-  it('still looks a business up when it is not a person', async () => {
-    vi.stubEnv('VITE_LOGODEV_TOKEN', 'test-token');
-    vi.resetModules();
-    const { MerchantLogo: WithToken } = await import('./MerchantLogo');
-    const { container } = render(<WithToken merchant="Swiggy" />);
-    expect(container.querySelector('img')).not.toBeNull();
-    vi.unstubAllEnvs();
   });
 });

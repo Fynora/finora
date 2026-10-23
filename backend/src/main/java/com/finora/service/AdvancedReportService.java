@@ -25,6 +25,8 @@ import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.MerchantRepository;
 import com.finora.repository.TransactionRepository;
+import com.finora.util.CounterpartyType;
+import com.finora.util.MerchantBrands;
 import com.finora.util.MerchantNames;
 import com.finora.util.Rupees;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -413,11 +415,13 @@ public class AdvancedReportService {
                                 && t.getReconciliationStatus() != Transaction.ReconciliationStatus.INVESTMENT_TRANSFER)
                         .map(refunds::reportableAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
             }
-            return new AdvancedMerchant(id,
-                    MerchantNames.forDisplay(storedNames.getOrDefault(id, "Unknown"),
-                            byMerchant.get(id).stream().map(Transaction::getDescription).toList()),
+            String name = MerchantNames.forDisplay(storedNames.getOrDefault(id, "Unknown"),
+                    byMerchant.get(id).stream().map(Transaction::getDescription).toList());
+            boolean anyPerson = byMerchant.get(id).stream().anyMatch(t -> t.getCounterpartyType() == CounterpartyType.PERSON);
+            return new AdvancedMerchant(id, name,
                     amount, pct(amount, expense), byMerchant.get(id).size(), prev,
-                    prev == null ? null : amount.subtract(prev), prev == null ? null : changePct(amount, prev), monthly);
+                    prev == null ? null : amount.subtract(prev), prev == null ? null : changePct(amount, prev), monthly,
+                    anyPerson ? null : MerchantBrands.domainFor(name));
         }).toList();
         return new AdvancedMerchants(rows, Math.min(100.0, pct(attributed, expense)), Math.min(100.0, pct(topFive, expense)),
                 ranked.size());

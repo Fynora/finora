@@ -1398,7 +1398,7 @@ export default function Dashboard() {
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: color + '20' }}>
                     <MerchantLogo
                       merchant={t.merchant}
-                      person={t.counterpartyType === 'PERSON'}
+                      domain={t.logoDomain}
                       size={36}
                       className="rounded-full"
                       fallback={<Icon size={16} style={{ color }} />}

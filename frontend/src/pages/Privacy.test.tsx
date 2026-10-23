@@ -98,12 +98,18 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/phone-verification codes are sent by Firebase Authentication, not TwoFactor/i);
   });
 
-  // BankLogo and MerchantLogo request img.logo.dev from the browser with the bank's domain or the
-  // merchant name in the URL, whenever VITE_LOGODEV_TOKEN is set (it is in the production build).
-  it('lists Logo.dev and what a logo request sends', () => {
+  // BankLogo asks img.logo.dev for the bank's own domain; MerchantLogo (web and mobile) asks only for
+  // the server's `logoDomain`, a web address from MerchantBrands. Tokens: VITE_LOGODEV_TOKEN is in
+  // the production web build, EXPO_PUBLIC_LOGODEV_TOKEN in the EAS production environment. Mobile
+  // builds released before this change looked the merchant name up, and stay installed until people
+  // update, so the line says so rather than promising no name was ever sent.
+  it('lists Logo.dev, on the website and in the app, and says a request carries only a web address', () => {
     const t = policyText();
-    expect(t).toMatch(/Logo\.dev\s*—\s*bank and merchant logos on the website/i);
-    expect(t).toMatch(/the bank's web address or the merchant name shown on the page, along with your IP address/i);
+    expect(t).not.toMatch(/sending the bank's web address or the merchant name shown/i);
+    expect(t).toMatch(/Logo\.dev\s*—\s*bank and merchant logos on the website, and merchant logos in the mobile app/i);
+    expect(t).toMatch(/asks Logo\.dev for it directly by web address: the bank's, or a well-known merchant's from a fixed list Fynora keeps/i);
+    expect(t).toMatch(/Earlier versions of the mobile app sent the merchant name shown instead/i);
+    expect(t).toMatch(/along with your IP address and browser or device details/i);
   });
 
   it('lists Anthropic as a provider, and covers AI features in the cross-border note', () => {

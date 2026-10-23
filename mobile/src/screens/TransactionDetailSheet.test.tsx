@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { TransactionDetailSheet } from './TransactionDetailSheet';
+import { MerchantLogo, logoDevUrl } from '../components/MerchantLogo';
 import type { Transaction } from '../types';
+
+/** The Logo.dev URL a rendered MerchantLogo would request with a token configured, or null. */
+const lookedUp = (p: Record<string, unknown>) =>
+  logoDevUrl((p.domain ?? null) as string | null, 64, 'test-token');
 
 // The people part has its own tests; a stand-in that hands back the sheet's callbacks.
 jest.mock('../components/people/PeopleTransactionSection', () => {
@@ -71,6 +76,23 @@ function renderSheet(transaction: Transaction = TXN, overrides: Partial<{ unmark
 }
 
 describe('TransactionDetailSheet', () => {
+  // Logo.dev is asked only by the row's `logoDomain`: never by the name shown, which for a row with
+  // no merchant name is its bank narration (UPI ids, phone and reference numbers).
+  it('asks Logo.dev only by the row\'s address, never with a name or narration', () => {
+    const looked = (t: Transaction) => {
+      const { unmount } = render(
+        <TransactionDetailSheet transaction={t} unmarking={false} deleting={false} {...callbacks()} />
+      );
+      const url = lookedUp(screen.UNSAFE_getByType(MerchantLogo).props);
+      unmount();
+      return url;
+    };
+    expect(looked({ ...TXN, merchant: '', description: 'UPI/DR/600000000002/SAMPLE SHOP/YESB', counterpartyType: 'BUSINESS', logoDomain: null })).toBeNull();
+    expect(looked({ ...TXN, merchant: 'sample person', counterpartyType: 'PERSON', logoDomain: null })).toBeNull();
+    expect(looked({ ...TXN, merchant: 'Big Bazaar', counterpartyType: 'BUSINESS', logoDomain: null })).toBeNull();
+    expect(looked({ ...TXN, merchant: 'Swiggy', counterpartyType: 'BUSINESS', logoDomain: 'swiggy.com' })).toContain('img.logo.dev/swiggy.com?');
+  });
+
   it('hands the people answers to its host', () => {
     const cb = renderSheet();
     fireEvent.press(screen.getByRole('button', { name: 'people: share of a bill' }));

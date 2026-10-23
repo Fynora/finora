@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 interface MerchantLogoProps {
+  /** The name shown: used for the initials badge and the tooltip, never sent anywhere. */
   merchant: string;
+  /** The web address to ask Logo.dev for: the server's `logoDomain`, chosen from its own brand list
+   *  (backend MerchantBrands). Null or absent means no request at all, only initials. */
+  domain?: string | null;
   size?: number;
   /** Custom content to show when Logo.dev has no logo for this merchant (or is unconfigured).
    *  Rendered as-is, with no wrapper of its own -- the caller owns its container (see Dashboard's
@@ -12,28 +16,22 @@ interface MerchantLogoProps {
   /** Controls the image/initials-badge shape. Defaults to `rounded-xl`, matching BankLogo, so a
    *  merchant logo and a bank logo look like the same kind of object elsewhere in the app. */
   className?: string;
-  /** The counterparty is a person (a payment to or from a friend). A person has no brand logo, and
-   *  a Logo.dev name search for a person's name returns whichever company matches best -- so no
-   *  lookup is made and the initials badge (or the caller's fallback) shows instead. */
-  person?: boolean;
 }
 
 const LOGODEV_TOKEN = import.meta.env.VITE_LOGODEV_TOKEN;
 // Same budget as BankLogo -- see that component's own comment for why.
 const LOGODEV_TIMEOUT_MS = 1500;
 
-/** The label the server gives every interest credit (backend CategoryRules.INTEREST_LABEL). It
- *  names what the money is, not who paid it, so it is no brand to look up: a Logo.dev name search
- *  returns whichever company matches the word best. */
-export const INTEREST_LABEL = 'interest';
+/** A bare lowercase domain such as `swiggy.com`. Anything else -- a name, a narration, a path --
+ *  is refused, so a caller passing the wrong field still cannot send text to Logo.dev. */
+const BARE_DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
-export function logoDevUrl(merchant: string, sizePx: number, token: string | undefined): string | null {
-  const name = merchant?.trim();
-  if (!token || !name || name.toLowerCase() === INTEREST_LABEL) return null;
-  // https://www.logo.dev/docs/logo-images/get -- `name/` is the explicit identifier type for a
-  // bare company name (unlike a domain, which needs no prefix). Same format=png/fallback=404
-  // reasoning as BankLogo.logoDevUrl.
-  return `https://img.logo.dev/name/${encodeURIComponent(name)}?token=${token}&size=${sizePx}&format=png&fallback=404`;
+export function logoDevUrl(domain: string | null | undefined, sizePx: number, token: string | undefined): string | null {
+  const d = domain?.trim();
+  if (!token || !d || !BARE_DOMAIN.test(d)) return null;
+  // https://www.logo.dev/docs/logo-images/get -- a bare domain is the default identifier type,
+  // as in BankLogo. Same format=png/fallback=404 reasoning as BankLogo.logoDevUrl.
+  return `https://img.logo.dev/${d}?token=${token}&size=${sizePx}&format=png&fallback=404`;
 }
 
 type Stage = 'logodev' | 'fallback';
@@ -56,10 +54,10 @@ function colorFor(name: string): string {
 }
 
 /**
- * Merchant-name logo resolution: Logo.dev (looked up by `Transaction.merchant`, a free-text name
- * with no domain field anywhere on the transaction -- see MerchantLogo's own PR for why that
- * makes this a `name/` lookup rather than BankLogo's domain one) -> a colored-initials badge, or
- * a caller-supplied fallback.
+ * Merchant logo: Logo.dev looked up by the server's `logoDomain` only -> a colored-initials badge,
+ * or a caller-supplied fallback. It used to look the merchant's own name up, which sent people's
+ * names and bank narration to Logo.dev (measured on the statement corpus, 2026-10-24); now only an
+ * address from the server's brand list ever leaves the app.
  *
  * <b>Deliberately no circuit breaker, unlike BankLogo.</b> BankLogo's breaker exists because its
  * catalog is small and fixed (the bank registry) -- a real token/config rejection there shows up
@@ -73,9 +71,9 @@ function colorFor(name: string): string {
  * on its own; a page of transactions costs at most one concurrent request per visible row, not a
  * cascading failure.
  */
-export function MerchantLogo({ merchant, size = 32, fallback, className = 'rounded-xl', person = false }: MerchantLogoProps) {
+export function MerchantLogo({ merchant, domain = null, size = 32, fallback, className = 'rounded-xl' }: MerchantLogoProps) {
   const sizePx = Math.max(64, Math.round(size * 2));
-  const src = person ? null : logoDevUrl(merchant, sizePx, LOGODEV_TOKEN);
+  const src = logoDevUrl(domain, sizePx, LOGODEV_TOKEN);
 
   const [stage, setStage] = useState<Stage>(() => (src ? 'logodev' : 'fallback'));
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,7 +84,7 @@ export function MerchantLogo({ merchant, size = 32, fallback, className = 'round
   useEffect(() => {
     setStage(src ? 'logodev' : 'fallback');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [merchant, person]);
+  }, [merchant, domain]);
 
   useEffect(() => {
     if (stage !== 'logodev') return undefined;

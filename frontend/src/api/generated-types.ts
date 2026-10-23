@@ -6359,6 +6359,7 @@ export interface components {
             referenceNumber?: string;
             balanceAfter?: number;
             cardInstalment?: boolean;
+            logoDomain?: string;
         };
         SetChoiceRequest: {
             /** Format: uuid */
@@ -9844,6 +9845,7 @@ export interface components {
             merchantName?: string;
             transactionIds?: string[];
             transactions?: components["schemas"]["TransactionSummary"][];
+            logoDomain?: string;
         };
         TransactionSummary: {
             /** Format: uuid */
@@ -11578,6 +11580,7 @@ export interface components {
             /** Format: double */
             changePct?: number;
             monthly?: number[];
+            logoDomain?: string;
         };
         AdvancedMerchants: {
             rows?: components["schemas"]["AdvancedMerchant"][];

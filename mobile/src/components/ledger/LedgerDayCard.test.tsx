@@ -1,6 +1,7 @@
-import { Platform, StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerDayCard } from './LedgerDayCard';
+import { MerchantLogo, logoDevUrl } from '../MerchantLogo';
 import { shadows, ThemeProvider } from '../../theme';
 import { light } from '../../theme/palette';
 import type { DayPiece } from '../../lib/ledgerRows';
@@ -22,6 +23,9 @@ function piece(over: Partial<DayPiece> = {}): DayPiece {
 }
 const onOpen = jest.fn();
 const onDelete = jest.fn();
+/** The Logo.dev URL a rendered MerchantLogo would request with a token configured, or null. */
+const lookedUp = (p: Record<string, unknown>) =>
+  logoDevUrl((p.domain ?? null) as string | null, 64, 'test-token');
 function show(p: DayPiece, over: { deletingId?: string | null; largeText?: boolean } = {}) {
   return render(
     <ThemeProvider>
@@ -49,6 +53,25 @@ describe('LedgerDayCard', () => {
     expect(screen.getByText('Food · Person')).toBeTruthy();
     expect(screen.queryByText(/2026-07-14/)).toBeNull();
     expect(screen.queryByText(/UPI\/DR/)).toBeNull();
+  });
+
+  // Logo.dev is asked only by the row's `logoDomain`: never by the name shown, which for a row with
+  // no merchant name is its bank narration (UPI ids, phone and reference numbers).
+  it('asks Logo.dev only by the row\'s address, never with a name or narration', () => {
+    const spy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1 });
+    try {
+      show(piece({ rows: [
+        txn({ id: 't-1', merchant: null as never, description: 'UPI/DR/600000000002/SAMPLE SHOP/YESB', counterpartyType: 'BUSINESS', logoDomain: null }),
+        txn({ id: 't-2', merchant: 'sample person', counterpartyType: 'PERSON', logoDomain: null }),
+        txn({ id: 't-3', merchant: 'Swiggy', description: 'UPI/DR/600000000003/SWIGGY/YESB', counterpartyType: 'BUSINESS', logoDomain: 'swiggy.com' }),
+      ] }));
+      const looked = screen.UNSAFE_getAllByType(MerchantLogo).map((l) => lookedUp(l.props));
+      expect(looked[0]).toBeNull();
+      expect(looked[1]).toBeNull();
+      expect(looked[2]).toContain('img.logo.dev/swiggy.com?');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('shows only the category when the counterparty is unknown', () => {

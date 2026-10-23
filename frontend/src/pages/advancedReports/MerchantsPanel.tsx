@@ -34,7 +34,7 @@ export function MerchantsPanel({ report, limit, onViewAll }: { report: AdvancedR
           <ul className="space-y-3" data-testid="merchant-rows">
             {rows.map((m) => (
               <li key={m.merchantId} className="flex items-start gap-3" data-testid={`merchant-${m.name}`}>
-                <MerchantLogo merchant={m.name} size={28} />
+                <MerchantLogo merchant={m.name} domain={m.logoDomain} size={28} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-3 text-sm">
                     {span ? (

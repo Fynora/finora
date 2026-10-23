@@ -390,6 +390,56 @@ class AdvancedReportServiceTest {
     }
 
     @Test
+    void aMerchantRowCarriesALogoAddressOnlyForAListedBrand() {
+        // Every imported row gets a merchant id, a payment to a friend included, so a friend or a
+        // small vendor's own name reaches "Top merchants". The apps ask Logo.dev only for an address
+        // from MerchantBrands, so a name that is not a listed brand gets no address at all.
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
+        Merchant friend = merchant("Sample Person");
+        Transaction toFriend = spend("2026-09-12", "4000", "Transfers");
+        toFriend.setMerchantId(friend.getId());
+        toFriend.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Merchant shop = merchant("Amazon");
+        Transaction toShop = spend("2026-09-10", "9000", "Shopping");
+        toShop.setMerchantId(shop.getId());
+        toShop.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+        Merchant untyped = merchant("Swiggy");
+        Transaction noType = spend("2026-09-11", "2000", "Food");
+        noType.setMerchantId(untyped.getId());
+        Merchant vendor = merchant("Sample Vendor Name");
+        Transaction toVendor = spend("2026-09-13", "1500", "Food");
+        toVendor.setMerchantId(vendor.getId());
+        toVendor.setCounterpartyType(com.finora.util.CounterpartyType.BUSINESS);
+
+        AdvancedReportDto dto = build(AdvancedRange.LAST_3_MONTHS);
+
+        assertThat(dto.merchants().rows())
+                .extracting(AdvancedReportDto.AdvancedMerchant::name, AdvancedReportDto.AdvancedMerchant::logoDomain)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("Amazon", "amazon.in"),
+                        org.assertj.core.groups.Tuple.tuple("Sample Person", null),
+                        org.assertj.core.groups.Tuple.tuple("Swiggy", "swiggy.com"),
+                        org.assertj.core.groups.Tuple.tuple("Sample Vendor Name", null));
+    }
+
+    @Test
+    void aMerchantWithAnyPaymentToAPersonGetsNoLogoAddressEvenUnderABrandName() {
+        // Errs toward privacy: one person-typed row is enough for no address.
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
+        Merchant payee = merchant("Amazon");
+        Transaction typed = spend("2026-09-12", "4000", "Transfers");
+        typed.setMerchantId(payee.getId());
+        typed.setCounterpartyType(com.finora.util.CounterpartyType.PERSON);
+        Transaction untypedRow = spend("2026-08-12", "1000", "Transfers");
+        untypedRow.setMerchantId(payee.getId());
+
+        AdvancedReportDto dto = build(AdvancedRange.LAST_3_MONTHS);
+
+        assertThat(dto.merchants().rows()).hasSize(1);
+        assertThat(dto.merchants().rows().get(0).logoDomain()).isNull();
+    }
+
+    @Test
     void merchantsAreRankedAndSaySoWhenMostSpendingHasNoMerchant() {
         steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
         Merchant amazon = merchant("Amazon");

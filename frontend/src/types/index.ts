@@ -130,6 +130,9 @@ export interface Transaction {
   // Display only: the row is marked (lib/cardInstalment.ts) and no total reads it. Absent from a
   // server that predates it, which reads as "not marked".
   cardInstalment?: boolean;
+  // The web address to ask Logo.dev for, chosen by the server from its brand list (MerchantBrands).
+  // Null or absent means initials and no request: a name is never sent to Logo.dev.
+  logoDomain?: string | null;
 }
 
 // One AuditLog row behind a pendingBankCorrection badge -- see

@@ -14341,6 +14341,9 @@
                     },
                     "cardInstalment": {
                         "type": "boolean"
+                    },
+                    "logoDomain": {
+                        "type": "string"
                     }
                 }
             },
@@ -23780,6 +23783,9 @@
                         "items": {
                             "$ref": "#/components/schemas/TransactionSummary"
                         }
+                    },
+                    "logoDomain": {
+                        "type": "string"
                     }
                 }
             },
@@ -28240,6 +28246,9 @@
                         "items": {
                             "type": "number"
                         }
+                    },
+                    "logoDomain": {
+                        "type": "string"
                     }
                 }
             },

@@ -1804,14 +1804,18 @@ export type FeedbackType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT' | 'GENERAL'
 export type FeedbackContext =
   | 'DASHBOARD' | 'TRANSACTIONS' | 'REPORTS' | 'BUDGETS' | 'GOALS' | 'IMPORT_FLOW' | 'ACCOUNTS' | 'SETTINGS' | 'HELP' | 'OTHER';
 
-/** One row of the feedback list -- mirrors FeedbackDto.Summary. */
+/** One row of the feedback list -- mirrors FeedbackDto.AdminRow. userName/userEmail are null when
+ *  there is no account to show (feedback with no user id, or a user row that is gone). */
 export interface FeedbackRow {
   id: string;
-  userId: string;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
   type: FeedbackType;
   context: FeedbackContext;
   source: ClientPlatform;
   message: string;
+  appVersion: string | null;
   createdAt: string;
 }
 

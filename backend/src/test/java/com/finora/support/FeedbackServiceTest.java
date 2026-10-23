@@ -3,11 +3,14 @@ package com.finora.support;
 import com.finora.dto.PagedResponse;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.FeedbackEntry;
+import com.finora.entity.User;
 import com.finora.repository.FeedbackEntryRepository;
+import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +20,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +34,7 @@ class FeedbackServiceTest {
 
     private FeedbackEntryRepository repository;
     private ClientIdentity clientIdentity;
+    private UserRepository userRepository;
     private FeedbackService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -37,7 +43,8 @@ class FeedbackServiceTest {
     void setUp() {
         repository = mock(FeedbackEntryRepository.class);
         clientIdentity = mock(ClientIdentity.class);
-        service = new FeedbackService(repository, clientIdentity);
+        userRepository = mock(UserRepository.class);
+        service = new FeedbackService(repository, clientIdentity, userRepository);
 
         when(repository.save(any(FeedbackEntry.class))).thenAnswer(inv -> inv.getArgument(0));
         when(clientIdentity.platform()).thenReturn(ClientPlatform.MOBILE_ANDROID);
@@ -61,10 +68,67 @@ class FeedbackServiceTest {
         Page<FeedbackEntry> page = new PageImpl<>(List.of());
         when(repository.findForAdmin(eq(FeedbackEntry.Type.BUG), eq(FeedbackEntry.Context.HELP), any())).thenReturn(page);
 
-        PagedResponse<FeedbackDto.Summary> result = service.adminList(FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, 0, 25);
+        PagedResponse<FeedbackDto.AdminRow> result = service.adminList(FeedbackEntry.Type.BUG, FeedbackEntry.Context.HELP, 0, 25);
 
         assertThat(result.content()).isEmpty();
         verify(repository).findForAdmin(eq(FeedbackEntry.Type.BUG), eq(FeedbackEntry.Context.HELP), any());
+        // An empty page must not cost a users query.
+        verify(userRepository, never()).findAllById(any());
+    }
+
+    private FeedbackEntry entry(UUID senderId, String message) {
+        FeedbackEntry e = new FeedbackEntry();
+        ReflectionTestUtils.setField(e, "id", UUID.randomUUID());
+        e.setUserId(senderId);
+        e.setType(FeedbackEntry.Type.BUG);
+        e.setContext(FeedbackEntry.Context.OTHER);
+        e.setSource(ClientPlatform.WEB);
+        e.setMessage(message);
+        e.setAppVersion("1.0.0");
+        return e;
+    }
+
+    @Test
+    void adminList_namesWhoSentEachEntry_withOneBatchedUserLookupForThePage() {
+        UUID otherUserId = UUID.randomUUID();
+        User sender = new User();
+        ReflectionTestUtils.setField(sender, "id", userId);
+        sender.setFullName("Test Sender");
+        sender.setEmail("sender@example.com");
+        User other = new User();
+        ReflectionTestUtils.setField(other, "id", otherUserId);
+        other.setFullName("Other Sender");
+        other.setEmail("other@example.com");
+        // The same user sending twice must still be looked up once.
+        Page<FeedbackEntry> page = new PageImpl<>(List.of(
+                entry(userId, "first"), entry(otherUserId, "second"), entry(userId, "third")));
+        when(repository.findForAdmin(any(), any(), any())).thenReturn(page);
+        when(userRepository.findAllById(any())).thenReturn(List.of(sender, other));
+
+        PagedResponse<FeedbackDto.AdminRow> result = service.adminList(null, null, 0, 25);
+
+        assertThat(result.content()).extracting("message", "userName", "userEmail")
+                .containsExactly(
+                        tuple("first", "Test Sender", "sender@example.com"),
+                        tuple("second", "Other Sender", "other@example.com"),
+                        tuple("third", "Test Sender", "sender@example.com"));
+        assertThat(result.content()).extracting("userId").containsExactly(userId, otherUserId, userId);
+        verify(userRepository, times(1)).findAllById(any());
+    }
+
+    @Test
+    void adminList_keepsTheRowWhenItsSenderIsNotAvailable() {
+        // No user id at all (the column is nullable by design), and a user id whose row is gone.
+        UUID goneUserId = UUID.randomUUID();
+        Page<FeedbackEntry> page = new PageImpl<>(List.of(entry(null, "anonymous"), entry(goneUserId, "orphaned")));
+        when(repository.findForAdmin(any(), any(), any())).thenReturn(page);
+        when(userRepository.findAllById(any())).thenReturn(List.of());
+
+        PagedResponse<FeedbackDto.AdminRow> result = service.adminList(null, null, 0, 25);
+
+        assertThat(result.content()).extracting("message", "userName", "userEmail")
+                .containsExactly(tuple("anonymous", null, null), tuple("orphaned", null, null));
+        assertThat(result.content()).extracting("userId").containsExactly(null, goneUserId);
     }
 
     private FeedbackEntryRepository.FeedbackBreakdown row(

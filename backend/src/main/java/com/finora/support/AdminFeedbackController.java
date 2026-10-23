@@ -24,7 +24,7 @@ public class AdminFeedbackController {
     }
 
     @GetMapping
-    public ApiResponse<PagedResponse<FeedbackDto.Summary>> list(
+    public ApiResponse<PagedResponse<FeedbackDto.AdminRow>> list(
             @RequestParam(required = false) FeedbackEntry.Type type,
             @RequestParam(required = false) FeedbackEntry.Context context,
             @RequestParam(defaultValue = "0") int page,

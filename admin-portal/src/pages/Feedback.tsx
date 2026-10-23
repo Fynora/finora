@@ -5,6 +5,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { FilterBar } from '../components/FilterBar';
+import { EntityDrawer } from '../components/EntityDrawer';
 import { adminFeedbackApi } from '../api/endpoints';
 import { formatWhen } from '../lib/formatWhen';
 import type { FeedbackBreakdownCount, FeedbackContext, FeedbackRow, FeedbackType } from '../types';
@@ -30,6 +31,65 @@ const CONTEXT_OPTIONS: { label: string; value: FeedbackContext }[] = [
   { label: 'Help', value: 'HELP' },
   { label: 'Other', value: 'OTHER' },
 ];
+
+function typeLabel(type: FeedbackType): string {
+  return TYPE_OPTIONS.find((t) => t.value === type)?.label ?? type;
+}
+
+function contextLabel(context: FeedbackContext): string {
+  return CONTEXT_OPTIONS.find((c) => c.value === context)?.label ?? context;
+}
+
+/** Who sent it, for the table's "From" cell and the drawer. Name over email when both exist; when
+ *  neither does (no user id on the entry, or the account row is gone) it says so rather than
+ *  leaving a blank that reads like a failed load. */
+function SenderCell({ row }: { row: FeedbackRow }) {
+  if (!row.userName && !row.userEmail) {
+    return <span className="text-muted text-xs">Unknown</span>;
+  }
+  return (
+    // The width cap lives on this block, not on the <td>: max-width on a table cell is not
+    // honoured in auto table layout, so a long address would widen the whole column instead of
+    // truncating. The drawer shows the untruncated values.
+    <div className="max-w-[14rem]">
+      {row.userName && <p className="text-ink text-sm truncate" title={row.userName}>{row.userName}</p>}
+      {row.userEmail && <p className="text-muted text-xs truncate" title={row.userEmail}>{row.userEmail}</p>}
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted mb-0.5">{label}</p>
+      <p className="text-sm text-ink break-words">{value || '—'}</p>
+    </div>
+  );
+}
+
+/** The drawer body. The message is the point of this page, so it leads, in full, with line breaks
+ *  kept (a user's paragraphs are part of what they said) and long unbroken strings wrapped rather
+ *  than pushed past the panel edge. */
+function FeedbackDetail({ row }: { row: FeedbackRow }) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-medium text-muted mb-1">Message</p>
+        <p className="text-sm text-ink whitespace-pre-wrap break-words">{row.message}</p>
+      </div>
+      <div className="border-t border-border pt-5 space-y-4">
+        <DetailRow label="From" value={[row.userName, row.userEmail].filter(Boolean).join(' · ') || 'Unknown'} />
+        <DetailRow label="Type" value={typeLabel(row.type)} />
+        <DetailRow label="Context" value={contextLabel(row.context)} />
+        <DetailRow label="Source" value={row.source.replace(/_/g, ' ')} />
+        <DetailRow label="App version" value={row.appVersion} />
+        <DetailRow label="Submitted" value={formatWhen(row.createdAt)} />
+        <DetailRow label="User ID" value={row.userId} />
+        <DetailRow label="Feedback ID" value={row.id} />
+      </div>
+    </div>
+  );
+}
 
 /** One dimension's counts as horizontal bars, widest first -- countGrouped() already sorted them
  *  that way (see FeedbackDto.Breakdown.from's own doc comment), this just draws it. */
@@ -72,6 +132,7 @@ function FeedbackContent() {
   const [page, setPage] = useState(0);
   const [type, setType] = useState<FeedbackType | ''>('');
   const [context, setContext] = useState<FeedbackContext | ''>('');
+  const [selected, setSelected] = useState<FeedbackRow | null>(null);
 
   const list = useQuery({
     queryKey: ['feedback-list', page, type, context],
@@ -91,12 +152,16 @@ function FeedbackContent() {
 
   const columns: DataTableColumn<FeedbackRow>[] = [
     {
+      header: 'From',
+      render: (row) => <SenderCell row={row} />,
+    },
+    {
       header: 'Type',
-      render: (row) => <span className="text-ink text-xs">{TYPE_OPTIONS.find((t) => t.value === row.type)?.label ?? row.type}</span>,
+      render: (row) => <span className="text-ink text-xs">{typeLabel(row.type)}</span>,
     },
     {
       header: 'Context',
-      render: (row) => <span className="text-muted text-xs">{CONTEXT_OPTIONS.find((c) => c.value === row.context)?.label ?? row.context}</span>,
+      render: (row) => <span className="text-muted text-xs">{contextLabel(row.context)}</span>,
     },
     {
       header: 'Source',
@@ -105,9 +170,20 @@ function FeedbackContent() {
     {
       header: 'Message',
       render: (row) => (
-        <span className="text-ink text-sm" title={row.message}>
+        // A button, not a click handler on the row: the table shell has no row-level click, and a
+        // button is reachable by keyboard and announced as actionable. No aria-label: the visible
+        // text is the accessible name (an aria-label that does not start with it fails WCAG 2.5.3).
+        // The full text also stays on `title` as a hover preview, but the drawer is the way to
+        // actually read it.
+        <button
+          type="button"
+          onClick={() => setSelected(row)}
+          title={row.message}
+          aria-haspopup="dialog"
+          className="text-left text-ink text-sm hover:text-primary"
+        >
           {row.message.length > 80 ? `${row.message.slice(0, 80)}…` : row.message}
-        </span>
+        </button>
       ),
     },
     { header: 'Submitted', render: (row) => formatWhen(row.createdAt) },
@@ -146,6 +222,14 @@ function FeedbackContent() {
         keyFor={(row) => row.id}
         loading={list.isLoading}
         emptyMessage="No feedback matches this filter."
+      />
+
+      <EntityDrawer
+        open={selected !== null}
+        onClose={() => setSelected(null)}
+        title={selected ? `${typeLabel(selected.type)} feedback` : ''}
+        subtitle={selected ? (selected.userName || selected.userEmail || 'Unknown sender') : undefined}
+        tabs={selected ? [{ id: 'detail', label: 'Detail', content: <FeedbackDetail row={selected} /> }] : []}
       />
 
       {list.data && (

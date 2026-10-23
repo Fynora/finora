@@ -1168,6 +1168,10 @@ export interface AiStory {
   basis: string | null;
   /** POST /story is worth calling. */
   canGenerate: boolean;
+  /** The thumb this user saved on the text; null when none is saved and on rules text. */
+  rating: AiFeedbackRating | null;
+  /** Only with NOT_HELPFUL. */
+  ratingReason: AiFeedbackReason | null;
 }
 export interface AiWhy {
   status: AiTextStatus;
@@ -1177,6 +1181,8 @@ export interface AiWhy {
   basis: string | null;
   /** "Why?" answers a Free user has left this month; null on Plus and Premium. */
   freeLeftThisMonth: number | null;
+  rating: AiFeedbackRating | null;
+  ratingReason: AiFeedbackReason | null;
 }
 /** One "To look at" row as the server builds it (LookAtRowDto); each kind fills only its own fields. */
 export interface LookAtServerRow {

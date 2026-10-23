@@ -64,9 +64,11 @@ public class AiInsightService {
     static final Set<String> RATING_REASONS = Set.of("WRONG_NUMBER", "NOT_USEFUL", "CONFUSING");
 
     /** {@code status}: ready | none | generating. {@code canGenerate}: worth asking POST /story.
-     *  {@code freeLeftThisMonth}: "Why?" answers a Free user has left this month; null on Plus. */
+     *  {@code freeLeftThisMonth}: "Why?" answers a Free user has left this month; null on Plus.
+     *  {@code rating}, {@code ratingReason}: the thumb this user saved on this AI text, so the app
+     *  shows it again; null on rules text and when none is saved. */
     public record TextView(String status, UUID id, String text, boolean writtenByAi, String basis,
-                           boolean canGenerate, Integer freeLeftThisMonth) {}
+                           boolean canGenerate, Integer freeLeftThisMonth, String rating, String ratingReason) {}
 
     public record LookAt(List<LookAtRowDto> rows, boolean orderedByAi) {}
 
@@ -390,20 +392,21 @@ public class AiInsightService {
 
     private TextView aiView(AiInsightText t, boolean canGenerate, Integer freeLeft) {
         String basis = t.getSheet() == null ? null : AiInsightRenderer.basisFor(FactSheet.fromMap(t.getSheet()));
-        return new TextView("ready", t.getId(), t.getText(), true, basis, canGenerate, freeLeft);
+        return new TextView("ready", t.getId(), t.getText(), true, basis, canGenerate, freeLeft, t.getFeedback(),
+                t.getFeedbackReason());
     }
 
     private static TextView rulesWhy(FactSheet sheet, Integer freeLeft) {
         return new TextView("ready", null, AiInsightRenderer.whyRulesText(sheet), false, AiInsightRenderer.basisFor(sheet),
-                false, freeLeft);
+                false, freeLeft, null, null);
     }
 
     private static TextView none(boolean canGenerate) {
-        return new TextView("none", null, null, false, null, canGenerate, null);
+        return new TextView("none", null, null, false, null, canGenerate, null, null, null);
     }
 
     private static TextView generating() {
-        return new TextView("generating", null, null, false, null, false, null);
+        return new TextView("generating", null, null, false, null, false, null, null, null);
     }
 
     private static TextView refuse(UUID userId, AiInsightReason reason, TextView view) {

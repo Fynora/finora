@@ -39,10 +39,12 @@ const reports = reportsApi as jest.Mocked<typeof reportsApi>;
 const people = peopleApi as jest.Mocked<typeof peopleApi>;
 const ai = aiInsightsApi as jest.Mocked<typeof aiInsightsApi>;
 
-const NO_STORY: AiStory = { status: 'none', id: null, text: null, writtenByAi: false, basis: null, canGenerate: false };
+const NO_STORY: AiStory = {
+  status: 'none', id: null, text: null, writtenByAi: false, basis: null, canGenerate: false, rating: null, ratingReason: null,
+};
 const STORY: AiStory = {
   status: 'ready', id: 'story-1', text: 'September cost ₹48,000, ₹8,000 more than August, mostly Food.',
-  writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', canGenerate: false,
+  writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', canGenerate: false, rating: null, ratingReason: null,
 };
 const MONTH_LINE = 'You spent ₹48,000 in September 2026, 20% more than August.';
 
@@ -71,8 +73,7 @@ function insightsData(overrides: Partial<InsightsData> = {}): InsightsData {
   };
 }
 
-function renderScreen() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderScreen(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })) {
   return render(
     <QueryClientProvider client={queryClient}>
       <InsightsScreen />
@@ -413,6 +414,42 @@ describe('the month story', () => {
     jest.useRealTimers();
   });
 
+  it('shows the thumb saved on the story', async () => {
+    ai.story.mockResolvedValue({ ...STORY, rating: 'HELPFUL' });
+    renderScreen();
+    await screen.findByText(STORY.text as string);
+    expect(screen.getByRole('button', { name: 'Helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+  });
+
+  it('keeps a thumb given just now when the story is shown again from the cache', async () => {
+    // A cache that keeps a month's story while another month is open, as the app's does. Kept
+    // forever here (gcTime Infinity) so it never starts a clean-up timer that outlives the test.
+    const keeping = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    ai.story.mockImplementation((m?: string) => Promise.resolve(m === '2026-08' ? STORY : NO_STORY));
+    const view = renderScreen(keeping);
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    await screen.findByText(STORY.text as string);
+    fireEvent.press(screen.getByRole('button', { name: 'Not helpful' }));
+    await waitFor(() => expect(ai.feedback).toHaveBeenCalledWith('story-1', 'NOT_HELPFUL', null));
+    // From here the server never answers for August, so what shows is the cached copy alone.
+    ai.story.mockImplementation((m?: string) => (m === '2026-08' ? new Promise<AiStory>(() => {}) : Promise.resolve(NO_STORY)));
+    fireEvent.press(screen.getByRole('button', { name: 'Change month, currently August 2026' }));
+    fireEvent.press(await screen.findByText('September 2026'));
+    await waitFor(() => expect(screen.queryByText(STORY.text as string)).not.toBeOnTheScreen());
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
+    fireEvent.press(await screen.findByText('August 2026'));
+    await screen.findByText(STORY.text as string);
+    expect(screen.getByRole('button', { name: 'Not helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    // Unmount before clearing: an unmount after it would start the cache's 5-minute clean-up timer.
+    view.unmount();
+    keeping.clear();
+  });
+
   it('asks for the picked month\'s story', async () => {
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently September 2026' }));
@@ -464,7 +501,7 @@ describe('"To look at" from the server', () => {
     ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
     ai.why.mockResolvedValue({
       status: 'ready', id: 'why-1', text: 'Travel was ₹5,000 above your usual month, mostly one fare.',
-      writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', freeLeftThisMonth: 4,
+      writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', freeLeftThisMonth: 4, rating: null, ratingReason: null,
     });
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));
@@ -478,7 +515,7 @@ describe('"To look at" from the server', () => {
     ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
     ai.why.mockResolvedValue({
       status: 'ready', id: null, text: 'Travel was ₹12,000 this month against ₹7,000 in a usual month.',
-      writtenByAi: false, basis: null, freeLeftThisMonth: 0,
+      writtenByAi: false, basis: null, freeLeftThisMonth: 0, rating: null, ratingReason: null,
     });
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));
@@ -500,7 +537,7 @@ describe('"To look at" from the server', () => {
     ai.lookAt.mockResolvedValue({ rows: [travel], orderedByAi: false });
     ai.why.mockResolvedValue({
       status: 'ready', id: 'why-1', text: 'Travel was ₹5,000 above your usual month, mostly one fare.',
-      writtenByAi: true, basis: null, freeLeftThisMonth: null,
+      writtenByAi: true, basis: null, freeLeftThisMonth: null, rating: null, ratingReason: null,
     });
     renderScreen();
     fireEvent.press(await screen.findByRole('button', { name: 'Why is Travel above your usual month?' }));

@@ -23,6 +23,11 @@ interface Props {
   basis: string | null;
   /** "Why?" answers a Free user has left this month; null off Free. */
   freeLeft?: number | null;
+  /** The thumb saved on this text earlier, as the server sent it. */
+  rating?: AiFeedbackRating | null;
+  ratingReason?: AiFeedbackReason | null;
+  /** A thumb the server has saved, so its owner can keep its copy of the text in step. */
+  onFeedback?: (rating: AiFeedbackRating | null, reason: AiFeedbackReason | null) => void;
 }
 
 /**
@@ -30,10 +35,13 @@ interface Props {
  * AI text carries a "Written by AI" label and thumbs; rules text is shown plainly. A thumbs-down
  * offers a fixed list of reasons -- nothing the user types is ever sent.
  */
-export function AiText({ id, text, writtenByAi, basis, freeLeft = null }: Props) {
+export function AiText({
+  id, text, writtenByAi, basis, freeLeft = null, rating: savedRating = null, ratingReason: savedReason = null, onFeedback,
+}: Props) {
   const c = useTheme();
-  const [rating, setRating] = useState<AiFeedbackRating | null>(null);
-  const [reason, setReason] = useState<AiFeedbackReason | null>(null);
+  // Starts from what was saved; a new text is a new block (callers key it by id).
+  const [rating, setRating] = useState<AiFeedbackRating | null>(savedRating);
+  const [reason, setReason] = useState<AiFeedbackReason | null>(savedRating === 'NOT_HELPFUL' ? savedReason : null);
   const rateable = writtenByAi && id !== null;
 
   function send(nextRating: AiFeedbackRating | null, nextReason: AiFeedbackReason | null) {
@@ -43,10 +51,12 @@ export function AiText({ id, text, writtenByAi, basis, freeLeft = null }: Props)
     setRating(nextRating);
     setReason(nextReason);
     // Not saved: show what the server still holds rather than a thumb that did not count.
-    aiInsightsApi.feedback(id, nextRating, nextReason).catch(() => {
-      setRating(before.rating);
-      setReason(before.reason);
-    });
+    aiInsightsApi.feedback(id, nextRating, nextReason)
+      .then(() => onFeedback?.(nextRating, nextReason))
+      .catch(() => {
+        setRating(before.rating);
+        setReason(before.reason);
+      });
   }
 
   function thumb(value: AiFeedbackRating, label: string, icon: 'thumbs-up' | 'thumbs-down') {

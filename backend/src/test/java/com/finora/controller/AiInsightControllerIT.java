@@ -231,6 +231,26 @@ class AiInsightControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aSavedThumbComesBackOnTheNextRead() throws Exception {
+        JsonNode made = data(call(HttpMethod.POST, "/api/v1/insights/story", user, "{}"));
+        assertThat(made.get("rating").isNull()).isTrue();
+        String id = made.get("id").asText();
+        call(HttpMethod.PATCH, "/api/v1/insights/ai-texts/" + id + "/feedback", user,
+                "{\"rating\":\"NOT_HELPFUL\",\"reason\":\"WRONG_NUMBER\"}");
+
+        JsonNode read = data(call(HttpMethod.GET, "/api/v1/insights/story", user, null));
+        assertThat(read.get("rating").asText()).isEqualTo("NOT_HELPFUL");
+        assertThat(read.get("ratingReason").asText()).isEqualTo("WRONG_NUMBER");
+
+        String body = "{\"kind\":\"CATEGORY_HIGH\",\"itemKey\":\"Food|" + month + "\"}";
+        String whyId = data(call(HttpMethod.POST, "/api/v1/insights/look-at/why", user, body)).get("id").asText();
+        call(HttpMethod.PATCH, "/api/v1/insights/ai-texts/" + whyId + "/feedback", user, "{\"rating\":\"HELPFUL\"}");
+        JsonNode reopened = data(call(HttpMethod.POST, "/api/v1/insights/look-at/why", user, body));
+        assertThat(reopened.get("rating").asText()).isEqualTo("HELPFUL");
+        assertThat(reopened.get("ratingReason").isNull()).isTrue();
+    }
+
+    @Test
     void badInputIs400() {
         assertThat(call(HttpMethod.GET, "/api/v1/insights/story?month=2026-9", user, null).getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);

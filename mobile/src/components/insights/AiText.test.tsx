@@ -81,6 +81,41 @@ describe('AiText', () => {
     }
   });
 
+  it('shows the thumb saved earlier', () => {
+    render(<AiText id="t-1" text={TEXT} writtenByAi basis={BASIS} rating="HELPFUL" />);
+    expect(screen.getByRole('button', { name: 'Helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+  });
+
+  it('shows a saved thumbs-down with its reason as answered, and without one offers the reasons', () => {
+    render(<AiText id="t-1" text={TEXT} writtenByAi basis={BASIS} rating="NOT_HELPFUL" ratingReason="CONFUSING" />);
+    expect(screen.getByRole('button', { name: 'Not helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    expect(screen.getByText('Thanks for telling us.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Wrong number' })).toBeNull();
+  });
+
+  it('offers the reasons for a saved thumbs-down that has none', () => {
+    render(<AiText id="t-1" text={TEXT} writtenByAi basis={BASIS} rating="NOT_HELPFUL" ratingReason={null} />);
+    expect(screen.getByRole('button', { name: 'Wrong number' })).toBeTruthy();
+  });
+
+  it('tells its owner what was saved, once the server has it, and not when it was refused', async () => {
+    const onFeedback = jest.fn();
+    render(<AiText id="t-1" text={TEXT} writtenByAi basis={BASIS} onFeedback={onFeedback} />);
+    fireEvent.press(screen.getByRole('button', { name: 'Helpful' }));
+    await waitFor(() => expect(onFeedback).toHaveBeenCalledWith('HELPFUL', null));
+
+    feedback.mockRejectedValueOnce(new Error('offline'));
+    fireEvent.press(screen.getByRole('button', { name: 'Not helpful' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    ));
+    expect(onFeedback).toHaveBeenCalledTimes(1);
+  });
+
   it('says how many free explanations are left once one is used', () => {
     const { rerender } = render(<AiText id="t-1" text={TEXT} writtenByAi basis={BASIS} freeLeft={4} />);
     expect(screen.getByText('4 of 5 left this month')).toBeTruthy();

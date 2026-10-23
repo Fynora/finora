@@ -38,7 +38,10 @@ type WhyState = { status: 'loading' } | { status: 'failed' } | { status: 'done';
 
 /** The line an exhausted Free allowance shows (AI insights spec §6), the only message about limits. */
 const FREE_USED_UP = "You've used this month's 5 AI explanations. Plus explains every row.";
-const NO_ANSWER: AiWhy = { status: 'none', id: null, text: null, writtenByAi: false, basis: null, freeLeftThisMonth: null };
+const NO_ANSWER: AiWhy = {
+  status: 'none', id: null, text: null, writtenByAi: false, basis: null, freeLeftThisMonth: null, rating: null,
+  ratingReason: null,
+};
 
 function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string {
   if (!row.cardName) return 'a credit card';
@@ -159,6 +162,15 @@ export function LookAtSection({
           writtenByAi={answer.writtenByAi}
           basis={answer.basis}
           freeLeft={answer.freeLeftThisMonth}
+          rating={answer.rating}
+          ratingReason={answer.ratingReason}
+          // Closing and reopening the answer draws it again from this copy, so it keeps the thumb too.
+          onFeedback={(rating, ratingReason) => setWhys((w) => {
+            const now = w[key];
+            return now?.status === 'done' && now.answer.id === answer.id
+              ? { ...w, [key]: { status: 'done', answer: { ...now.answer, rating, ratingReason } } }
+              : w;
+          })}
         />
         {usedUp ? (
           <>

@@ -159,10 +159,12 @@ describe('LookAtSection: "Why?"', () => {
   const AI_ANSWER: AiWhy = {
     status: 'ready', id: 'why-1', text: 'Travel was ₹5,000 above your usual month, mostly one fare on 14 Sep.',
     writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)', freeLeftThisMonth: null,
+    rating: null, ratingReason: null,
   };
   const RULES_ANSWER: AiWhy = {
     status: 'ready', id: null, text: 'Travel was ₹12,000 this month against ₹7,000 in a usual month.',
     writtenByAi: false, basis: 'Compared with your usual month (Jun–Aug)', freeLeftThisMonth: 0,
+    rating: null, ratingReason: null,
   };
 
   let announce: jest.SpyInstance;
@@ -213,6 +215,25 @@ describe('LookAtSection: "Why?"', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Why is Travel above your usual month?' }));
     expect(screen.getByText(AI_ANSWER.text as string)).toBeTruthy();
     expect(onAiText).toHaveBeenCalled();
+    expect(why).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the thumb saved on an answer, and keeps one given just now across closing it', async () => {
+    why.mockResolvedValue({ ...AI_ANSWER, rating: 'HELPFUL' });
+    show([explainable]);
+    fireEvent.press(screen.getByRole('button', { name: 'Why is Travel above your usual month?' }));
+    await screen.findByText(AI_ANSWER.text as string);
+    expect(screen.getByRole('button', { name: 'Helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    (aiInsightsApi.feedback as jest.Mock).mockResolvedValue(undefined);
+    fireEvent.press(screen.getByRole('button', { name: 'Not helpful' }));
+    await waitFor(() => expect(aiInsightsApi.feedback).toHaveBeenCalledWith('why-1', 'NOT_HELPFUL', null));
+    fireEvent.press(screen.getByRole('button', { name: 'Hide why Travel is above your usual month' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Why is Travel above your usual month?' }));
+    expect(screen.getByRole('button', { name: 'Not helpful' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
     expect(why).toHaveBeenCalledTimes(1);
   });
 

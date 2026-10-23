@@ -411,7 +411,20 @@ export function InsightsScreen() {
           {storyText ? (
             <View style={styles.monthLine}>
               {/* Keyed by the text, so a new story never inherits the last one's thumb. */}
-              <AiText key={storyText.id ?? 'rules'} id={storyText.id} text={storyText.text as string} writtenByAi={storyText.writtenByAi} basis={storyText.basis} />
+              <AiText
+                key={storyText.id ?? 'rules'}
+                id={storyText.id}
+                text={storyText.text as string}
+                writtenByAi={storyText.writtenByAi}
+                basis={storyText.basis}
+                rating={storyText.rating}
+                ratingReason={storyText.ratingReason}
+                // The cached copy shows first when this month is opened again, so it keeps the thumb too.
+                onFeedback={(rating, ratingReason) => queryClient.setQueryData<AiStory>(
+                  ['ai-insights', 'story', month ?? null],
+                  (s) => (s && s.id === storyText.id ? { ...s, rating, ratingReason } : s),
+                )}
+              />
             </View>
           ) : monthLine ? <Text style={[typography.bodyM, styles.monthLine, { color: c.ink }]}>{monthLine}</Text> : null}
 

@@ -7984,6 +7984,8 @@ export interface components {
             writtenByAi?: boolean;
             basis?: string;
             canGenerate?: boolean;
+            rating?: string;
+            ratingReason?: string;
         };
         WhyRequest: {
             kind: string;
@@ -8011,6 +8013,8 @@ export interface components {
             basis?: string;
             /** Format: int32 */
             freeLeftThisMonth?: number;
+            rating?: string;
+            ratingReason?: string;
         };
         InsightAcknowledgementDto: {
             kind: string;

@@ -362,12 +362,14 @@ orders are reused, so the same facts always give the same order.
 ### 8.1 Endpoints (new, under `/api/v1/insights`, owner-scoped; another user's id is a 404)
 
 - `GET /story?month=` only reads. It returns `{ status: ready | none | generating, id, text, writtenByAi,
-  basis, canGenerate }`. It never calls the model.
+  basis, canGenerate, rating, ratingReason }`. It never calls the model. `rating` and `ratingReason` are the
+  thumb this user saved on the text, so the app shows it again; both are null on rules text and when none
+  is saved.
 - `POST /story` with `{ month }` generates if no current text exists. It is idempotent: it returns the
   stored or generating row for the same key.
 - `GET /look-at?month=` returns the "To look at" rows (§8.2), with `orderedByAi`. It never calls the model.
 - `POST /look-at/why` with `{ kind, itemKey, month }` returns `{ status, id, text, writtenByAi, basis,
-  freeLeftThisMonth | null }`. It is idempotent per key.
+  freeLeftThisMonth | null, rating, ratingReason }`. It is idempotent per key.
 - `PATCH /ai-texts/{id}/feedback` takes `{ rating: HELPFUL | NOT_HELPFUL | null, reason: WRONG_NUMBER |
   NOT_USEFUL | CONFUSING | null }`. The reasons are a fixed list with no free text, so nothing a user types
   is stored or sent anywhere.

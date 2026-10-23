@@ -172,6 +172,29 @@ public class BackgroundWorkConfig {
     }
 
     /**
+     * Sends the admin email when a customer raises a support ticket or sends feedback
+     * ({@code SupportAdminAlertService}), off the request that saved it. A customer submitting a
+     * ticket must not wait on an email provider that can take its full timeout per recipient, so a
+     * full queue drops the alert (and says so in the log) rather than running it on the caller. A
+     * dropped email loses nothing durable: the ticket or feedback is already saved and listed in the
+     * admin portal. Twenty waiting alerts means the provider has been failing for a while.
+     */
+    @Bean("supportAlertExecutor")
+    public Executor supportAlertExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("support-alert-");
+        executor.setRejectedExecutionHandler((task, pool) ->
+                org.slf4j.LoggerFactory.getLogger(BackgroundWorkConfig.class)
+                        .warn("Support alert queue is full -- an admin email was dropped; the item is in the portal"));
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Sends the Super Admin email when a held statement's real pages are opened
      * ({@code OriginalViewNotices}) off the opening request, which holds one of the import slots
      * customers' uploads share. Unlike the layout alert, a full queue runs the email on the caller

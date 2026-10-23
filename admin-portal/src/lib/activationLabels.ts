@@ -1,4 +1,4 @@
-import type { ActivationAnswerName, ActivationMomentName, DeletionReasonName, FunnelStep } from '../api/endpoints';
+import type { ActivationAnswerName, ActivationMomentName, DeletionReasonName, FunnelStep, SignupSourceKind } from '../api/endpoints';
 
 /** Gate 2a spec §6: the funnel columns, in rank order (FunnelStep.java). */
 export const STEP_LABELS: Record<FunnelStep, string> = {
@@ -74,6 +74,25 @@ export const SPENDING_TRACKING_LABELS: Record<string, string> = {
 /** The server's label for someone who did not answer an onboarding question. */
 export const NO_ANSWER = 'NONE';
 export const NO_ANSWER_LABEL = 'No answer';
+
+/** The fixed source buckets (SignupSourceKind.java); a UTM row is labelled by its tag value instead. */
+export const SOURCE_LABELS: Record<SignupSourceKind, string> = {
+  UTM: 'Tagged link',
+  GOOGLE: 'Google',
+  BING: 'Bing',
+  OTHER_SEARCH: 'Other search engines',
+  SOCIAL: 'Social sites',
+  OTHER_SITE: 'Other sites',
+  REFERRAL: "Friend's referral code",
+  DIRECT: 'Direct (incl. mobile app)',
+  UNKNOWN_BEFORE_TRACKING: 'Unknown (before tracking)',
+};
+
+/** Days to one decimal, or a dash when nobody has a second import. */
+export function formatDays(days: number | null): string {
+  if (days === null) return '—';
+  return `${days.toFixed(1)} ${days === 1 ? 'day' : 'days'}`;
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

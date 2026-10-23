@@ -118,4 +118,26 @@ class AdminStatsServiceTest {
                 new com.finora.dto.AdminDtos.SignupSourceCountDto("instagram", 7L),
                 new com.finora.dto.AdminDtos.SignupSourceCountDto("direct", 2L));
     }
+
+    /** A tag that looks like contact details is never shown; such lines are added together. */
+    @Test
+    void signupSources_withholdsContactLikeTagsAndMergesThem() {
+        var email = mock(com.finora.repository.SignupAttributionRepository.SourceCount.class);
+        when(email.getSource()).thenReturn("someone@example.com");
+        when(email.getUsers()).thenReturn(1L);
+        var phone = mock(com.finora.repository.SignupAttributionRepository.SourceCount.class);
+        when(phone.getSource()).thenReturn("100000000001");
+        when(phone.getUsers()).thenReturn(1L);
+        var reel = mock(com.finora.repository.SignupAttributionRepository.SourceCount.class);
+        when(reel.getSource()).thenReturn("reel");
+        when(reel.getUsers()).thenReturn(3L);
+        when(signupAttributionRepository.countBySource(BootstrapService.BOOTSTRAP_IDENTIFIER))
+                .thenReturn(java.util.List.of(reel, email, phone));
+
+        var rows = service.signupSources();
+
+        assertThat(rows).containsExactly(
+                new com.finora.dto.AdminDtos.SignupSourceCountDto("reel", 3L),
+                new com.finora.dto.AdminDtos.SignupSourceCountDto(com.finora.activation.SignupSources.WITHHELD_UTM, 2L));
+    }
 }

@@ -13700,6 +13700,27 @@ export interface components {
             focusByStep?: components["schemas"]["ActivationStepLabelCount"][];
             trackingByStep?: components["schemas"]["ActivationStepLabelCount"][];
             deletionReasons?: components["schemas"]["ActivationDeletionReasonCount"][];
+            /** Format: date-time */
+            sourceTrackingStart?: string;
+            bySource?: components["schemas"]["ActivationSourceRow"][];
+            secondImport?: components["schemas"]["ActivationSecondImport"];
+        };
+        ActivationSecondImport: {
+            /** Format: int64 */
+            users?: number;
+            /** Format: double */
+            medianDays?: number;
+            /** Format: int64 */
+            cameBackLaterDay?: number;
+        };
+        ActivationSourceRow: {
+            /** @enum {string} */
+            kind?: "UTM" | "GOOGLE" | "BING" | "OTHER_SEARCH" | "SOCIAL" | "OTHER_SITE" | "REFERRAL" | "DIRECT" | "UNKNOWN_BEFORE_TRACKING";
+            utmSource?: string;
+            counts?: {
+                [key: string]: number;
+            };
+            secondImport?: components["schemas"]["ActivationSecondImport"];
         };
         ActivationStepAnswerCount: {
             /** @enum {string} */

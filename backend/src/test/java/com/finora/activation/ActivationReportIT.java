@@ -250,6 +250,217 @@ class ActivationReportIT extends AbstractIntegrationTest {
         assertThat(get(admin(), "2033-05-01", "2033-04-01").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    // ---- by source and second import ----------------------------------------------------------
+
+    /**
+     * A UTM value no other test uses isolates its row, so these counts are exact. The fixed buckets
+     * (Google, direct, unknown) are shared by every test, so they are measured as the change these
+     * users make.
+     */
+    /** The signup week of the by-source tests' users, so they never land in another test's week. */
+    private static final Instant WEEK_S = Instant.parse("2034-01-04T06:00:00Z");
+
+    @Test
+    void countsUsersPerSourceAtTheirFurthestStep() throws Exception {
+        String tagA = tag("it-src-a-");
+        String tagB = tag("it-src-b-");
+        JsonNode before = report(admin(), null, null);
+
+        attributed(signupAt(WEEK_S), tagA, null);                             // tagA, SIGNED_UP
+        User aIn = signupAt(WEEK_S);
+        attributed(aIn, tagA, "www.google.com");                               // utm wins over google
+        imported(aIn);                                                         // tagA, GOT_DATA_IN
+        User bChose = signupAt(WEEK_S);
+        attributed(bChose, tagB, null);
+        funnel(bChose, "IMPORT_SCREEN_OPENED");
+        funnel(bChose, "FILE_CHOSEN");                                         // tagB, CHOSE_FILE
+        User internal = signupAt(WEEK_S);
+        attributed(internal, tagA, null);
+        jdbc.update("UPDATE users SET internal_account = true WHERE id = ?", internal.getId());
+        imported(internal);                                                    // excluded
+
+        User googled = signupAt(WEEK_S);
+        attributed(googled, null, "www.google.co.in");
+        imported(googled);                                                     // GOOGLE, GOT_DATA_IN
+        signupAt(WEEK_S);                                                      // DIRECT: after tracking, no row
+        signupAt(Instant.parse("2020-02-05T06:00:00Z"));                       // UNKNOWN: before tracking, no row
+        User friend = signupAt(WEEK_S);
+        referred(signupAt(WEEK_S), friend);                                    // REFERRAL, after tracking
+        referred(signupAt(Instant.parse("2020-02-05T06:00:00Z")), friend);     // REFERRAL, before tracking too
+        User taggedReferral = signupAt(WEEK_S);
+        attributed(taggedReferral, tagB, null);
+        referred(taggedReferral, friend);                                      // tagB: the tag wins
+
+        JsonNode after = report(admin(), null, null);
+
+        JsonNode a = utmRow(after, tagA);
+        assertThat(a.get("counts").get("SIGNED_UP").asLong()).isEqualTo(1);
+        assertThat(a.get("counts").get("GOT_DATA_IN").asLong()).isEqualTo(1);
+        assertThat(stepTotal(a)).as("internal account left out").isEqualTo(2);
+        JsonNode b = utmRow(after, tagB);
+        assertThat(b.get("counts").get("CHOSE_FILE").asLong()).isEqualTo(1);
+        assertThat(stepTotal(b)).isEqualTo(2);
+        for (FunnelStep step : FunnelStep.values()) {
+            assertThat(b.get("counts").has(step.name())).as(step.name()).isTrue();
+        }
+
+        assertThat(kindStep(after, "GOOGLE", "GOT_DATA_IN") - kindStep(before, "GOOGLE", "GOT_DATA_IN")).isEqualTo(1);
+        assertThat(kindTotal(after, "GOOGLE") - kindTotal(before, "GOOGLE")).as("the tagged google visit is not here")
+                .isEqualTo(1);
+        assertThat(kindStep(after, "DIRECT", "SIGNED_UP") - kindStep(before, "DIRECT", "SIGNED_UP"))
+                .as("the plain signup and the friend who referred")
+                .isEqualTo(2);
+        assertThat(kindTotal(after, "REFERRAL") - kindTotal(before, "REFERRAL")).isEqualTo(2);
+        assertThat(kindStep(after, "UNKNOWN_BEFORE_TRACKING", "SIGNED_UP")
+                - kindStep(before, "UNKNOWN_BEFORE_TRACKING", "SIGNED_UP")).isEqualTo(1);
+
+        // Every fixed bucket is a row, zeros or not; the UTM rows come first.
+        java.util.List<String> kinds = new java.util.ArrayList<>();
+        for (JsonNode row : after.get("bySource")) kinds.add(row.get("kind").asText());
+        assertThat(kinds).containsSubsequence("UTM", "GOOGLE", "BING", "OTHER_SEARCH", "SOCIAL", "OTHER_SITE",
+                "REFERRAL", "DIRECT", "UNKNOWN_BEFORE_TRACKING");
+        assertThat(kinds.lastIndexOf("UTM")).isLessThan(kinds.indexOf("GOOGLE"));
+        // The sources add up to the weeks: every counted user is in exactly one source row.
+        long bySourceTotal = 0;
+        for (JsonNode row : after.get("bySource")) bySourceTotal += stepTotal(row);
+        long byWeekTotal = 0;
+        for (JsonNode w : after.get("weeks")) byWeekTotal += stepTotal(w);
+        assertThat(bySourceTotal).isEqualTo(byWeekTotal);
+    }
+
+    @Test
+    void sourceTrackingStartIsWhenV286WasApplied() throws Exception {
+        JsonNode report = report(admin(), null, null);
+
+        Instant applied = jdbc.queryForObject(
+                "SELECT installed_on::timestamptz FROM flyway_schema_history WHERE version = '286'", Timestamp.class)
+                .toInstant();
+        Instant start = Instant.parse(report.get("sourceTrackingStart").asText());
+        assertThat(start).isEqualTo(applied);
+        // Flyway stores installed_on without a zone. Read back, it must be the real moment this
+        // run's migrations ran -- not shifted by an offset (IST would be 5.5 hours out).
+        Instant dbNow = jdbc.queryForObject("SELECT now()", Timestamp.class).toInstant();
+        assertThat(start).isBefore(dbNow).isAfter(dbNow.minus(java.time.Duration.ofHours(4)));
+    }
+
+    /** Zero, one and two imports that brought transactions in; an empty import does not count. */
+    @Test
+    void secondImportCountsTwoDistinctImportsWithTransactions() throws Exception {
+        String tag = tag("it-second-");
+        JsonNode before = report(admin(), null, null);
+        Instant t0 = Instant.parse("2021-06-06T06:00:00Z");
+
+        attributed(signupAt(WEEK_S), tag, null);                               // zero imports
+        User one = signupAt(WEEK_S);
+        attributed(one, tag, null);
+        importedAt(one, t0, 12);                                               // one import
+        User oneAndEmpty = signupAt(WEEK_S);
+        attributed(oneAndEmpty, tag, null);
+        importedAt(oneAndEmpty, t0, 5);
+        importedAt(oneAndEmpty, t0.plus(java.time.Duration.ofDays(2)), 0);     // nothing came in: not a second
+        User two = signupAt(WEEK_S);
+        attributed(two, tag, null);
+        importedAt(two, t0, 30);
+        importedAt(two, t0.plus(java.time.Duration.ofDays(1)), 25);            // second after 1 day
+        User three = signupAt(WEEK_S);
+        attributed(three, tag, null);
+        importedAt(three, t0.plus(java.time.Duration.ofDays(3)), 1);           // out of order on purpose
+        importedAt(three, t0, 8);
+        importedAt(three, t0.plus(java.time.Duration.ofDays(9)), 4);           // the third does not matter
+
+        JsonNode after = report(admin(), null, null);
+
+        JsonNode row = utmRow(after, tag);
+        assertThat(row.get("counts").get("GOT_DATA_IN").asLong()).isEqualTo(4);
+        assertThat(row.get("secondImport").get("users").asLong()).isEqualTo(2);
+        assertThat(row.get("secondImport").get("medianDays").asDouble()).as("median of 1 and 3 days").isEqualTo(2.0);
+        assertThat(row.get("secondImport").get("cameBackLaterDay").asLong()).isEqualTo(2);
+        assertThat(after.get("secondImport").get("users").asLong() - before.get("secondImport").get("users").asLong())
+                .isEqualTo(2);
+    }
+
+    /**
+     * Files, not rows. One composite statement writes a row per account section and a re-import
+     * writes another row, both with the same content_hash; neither is a second import. Two
+     * different statements sent the same afternoon are a second import but not a return.
+     */
+    @Test
+    void secondImportCountsDistinctFilesNotRows() throws Exception {
+        String tag = tag("it-files-");
+        Instant t0 = Instant.parse("2021-06-06T06:00:00Z");
+
+        User composite = signupAt(WEEK_S);
+        attributed(composite, tag, null);
+        String compositeFile = hash();
+        importedFile(composite, t0, 20, compositeFile);                        // savings section
+        importedFile(composite, t0, 7, compositeFile);                         // card section, same file
+        User reimport = signupAt(WEEK_S);
+        attributed(reimport, tag, null);
+        String reimported = hash();
+        importedFile(reimport, t0, 20, reimported);
+        importedFile(reimport, t0.plus(java.time.Duration.ofDays(3)), 20, reimported); // same file again
+        User sameAfternoon = signupAt(WEEK_S);
+        attributed(sameAfternoon, tag, null);
+        importedFile(sameAfternoon, t0, 10, hash());
+        importedFile(sameAfternoon, t0.plus(java.time.Duration.ofHours(2)), 6, hash()); // second, same IST day
+        User returned = signupAt(WEEK_S);
+        attributed(returned, tag, null);
+        importedFile(returned, t0, 10, hash());
+        importedFile(returned, t0.plus(java.time.Duration.ofDays(4)), 9, hash());       // second, 4 days on
+
+        JsonNode second = utmRow(report(admin(), null, null), tag).get("secondImport");
+
+        assertThat(second.get("users").asLong()).as("same-afternoon and returned only").isEqualTo(2);
+        assertThat(second.get("cameBackLaterDay").asLong()).as("returned only").isEqualTo(1);
+        // Median of 2 hours (0.083 days) and 4 days.
+        assertThat(second.get("medianDays").asDouble()).isEqualTo(2.0);
+    }
+
+    /** 23:00 and 01:00 IST are two days, though only two hours apart (and one UTC day). */
+    @Test
+    void cameBackLaterDayUsesTheIstDay() throws Exception {
+        String tag = tag("it-istday-");
+        User user = signupAt(WEEK_S);
+        attributed(user, tag, null);
+        importedFile(user, Instant.parse("2021-06-06T17:30:00Z"), 4, hash()); // 23:00 IST, 6 June
+        importedFile(user, Instant.parse("2021-06-06T19:30:00Z"), 4, hash()); // 01:00 IST, 7 June
+
+        JsonNode second = utmRow(report(admin(), null, null), tag).get("secondImport");
+
+        assertThat(second.get("users").asLong()).isEqualTo(1);
+        assertThat(second.get("cameBackLaterDay").asLong()).isEqualTo(1);
+    }
+
+    @Test
+    void secondImportIsZeroWithNoMedianWhenNobodyHasOne() throws Exception {
+        String tag = tag("it-none-");
+        User one = signupAt(WEEK_S);
+        attributed(one, tag, null);
+        importedAt(one, Instant.parse("2021-06-06T06:00:00Z"), 3);
+
+        JsonNode row = utmRow(report(admin(), null, null), tag);
+
+        assertThat(row.get("secondImport").get("users").asLong()).isZero();
+        assertThat(row.get("secondImport").get("medianDays").isNull()).isTrue();
+        assertThat(row.get("secondImport").get("cameBackLaterDay").asLong()).isZero();
+    }
+
+    @Test
+    void secondImportLeavesOutExcludedAccounts() throws Exception {
+        String tag = tag("it-excl-");
+        JsonNode before = report(admin(), null, null);
+        User internal = signupAt(WEEK_S);
+        attributed(internal, tag, null);
+        jdbc.update("UPDATE users SET internal_account = true WHERE id = ?", internal.getId());
+        importedAt(internal, Instant.parse("2021-06-06T06:00:00Z"), 3);
+        importedAt(internal, Instant.parse("2021-06-08T06:00:00Z"), 3);
+
+        JsonNode after = report(admin(), null, null);
+
+        assertThat(after.get("secondImport").get("users").asLong()).isEqualTo(before.get("secondImport").get("users").asLong());
+        assertThat(findUtmRow(after, tag)).as("no row for a source only an internal account came from").isNull();
+    }
+
     // ---- helpers -----------------------------------------------------------------------------
 
     private User signupAt(Instant createdAt) {
@@ -289,6 +500,90 @@ class ActivationReportIT extends AbstractIntegrationTest {
         UUID accountId = accountRepository.save(account).getId();
         jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content) VALUES (?, ?, ?, ?)",
                 user.getId(), accountId, "statement.csv", "Date,Description,Amount\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    /*
+     * Import times in these tests are in the past (2021) on purpose. The admin "recent imports"
+     * list orders every statement_imports row newest first and keeps the top few, and the IT suite
+     * shares one database: rows dated in the future would push other tests' imports off it
+     * (AdminSystemControllerIT failed that way).
+     */
+
+    /** A different file each call, with no content_hash: the inline-bytes path older rows take. */
+    private void importedAt(User user, Instant at, int transactions) {
+        importedFile(user, at, transactions, null);
+    }
+
+    /**
+     * A confirmed statement row. With {@code contentHash} set, rows sharing it are one file -- the
+     * sections of a composite statement, or a re-import -- whatever their bytes.
+     */
+    private void importedFile(User user, Instant at, int transactions, String contentHash) {
+        Account account = new Account();
+        account.setUserId(user.getId());
+        account.setName("Activation Report IT Savings");
+        account.setAccountType(Account.Type.SAVINGS);
+        account.setBalance(BigDecimal.ZERO);
+        UUID accountId = accountRepository.save(account).getId();
+        byte[] bytes = ("Date,Description,Amount\n" + UUID.randomUUID() + "\n").getBytes(StandardCharsets.UTF_8);
+        jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, content_hash, "
+                        + "transactions_imported, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                user.getId(), accountId, "statement.csv", bytes, contentHash, transactions, Timestamp.from(at));
+    }
+
+    private static String hash() {
+        return (UUID.randomUUID().toString() + UUID.randomUUID()).replace("-", "");
+    }
+
+    /** A tag no other test uses, letters only: a run of digits would read as a phone number and be withheld. */
+    private static String tag(String prefix) {
+        StringBuilder out = new StringBuilder(prefix);
+        java.util.concurrent.ThreadLocalRandom random = java.util.concurrent.ThreadLocalRandom.current();
+        for (int i = 0; i < 12; i++) out.append((char) ('a' + random.nextInt(26)));
+        return out.toString();
+    }
+
+    private void referred(User user, User by) {
+        jdbc.update("INSERT INTO referrals (referrer_user_id, referred_user_id, status) VALUES (?, ?, 'PENDING')",
+                by.getId(), user.getId());
+    }
+
+    private void attributed(User user, String utmSource, String referrerHost) {
+        jdbc.update("INSERT INTO signup_attributions (user_id, utm_source, referrer_host) VALUES (?, ?, ?)",
+                user.getId(), utmSource, referrerHost);
+    }
+
+    private static JsonNode findUtmRow(JsonNode report, String utmSource) {
+        for (JsonNode row : report.get("bySource")) {
+            if ("UTM".equals(row.get("kind").asText()) && utmSource.equals(row.get("utmSource").asText())) return row;
+        }
+        return null;
+    }
+
+    private static JsonNode utmRow(JsonNode report, String utmSource) {
+        JsonNode row = findUtmRow(report, utmSource);
+        assertThat(row).as("utm row " + utmSource).isNotNull();
+        return row;
+    }
+
+    private static long kindStep(JsonNode report, String kind, String step) {
+        for (JsonNode row : report.get("bySource")) {
+            if (kind.equals(row.get("kind").asText())) return row.get("counts").get(step).asLong();
+        }
+        throw new AssertionError("no " + kind + " row");
+    }
+
+    private static long kindTotal(JsonNode report, String kind) {
+        for (JsonNode row : report.get("bySource")) {
+            if (kind.equals(row.get("kind").asText())) return stepTotal(row);
+        }
+        throw new AssertionError("no " + kind + " row");
+    }
+
+    private static long stepTotal(JsonNode row) {
+        long total = 0;
+        for (FunnelStep step : FunnelStep.values()) total += row.get("counts").get(step.name()).asLong();
+        return total;
     }
 
     private void answer(User user, String moment, String answer, LocalDate on) {

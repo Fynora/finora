@@ -5,7 +5,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { adminActivationApi, type ActivationMomentName, type ActivationReport, type FunnelStep } from '../api/endpoints';
 import {
   ANSWER_LABELS, DELETION_REASON_LABELS, FOCUS_LABELS, MOMENT_QUESTIONS, NO_ANSWER, NO_ANSWER_LABEL,
-  SPENDING_TRACKING_LABELS, STEP_LABELS, STEP_ORDER, formatIsoDate, formatIsoMonth,
+  SOURCE_LABELS, SPENDING_TRACKING_LABELS, STEP_LABELS, STEP_ORDER, formatDays, formatIsoDate, formatIsoMonth,
 } from '../lib/activationLabels';
 
 const DEFAULT_RANGE_DAYS = 90;
@@ -58,6 +58,71 @@ function FunnelTable({ weeks }: { weeks: ActivationReport['weeks'] }) {
       </tbody>
     </table>
   );
+}
+
+function stepTotal(counts: Record<FunnelStep, number>): number {
+  return STEP_ORDER.reduce((sum, step) => sum + (counts[step] ?? 0), 0);
+}
+
+/** The headline counts over every counted signup, with the second-import measure beside them. */
+function Totals({ report }: { report: ActivationReport }) {
+  const signups = report.weeks.reduce((sum, w) => sum + stepTotal(w.counts), 0);
+  const gotDataIn = report.weeks.reduce((sum, w) => sum + (w.counts.GOT_DATA_IN ?? 0), 0);
+  const items = [
+    { label: 'Signups counted', value: String(signups) },
+    { label: 'Got data in', value: String(gotDataIn) },
+    { label: 'Second import', value: String(report.secondImport.users) },
+    { label: 'Median days, first to second import', value: formatDays(report.secondImport.medianDays) },
+    { label: 'Came back another day', value: String(report.secondImport.cameBackLaterDay) },
+  ];
+  return (
+    <dl aria-label="Totals" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {items.map((i) => (
+        <div key={i.label} className="bg-card border border-border rounded-xl2 shadow-card p-4">
+          <dt className="text-xs font-semibold text-muted uppercase tracking-wide">{i.label}</dt>
+          <dd className="mt-1 text-xl font-semibold text-ink tabular-nums">{i.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Signups per source at their furthest step, with how many sent a second, different statement and
+ * how many came back on a later day.
+ */
+function SourceTable({ rows }: { rows: ActivationReport['bySource'] }) {
+  return (
+    <table aria-label="Funnel by signup source" className="w-full">
+      <thead>
+        <tr>
+          <th className={th}>Source</th>
+          {STEP_ORDER.map((step) => <th key={step} className={th}>{STEP_LABELS[step]}</th>)}
+          <th className={th}>Second import</th>
+          <th className={th}>Median days to second</th>
+          <th className={th}>Came back another day</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.kind === 'UTM' ? `UTM:${r.utmSource}` : r.kind}>
+            <td className={td}>{r.kind === 'UTM' ? `utm_source: ${r.utmSource}` : SOURCE_LABELS[r.kind]}</td>
+            {STEP_ORDER.map((step) => <td key={step} className={`${td} tabular-nums`}>{r.counts[step] ?? 0}</td>)}
+            <td className={`${td} tabular-nums`}>{r.secondImport.users}</td>
+            <td className={`${td} tabular-nums`}>{formatDays(r.secondImport.medianDays)}</td>
+            <td className={`${td} tabular-nums`}>{r.secondImport.cameBackLaterDay}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** An ISO instant as its date in IST, the zone the report files days under. */
+function istDate(instant: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(instant));
+  return formatIsoDate(parts);
 }
 
 /** Spec §6.2: each moment's answers and skips in the chosen range, zeros included. */
@@ -175,6 +240,18 @@ function ActivationContent() {
               : 'The import-funnel record has no rows yet.'}
           </p>
         )}
+        {data && (
+          <p>
+            {data.sourceTrackingStart
+              ? `Signup sources are recorded from ${istDate(data.sourceTrackingStart)}; earlier signups with nothing recorded show as unknown, not direct.`
+              : 'When signup sources began to be recorded is not known, so signups with nothing recorded show as unknown.'}
+          </p>
+        )}
+        <p>
+          A second import is a second, different statement file that brought transactions in. The account sections
+          of one statement, and a re-import of the same file, count as one file.
+        </p>
+        <p>Only the answers follow the date range; every other count covers all signups.</p>
         <p>Counts are small; one person changes them.</p>
       </div>
 
@@ -186,8 +263,14 @@ function ActivationContent() {
 
       {data && (
         <>
+          <Totals report={data} />
+
           <Section title="Funnel by signup week">
             <FunnelTable weeks={data.weeks} />
+          </Section>
+
+          <Section title="Funnel by signup source">
+            <SourceTable rows={data.bySource} />
           </Section>
 
           <section>

@@ -475,8 +475,10 @@ function DashboardContent() {
           )}
 
           {/* V286: every self-service account by where its sign-up came from -- the landing
-              link's utm_source, else the referring site, else "referral" (a friend's code) or
-              "direct" (typed in, or the mobile apps). Read-only; the only place this is shown. */}
+              link's utm_source, else the referring site, else "referral" (a friend's code), else
+              "direct" (typed in, or the mobile apps) for accounts made after sources were recorded
+              and "unknown (before tracking)" for older ones. Read-only; the Activation page splits
+              the same sources by funnel step. */}
           {signupSources && signupSources.length > 0 && (
             <div>
               <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Sign-ups by source</h2>

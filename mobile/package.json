@@ -109,7 +109,8 @@
     "eslint-plugin-react-native-a11y": {
       "eslint": "$eslint"
     },
-    "@grpc/grpc-js": "^1.14.5"
+    "@grpc/grpc-js": "^1.14.5",
+    "zod": "^4.6.6"
   },
   "allowScripts": {
     "@firebase/util@1.15.2": true,

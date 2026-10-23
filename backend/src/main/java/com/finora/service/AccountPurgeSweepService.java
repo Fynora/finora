@@ -205,7 +205,7 @@ public class AccountPurgeSweepService {
 
     /**
      * After how many consecutive failed purge attempts on one account the sweep tells the Super
-     * Admins, once ({@link #alertIfStuck}). The sweep never stops retrying: the purge is the
+     * Admins, once per stuck request ({@link #alertIfStuck}). The sweep never stops retrying: the purge is the
      * account's deletion promise, a retry costs one log line and one audit row, and a transient
      * cause (storage down) clears itself. What it must not do is retry silently. The first stuck
      * account (2026-09-18 to 2026-09-23) failed on 524 consecutive passes over five days before
@@ -517,27 +517,40 @@ public class AccountPurgeSweepService {
         return new Result(purged, failed);
     }
 
+    /** Written once a stuck-purge alert actually reached at least one Super Admin; what makes
+     *  {@link #alertIfStuck} once-per-stuck-request. */
+    static final String PURGE_STUCK_ALERTED = "ACCOUNT_PURGE_STUCK_ALERTED";
+
     /**
-     * Tells the Super Admins, once, when one account's purge has now failed {@link
-     * #alertAfterFailures} times in a row -- see that field's doc for why the sweep alerts rather
-     * than giving up. "In a row" is every {@code ACCOUNT_PURGE_FAILED} row since the account's
-     * current {@code deletionRequestedAt}: a reactivated account that asks again gets a fresh
-     * count, and a purged account never reaches this sweep again. The count includes the row
-     * {@link #sweep} just recorded (no ambient transaction here, so it is already committed), and
-     * fires only when it lands exactly on the threshold, which is what makes the alert
-     * once-per-stuck-request without any state of its own.
+     * Tells the Super Admins, once, when one account's purge has failed {@link
+     * #alertAfterFailures} or more times in a row -- see that field's doc for why the sweep alerts
+     * rather than giving up. "In a row" is every {@code ACCOUNT_PURGE_FAILED} row since the
+     * account's current {@code deletionRequestedAt}: a reactivated account that asks again gets a
+     * fresh count, and a purged account never reaches this sweep again. The count includes the row
+     * {@link #sweep} just recorded (no ambient transaction here, so it is already committed).
      *
-     * <p>Never throws: a failed alert is logged, and the account is still retried next pass.
+     * <p>"Once" is an {@link #PURGE_STUCK_ALERTED} audit row in the same window, written only when
+     * at least one email went out. Not "fires when the count lands exactly on the threshold": that
+     * would alert nobody, ever, if the count query or the one email happened to fail on that one
+     * pass. This way every later pass tries again until someone has actually been told, and the
+     * row itself records when that was.
+     *
+     * <p>Never throws: a failed check or email is logged, and the account is still retried next pass.
      */
     private void alertIfStuck(UUID userId) {
         if (alertAfterFailures <= 0) return;
         try {
             User user = userRepository.findById(userId).orElse(null);
             if (user == null || user.getDeletionRequestedAt() == null) return;
+            Instant since = user.getDeletionRequestedAt();
             long failures = auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
-                    userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt());
-            if (failures == alertAfterFailures) {
-                adminAlerts.alertAccountPurgeStuck(userId, failures, user.getDeletionRequestedAt());
+                    userId, "ACCOUNT_PURGE_FAILED", since);
+            if (failures < alertAfterFailures) return;
+            if (auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(userId, PURGE_STUCK_ALERTED, since) > 0) {
+                return;
+            }
+            if (adminAlerts.alertAccountPurgeStuck(userId, failures, since)) {
+                auditService.record(userId, PURGE_STUCK_ALERTED, "User", userId, Map.of("failures", failures));
             }
         } catch (RuntimeException e) {
             log.error("Could not check whether the purge of account {} is stuck: {}", userId, e.getMessage(), e);

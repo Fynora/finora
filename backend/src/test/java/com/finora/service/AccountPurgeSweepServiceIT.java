@@ -1359,7 +1359,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
      * The stuck-purge alert end to end against the real audit table: the sweep fails at the one
      * step that throws rather than logs (the storage reclaim, see {@code purgeOne}), once per pass,
      * and the fourth consecutive failure is the one that tells the Super Admins -- not the third,
-     * not the fifth. Then the cause clears and the next pass finishes the purge: the alert never
+     * and not the fifth, because the fourth left its {@code ACCOUNT_PURGE_STUCK_ALERTED} row in the
+     * real audit table. Then the cause clears and the next pass finishes the purge: the alert never
      * stopped the retrying. No ambient transaction, as in production, so each pass's audit row is
      * committed before the next pass counts it.
      */
@@ -1369,6 +1370,10 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         org.mockito.Mockito.when(storageDown.reclaimImportJobObjectsOf(userId))
                 .thenThrow(new IllegalStateException("object store unreachable"));
         AccountPurgeSweepService failing = buildService(storageDown);
+        org.mockito.Mockito.when(adminAlerts.alertAccountPurgeStuck(
+                        org.mockito.ArgumentMatchers.eq(userId), org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
 
         for (int pass = 1; pass <= 5; pass++) {
             failing.sweep();
@@ -1380,6 +1385,10 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         org.mockito.Mockito.verify(adminAlerts, org.mockito.Mockito.times(1)).alertAccountPurgeStuck(
                 org.mockito.ArgumentMatchers.eq(userId), org.mockito.ArgumentMatchers.eq(4L),
                 org.mockito.ArgumentMatchers.any());
+        assertThat(auditLogRepository.findTop50ByUserIdAndActionInOrderByCreatedAtDesc(
+                userId, List.of(AccountPurgeSweepService.PURGE_STUCK_ALERTED)))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getMetadata()).containsEntry("failures", 4));
 
         // Storage is back: the real sweep completes the purge on its next pass, and the alert
         // count stays at one.

@@ -79,6 +79,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -706,41 +707,69 @@ class AccountPurgeSweepServiceTest {
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(userId), any());
     }
 
-    /** A failure that is now the fourth in a row since the deletion was requested tells the Super
-     *  Admins; the count the decision rests on is the committed audit rows, not state in memory. */
-    @Test
-    void sweep_fourthConsecutiveFailure_tellsTheSuperAdmins() {
+    private User stubFailingCandidate(long failuresSoFar, long alertedSoFar) {
         User user = pendingDeletionUser();
         stubOneCandidate(user);
         doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
                 .when(gmailConnectionService).disconnect(userId, userId);
         when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
-                userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt())).thenReturn(4L);
+                userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt())).thenReturn(failuresSoFar);
+        when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
+                userId, AccountPurgeSweepService.PURGE_STUCK_ALERTED, user.getDeletionRequestedAt()))
+                .thenReturn(alertedSoFar);
+        return user;
+    }
+
+    /** A failure that is now the fourth in a row since the deletion was requested tells the Super
+     *  Admins, and the sweep records that it did; the decision rests on committed audit rows, not
+     *  state in memory. */
+    @Test
+    void sweep_fourthConsecutiveFailure_tellsTheSuperAdmins_andRecordsThat() {
+        User user = stubFailingCandidate(4, 0);
+        when(adminAlerts.alertAccountPurgeStuck(userId, 4L, user.getDeletionRequestedAt())).thenReturn(true);
 
         AccountPurgeSweepService.Result result = service.sweep();
 
         assertThat(result.failed()).isEqualTo(1);
         verify(adminAlerts).alertAccountPurgeStuck(userId, 4L, user.getDeletionRequestedAt());
+        verify(auditService).record(eq(userId), eq(AccountPurgeSweepService.PURGE_STUCK_ALERTED), eq("User"),
+                eq(userId), eq(Map.of("failures", 4L)));
         // Still retryable: the alert changes nothing about the account.
         assertThat(user.getStatus()).isEqualTo(User.STATUS_PENDING_DELETION);
     }
 
-    /** Once, not on every pass past the threshold: the third failure is too early, the fifth
-     *  already alerted on the fourth. */
     @Test
-    void sweep_failuresEitherSideOfTheThreshold_doNotAlert() {
-        User user = pendingDeletionUser();
-        stubOneCandidate(user);
-        doThrow(new ApiException(HttpStatus.BAD_GATEWAY, "Google is unreachable"))
-                .when(gmailConnectionService).disconnect(userId, userId);
-        when(auditLogRepository.countByUserIdAndActionAndCreatedAtAfter(
-                userId, "ACCOUNT_PURGE_FAILED", user.getDeletionRequestedAt())).thenReturn(3L, 5L);
+    void sweep_thirdFailure_isTooEarlyToAlert() {
+        stubFailingCandidate(3, 0);
 
-        service.sweep();
         service.sweep();
 
         verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
-        verify(auditService, times(2)).record(eq(userId), eq("ACCOUNT_PURGE_FAILED"), eq("User"), eq(userId), any());
+        verify(auditService, never()).record(any(), eq(AccountPurgeSweepService.PURGE_STUCK_ALERTED), any(), any(), any());
+    }
+
+    /** Once per stuck request: the fifth failure sees the record of the alert and stays quiet. */
+    @Test
+    void sweep_fifthFailureAfterAnAlert_doesNotAlertAgain() {
+        stubFailingCandidate(5, 1);
+
+        service.sweep();
+
+        verify(adminAlerts, never()).alertAccountPurgeStuck(any(), anyLong(), any());
+    }
+
+    /** The one thing "exactly on the threshold" would get wrong: if nobody could be emailed on the
+     *  fourth pass (provider down, no Super Admin), nothing is recorded and the fifth pass tries
+     *  again, so a person is still told. */
+    @Test
+    void sweep_alertThatReachedNobody_isRetriedOnTheNextFailure() {
+        User user = stubFailingCandidate(5, 0);
+        when(adminAlerts.alertAccountPurgeStuck(userId, 5L, user.getDeletionRequestedAt())).thenReturn(false);
+
+        service.sweep();
+
+        verify(adminAlerts).alertAccountPurgeStuck(userId, 5L, user.getDeletionRequestedAt());
+        verify(auditService, never()).record(any(), eq(AccountPurgeSweepService.PURGE_STUCK_ALERTED), any(), any(), any());
     }
 
     @Test

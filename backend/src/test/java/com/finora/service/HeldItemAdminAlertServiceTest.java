@@ -375,8 +375,9 @@ class HeldItemAdminAlertServiceTest {
                 .thenReturn(List.of(superAdmin));
         UUID stuckUserId = UUID.randomUUID();
 
-        service.alertAccountPurgeStuck(stuckUserId, 4, Instant.parse("2026-09-18T07:51:00Z"));
+        boolean told = service.alertAccountPurgeStuck(stuckUserId, 4, Instant.parse("2026-09-18T07:51:00Z"));
 
+        assertThat(told).isTrue();
         org.mockito.ArgumentCaptor<EmailMessage> sent = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailProvider).send(sent.capture());
         assertThat(sent.getValue().to()).isEqualTo("super-admin@example.com");
@@ -393,9 +394,20 @@ class HeldItemAdminAlertServiceTest {
     void alertAccountPurgeStuck_sendsNothingWithoutASuperAdmin() {
         when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE)).thenReturn(List.of());
 
-        service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now());
+        boolean told = service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now());
 
+        assertThat(told).isFalse();
         verify(emailProvider, never()).send(any());
+    }
+
+    /** The caller retries on false, so a provider failure must not read as "someone was told". */
+    @Test
+    void alertAccountPurgeStuck_reportsFalseWhenEverySendFails() {
+        when(userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE))
+                .thenReturn(List.of(adminUser("super-admin@example.com")));
+        when(emailProvider.send(any())).thenReturn(EmailResult.failure(ProviderType.RESEND, "provider down"));
+
+        assertThat(service.alertAccountPurgeStuck(UUID.randomUUID(), 4, Instant.now())).isFalse();
     }
 
     private String overdueImportEmailWith(com.finora.imports.fix.ClaudeFixStatus status) {

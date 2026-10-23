@@ -1,21 +1,23 @@
 import { StrictMode } from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Insights from './Insights';
-import { insightsApi, peopleApi, recurringApi, onboardingApi, usageApi, type InsightsData, type RecurringItem } from '../api/endpoints';
+import {
+  aiInsightsApi, insightsApi, peopleApi, recurringApi, onboardingApi, usageApi,
+  type AiStory, type InsightsData, type RecurringItem,
+} from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
-  // Default resolves to '' (falsy, renders nothing) rather than being left unmocked -- every
-  // existing test in this file exercises paths unrelated to Fyn's narration and would otherwise
-  // throw on the unmocked call; vi.clearAllMocks() below clears call history, not this resolved
-  // value, so it stays the default for every test that doesn't override it.
   insightsApi: {
-    get: vi.fn(), narration: vi.fn().mockResolvedValue(''),
+    get: vi.fn(),
     acknowledgements: vi.fn().mockResolvedValue([]), acknowledge: vi.fn().mockResolvedValue(undefined),
   },
+  // The month story (AI insights spec §8.4). The beforeEach below puts "nothing to show" back before
+  // every test, so a story one test sets up never leaks into the next.
+  aiInsightsApi: { story: vi.fn(), generateStory: vi.fn(), feedback: vi.fn() },
   // Shared payments and loans: nothing to ask and nobody owing unless a test says so.
   peopleApi: {
     suggestions: vi.fn().mockResolvedValue({ items: [], expected: [] }), list: vi.fn().mockResolvedValue([]),
@@ -40,7 +42,25 @@ vi.mock('../api/endpoints', () => ({
   categoriesApi: { list: vi.fn().mockResolvedValue([]) },
 }));
 // The UPI request names the user; every page sits inside AuthProvider in the app.
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));;
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
+
+// Every figure in a story here is invented.
+function story(overrides: Partial<AiStory> = {}): AiStory {
+  return {
+    status: 'none', id: null, text: null, writtenByAi: false, basis: null, canGenerate: false,
+    rating: null, ratingReason: null, ...overrides,
+  };
+}
+const AI_STORY = story({
+  status: 'ready', id: 'story-1', text: 'Food took ₹8,000 this month, ₹3,000 more than your usual month.',
+  writtenByAi: true, basis: 'Compared with your usual month (Jun–Aug)',
+});
+
+beforeEach(() => {
+  vi.mocked(aiInsightsApi.story).mockReset().mockResolvedValue(story());
+  vi.mocked(aiInsightsApi.generateStory).mockReset().mockResolvedValue(story());
+  vi.mocked(aiInsightsApi.feedback).mockReset().mockResolvedValue(undefined);
+});
 
 function insights(overrides: Partial<InsightsData> = {}): InsightsData {
   return {
@@ -283,11 +303,11 @@ describe('Insights — Top Merchant highlight', () => {
     vi.mocked(recurringApi.list).mockResolvedValue([]);
   });
 
-  it('shows the top merchant, name and amount, regardless of whether narration is available', async () => {
+  it('shows the top merchant, name and amount, whether or not there is an AI story', async () => {
     vi.mocked(insightsApi.get).mockResolvedValue(
       insights({ topMerchant: { name: 'Myntra', amount: 3299 } })
     );
-    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(AI_STORY);
     renderInsights();
 
     expect(await screen.findByText(/Myntra/)).toBeInTheDocument();
@@ -295,11 +315,6 @@ describe('Insights — Top Merchant highlight', () => {
   });
 
   it('renders no top merchant row when the field is null', async () => {
-    // Explicit, not relied-on-by-default: vi.clearAllMocks() (this block's own beforeEach)
-    // clears call history but not a previous test's mockResolvedValue override, so the prior
-    // test's real narration text would otherwise leak in here and collapse the sentences below
-    // a toggle, hiding the text this assertion waits for.
-    vi.mocked(insightsApi.narration).mockResolvedValue('');
     vi.mocked(insightsApi.get).mockResolvedValue(insights({ topMerchant: null }));
     renderInsights();
 
@@ -310,7 +325,6 @@ describe('Insights — Top Merchant highlight', () => {
   // Statements are imported in arrears: the insights' month (newest with a purchase) is routinely
   // not the current one, and the response now says which it is.
   it('names the month the top merchant is from when it is not the current one', async () => {
-    vi.mocked(insightsApi.narration).mockResolvedValue('');
     vi.mocked(insightsApi.get).mockResolvedValue(insights({
       topMerchant: { name: 'Myntra', amount: 3299 }, reportingMonth: '2026-06', reportingMonthIsCurrent: false,
     }));
@@ -321,7 +335,6 @@ describe('Insights — Top Merchant highlight', () => {
   });
 
   it('keeps "this month" when the server says the month is current', async () => {
-    vi.mocked(insightsApi.narration).mockResolvedValue('');
     vi.mocked(insightsApi.get).mockResolvedValue(insights({
       topMerchant: { name: 'Myntra', amount: 3299 }, reportingMonth: '2026-10', reportingMonthIsCurrent: true,
     }));
@@ -390,70 +403,106 @@ describe('Insights — Recurring Payments dismiss', () => {
   });
 });
 
-describe('Insights — Fyn narration', () => {
+describe('Insights — AI month story', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(insightsApi.get).mockResolvedValue(insights());
     vi.mocked(recurringApi.list).mockResolvedValue([]);
   });
 
-  it('shows the narration, labeled, as the primary text once it resolves', async () => {
-    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+  const RULE_SENTENCE = /You spent more on Food/;
+
+  it('storyShowsWithLabelAndBasis: a stored AI story leads, with its label, basis and thumbs', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(AI_STORY);
 
     renderInsights();
 
-    expect(await screen.findByText(/Food spending is up 60%/)).toBeInTheDocument();
-    expect(screen.getByText('Fyn:')).toBeInTheDocument();
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+    expect(screen.getByText('Written by AI')).toBeInTheDocument();
+    expect(screen.getByText(AI_STORY.basis!)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Helpful' })).toBeInTheDocument();
+    // The old "Fyn:" label is gone.
+    expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+    // A stored story is only read: the page asks the server to write nothing.
+    expect(aiInsightsApi.generateStory).not.toHaveBeenCalled();
+    // The banner no longer calls the whole card rule-based.
+    expect(screen.getByText(/Text marked "Written by AI" is written by AI from your own figures/)).toBeInTheDocument();
   });
 
-  it('collapses the rule-based sentences behind a toggle once narration is available, reveals them on click', async () => {
-    vi.mocked(insightsApi.narration).mockResolvedValue('Food spending is up 60% from your usual average.');
+  it('collapses the rule-based sentences behind a toggle under an AI story, reveals them on click', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(AI_STORY);
 
     renderInsights();
-    await screen.findByText(/Food spending is up 60%/);
+    await screen.findByText(AI_STORY.text!);
 
-    expect(screen.queryByText(/You spent more on Food/)).not.toBeInTheDocument();
-    const toggle = screen.getByRole('button', { name: 'View the numbers' });
-
-    await userEvent.click(toggle);
-
-    expect(screen.getByText(/You spent more on Food/)).toBeInTheDocument();
+    expect(screen.queryByText(RULE_SENTENCE)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'View the numbers' }));
+    expect(screen.getByText(RULE_SENTENCE)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Hide the numbers' })).toBeInTheDocument();
   });
 
-  it('shows the rule-based sentences directly, with no toggle, while narration is still resolving', async () => {
-    vi.mocked(insightsApi.narration).mockReturnValue(pending<string>());
+  it('noStoryKeepsTheRulesSentences: no story, rules text, or a failed read all keep the sentences', async () => {
+    // Nothing to show.
+    const first = renderInsights();
+    expect(await screen.findByText(RULE_SENTENCE)).toBeInTheDocument();
+    first.unmount();
+
+    // Rules text: the page's own sentences already say it, so the card shows those, unlabelled.
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ status: 'ready', text: 'Rules line for the month.' }));
+    const second = renderInsights();
+    expect(await screen.findByText(RULE_SENTENCE)).toBeInTheDocument();
+    second.unmount();
+
+    // The read fails.
+    vi.mocked(aiInsightsApi.story).mockRejectedValue(new Error('offline'));
+    renderInsights();
+    expect(await screen.findByText(RULE_SENTENCE)).toBeInTheDocument();
+
+    await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText('Rules line for the month.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Written by AI')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View the numbers' })).not.toBeInTheDocument();
+    expect(screen.getByText(/These are rule-based statistical observations/)).toBeInTheDocument();
+    expect(aiInsightsApi.generateStory).not.toHaveBeenCalled();
+  });
+
+  it('shows the sentences, with no toggle, while the story is still being read', async () => {
+    vi.mocked(aiInsightsApi.story).mockReturnValue(pending<AiStory>());
 
     renderInsights();
 
-    expect(await screen.findByText(/You spent more on Food/)).toBeInTheDocument();
+    expect(await screen.findByText(RULE_SENTENCE)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'View the numbers' })).not.toBeInTheDocument();
   });
 
-  it('renders nothing extra when narration is unavailable, and does not affect the rule-based sentences', async () => {
-    vi.mocked(insightsApi.narration).mockRejectedValue(new Error('not entitled'));
+  it('asks the server to write the story when it may, and shows what comes back', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ canGenerate: true }));
+    vi.mocked(aiInsightsApi.generateStory).mockResolvedValue(AI_STORY);
 
     renderInsights();
 
-    expect(await screen.findByText(/You spent more on Food/)).toBeInTheDocument();
-    expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+    // The newest reporting month: the same month the page's own figures describe.
+    expect(aiInsightsApi.generateStory).toHaveBeenCalledWith();
+    expect(aiInsightsApi.story).toHaveBeenCalledWith();
   });
 
-  it('never shows an empty narration label when the resolved string is blank', async () => {
-    vi.mocked(insightsApi.narration).mockResolvedValue('');
+  it('keeps the sentences when writing the story fails', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ canGenerate: true }));
+    vi.mocked(aiInsightsApi.generateStory).mockRejectedValue(new Error('server error'));
 
     renderInsights();
 
-    await screen.findByText(/You spent more on Food/);
-    expect(screen.queryByText('Fyn:')).not.toBeInTheDocument();
+    await waitFor(() => expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(RULE_SENTENCE)).toBeInTheDocument();
+    expect(screen.queryByText('Written by AI')).not.toBeInTheDocument();
   });
 
-  it('calls narration() exactly once even under React.StrictMode double-invocation', async () => {
-    // Found in review: narration() spends real Anthropic cost per call, unlike get()/list()
-    // beside it in the same effect. StrictMode (real, used in main.tsx) double-invokes effects in
-    // development -- this proves the mount-scoped ref guard actually stops the second call, not
-    // just that the code compiles.
-    vi.mocked(insightsApi.narration).mockResolvedValue('Narrated once.');
+  it('postsAtMostOnce: one read and one write even under React.StrictMode double-invocation', async () => {
+    // Writing a story spends real model cost. StrictMode (used in main.tsx) runs effects twice in
+    // development; the mount-scoped guard must stop the second run.
+    vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ canGenerate: true }));
+    vi.mocked(aiInsightsApi.generateStory).mockResolvedValue(AI_STORY);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -466,8 +515,73 @@ describe('Insights — Fyn narration', () => {
       </StrictMode>
     );
 
-    await screen.findByText(/Narrated once/);
-    expect(insightsApi.narration).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+    expect(aiInsightsApi.story).toHaveBeenCalledTimes(1);
+    expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1);
+  });
+
+  describe('while another request is writing it', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('reads it again 2 s later and shows it once ready, without writing again', async () => {
+      vi.mocked(aiInsightsApi.story)
+        .mockResolvedValueOnce(story({ canGenerate: true }))
+        .mockResolvedValueOnce(AI_STORY);
+      vi.mocked(aiInsightsApi.generateStory).mockResolvedValue(story({ status: 'generating' }));
+
+      renderInsights();
+      await waitFor(() => expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1));
+      expect(aiInsightsApi.story).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await screen.findByText(AI_STORY.text!)).toBeInTheDocument();
+      expect(aiInsightsApi.story).toHaveBeenCalledTimes(2);
+      expect(aiInsightsApi.generateStory).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up after two more reads and keeps the sentences', async () => {
+      vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ status: 'generating' }));
+
+      renderInsights();
+      await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(2000);
+      await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(2000);
+      await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(3));
+      await vi.advanceTimersByTimeAsync(10000);
+
+      expect(aiInsightsApi.story).toHaveBeenCalledTimes(3);
+      expect(aiInsightsApi.generateStory).not.toHaveBeenCalled();
+      expect(screen.getByText(RULE_SENTENCE)).toBeInTheDocument();
+    });
+
+    it('stops reading once the page is closed', async () => {
+      vi.mocked(aiInsightsApi.story).mockResolvedValue(story({ status: 'generating' }));
+
+      const view = renderInsights();
+      await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(1));
+      view.unmount();
+      await vi.advanceTimersByTimeAsync(10000);
+
+      expect(aiInsightsApi.story).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('saves a thumb on the story by its id, and shows a thumb saved earlier', async () => {
+    vi.mocked(aiInsightsApi.story).mockResolvedValue({ ...AI_STORY, rating: 'NOT_HELPFUL', ratingReason: 'CONFUSING' });
+
+    renderInsights();
+    await screen.findByText(AI_STORY.text!);
+    expect(screen.getByRole('button', { name: 'Not helpful' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Thanks for telling us.')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Helpful' }));
+    await waitFor(() => expect(aiInsightsApi.feedback).toHaveBeenCalledWith('story-1', 'HELPFUL', null));
   });
 });
 

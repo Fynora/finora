@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Repeat, TrendingUp, X, Check, Trophy } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  insightsApi, recurringApi, onboardingApi, usageApi, categoriesApi,
-  type InsightsData, type RecurringItem, type ChecklistStatus, type CategoryOption,
+  aiInsightsApi, insightsApi, recurringApi, onboardingApi, usageApi, categoriesApi,
+  type AiStory, type InsightsData, type RecurringItem, type ChecklistStatus, type CategoryOption,
 } from '../api/endpoints';
+import { AiText } from '../components/insights/AiText';
 import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
@@ -25,6 +26,11 @@ function fmt(n: number) {
 // which movers are worth a sentence -- reused here rather than a separate frontend-only number, so
 // "this mover gets a badge" and "this mover gets a sentence" agree on what counts as significant.
 const MOVER_SIGNIFICANCE_THRESHOLD_PCT = 15;
+
+// While another request is writing the story, read it again this many times, this far apart
+// (the same as mobile's Insights screen).
+const STORY_POLLS = 2;
+const STORY_POLL_MS = 2000;
 
 /** "2026-06" -> "June 2026" -- same construction as Reports.tsx's own monthLabel. */
 function monthLabelLong(monthStr: string) {
@@ -92,18 +98,18 @@ function CategoryIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }
 export default function Insights() {
   const [data, setData] = useState<InsightsData | null>(null);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
-  // No loading/error flags, deliberately: this is Fyn's optional gloss on data the Observations
-  // card above already shows numerically (rule-based, not an LLM call). A 403 (not entitled), 503
-  // (Fyn disabled/over budget), 404 (nothing to narrate yet), or an Anthropic outage should all
-  // just mean this section never appears -- not a skeleton, not an error message, nothing the user
-  // would read as something being broken. See insightsApi.narration's own doc.
-  const [narration, setNarration] = useState<string | null>(null);
-  // Found in review: unlike every other call in the effect below, narration() spends real
-  // Anthropic API cost per call. React.StrictMode (see main.tsx) double-invokes effects in
-  // development -- harmless for the free get()/list() calls beside it, but silently doubles real
-  // spend for this one specifically. This ref persists across StrictMode's mount-cleanup-remount
-  // cycle (same component instance), so it survives to block the second invocation.
-  const narrationRequested = useRef(false);
+  // The AI month story (AI insights spec §8.4). No loading or error flags, deliberately: until an AI
+  // story is ready, and whenever there is none (not in the audience, a spent budget, a failed check,
+  // an outage), the card shows its own rule-based sentences -- no skeleton, no message, nothing that
+  // reads as broken. Rules text from the server is not shown: the sentences already say it.
+  const [story, setStory] = useState<AiStory | null>(null);
+  // Writing a story spends real model cost. React.StrictMode (see main.tsx) runs effects twice in
+  // development; this ref persists across StrictMode's mount-cleanup-remount cycle (same component
+  // instance), so the second run reads and writes nothing.
+  const storyRequested = useRef(false);
+  // A poll must not outlive the page. Its own effect, so StrictMode's cleanup-remount sets it back.
+  const mounted = useRef(true);
+  const storyPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Two endpoints, two sets of flags. These used to share one `loading` and one `error` behind a
   // single Promise.all, which conflated sources that have no dependency on each other: /recurring
   // feeds only the Recurring card, /insights only the Observations and Movers cards. That shared
@@ -120,11 +126,10 @@ export default function Insights() {
   // categoriesApi.list() call documents -- a failure here just leaves every icon/color lookup
   // below on its already-built 'tag'/'gray' fallback, nothing more.
   const [categoriesByName, setCategoriesByName] = useState<Map<string, CategoryOption>>(new Map());
-  // Fyn's narration, once it succeeds, REPLACES the rule-based sentence list as the primary text
-  // (rather than sitting as a gloss line above it) -- the repo owner's explicit call: insights
-  // should read as AI-composed prose, not Java template strings, whenever Fyn is available. The
-  // underlying rule-based sentences stay one click away for anyone who wants to see the exact
-  // numbers Fyn was given, rather than disappearing.
+  // An AI story, once ready, REPLACES the rule-based sentence list as the primary text (rather than
+  // sitting as a gloss line above it) -- the repo owner's explicit call: insights should read as
+  // prose, not template strings, whenever the AI story is available. The rule-based sentences stay
+  // one click away for anyone who wants the exact figures, rather than disappearing.
   const [showNumbers, setShowNumbers] = useState(false);
   const queryClient = useQueryClient();
 
@@ -187,10 +192,38 @@ export default function Insights() {
       .then(setRecurring)
       .catch(() => setRecurringError(true))
       .finally(() => setRecurringLoading(false));
-    if (!narrationRequested.current) {
-      narrationRequested.current = true;
-      insightsApi.narration().then(setNarration).catch(() => {});
-    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (storyPoll.current) clearTimeout(storyPoll.current);
+    };
+  }, []);
+
+  // The story for the newest reporting month (no month sent), the month get() above describes. Read
+  // it; ask the server to write it only when the read says it may; while another request is writing
+  // it, read again a couple of times. Never a second write from here.
+  useEffect(() => {
+    if (storyRequested.current) return;
+    storyRequested.current = true;
+    let polls = 0;
+    const take = (s: AiStory) => {
+      if (!mounted.current) return;
+      if (s.status === 'ready') {
+        setStory(s);
+      } else if (s.status === 'generating' && polls < STORY_POLLS) {
+        polls += 1;
+        storyPoll.current = setTimeout(() => {
+          aiInsightsApi.story().then(take).catch(() => {});
+        }, STORY_POLL_MS);
+      }
+    };
+    aiInsightsApi.story()
+      .then((s) => (s.status !== 'ready' && s.canGenerate ? aiInsightsApi.generateStory() : s))
+      .then(take)
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -241,12 +274,15 @@ export default function Insights() {
   // page-level early return, so one failed endpoint no longer takes the other's card down with it.
   const insightsFailed = insightsError || !data;
   const movers = (data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 6);
-  const hasNarration = !!narration;
+  // Only AI text leads the card; rules text and "none" leave the sentences in place.
+  const aiStory = story && story.writtenByAi && story.text ? story : null;
 
   return (
     <div className="space-y-6">
       <div className="bg-primary/10 border-l-4 border-primary rounded p-3 text-sm">
-        These are rule-based statistical observations, computed directly from your real transaction history.
+        {aiStory
+          ? 'Text marked "Written by AI" is written by AI from your own figures. Everything else here is rule-based, from your own transaction history.'
+          : 'These are rule-based statistical observations, computed directly from your real transaction history.'}
       </div>
 
       <FinoraCard>
@@ -263,11 +299,20 @@ export default function Insights() {
           <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
         ) : (
           <div className="space-y-3">
-            {hasNarration ? (
+            {aiStory ? (
               <div className="space-y-2">
-                <p className="text-sm leading-relaxed border-l-4 border-accent-purple bg-accent-purple-bg rounded p-3">
-                  <span className="font-medium text-accent-purple">Fyn: </span>{narration}
-                </p>
+                <div className="border-l-4 border-accent-purple bg-accent-purple-bg rounded p-3">
+                  <AiText
+                    key={aiStory.id ?? 'story'}
+                    id={aiStory.id}
+                    text={aiStory.text!}
+                    writtenByAi
+                    basis={aiStory.basis}
+                    rating={aiStory.rating}
+                    ratingReason={aiStory.ratingReason}
+                    onFeedback={(rating, ratingReason) => setStory((s) => (s ? { ...s, rating, ratingReason } : s))}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowNumbers((v) => !v)}
@@ -285,20 +330,19 @@ export default function Insights() {
                 )}
               </div>
             ) : (
-              // Fyn's narration is still loading, unavailable (not entitled, over budget, an
-              // Anthropic outage), or genuinely had nothing to say -- the same rule-based sentences
-              // this page has always shown, uncollapsed, so nothing regresses when AI isn't in the
-              // loop for this request.
+              // The AI story is still loading, unavailable (not in the audience, over budget, a
+              // failed check, an outage), or there is nothing to say -- the same rule-based
+              // sentences this page has always shown, uncollapsed, so nothing regresses when AI
+              // isn't in the loop for this request.
               data!.sentences.map((s, i) => (
                 <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
               ))
             )}
 
             {data!.topMerchant && (
-              // Deliberately never narrated by Fyn -- FynInsightsNarrationService's own doc
-              // comment excludes merchant names from what reaches the LLM (Tier 1/2 data
-              // boundary), so this is the one insight that always needs an explicit home here
-              // rather than folding into the AI prose above.
+              // Never in the AI story -- no payee name reaches the model (AI insights spec §4.1),
+              // so this is the one insight that always needs an explicit home here rather than
+              // folding into the AI prose above.
               <div className="flex items-center gap-3 border-l-4 border-border bg-black/[0.02] rounded p-3">
                 <CategoryIcon icon={Trophy} color={COLOR_HEX.gray} />
                 <p className="text-sm leading-relaxed">

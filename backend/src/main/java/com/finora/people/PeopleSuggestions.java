@@ -86,7 +86,6 @@ public final class PeopleSuggestions {
         Map<String, Integer> monthsPaid = monthsPaidByKey(live);
 
         List<Suggestion> items = new ArrayList<>();
-        Set<UUID> asked = new HashSet<>();
 
         for (Transaction c : live) {
             if (!PeopleLedger.isCredit(c) || !isPerson(c) || in.familyKeys().contains(c.getCounterpartyKey())) continue;
@@ -114,7 +113,6 @@ public final class PeopleSuggestions {
             if (spendingCategory || repaymentWithNothingBefore || noteWord) {
                 items.add(new Suggestion("SHARE_CHECK", c.getId().toString(), c.getId(), null, c.getCounterpartyKey(),
                         label(c), c.getAmount(), c.getTxnDate(), category, billOptions(in, live, c), null));
-                asked.add(c.getId());
                 continue;
             }
             // C. paying back what you lent?
@@ -124,14 +122,12 @@ public final class PeopleSuggestions {
             if (balance != null && balance.owedToUser().signum() > 0) {
                 items.add(new Suggestion("PAYBACK_CHECK", c.getId().toString(), c.getId(), null, key, label(c),
                         c.getAmount(), c.getTxnDate(), category, List.of(), balance.owedToUser()));
-                asked.add(c.getId());
                 continue;
             }
             Transaction earlier = earlierPaymentTo(live, c, LOOK_BACK_DAYS, entryTxns, in.ledger(), monthsPaid);
             if (earlier != null) {
                 items.add(new Suggestion("PAYBACK_CHECK", c.getId().toString(), c.getId(), earlier.getId(), key, label(c),
                         c.getAmount(), c.getTxnDate(), category, List.of(), null));
-                asked.add(c.getId());
             }
         }
 
@@ -218,12 +214,12 @@ public final class PeopleSuggestions {
                 .filter(s -> !s.kind().equals("LENT_CHECK") || lentShown[0]++ < MAX_LENT_CHECKS)
                 .limit(MAX_ITEMS)
                 .toList();
-        return new PeopleSuggestionsResult(shown, expected(in, live, byId));
+        return new PeopleSuggestionsResult(shown, expected(in, byId));
     }
 
     /** For each split rule: the sender's latest share and the day it usually comes; late once that day
      *  has passed this month with nothing from them. */
-    private static List<ExpectedShare> expected(Input in, List<Transaction> live, Map<UUID, Transaction> byId) {
+    private static List<ExpectedShare> expected(Input in, Map<UUID, Transaction> byId) {
         List<ExpectedShare> out = new ArrayList<>();
         YearMonth thisMonth = YearMonth.from(in.today());
         for (SplitRule r : in.rules()) {

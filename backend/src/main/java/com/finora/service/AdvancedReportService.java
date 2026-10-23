@@ -243,7 +243,7 @@ public class AdvancedReportService {
                 allCategories.size());
 
         // ---- merchants
-        AdvancedMerchants merchants = merchants(userId, now, before, reliable, refunds, rowsByMonth, monthKeys, flow,
+        AdvancedMerchants merchants = merchants(userId, now, before, reliable, refunds, rowsByMonth, monthKeys,
                 totals.expense());
 
         // ---- payment methods
@@ -254,7 +254,7 @@ public class AdvancedReportService {
         AdvancedIncome income = income(now, before, reliable, refunds, flow, months);
 
         // ---- unusual purchases
-        List<AdvancedUnusualSpend> unusual = unusualSpends(userId, liveAccountIds, period, now, refunds, flow,
+        List<AdvancedUnusualSpend> unusual = unusualSpends(userId, liveAccountIds, period, now, refunds,
                 categoryName, totals.expense());
 
         // ---- international
@@ -380,7 +380,7 @@ public class AdvancedReportService {
 
     private AdvancedMerchants merchants(UUID userId, View now, View before, boolean reliable, RefundNetting refunds,
                                         Map<YearMonth, List<Transaction>> rowsByMonth, List<YearMonth> monthKeys,
-                                        FlowTotals.Context flow, BigDecimal expense) {
+                                        BigDecimal expense) {
         Map<UUID, String> storedNames = new HashMap<>();
         merchantRepository.findByUserId(userId).forEach(m -> storedNames.put(m.getId(), m.getCanonicalName()));
 
@@ -466,7 +466,7 @@ public class AdvancedReportService {
 
     private List<AdvancedUnusualSpend> unusualSpends(UUID userId, List<UUID> liveAccountIds,
                                                      AdvancedPeriodResolver.Resolved period, View now,
-                                                     RefundNetting refunds, FlowTotals.Context flow,
+                                                     RefundNetting refunds,
                                                      Function<Transaction, String> categoryName, BigDecimal expense) {
         if (expense.signum() <= 0) return List.of();
         YearMonth historyStart = period.start().minusMonths(UNUSUAL_HISTORY_MONTHS);

@@ -3,6 +3,7 @@ package com.finora.imports.product;
 import com.finora.entity.Account;
 import com.finora.repository.AccountRepository;
 import com.finora.service.AuditService;
+import com.finora.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -182,7 +183,7 @@ public class ProductIdentityResolver {
         String fingerprint = fingerprint(discovered);
         log.info("PROBABLE match via IFSC+holder fallback: bank={} fingerprint={} accountIds={} "
                         + "reason=account_number_missing",
-                discovered.institutionId(), fingerprint, candidateIds);
+                LogSanitizer.sanitize(discovered.institutionId()), fingerprint, candidateIds);
         auditService.recordEvenOnRollback(userId, "PRODUCT_IDENTITY_WEAK_SIGNAL_MATCH", "Account",
                 candidateIds.get(0), Map.of(
                         "bank", String.valueOf(discovered.institutionId()),

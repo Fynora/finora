@@ -751,7 +751,10 @@ public class PdfPreviewGenerator {
                 // either edge (no printed balance on one side) and a marker that repeats a
                 // neighbour's balance are unaffected.
                 unparseable.add(new UnparseableRow(row, UnparseableReasons.BALANCE_MOVED_WITHOUT_AN_AMOUNT));
-                if (ctx != null) ctx.recordDiagnostic(BALANCE_MOVED_WITHOUT_AN_AMOUNT);
+                // ctx is never null here: buildLedgerSection's two callers both pass the
+                // DocumentContext created in generateSectionsFromAcquired, and buildSections
+                // dereferences it too.
+                ctx.recordDiagnostic(BALANCE_MOVED_WITHOUT_AN_AMOUNT);
             }
 
             BigDecimal balance = CsvParser.parseNumeric(

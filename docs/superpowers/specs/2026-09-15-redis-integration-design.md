@@ -262,6 +262,16 @@ Redis regardless of how many separate connections or JVMs are contending for it,
 exercising N threads against one Lettuce connection factory contends on the exact same Redis-side
 key a genuinely separate replica would.
 
+**Correction (2026-10-23, after a production outage).** The one-argument
+`lockingRedisCacheWriter(connectionFactory)` writes that lock key with **no expiry**, and a caller
+that finds the key waits for it in 50 ms sleeps **with no time limit**. The 200 ms timeouts below
+do not bound this: each check is a fast, successful `EXISTS`; only the loop has no end. So one
+unlock that never reached Redis (a timed-out command, or a process stopping mid-load) left
+`featureFlags~lock` in place, and every later feature-flag check hung while holding its request's
+database connection, until the pool of 10 was gone. `CacheConfig` now gives the lock a 5-second
+expiry (`CACHE_LOCK_TTL`), and `CacheLockExpiry` adds that expiry at startup to any lock an older
+build left without one. See `CacheLockExpiryIT`.
+
 New `CacheErrorHandler` bean (`CachingConfigurer` or a plain `@Bean`) catching get/put/evict
 failures from the Redis connection, logging once at warn (rate-limited, not per-call — the same
 log-flood concern the rate limiter's own fail-open path has), and treating a failed `get` as a

@@ -6,6 +6,7 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.BatchStrategies;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.cache.RedisCacheWriter;
@@ -125,6 +126,9 @@ public class CacheConfig implements CachingConfigurer {
      *  itself, which carry suspension, deletion and revocation and must stay instant. */
     public static final String USER_AUTHORITIES_CACHE = "userAuthorities";
 
+    /** How long a {@code sync = true} load's Redis lock lives if nobody removes it. */
+    public static final Duration CACHE_LOCK_TTL = Duration.ofSeconds(5);
+
     /** {@code CachingConfigurer} is required here, not optional -- verified against Spring's own
      *  caching docs: a plain {@code @Bean CacheErrorHandler} is never auto-wired by
      *  {@code @EnableCaching} on its own; Spring falls back to the default
@@ -158,7 +162,19 @@ public class CacheConfig implements CachingConfigurer {
 
         // lockingRedisCacheWriter: the Redis-side SETNX-backed lock sync=true needs -- see the
         // class doc above and the design spec's "Verified, not assumed" note.
-        RedisCacheWriter writer = RedisCacheWriter.lockingRedisCacheWriter(connectionFactory);
+        //
+        // With an expiry on the lock. The one-argument overload writes the lock with none, and a
+        // caller that finds a lock waits, in 50 ms sleeps, with no time limit (Spring Data Redis
+        // 3.5, DefaultRedisCacheWriter.checkAndPotentiallyWaitUntilUnlocked). So one unlock that
+        // never reached Redis -- a timed-out command (this client's timeout is 200 ms), or the
+        // process stopping mid-load -- left every later read of that cache hanging for good,
+        // each holding its request's database connection. That took production down on
+        // 2026-10-23 (feature flags; RecurringService.detectForUser checks one first). Every load
+        // behind these caches is one short query, so 5 s is far past a real load; a load slower
+        // than that only lets a second caller load the same value too. CacheLockExpiry fixes up
+        // a lock an older build left behind.
+        RedisCacheWriter writer = RedisCacheWriter.lockingRedisCacheWriter(connectionFactory, Duration.ofMillis(50),
+                RedisCacheWriter.TtlFunction.just(CACHE_LOCK_TTL), BatchStrategies.keys());
 
         return RedisCacheManager.builder(writer)
                 .cacheDefaults(defaultConfig.entryTtl(Duration.ofMinutes(10)))

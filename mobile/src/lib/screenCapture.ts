@@ -1,13 +1,13 @@
 import { usePreventScreenCapture as useExpoPreventScreenCapture } from 'expo-screen-capture';
 
 /**
- * TEMPORARY, until the live release: true lets screenshots and screen recording through on every
- * screen, so the product can be filmed (demos, bug reports). It must go back to false before the app
- * goes live -- SEC-17 (docs/quality/bug-reports/2026-08-19-security-review-findings.md) blocks capture
- * on the screens that show balances and statements. The re-enable step is in
+ * false blocks screenshots and screen recording on the screens that show balances and statements
+ * (SEC-17, docs/quality/bug-reports/2026-08-19-security-review-findings.md). It was true for a while
+ * so the product could be filmed (demos, bug reports); the live release needs it false. Set it to
+ * true only to film a build, and set it back before release -- see
  * docs/engineering/mobile/android-release-checklist.md.
  */
-export const ALLOW_SCREEN_CAPTURE = true;
+export const ALLOW_SCREEN_CAPTURE = false;
 
 const doNothing = () => {};
 

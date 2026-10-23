@@ -2292,6 +2292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/support/tickets/{id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markDuplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support/tickets/{id}/claim": {
         parameters: {
             query?: never;
@@ -7325,6 +7341,9 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
             attachments?: components["schemas"]["AttachmentSummary"][];
+            /** Format: uuid */
+            duplicateOfTicketId?: string;
+            duplicateOfTicketNumber?: string;
         };
         ApiResponseRefreshAllResult: {
             success?: boolean;
@@ -8666,6 +8685,9 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        MarkDuplicateRequest: {
+            referenceTicketNumber: string;
+        };
         ApiResponseSupportTicketSummary: {
             success?: boolean;
             message?: string;
@@ -8695,6 +8717,9 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             updatedAt?: string;
+            /** Format: uuid */
+            duplicateOfTicketId?: string;
+            duplicateOfTicketNumber?: string;
         };
         ApiResponseAppliedCorrection: {
             success?: boolean;
@@ -18106,6 +18131,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseNoteDto"];
+                };
+            };
+        };
+    };
+    markDuplicate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkDuplicateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSupportTicketSummary"];
                 };
             };
         };

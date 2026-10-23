@@ -44,6 +44,8 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     NotificationType.IMPORT_STATEMENT_RESOLVED, NotificationType.IMPORT_STATEMENT_REJECTED,
                     NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
                     NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
+                    // Our team closed the customer's ticket as a duplicate and invites a reply if it was not one.
+                    NotificationType.SUPPORT_TICKET_DUPLICATE,
                     // Our team applied a statement correction for the user; a reply should reach a person.
                     NotificationType.STATEMENT_CORRECTED_BY_SUPPORT,
                     // The customer's own ticket; a reply to this email is them adding to it.

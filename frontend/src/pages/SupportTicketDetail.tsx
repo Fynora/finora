@@ -107,7 +107,17 @@ export default function SupportTicketDetail() {
           </div>
         )}
 
-        {(t.status === 'RESOLVED' || t.status === 'CLOSED') && (
+        {t.duplicateOfTicketId && (
+          <p className="text-sm text-ink mt-4 pt-4 border-t border-border">
+            We closed this as a duplicate of{' '}
+            <Link to={`/app/support/${t.duplicateOfTicketId}`} className="font-mono font-medium text-primary hover:underline">
+              {t.duplicateOfTicketNumber}
+            </Link>
+            , which you raised earlier. You don't need to raise it again.
+          </p>
+        )}
+
+        {(t.status === 'RESOLVED' || t.status === 'CLOSED') && !t.duplicateOfTicketId && (
           <p className="text-xs text-muted mt-4 pt-4 border-t border-border">
             This ticket is {t.status === 'RESOLVED' ? 'resolved' : 'closed'} and can't be reopened —
             file a new ticket if the issue comes back.

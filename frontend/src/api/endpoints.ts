@@ -2004,6 +2004,9 @@ export interface SupportTicketSummary {
   claimedByAdminId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Set when our team closed this ticket as a duplicate of another ticket the customer raised. */
+  duplicateOfTicketId: string | null;
+  duplicateOfTicketNumber: string | null;
 }
 
 export interface SupportTicketDetail extends SupportTicketSummary {

@@ -26,6 +26,8 @@ function detail(overrides: Partial<SupportTicketDetail> = {}): SupportTicketDeta
     resolvedAt: null,
     closedAt: null,
     attachments: [],
+    duplicateOfTicketId: null,
+    duplicateOfTicketNumber: null,
     ...overrides,
   };
 }

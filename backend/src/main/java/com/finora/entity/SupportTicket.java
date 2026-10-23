@@ -123,6 +123,16 @@ public class SupportTicket extends BaseEntity {
     @Column(name = "closed_at")
     private Instant closedAt;
 
+    /** The ticket this one was closed as a duplicate of, or null. Set only by
+     *  {@code SupportTicketDuplicateService}, together with {@link #duplicateOfTicketNumber}. Always
+     *  a ticket of the same customer and never itself a duplicate, so there are no chains. */
+    @Column(name = "duplicate_of_ticket_id")
+    private UUID duplicateOfTicketId;
+
+    /** Copy of the reference ticket's number, written with the id (V288 explains why it is a copy). */
+    @Column(name = "duplicate_of_ticket_number")
+    private String duplicateOfTicketNumber;
+
     public String getTicketNumber() { return ticketNumber; }
     public void setTicketNumber(String ticketNumber) { this.ticketNumber = ticketNumber; }
 
@@ -155,4 +165,13 @@ public class SupportTicket extends BaseEntity {
 
     public Instant getClosedAt() { return closedAt; }
     public void setClosedAt(Instant closedAt) { this.closedAt = closedAt; }
+
+    public UUID getDuplicateOfTicketId() { return duplicateOfTicketId; }
+    public String getDuplicateOfTicketNumber() { return duplicateOfTicketNumber; }
+
+    /** The one way to mark a duplicate: the id and its number are always set together. */
+    public void markDuplicateOf(SupportTicket reference) {
+        this.duplicateOfTicketId = reference.getId();
+        this.duplicateOfTicketNumber = reference.getTicketNumber();
+    }
 }

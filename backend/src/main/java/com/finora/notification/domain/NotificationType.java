@@ -66,5 +66,10 @@ public enum NotificationType {
     // wording is operator-authored: the PUSH template (V261) is {{title}} / {{message}}. PUSH only,
     // no EMAIL row, so a request for any other channel would dead-letter -- the campaign sender
     // only ever asks for PUSH.
-    CUSTOM_PUSH
+    CUSTOM_PUSH,
+    // An admin closed the customer's ticket as a duplicate of one they raised earlier -- see
+    // SupportTicketDuplicateService. EMAIL only, fixed copy seeded in V288 with two params, both
+    // ticket numbers ({{ticketNumber}}, {{referenceNumber}}); never the ticket's subject or
+    // description. Keyed "SUPPORT_TICKET_DUPLICATE_" + ticket id, so a ticket is only ever told once.
+    SUPPORT_TICKET_DUPLICATE
 }

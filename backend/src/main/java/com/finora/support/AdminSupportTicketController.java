@@ -29,10 +29,14 @@ import java.util.UUID;
 public class AdminSupportTicketController {
 
     private final SupportTicketService supportTicketService;
+    private final SupportTicketDuplicateService duplicateService;
     private final CurrentUser currentUser;
 
-    public AdminSupportTicketController(SupportTicketService supportTicketService, CurrentUser currentUser) {
+    public AdminSupportTicketController(SupportTicketService supportTicketService,
+                                        SupportTicketDuplicateService duplicateService,
+                                        CurrentUser currentUser) {
         this.supportTicketService = supportTicketService;
+        this.duplicateService = duplicateService;
         this.currentUser = currentUser;
     }
 
@@ -55,6 +59,15 @@ public class AdminSupportTicketController {
     public ApiResponse<SupportTicketDto.Summary> updateStatus(@PathVariable UUID id,
                                                                @Valid @RequestBody SupportTicketDto.UpdateStatusRequest request) {
         return ApiResponse.ok(supportTicketService.updateStatus(currentUser.id(), id, request.status()), "Status updated");
+    }
+
+    /** Closes the ticket as a duplicate of another ticket the same customer raised and emails the
+     *  customer once. The rules, and why each exists, are on {@code SupportTicketDuplicateService}. */
+    @PostMapping("/{id}/duplicate")
+    public ApiResponse<SupportTicketDto.Summary> markDuplicate(@PathVariable UUID id,
+                                                               @Valid @RequestBody SupportTicketDto.MarkDuplicateRequest request) {
+        return ApiResponse.ok(duplicateService.markDuplicate(currentUser.id(), id, request.referenceTicketNumber()),
+                "Marked as a duplicate");
     }
 
     @GetMapping("/{id}/notes")

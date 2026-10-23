@@ -41,6 +41,8 @@ function detail(overrides: Partial<SupportTicketDetailDto> = {}): SupportTicketD
     resolvedAt: null,
     closedAt: null,
     attachments: [],
+    duplicateOfTicketId: null,
+    duplicateOfTicketNumber: null,
     ...overrides,
   };
 }
@@ -87,5 +89,17 @@ describe('SupportTicketDetail', () => {
     renderPage();
 
     expect(await screen.findByText(/can't be reopened/i)).toBeInTheDocument();
+  });
+
+  it('tells the customer a closed duplicate points at their earlier ticket, with a link, instead of "file a new ticket"', async () => {
+    vi.mocked(supportApi.detail).mockResolvedValue(detail({
+      status: 'CLOSED', duplicateOfTicketId: 'ticket-0', duplicateOfTicketNumber: 'SUP-000000',
+    }));
+    renderPage();
+
+    expect(await screen.findByText(/closed this as a duplicate of/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'SUP-000000' })).toHaveAttribute('href', '/app/support/ticket-0');
+    expect(screen.getByText(/you don't need to raise it again/i)).toBeInTheDocument();
+    expect(screen.queryByText(/file a new ticket/i)).not.toBeInTheDocument();
   });
 });

@@ -44,6 +44,8 @@ function SupportTicketDetailContent({ id }: { id: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [confirmingTakeover, setConfirmingTakeover] = useState(false);
+  const [duplicateRef, setDuplicateRef] = useState('');
+  const [confirmingDuplicate, setConfirmingDuplicate] = useState(false);
 
   const detail = useQuery({
     queryKey: ['support-ticket-detail-admin', id],
@@ -67,6 +69,13 @@ function SupportTicketDetailContent({ id }: { id: string }) {
     mutationFn: (status: SupportTicketStatus) => adminSupportTicketApi.updateStatus(id, status),
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
+  });
+  const markDuplicate = useMutation({
+    mutationFn: (referenceTicketNumber: string) => adminSupportTicketApi.markDuplicate(id, referenceTicketNumber),
+    onSuccess: () => { setActionError(null); setConfirmingDuplicate(false); setDuplicateRef(''); invalidate(); },
+    // The server's own message says exactly what is wrong (a different customer, a reference that
+    // is itself a duplicate and which ticket to use instead, ...), so it is shown as is.
+    onError: (error) => { setConfirmingDuplicate(false); onError(error); },
   });
   const claim = useMutation({
     mutationFn: () => adminSupportTicketApi.claim(id),
@@ -128,6 +137,16 @@ function SupportTicketDetailContent({ id }: { id: string }) {
         </div>
       )}
 
+      {ticket.duplicateOfTicketId && (
+        <div className="rounded-lg border border-border bg-card p-3 text-sm text-ink">
+          Closed as a duplicate of{' '}
+          <Link to={`/support-tickets/${ticket.duplicateOfTicketId}`} className="font-mono text-primary hover:underline">
+            {ticket.duplicateOfTicketNumber}
+          </Link>
+          . The customer was emailed.
+        </div>
+      )}
+
       {/* Description + attachments */}
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-4">
         <h3 className="text-sm font-semibold text-ink">Description</h3>
@@ -177,6 +196,36 @@ function SupportTicketDetailContent({ id }: { id: string }) {
           </div>
         )}
       </section>
+
+      {/* Duplicate -- only while the ticket can still be closed; a closed ticket is never re-marked. */}
+      {ticket.status !== 'CLOSED' && (
+        <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
+          <h3 className="text-sm font-semibold text-ink">Duplicate</h3>
+          <p className="text-xs text-muted">
+            If this customer already raised the same issue, enter that ticket&apos;s number. This ticket is
+            closed and the customer is emailed that it is a duplicate. It must be another ticket from the
+            same customer.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="duplicate-ref" className="sr-only">Number of the ticket this duplicates</label>
+            <input
+              id="duplicate-ref"
+              value={duplicateRef}
+              onChange={(e) => setDuplicateRef(e.target.value)}
+              placeholder="SUP-000042"
+              className="rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setConfirmingDuplicate(true)}
+              disabled={markDuplicate.isPending || duplicateRef.trim().length === 0}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
+            >
+              Mark as duplicate
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Claim */}
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
@@ -251,6 +300,17 @@ function SupportTicketDetailContent({ id }: { id: string }) {
           </button>
         </div>
       </section>
+
+      {confirmingDuplicate && (
+        <ConfirmDialog
+          title="Close as a duplicate?"
+          message={`${ticket.ticketNumber} will be closed as a duplicate of ${duplicateRef.trim().toUpperCase()} and the customer will be emailed. This can't be undone.`}
+          confirmLabel="Close as duplicate"
+          busy={markDuplicate.isPending}
+          onConfirm={() => markDuplicate.mutate(duplicateRef.trim())}
+          onCancel={() => setConfirmingDuplicate(false)}
+        />
+      )}
 
       {confirmingTakeover && (
         <ConfirmDialog

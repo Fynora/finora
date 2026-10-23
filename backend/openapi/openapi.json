@@ -5937,6 +5937,47 @@
                 }
             }
         },
+        "/api/v1/admin/support/tickets/{id}/duplicate": {
+            "post": {
+                "tags": [
+                    "admin-support-ticket-controller"
+                ],
+                "operationId": "markDuplicate",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MarkDuplicateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseSupportTicketSummary"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/support/tickets/{id}/claim": {
             "post": {
                 "tags": [
@@ -16998,6 +17039,13 @@
                         "items": {
                             "$ref": "#/components/schemas/AttachmentSummary"
                         }
+                    },
+                    "duplicateOfTicketId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "duplicateOfTicketNumber": {
+                        "type": "string"
                     }
                 }
             },
@@ -20701,6 +20749,18 @@
                     }
                 }
             },
+            "MarkDuplicateRequest": {
+                "type": "object",
+                "properties": {
+                    "referenceTicketNumber": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "referenceTicketNumber"
+                ]
+            },
             "ApiResponseSupportTicketSummary": {
                 "type": "object",
                 "properties": {
@@ -20777,6 +20837,13 @@
                     "updatedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "duplicateOfTicketId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "duplicateOfTicketNumber": {
+                        "type": "string"
                     }
                 }
             },

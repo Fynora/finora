@@ -976,6 +976,10 @@ export const adminSupportTicketApi = {
     api.get<SupportTicketDetail>(`/support/tickets/${id}`).then((r) => r.data),
   updateStatus: (id: string, status: SupportTicketRow['status']) =>
     api.patch<SupportTicketRow>(`/admin/support/tickets/${id}`, { status }).then((r) => r.data),
+  // Closes the ticket as a duplicate of another ticket the SAME customer raised, and emails the
+  // customer once -- see SupportTicketDuplicateService for the rules the server enforces.
+  markDuplicate: (id: string, referenceTicketNumber: string) =>
+    api.post<SupportTicketRow>(`/admin/support/tickets/${id}/duplicate`, { referenceTicketNumber }).then((r) => r.data),
   notes: (id: string) =>
     api.get<SupportTicketNote[]>(`/admin/support/tickets/${id}/notes`).then((r) => r.data),
   addNote: (id: string, note: string) =>

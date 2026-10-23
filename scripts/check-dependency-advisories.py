@@ -117,15 +117,23 @@ ACCEPTED = [
     # GHSA-qhr7-859c-m2p7 (brace-expansion denial of service) in mobile: a lockfile update to the
     # patched 5.0.12 / 2.1.7 / 1.1.21 inside each parent's own declared range.
     #
-    # Surfaced 2026-10-23, fixed rather than accepted: GHSA-mrhx-c7xc-m3w5 (zod: memory exhaustion
-    # while validating oversized constrained collections) in mobile, affected range < 4.6.6 with no
-    # 3.x fix. Shipped through expo -> @expo/cli, whose newest 57.x release still declares
-    # `zod: ^3.25.76`, so no Expo update reaches a fix. An `"overrides": {"zod": "^4.6.6"}` entry in
+    # Surfaced 2026-10-23 (published 2026-10-01, but GitHub reviewed it, and npm audit started
+    # reporting it, only on 2026-10-23), fixed rather than accepted: GHSA-mrhx-c7xc-m3w5 (zod:
+    # memory exhaustion while validating oversized constrained collections) in mobile, affected
+    # range < 4.6.6 with no 3.x fix. Shipped through expo -> @expo/cli, and both the newest SDK 57
+    # @expo/cli (57.0.32) and SDK 58's (58.1.14) still declare `zod: ^3.25.76`, so no Expo update,
+    # not even a major one, reaches a fix. An `"overrides": {"zod": "^4.6.6"}` entry in
     # mobile/package.json moves @expo/cli onto zod 4. That is a major version, so it was checked
     # rather than assumed: @expo/cli uses zod in two files only (DevToolsPlugin.schema and
     # createMCPDevToolsExtensionSchema), and running both files unchanged under 3.25.76 and 4.6.7
-    # gave the same accept/reject result and the same parsed data on every input tried. Only the
-    # wording of zod's own error messages differs, which @expo/cli shows as error text. npm does not
+    # over 77 inputs gave the same accept/reject result and parsed data for all but one: an
+    # `Infinity` number argument to the MCP command schema, accepted by zod 3 and rejected by
+    # zod 4. That input cannot arrive (MCP arguments are JSON, which has no Infinity), and the MCP
+    # path runs only when the project installs `expo-mcp`, which mobile does not. Otherwise only
+    # the wording of zod's own error messages differs, which @expo/cli shows as error text. No zod
+    # module is in the app bundle itself. frontend and admin-portal had the same advisory on a
+    # dev-only zod 4.4.3 (via eslint-plugin-react-hooks, which accepts ^4.0.0) and took 4.6.7 as a
+    # plain lockfile update; that never failed this check, being dev tooling. npm does not
     # warn when an override breaks a declared range, so re-check on every Expo SDK update: run
     # `grep -rl 'require("zod")' node_modules/@expo/cli/build` in mobile/, and if zod is used in
     # new files, compare them under both versions again. Once @expo/cli declares zod ^4.6.6 or

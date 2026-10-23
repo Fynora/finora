@@ -100,10 +100,13 @@ describe('Privacy policy matches what the product does', () => {
 
   // BankLogo and MerchantLogo request img.logo.dev from the browser with the bank's domain or the
   // merchant name in the URL, whenever VITE_LOGODEV_TOKEN is set (it is in the production build).
-  it('lists Logo.dev and what a logo request sends', () => {
+  // The mobile app's MerchantLogo does the same with a merchant name (EXPO_PUBLIC_LOGODEV_TOKEN is
+  // set in the EAS production environment), so the line covers the app too.
+  it('lists Logo.dev, on the website and in the app, and what a logo request sends', () => {
     const t = policyText();
-    expect(t).toMatch(/Logo\.dev\s*—\s*bank and merchant logos on the website/i);
-    expect(t).toMatch(/the bank's web address or the merchant name shown on the page, along with your IP address/i);
+    expect(t).not.toMatch(/bank and merchant logos on the website\. To show a logo, your browser asks/i);
+    expect(t).toMatch(/Logo\.dev\s*—\s*bank and merchant logos on the website, and merchant logos in the mobile app/i);
+    expect(t).toMatch(/your browser or the app asks Logo\.dev for it directly, sending the bank's web address or the merchant name shown, along with your IP address and browser or device details/i);
   });
 
   it('lists Anthropic as a provider, and covers AI features in the cross-border note', () => {

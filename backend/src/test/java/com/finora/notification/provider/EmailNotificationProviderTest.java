@@ -257,6 +257,19 @@ class EmailNotificationProviderTest {
         assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
     }
 
+    /** The ticket acknowledgement invites the customer to reply with more detail, so it must reach a person. */
+    @Test
+    void send_usesTheSupportSenderForTheTicketAcknowledgement() {
+        when(userRepository.findById(any())).thenReturn(Optional.of(activeUser()));
+        when(emailProvider.send(any())).thenReturn(EmailResult.success(ProviderType.RESEND, "id-1"));
+        ArgumentCaptor<EmailMessage> captor = ArgumentCaptor.forClass(EmailMessage.class);
+
+        provider.send(notification(NotificationType.SUPPORT_TICKET_RECEIVED));
+
+        verify(emailProvider).send(captor.capture());
+        assertThat(captor.getValue().sender()).isEqualTo(EmailMessage.Sender.SUPPORT);
+    }
+
     /** The notice that our team opened a statement is one a customer may well reply to. */
     @Test
     void send_usesTheSupportSenderForTheOpenedForFixNotice() {

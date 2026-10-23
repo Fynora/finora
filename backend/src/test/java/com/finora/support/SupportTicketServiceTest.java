@@ -6,15 +6,22 @@ import com.finora.exception.ApiException;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.notification.api.NotificationRequest;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationType;
 import com.finora.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,6 +49,7 @@ class SupportTicketServiceTest {
     private SupportTicketIdGenerator idGenerator;
     private ClientIdentity clientIdentity;
     private AuditService auditService;
+    private NotificationService notificationService;
     private SupportTicketService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -55,8 +63,9 @@ class SupportTicketServiceTest {
         idGenerator = mock(SupportTicketIdGenerator.class);
         clientIdentity = mock(ClientIdentity.class);
         auditService = mock(AuditService.class);
+        notificationService = mock(NotificationService.class);
         service = new SupportTicketService(ticketRepository, attachmentRepository, noteRepository, idGenerator,
-                clientIdentity, auditService);
+                clientIdentity, auditService, notificationService);
 
         when(ticketRepository.save(any(SupportTicket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(noteRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -103,6 +112,30 @@ class SupportTicketServiceTest {
 
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_CREATED"), eq("SupportTicket"), any(),
                 eq(Map.of("ticketNumber", "SUP-000001", "category", "TECHNICAL_ISSUE")));
+    }
+
+    @Test
+    void creatingATicketQueuesAnEmailOnlyAcknowledgementCarryingTheTicketNumber() {
+        service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        ArgumentCaptor<NotificationRequest> captor = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(notificationService).request(captor.capture());
+        NotificationRequest request = captor.getValue();
+        assertThat(request.userId()).isEqualTo(userId);
+        assertThat(request.type()).isEqualTo(NotificationType.SUPPORT_TICKET_RECEIVED);
+        assertThat(request.channels()).isEqualTo(Set.of(NotificationChannel.EMAIL));
+        // Never suppressible by a notification preference: the customer asked us something.
+        assertThat(request.category()).isEqualTo(NotificationCategory.SECURITY);
+        // Only the number -- never the customer's own subject or description.
+        assertThat(request.params()).isEqualTo(Map.of("ticketNumber", "SUP-000001"));
+    }
+
+    @Test
+    void aRejectedCreate_neverQueuesAnAcknowledgement() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "   ", "description", null))
+                .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test

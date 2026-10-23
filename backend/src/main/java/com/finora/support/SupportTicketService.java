@@ -5,6 +5,12 @@ import com.finora.entity.SupportTicket;
 import com.finora.entity.SupportTicketAttachment;
 import com.finora.entity.SupportTicketInternalNote;
 import com.finora.exception.ApiException;
+import com.finora.notification.api.NotificationRequest;
+import com.finora.notification.api.NotificationService;
+import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.NotificationChannel;
+import com.finora.notification.domain.NotificationPriority;
+import com.finora.notification.domain.NotificationType;
 import com.finora.repository.SupportTicketAttachmentRepository;
 import com.finora.repository.SupportTicketInternalNoteRepository;
 import com.finora.repository.SupportTicketRepository;
@@ -21,6 +27,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -96,19 +103,22 @@ public class SupportTicketService {
     private final SupportTicketIdGenerator idGenerator;
     private final ClientIdentity clientIdentity;
     private final AuditService auditService;
+    private final NotificationService notificationService;
 
     public SupportTicketService(SupportTicketRepository ticketRepository,
                                  SupportTicketAttachmentRepository attachmentRepository,
                                  SupportTicketInternalNoteRepository noteRepository,
                                  SupportTicketIdGenerator idGenerator,
                                  ClientIdentity clientIdentity,
-                                 AuditService auditService) {
+                                 AuditService auditService,
+                                 NotificationService notificationService) {
         this.ticketRepository = ticketRepository;
         this.attachmentRepository = attachmentRepository;
         this.noteRepository = noteRepository;
         this.idGenerator = idGenerator;
         this.clientIdentity = clientIdentity;
         this.auditService = auditService;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -151,7 +161,30 @@ public class SupportTicketService {
 
         auditService.record(userId, "SUPPORT_TICKET_CREATED", "SupportTicket", saved.getId(),
                 Map.of("ticketNumber", saved.getTicketNumber(), "category", category.name()));
+        acknowledge(saved);
         return SupportTicketDto.Detail.from(saved, attachments);
+    }
+
+    /**
+     * Queues the "we received your request" email in the ticket's own transaction -- the outbox
+     * pattern {@code NotificationService.request} documents -- so the ticket and its acknowledgement
+     * commit together and the email is sent only once the ticket is durable. {@code request} never
+     * throws, so a notification problem cannot fail a ticket the customer just took the trouble to
+     * write.
+     *
+     * <p>SECURITY, which {@code DatabaseNotificationPreferenceResolver} never suppresses: the
+     * customer asked us a question and expects a receipt, so a switched-off "financial" preference
+     * or a stepped-away account status must not silently swallow it. EMAIL only -- see V287.
+     */
+    private void acknowledge(SupportTicket ticket) {
+        notificationService.request(NotificationRequest.of(
+                ticket.getUserId(),
+                NotificationType.SUPPORT_TICKET_RECEIVED,
+                NotificationCategory.SECURITY,
+                NotificationPriority.NORMAL,
+                "SUPPORT_TICKET_RECEIVED_" + ticket.getId(),
+                Set.of(NotificationChannel.EMAIL),
+                Map.of("ticketNumber", ticket.getTicketNumber())));
     }
 
     @Transactional(readOnly = true)

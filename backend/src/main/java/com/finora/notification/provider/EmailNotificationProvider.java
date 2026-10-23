@@ -45,7 +45,9 @@ public class EmailNotificationProvider implements NotificationChannelProvider {
                     NotificationType.IMPORT_STATEMENT_CONFIRM_REMINDER,
                     NotificationType.IMPORT_STATEMENT_OPENED_FOR_FIX,
                     // Our team applied a statement correction for the user; a reply should reach a person.
-                    NotificationType.STATEMENT_CORRECTED_BY_SUPPORT);
+                    NotificationType.STATEMENT_CORRECTED_BY_SUPPORT,
+                    // The customer's own ticket; a reply to this email is them adding to it.
+                    NotificationType.SUPPORT_TICKET_RECEIVED);
 
     private final EmailProvider emailProvider;
     private final UserRepository userRepository;

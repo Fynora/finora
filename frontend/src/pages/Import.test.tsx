@@ -408,6 +408,14 @@ describe('Import — file-type routing', () => {
     expect(importApi.stagePdf).not.toHaveBeenCalled();
   });
 
+  // Gate 2b PR 4 (spec §5.2): what happens to the statement, beside the file picker.
+  it('shows what happens to my statement beside the file picker, closed', async () => {
+    renderImport();
+
+    expect(await screen.findByRole('button', { name: 'What happens to my statement?' }))
+      .toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('advances to the review step once staging succeeds', async () => {
     const user = userEvent.setup();
     renderImport();

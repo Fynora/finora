@@ -55,7 +55,7 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
-      <PublicSection title="Uploaded Statements">
+      <PublicSection id="uploaded-statements" title="Uploaded Statements">
         <p>
           When you import a bank or credit card statement, the original file is stored securely and linked to
           your account so you can re-download it or re-process it later from Statement History.
@@ -323,6 +323,12 @@ export default function Privacy() {
           (a bank/card/investment account you've added within Fynora), it and its statements continue to
           appear in Statement History for 7 days before being dropped from that view, purely so recent context
           isn't lost abruptly; there is no separate "undo delete" action.
+        </p>
+        <p>
+          When you delete a statement, its original file stays in our storage for 90 days and is then
+          deleted. The file from an import that could not be completed is kept, so it can be retried without
+          uploading it again, until you delete your account. When you delete your Fynora account, your
+          statement files are deleted with it.
         </p>
         <p>
           We maintain routine backups of our production database for disaster recovery, with point-in-time

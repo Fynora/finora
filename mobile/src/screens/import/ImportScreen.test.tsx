@@ -545,6 +545,13 @@ describe('ImportScreen — upload completion dwell', () => {
   // celebrateThenAdvance mechanism; this locks in that this screen's copy of it actually holds the
   // step on 'upload' (rendering the Completed checkmark) rather than jumping the instant stageCsv
   // resolves.
+  // Gate 2b PR 4 (spec §5.2): what happens to the statement, beside the file picker, closed.
+  it('shows what happens to my statement beside the file picker', async () => {
+    render(tree());
+
+    expect(await screen.findByRole('button', { name: 'What happens to my statement?' })).toBeOnTheScreen();
+  });
+
   it('flashes a Completed checkmark before advancing to the review step', async () => {
     render(tree());
 

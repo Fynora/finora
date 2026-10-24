@@ -463,6 +463,43 @@ class ActivationReportIT extends AbstractIntegrationTest {
 
     // ---- helpers -----------------------------------------------------------------------------
 
+    // ---- Gate 2b PR 5 (spec §6): month-start nudges sent, and imports within 3 days of one ----
+
+    /** A month-start nudge as the sender queues it. 2021, like the import times here. */
+    private void nudged(User user, Instant at) {
+        jdbc.update("INSERT INTO notifications (id, user_id, notification_key, type, category, channel, priority, "
+                        + "title, message, next_attempt_at, created_at) VALUES (gen_random_uuid(), ?, ?, "
+                        + "'STATEMENT_MONTH_START_FIRST', 'REMINDERS', 'PUSH', 'NORMAL', 't', 'm', now(), ?)",
+                user.getId(), "STATEMENT_MONTH_START_" + user.getId() + "_2021-07:PUSH", Timestamp.from(at));
+    }
+
+    @Test
+    void countsMonthStartNudgesAndImportsWithinThreeDaysOfOne() throws Exception {
+        Instant nudge = Instant.parse("2021-07-03T05:00:00Z");
+        User cameIn = signupAt(Instant.parse("2021-06-01T06:00:00Z"));
+        nudged(cameIn, nudge);
+        importedAt(cameIn, nudge.plus(java.time.Duration.ofDays(2)), 3);
+        User cameLater = signupAt(Instant.parse("2021-06-01T06:00:00Z"));
+        nudged(cameLater, nudge);
+        importedAt(cameLater, nudge.plus(java.time.Duration.ofDays(5)), 3);
+        User importedBefore = signupAt(Instant.parse("2021-06-01T06:00:00Z"));
+        importedAt(importedBefore, nudge.minus(java.time.Duration.ofDays(1)), 3);
+        nudged(importedBefore, nudge);
+        User internal = signupAt(Instant.parse("2021-06-01T06:00:00Z"));
+        internal.setInternalAccount(true);
+        userRepository.save(internal);
+        nudged(internal, nudge);
+        importedAt(internal, nudge.plus(java.time.Duration.ofDays(1)), 3);
+
+        JsonNode months = report(admin(), null, null).get("monthStartNudges");
+
+        JsonNode july = null;
+        for (JsonNode m : months) if (m.get("month").asText().equals("2021-07-01")) july = m;
+        assertThat(july).isNotNull();
+        assertThat(july.get("nudgesSent").asLong()).isEqualTo(3);
+        assertThat(july.get("importedWithin3Days").asLong()).isEqualTo(1);
+    }
+
     private User signupAt(Instant createdAt) {
         User user = new User();
         user.setEmail("activation-report-it-" + UUID.randomUUID() + "@example.com");

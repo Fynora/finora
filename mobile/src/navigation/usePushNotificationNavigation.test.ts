@@ -101,6 +101,18 @@ describe('usePushNotificationNavigation', () => {
     expect(navigationRef.navigate).not.toHaveBeenCalledWith('More', expect.anything());
   });
 
+  // Gate 2b PR 5 (spec §6): both month-start nudges open the import screen.
+  it.each(['STATEMENT_MONTH_START_FIRST', 'STATEMENT_MONTH_START_NEXT'])('monthStartOpensImport (%s)', async (type) => {
+    const navigationRef = fakeNavigationRef();
+    const messaging = fakeMessaging();
+    renderHook(() => usePushNotificationNavigation(navigationRef, true, true, { messaging }));
+    await Promise.resolve();
+
+    messaging.__emitOpened(readyMessage(type));
+
+    expect(navigationRef.navigate).toHaveBeenCalledWith('Import');
+  });
+
   it('navigates to Statements for STATEMENT_REFRESH_AVAILABLE, where the update banner is', async () => {
     const navigationRef = fakeNavigationRef();
     const messaging = fakeMessaging();

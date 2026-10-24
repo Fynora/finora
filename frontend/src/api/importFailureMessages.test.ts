@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { importFailureMessage, importFailureTitle, isStatementRefusal } from './importFailureMessages';
+import {
+  IMPORT_FAILURE_MESSAGES, IMPORT_FAILURE_TITLES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE,
+  importFailureMessage, importFailureTitle, isStatementRefusal,
+} from './importFailureMessages';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   IMPORT_SESSION_HELD_FOR_REVIEW, IMPORT_SYSTEM_BUSY, NO_TRANSACTIONS_FOUND, PAYMENT_APP_HISTORY, PDF_PASSWORD_REQUIRED,
   PDF_TOO_LARGE, TRUST_REVIEW_REJECTED,
@@ -72,5 +78,60 @@ describe('isStatementRefusal', () => {
     expect(isStatementRefusal(IMPORT_SESSION_HELD_FOR_REVIEW)).toBe(false);
     expect(isStatementRefusal(null)).toBe(false);
     expect(isStatementRefusal(undefined)).toBe(false);
+  });
+});
+
+// Gate 2b PR 1 (spec §8): the refusal audit's gaps, in docs/research/gate2/refusal-audit.md.
+// Copied from that audit's rows, not derived from the map, so a removed entry fails here.
+const AUDITED_GAP_CODES = ['IMPORT_021', 'IMPORT_022', 'UPLOAD_001', 'IMPORT_006', 'RATE_LIMITED', 'IMPORT_009'];
+
+describe('Gate 2b recovery copy', () => {
+  it('passwordHintSaysWhatItIsNot', () => {
+    expect(PDF_PASSWORD_HINT).toBe(
+      'This is the password your bank set for the statement file, usually a mix of your name, PAN, date ' +
+        "of birth or account number. It's not your UPI PIN, card PIN or netbanking password. Check the email " +
+        'the statement came in.',
+    );
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
+  });
+
+  it('everyAuditedCodeHasTitleAndMessage', () => {
+    for (const code of AUDITED_GAP_CODES) {
+      expect(importFailureTitle(code), code).toBeTruthy();
+      expect(importFailureMessage(code), code).toBeTruthy();
+    }
+  });
+
+  it('never names the old spelling, an endpoint, or blames the file for a server failure', () => {
+    const all = [...Object.values(IMPORT_FAILURE_MESSAGES), ...Object.values(IMPORT_FAILURE_TITLES),
+      UNSUPPORTED_FILE_MESSAGE, SERVER_FAILURE_MESSAGE, PDF_PASSWORD_HINT];
+    for (const text of all) {
+      expect(text).not.toMatch(/Finora|endpoint/);
+    }
+    expect(SERVER_FAILURE_MESSAGE).not.toMatch(/parse|file/i);
+  });
+
+  it('webAndMobileMapsAgree', () => {
+    // Read as text, not imported: the web CI job installs no mobile dependencies, and importing a
+    // mobile file makes the transform resolve mobile's tsconfig (which extends Expo's).
+    const here = dirname(fileURLToPath(import.meta.url));
+    const read = (p: string) => readFileSync(resolve(here, p), 'utf8');
+    // Comments differ between the two files by design; the code must not.
+    const code = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s+/g, ' ').trim();
+    const fromMaps = (src: string) => code(src.slice(src.indexOf('export const IMPORT_FAILURE_MESSAGES')));
+    expect(fromMaps(read('../../../mobile/src/api/importFailureMessages.ts')))
+      .toBe(fromMaps(read('./importFailureMessages.ts')));
+
+    // The maps are keyed by constant names, so the constants must carry the same wire codes too.
+    const constants = (src: string) =>
+      Object.fromEntries([...src.matchAll(/export const (\w+) = '([^']*)';/g)].map((m) => [m[1], m[2]]));
+    const mobileCodes = constants(read('../../../mobile/src/api/errorCodes.ts'));
+    for (const [name, value] of Object.entries(constants(read('./errorCodes.ts')))) {
+      if (name in mobileCodes) expect(mobileCodes[name], name).toBe(value);
+    }
+    for (const key of Object.keys(IMPORT_FAILURE_MESSAGES)) {
+      expect(Object.values(mobileCodes), key).toContain(key);
+    }
   });
 });

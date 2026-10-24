@@ -1,4 +1,7 @@
-import { importFailureMessage, importFailureTitle, isStatementRefusal } from './importFailureMessages';
+import {
+  IMPORT_FAILURE_MESSAGES, IMPORT_FAILURE_TITLES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE,
+  importFailureMessage, importFailureTitle, isStatementRefusal,
+} from './importFailureMessages';
 import {
   IMPORT_SESSION_HELD_FOR_REVIEW, IMPORT_SYSTEM_BUSY, NO_TRANSACTIONS_FOUND, PAYMENT_APP_HISTORY, PDF_PASSWORD_REQUIRED,
   PDF_TOO_LARGE, TRUST_REVIEW_REJECTED,
@@ -80,5 +83,29 @@ describe('isStatementRefusal', () => {
     expect(isStatementRefusal(IMPORT_SESSION_HELD_FOR_REVIEW)).toBe(false);
     expect(isStatementRefusal(null)).toBe(false);
     expect(isStatementRefusal(undefined)).toBe(false);
+  });
+});
+
+// Gate 2b PR 1 (spec §8): the refusal audit's gaps, in docs/research/gate2/refusal-audit.md. The
+// web test also checks this map against the web one, word for word.
+const AUDITED_GAP_CODES = ['IMPORT_021', 'IMPORT_022', 'UPLOAD_001', 'IMPORT_006', 'RATE_LIMITED', 'IMPORT_009'];
+
+describe('Gate 2b recovery copy', () => {
+  it('passwordHintSaysWhatItIsNot', () => {
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
+    expect(PDF_PASSWORD_HINT).toContain('Check the email the statement came in.');
+  });
+
+  it('everyAuditedCodeHasTitleAndMessage', () => {
+    for (const code of AUDITED_GAP_CODES) {
+      expect(importFailureTitle(code)).toBeTruthy();
+      expect(importFailureMessage(code)).toBeTruthy();
+    }
+  });
+
+  it('never names the old spelling or an endpoint', () => {
+    const all = [...Object.values(IMPORT_FAILURE_MESSAGES), ...Object.values(IMPORT_FAILURE_TITLES),
+      UNSUPPORTED_FILE_MESSAGE, SERVER_FAILURE_MESSAGE, PDF_PASSWORD_HINT];
+    for (const text of all) expect(text).not.toMatch(/Finora|endpoint/);
   });
 });

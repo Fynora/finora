@@ -8220,6 +8220,7 @@ export interface components {
             /** Format: uuid */
             heldForReviewJobId?: string;
             freePlanLimit?: components["schemas"]["FreePlanLimitNotice"];
+            approvedAfterReview?: boolean;
         };
         GoalCreateRequest: {
             name: string;

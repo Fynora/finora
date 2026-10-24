@@ -124,11 +124,14 @@ export function describeFailure(code: string | null): Term {
 
 /**
  * Why an upload was refused before the engine read it (outcome REJECTED, backend V267). The code is
- * an ErrorCode name, or `HTTP_<status>` for the two refusals `StatementUpload` makes with a bare
- * status, or `UNCLASSIFIED`. Not a parser failure: nothing was read, so it says nothing about any
+ * an ErrorCode name, or `HTTP_<status>` for a refusal made with a bare status (before 2026-10-24,
+ * `StatementUpload`'s empty-file and wrong-type refusals), or `UNCLASSIFIED`. Not a parser failure: nothing was read, so it says nothing about any
  * statement format.
  */
 const REFUSAL_TERMS: Record<string, string> = {
+  // Their own codes since Gate 2b PR 1 (2026-10-24); the HTTP_ forms below are older rows.
+  IMPORT_EMPTY_FILE: 'The upload was empty.',
+  IMPORT_WRONG_FILE_TYPE: "The file's contents did not match its name (a PDF named .csv, or a .pdf that is not a PDF).",
   HTTP_400: 'The upload was empty.',
   HTTP_415: 'The file was not the type the upload asked for (a PDF sent as a CSV, or the reverse).',
   UPLOAD_TOO_LARGE: 'The file was over the upload size limit.',

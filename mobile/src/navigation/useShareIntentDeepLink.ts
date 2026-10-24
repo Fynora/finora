@@ -5,8 +5,10 @@ import type { NavigationContainerRefWithCurrent } from '@react-navigation/native
 import { detectStatementFormat, type StatementFormat } from '../lib/statementFile';
 import { safeStorage } from '../lib/safeStorage';
 import type { RootParamList, SharedStatementFile, SharedStatementError } from './types';
+import { UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
 
-const UNSUPPORTED_MESSAGE = 'Choose a .csv or .pdf bank or credit card statement.';
+// The same words the picker and the web app use (importFailureMessages.ts).
+const UNSUPPORTED_MESSAGE = UNSUPPORTED_FILE_MESSAGE;
 
 /**
  * Same `finora_` key convention as useNavigationStatePersistence's own NAV_STATE_KEY and

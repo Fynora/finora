@@ -170,7 +170,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = post(user, "/api/v1/import/csv/stage", new byte[0], "empty.csv");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertOnlyARefusal(user, "CSV", "HTTP_400");
+        assertOnlyARefusal(user, "CSV", "IMPORT_EMPTY_FILE");
     }
 
     @Test
@@ -181,7 +181,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
                 PdfFixtureBuilder.buildReverseChronologicalRunningBalanceSample(), "statement.csv");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
-        assertOnlyARefusal(user, "CSV", "HTTP_415");
+        assertOnlyARefusal(user, "CSV", "IMPORT_WRONG_FILE_TYPE");
     }
 
     @Test
@@ -253,7 +253,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = post(user, "/api/v1/import/pdf/stage", bytes(READABLE_CSV), "statement.pdf");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
-        assertOnlyARefusal(user, "PDF", "HTTP_415");
+        assertOnlyARefusal(user, "PDF", "IMPORT_WRONG_FILE_TYPE");
     }
 
     @Test
@@ -277,7 +277,7 @@ class ImportPreReadRejectionIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = post(user, "/api/v1/import/jobs", new byte[0], "empty.csv");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertOnlyARefusal(user, "CSV", "HTTP_400");
+        assertOnlyARefusal(user, "CSV", "IMPORT_EMPTY_FILE");
         assertThat(jobs.findAll()).noneMatch(job -> job.getUserId().equals(user.getId()));
     }
 

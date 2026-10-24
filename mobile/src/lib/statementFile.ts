@@ -1,6 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as appLock from './appLock';
 import type { RNFile } from '../api/endpoints';
+import { UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
 
 /**
  * Picking a statement to import.
@@ -39,7 +40,7 @@ const UNSUPPORTED_CODE = 'UNSUPPORTED_STATEMENT_FILE';
 /** The refusal of a file of the wrong type. Marked with a code rather than an Error subclass:
  *  `instanceof` on Error subclasses is unreliable under React Native's class transforms. */
 function unsupportedStatementFile(): Error {
-  return Object.assign(new Error('Choose a .csv or .pdf bank or credit card statement.'), { code: UNSUPPORTED_CODE });
+  return Object.assign(new Error(UNSUPPORTED_FILE_MESSAGE), { code: UNSUPPORTED_CODE });
 }
 
 /** Whether a pickStatement() throw means the person chose a file the app refuses, as opposed to the

@@ -116,7 +116,7 @@ describe('useShareIntentDeepLink', () => {
 
     expect(() => renderHook(() => useShareIntentDeepLink(navigationRef, true, true))).not.toThrow();
     expect(navigationRef.navigate).toHaveBeenCalledWith('Import', {
-      sharedFileError: expect.objectContaining({ message: 'Choose a .csv or .pdf bank or credit card statement.' }),
+      sharedFileError: expect.objectContaining({ message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement." }),
     });
   });
 
@@ -135,7 +135,7 @@ describe('useShareIntentDeepLink', () => {
     renderHook(() => useShareIntentDeepLink(navigationRef, true, true));
 
     expect(navigationRef.navigate).toHaveBeenCalledWith('Import', {
-      sharedFileError: expect.objectContaining({ message: "Choose a .csv or .pdf bank or credit card statement." }),
+      sharedFileError: expect.objectContaining({ message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement." }),
     });
   });
 

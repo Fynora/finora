@@ -41,6 +41,11 @@ public interface EmailProvider {
      *  a future non-HTTP caller). Lets a user who did not deactivate their own account tell, from
      *  the email alone, that this was not them. */
     EmailResult sendAccountDeactivatedEmail(String toEmail, Instant deactivatedAt, String device, String ip);
+    /** Sent to the account's owner when repeated wrong passwords lock the account, so someone who
+     *  was asleep (or never saw the attempts) still learns that something tried to get in, and from
+     *  where. {@code device}/{@code ip} are the best-effort labels of the attempt that tipped the
+     *  account into the lock, null-safe like {@link #sendAccountDeactivatedEmail}. */
+    EmailResult sendAccountLockedEmail(String toEmail, Instant lockedAt, Instant unlocksAt, String device, String ip);
     EmailResult sendAccountReactivatedEmail(String toEmail);
     /** Sent after the account and all its data have already been purged, not before -- deletion is
      *  synchronous (product decision), so there is nothing left to warn about in advance and no

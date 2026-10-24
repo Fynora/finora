@@ -277,6 +277,36 @@ public class ResendEmailProvider implements EmailProvider {
     }
 
     @Override
+    public EmailResult sendAccountLockedEmail(String toEmail, Instant lockedAt, Instant unlocksAt, String device, String ip) {
+        return send(buildAccountLockedMessage(toEmail, lockedAt, unlocksAt, device, ip));
+    }
+
+    EmailMessage buildAccountLockedMessage(String toEmail, Instant lockedAt, Instant unlocksAt, String device, String ip) {
+        String locked = DEACTIVATED_AT_FORMAT.format(lockedAt.atZone(ZoneOffset.UTC));
+        String unlocks = DEACTIVATED_AT_FORMAT.format(unlocksAt.atZone(ZoneOffset.UTC));
+        // Unlike the deactivated email above, the labels are HTML-escaped here: they describe a
+        // request made by someone who is, in this email, a suspected attacker, and the IP comes
+        // from a request header. Omitted when unavailable, never a placeholder.
+        String deviceLine = (device != null && !device.isBlank())
+                ? "<p>Device: %s</p>".formatted(HtmlUtils.htmlEscape(device)) : "";
+        // The caveat is not decoration: the address the app records is often a shared network or VPN
+        // exit, not the person's own, so an unexplained one would otherwise read as more precise
+        // than it is.
+        String ipLine = (ip != null && !ip.isBlank())
+                ? "<p>IP address: %s (shared networks and VPNs can make an address look unfamiliar)</p>"
+                        .formatted(HtmlUtils.htmlEscape(ip)) : "";
+        String bodyHtml = """
+                <p>Someone entered the wrong password for your Fynora account too many times, so we locked it on %s (UTC).</p>
+                %s%s
+                <p>None of those attempts got in. The account unlocks by itself at %s (UTC).</p>
+                <p>If this was you, wait until then and sign in again. If it wasn't you, change your password and sign out of other devices once you are back in.</p>
+                """.formatted(locked, deviceLine, ipLine, unlocks);
+        String html = EmailLayout.wrap("Account locked", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account was locked after wrong passwords", html);
+    }
+
+    @Override
     public EmailResult sendAccountReactivatedEmail(String toEmail) {
         return send(buildAccountReactivatedMessage(toEmail));
     }

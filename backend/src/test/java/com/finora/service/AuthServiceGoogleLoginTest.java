@@ -101,7 +101,8 @@ class AuthServiceGoogleLoginTest {
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                signupAttributionService
+                signupAttributionService,
+                mock(AccountRequestThrottle.class)
         );
         // AuthService's own constructor calls passwordEncoder.encode() once, to build the BH-014
         // timing-parity hash (see that field's own doc comment) -- clearing invocations here so

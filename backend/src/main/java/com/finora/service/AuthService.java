@@ -132,6 +132,7 @@ public class AuthService {
     // SEC-07: dispatches the forgotPassword() email send off the request thread -- see
     // BackgroundWorkConfig.authEmailExecutor's own doc comment for why.
     private final Executor authEmailExecutor;
+    private final AccountRequestThrottle accountRequestThrottle;
     // SEC-03: the MFA gate login() checks and completeMfaLogin() resolves against.
     private final AdminMfaService adminMfaService;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -155,7 +156,8 @@ public class AuthService {
                         @Qualifier("authEmailExecutor") Executor authEmailExecutor,
                         AdminMfaService adminMfaService,
                         EmailLoginOtpRepository emailLoginOtpRepository,
-                        SignupAttributionService signupAttributionService) {
+                        SignupAttributionService signupAttributionService,
+                        AccountRequestThrottle accountRequestThrottle) {
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
         this.resetTokenRepository = resetTokenRepository;
@@ -178,6 +180,7 @@ public class AuthService {
         this.referralService = referralService;
         this.merchantSeedService = merchantSeedService;
         this.authEmailExecutor = authEmailExecutor;
+        this.accountRequestThrottle = accountRequestThrottle;
         this.adminMfaService = adminMfaService;
         this.emailLoginOtpRepository = emailLoginOtpRepository;
         this.signupAttributionService = signupAttributionService;
@@ -1429,8 +1432,17 @@ public class AuthService {
         String genericMessage = emailProvider.isConfigured()
                 ? "If an account exists for that email, we've sent a password reset link."
                 : "If an account exists for that email, a reset link has been issued.";
-        var userOpt = findUserByEmailIgnoreCaseSafely(request.email(),
-                User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER);
+        String resetScope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        // Counted for known and unknown addresses alike, on the address as typed, BEFORE the lookup:
+        // both paths do the same work here and answer the same generic message, so being over the
+        // ceiling tells a caller nothing about whether the account exists. The owner is not told
+        // either; the reset email simply does not go out again until the window passes. Logged
+        // without the address.
+        if (accountRequestThrottle.resetRequestsExceeded(resetScope, request.email())) {
+            log.info("Password reset request over the per-account ceiling (scope={}); nothing issued or sent", resetScope);
+            return new ForgotPasswordResponse(genericMessage, null);
+        }
+        var userOpt = findUserByEmailIgnoreCaseSafely(request.email(), resetScope);
         if (userOpt.isEmpty()) {
             return new ForgotPasswordResponse(genericMessage, null);
         }
@@ -1545,6 +1557,15 @@ public class AuthService {
                         Map.of("retryAfterSeconds", retryAfterSeconds));
             }
         });
+
+        // After the 30-second wait above, so only a request that would really issue a code uses up
+        // the allowance: a tap that the wait refused does not. Existence is already disclosed by
+        // /auth/identify before this endpoint is reached, so naming the refusal reveals nothing new.
+        if (accountRequestThrottle.codeRequestsExceeded(user.getId())) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_OTP_RESEND_COOLDOWN,
+                    ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
+                    Map.of("retryAfterSeconds", accountRequestThrottle.codeWindowSeconds()));
+        }
 
         emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, scope, Instant.now());
 

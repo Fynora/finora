@@ -708,6 +708,16 @@ app:
     auth-global:
       max: ${RATE_LIMIT_AUTH_GLOBAL_MAX:600}
       window-seconds: ${RATE_LIMIT_AUTH_GLOBAL_WINDOW_SECONDS:60}
+    # Per ACCOUNT, not per IP (see AccountRequestThrottle): how many reset and sign-in-code emails
+    # one account can be sent in a window, from anyone. The IP limits above give every address its
+    # own allowance; these bound what the owner receives. Short windows on purpose, because a
+    # ceiling can be used against the account it protects (the owner's own request counts too).
+    reset-request-per-account:
+      max: ${RATE_LIMIT_RESET_REQUEST_PER_ACCOUNT_MAX:3}
+      window-seconds: ${RATE_LIMIT_RESET_REQUEST_PER_ACCOUNT_WINDOW_SECONDS:900}
+    code-request-per-account:
+      max: ${RATE_LIMIT_CODE_REQUEST_PER_ACCOUNT_MAX:5}
+      window-seconds: ${RATE_LIMIT_CODE_REQUEST_PER_ACCOUNT_WINDOW_SECONDS:600}
   import:
     # See ImportConcurrencyLimiter's own doc comment for the full reasoning. 6 is deliberately
     # conservative relative to DB_POOL_MAX_SIZE (10, see the datasource config above) -- leaves

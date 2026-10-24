@@ -80,7 +80,8 @@ class AuthServiceMfaLoginTest {
                 Runnable::run,
                 adminMfaService,
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                mock(com.finora.service.AccountRequestThrottle.class)
         );
     }
 

@@ -34,6 +34,7 @@ class AuthServiceEmailTest {
     private EmailProperties emailProperties;
     private AuditService auditService;
     private com.finora.config.RequestMetadata requestMetadata;
+    private AccountRequestThrottle accountRequestThrottle;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -60,6 +61,7 @@ class AuthServiceEmailTest {
         user.setEmail("test@example.com");
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("test@example.com", "USER")).thenReturn(Optional.of(user));
 
+        accountRequestThrottle = mock(AccountRequestThrottle.class);
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), resetTokenRepository,
                 mock(com.finora.repository.AccountReactivationTokenRepository.class),
@@ -79,7 +81,8 @@ class AuthServiceEmailTest {
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                accountRequestThrottle
         );
     }
 
@@ -123,6 +126,40 @@ class AuthServiceEmailTest {
         verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
     }
 
+    /** Over the ceiling, nothing is issued and nothing is sent, and the answer is the generic one a
+     *  caller always gets -- so being throttled reveals nothing about whether the account exists. */
+    @Test
+    void forgotPassword_overThePerAccountCeiling_issuesNothingAndAnswersTheSame() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(accountRequestThrottle.resetRequestsExceeded("USER", "test@example.com")).thenReturn(true);
+
+        var response = authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        assertThat(response.message()).isEqualTo("If an account exists for that email, we've sent a password reset link.");
+        assertThat(response.devResetLink()).isNull();
+        verify(resetTokenRepository, org.mockito.Mockito.never()).save(any());
+        verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());
+    }
+
+    /** The count is taken on the typed address before any lookup, so a known and an unknown address
+     *  do the same work at this step. */
+    @Test
+    void forgotPassword_countsAnUnknownAddressExactlyLikeAKnownOne() {
+        authService.forgotPassword(new ForgotPasswordRequest("nobody@example.com", "USER"), null);
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        verify(accountRequestThrottle).resetRequestsExceeded("USER", "nobody@example.com");
+        verify(accountRequestThrottle).resetRequestsExceeded("USER", "test@example.com");
+    }
+
+    /** The admin portal's reset is a different account from the same address's user one. */
+    @Test
+    void forgotPassword_countsTheAdminScopeSeparately() {
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "ADMIN"), null);
+
+        verify(accountRequestThrottle).resetRequestsExceeded("ADMIN", "test@example.com");
+    }
+
     @Test
     void forgotPassword_forAnUnknownAddress_recordsNothing_andAnswersTheSameWay() {
         when(emailProvider.isConfigured()).thenReturn(true);
@@ -164,7 +201,8 @@ class AuthServiceEmailTest {
                 captured::set, // records the work instead of running it
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                mock(com.finora.service.AccountRequestThrottle.class)
         );
         when(emailProvider.isConfigured()).thenReturn(true);
         when(emailProvider.sendPasswordResetEmail(any(), any()))

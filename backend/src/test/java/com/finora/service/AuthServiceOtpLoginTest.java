@@ -40,6 +40,7 @@ class AuthServiceOtpLoginTest {
     private AuditService auditService;
     private PhoneVerificationProvider phoneVerificationProvider;
     private com.finora.config.RequestMetadata requestMetadata;
+    private AccountRequestThrottle accountRequestThrottle;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -67,6 +68,7 @@ class AuthServiceOtpLoginTest {
         when(refreshTokenService.issue(any()))
                 .thenReturn(new RefreshTokenService.IssuedToken("raw-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
 
+        accountRequestThrottle = mock(AccountRequestThrottle.class);
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(com.finora.repository.AccountReactivationTokenRepository.class),
@@ -82,7 +84,8 @@ class AuthServiceOtpLoginTest {
                 Runnable::run,
                 mock(AdminMfaService.class),
                 emailLoginOtpRepository,
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                accountRequestThrottle
         );
         // AuthService's own constructor calls passwordEncoder.encode() once (timingParityHash,
         // BH-014) -- clearing here so each test's own verify(passwordEncoder).encode(...) counts
@@ -168,6 +171,43 @@ class AuthServiceOtpLoginTest {
                 .hasMessageContaining("Wait")
                 .satisfies(ex -> assertThat(((ApiException) ex).getDetails())
                         .containsKey("retryAfterSeconds"));
+    }
+
+    @Test
+    void requestEmailLoginOtp_overThePerAccountCeiling_isRefusedWithoutIssuingACode() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
+                .thenReturn(Optional.of(verifiedUser()));
+        when(accountRequestThrottle.codeRequestsExceeded(userId)).thenReturn(true);
+        when(accountRequestThrottle.codeWindowSeconds()).thenReturn(600L);
+
+        assertThatThrownBy(() -> authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null)))
+                .isInstanceOfSatisfying(ApiException.class, ex -> {
+                    assertThat(ex.getStatus()).isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
+                    assertThat(ex.getDetails()).containsEntry("retryAfterSeconds", 600L);
+                });
+
+        // Refused before anything is written or sent, and not recorded as an issued code.
+        verify(emailLoginOtpRepository, never()).saveAndFlush(any());
+        verify(emailLoginOtpRepository, never()).markAllUnconsumedAsConsumed(anyString(), anyString(), any());
+        verify(emailProvider, never()).sendLoginOtpEmail(anyString(), anyString());
+        verify(auditService, never()).record(any(), eq("LOGIN_OTP_REQUESTED"), any(), any(), any());
+    }
+
+    /** A tap the 30-second wait refuses must not use up the allowance of requests that did issue a code. */
+    @Test
+    void requestEmailLoginOtp_refusedByTheShortWait_doesNotCountAgainstTheCeiling() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
+                .thenReturn(Optional.of(verifiedUser()));
+        EmailLoginOtp recent = new EmailLoginOtp();
+        recent.setEmail("jane@example.com");
+        ReflectionTestUtils.setField(recent, "createdAt", Instant.now());
+        when(emailLoginOtpRepository.findFirstByEmailAndAccountScopeOrderByCreatedAtDesc("jane@example.com", User.SCOPE_USER))
+                .thenReturn(Optional.of(recent));
+
+        assertThatThrownBy(() -> authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null)))
+                .isInstanceOf(ApiException.class);
+
+        verify(accountRequestThrottle, never()).codeRequestsExceeded(any());
     }
 
     @Test

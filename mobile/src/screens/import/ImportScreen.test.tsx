@@ -574,6 +574,13 @@ describe('ImportScreen — upload completion dwell', () => {
     expect(screen.getByText(/A PDF password is saved only if you choose/)).toBeOnTheScreen();
   });
 
+  // Gate 2b PR 3 (spec §3): tell people a statement can be shared in from their email.
+  it('showsShareHint', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Statement in your email? Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+  });
+
   // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.
   it('showsStartWithOneStatement', async () => {
     render(tree());

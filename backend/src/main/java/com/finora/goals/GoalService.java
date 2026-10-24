@@ -1,6 +1,8 @@
 package com.finora.goals;
 
 import com.finora.entity.User;
+import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.repository.UserRepository;
 import com.finora.security.OwnershipGuard;
 import com.finora.service.AuditService;
@@ -100,6 +102,13 @@ public class GoalService {
     public GoalDto addContribution(UUID userId, UUID goalId, BigDecimal amount) {
         Goal g = getOwned(userId, goalId);
         BigDecimal beforeAmount = g.getCurrentAmount();
+        // Refused before any write: a total past MAX_AMOUNT used to fail in the database and come
+        // back as a 409 "refresh and try again". The amount's size is checked first so a direct
+        // caller passing a huge exponent never reaches add(), which throws ArithmeticException.
+        if (amount.abs().compareTo(GoalDto.MAX_AMOUNT) > 0
+                || beforeAmount.add(amount).compareTo(GoalDto.MAX_AMOUNT) > 0) {
+            throw new ApiException(ErrorCode.GOAL_AMOUNT_TOO_LARGE);
+        }
         // Floor at zero as defense-in-depth: GoalDto.ContributionRequest's @DecimalMin(0.01)
         // already rejects a non-positive amount at the API boundary, but this keeps the
         // invariant true even if that validation is ever bypassed or this method is called

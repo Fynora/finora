@@ -383,6 +383,11 @@ public enum ErrorCode {
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),
 
+    // Goals. Each contribution can be within the request limit and the running total still pass
+    // what the goals table can hold (NUMERIC(14,2)); see GoalService.addContribution.
+    GOAL_AMOUNT_TOO_LARGE("GOAL_001", HttpStatus.BAD_REQUEST,
+            "This contribution would take the goal past 999,999,999,999.99, the largest amount a goal can hold."),
+
     // Generic fallbacks — used by GlobalExceptionHandler when no more specific code applies
     VALIDATION_ERROR("VAL_001", HttpStatus.BAD_REQUEST, "Validation failed"),
     NOT_FOUND("GEN_001", HttpStatus.NOT_FOUND, "No such endpoint"),

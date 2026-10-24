@@ -75,6 +75,9 @@ jest.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ fullName: mockFullName }),
 }));
 
+// The real hook resolves once per test process, so the first test in a run saw GlassScreen remount
+// its content mid-test and an element it had just found leave the tree.
+jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -550,6 +553,25 @@ describe('ImportScreen — upload completion dwell', () => {
     render(tree());
 
     expect(await screen.findByRole('button', { name: 'What happens to my statement?' })).toBeOnTheScreen();
+  });
+
+  // The password card takes the picker's place. It is the moment the panel's line about passwords
+  // matters most, so the panel stays, once, below the card.
+  it('keeps what happens to my statement at the PDF password step', async () => {
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.pdf', name: 'statement.pdf', type: 'application/pdf' },
+        format: 'PDF',
+        nonce: 1,
+      },
+    };
+    render(tree());
+    await screen.findByTestId('pdf-password-panel');
+
+    const toggles = screen.getAllByRole('button', { name: 'What happens to my statement?' });
+    expect(toggles).toHaveLength(1);
+    fireEvent.press(toggles[0]);
+    expect(screen.getByText(/A PDF password is saved only if you choose/)).toBeOnTheScreen();
   });
 
   // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.

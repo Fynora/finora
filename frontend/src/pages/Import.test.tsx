@@ -416,6 +416,20 @@ describe('Import — file-type routing', () => {
       .toHaveAttribute('aria-expanded', 'false');
   });
 
+  // The PDF password form takes the file picker's place. It is the moment the panel's line about
+  // passwords matters most, so the panel stays, once, below the form.
+  it('keeps what happens to my statement at the PDF password step', async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+    await screen.findByTestId('pdf-password-panel');
+
+    const toggles = screen.getAllByRole('button', { name: 'What happens to my statement?' });
+    expect(toggles).toHaveLength(1);
+    await user.click(toggles[0]);
+    expect(screen.getByText(/A PDF password is saved only if you choose/)).toBeInTheDocument();
+  });
+
   // Gate 2b PR 2 (spec §4, §5.3): ask for one statement first, and promise nothing is saved early.
   it('showsStartWithOneStatement', async () => {
     renderImport();

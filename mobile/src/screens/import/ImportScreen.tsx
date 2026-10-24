@@ -1078,8 +1078,6 @@ export function ImportScreen() {
                     sitting there through the entire dwell, doing nothing (cancelUpload's abort
                     controller is already null by then -- upload() already succeeded). */}
                 {panelState === 'uploading' && <Button label="Cancel upload" variant="link" onPress={cancelUpload} />}
-                {/* Gate 2b (spec §5.2): what happens to the statement, closed, beside the picker. */}
-                {uploadProgress === null && <StatementHandlingPanel />}
               </>
             )}
             {showPasswordPanel && pendingPdf && (
@@ -1174,6 +1172,10 @@ export function ImportScreen() {
                 />
               </View>
             )}
+            {/* Gate 2b (spec §5.2): what happens to the statement, closed, below the picker -- or
+                below the password card, which takes the picker's place and is where the panel's
+                password line matters most. */}
+            {uploadProgress === null && <StatementHandlingPanel />}
           </Card>
           )}
 

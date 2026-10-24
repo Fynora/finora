@@ -1348,6 +1348,9 @@ export default function Import() {
               />
             </form>
           )}
+          {/* Gate 2b (spec §5.2): the password form takes the picker's place, and the panel's
+              password line matters most here. Never both: showUploadPicker excludes pendingPdf. */}
+          {!jobId && pendingPdf && <StatementHandlingPanel />}
 
           {showUploadPicker && !!unfinishedSessions?.length && (
             <div className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">

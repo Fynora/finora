@@ -66,11 +66,11 @@ grep -n "versionCode\|versionName" mobile/android/app/build.gradle
 Confirm both were bumped from the last real release — Play rejects a re-upload with an
 unchanged or lower `versionCode`.
 
-## 6. Screen capture protection is back on (live release only)
+## 6. Screen capture protection is on, and no photo or video read permissions (live release)
 
-Screenshots and screen recording are temporarily allowed so the product can be filmed. Before the
-live release, and before any OTA update that ships to real users, restore the protection
-SEC-17 added on the balance and statement screens:
+Screenshots and screen recording are blocked on the balance and statement screens (SEC-17). The
+flag was set to `true` for a while so the product could be filmed; before the live release, and
+before any OTA update that ships to real users, check it is back to blocking:
 
 ```bash
 grep -n "ALLOW_SCREEN_CAPTURE =" mobile/src/lib/screenCapture.ts
@@ -78,6 +78,13 @@ grep -n "ALLOW_SCREEN_CAPTURE =" mobile/src/lib/screenCapture.ts
 
 It must print `= false`. If it prints `= true`, set it to `false` in a PR first: it is one line, and
 every protected screen follows it. This applies to iOS builds and OTA updates as well as Android.
+
+Google Play also refuses to send a production release whose bundle declares `READ_MEDIA_IMAGES` or
+`READ_MEDIA_VIDEO` ("Use alternative system pickers for photos / videos"). `expo-screen-capture`
+adds them through its own manifest, so `app.config.ts` lists them in `android.blockedPermissions`
+and `src/lib/androidPermissions.test.ts` fails if that list loses one. After an Expo upgrade, run
+`expo prebuild --platform android` and check the generated manifest still shows
+`tools:node="remove"` for them.
 
 ## 7. Then, and only then, upload
 

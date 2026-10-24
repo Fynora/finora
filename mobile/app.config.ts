@@ -213,6 +213,18 @@ const config: ExpoConfig = {
     // node_modules/@react-native-firebase/messaging), so it has to be listed explicitly here --
     // Expo merges `android.permissions` into the generated AndroidManifest.xml at prebuild time.
     permissions: ['android.permission.POST_NOTIFICATIONS'],
+    // expo-screen-capture's own AndroidManifest.xml declares READ_MEDIA_IMAGES (and
+    // READ_EXTERNAL_STORAGE up to API 32), which Android merges into this app. They only serve its
+    // screenshot-listener API; this app uses just the usePreventScreenCapture hook (lib/screenCapture.ts),
+    // and statement uploads go through the system document picker. Google Play's photo and video
+    // permissions policy blocks sending a release that declares READ_MEDIA_IMAGES / READ_MEDIA_VIDEO
+    // ("Use alternative system pickers for photos / videos", seen on versionCodes 33 and 34).
+    // Expo turns each entry here into a tools:node="remove" line in the merged manifest.
+    blockedPermissions: [
+      'android.permission.READ_MEDIA_IMAGES',
+      'android.permission.READ_MEDIA_VIDEO',
+      'android.permission.READ_EXTERNAL_STORAGE',
+    ],
   },
   web: {
     favicon: './assets/favicon.png',

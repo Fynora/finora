@@ -29,6 +29,7 @@ import { BankLogo } from '../components/BankLogo';
 import { PasswordInput } from '../components/PasswordInput';
 import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
+import StatementHandlingPanel from '../components/StatementHandlingPanel';
 import { flaggedRows, ROW_FLAG_LABEL, type FlaggedRows } from '../components/verificationFlags';
 import { matchExistingAccount } from '../lib/accountMatch';
 import { isLikelyMatch } from '../lib/holderNameMatcher';
@@ -1347,6 +1348,9 @@ export default function Import() {
               />
             </form>
           )}
+          {/* Gate 2b (spec §5.2): the password form takes the picker's place, and the panel's
+              password line matters most here. Never both: showUploadPicker excludes pendingPdf. */}
+          {!jobId && pendingPdf && <StatementHandlingPanel />}
 
           {showUploadPicker && !!unfinishedSessions?.length && (
             <div className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">
@@ -1429,6 +1433,8 @@ export default function Import() {
               </p>
             </div>
           )}
+          {/* Gate 2b (spec §5.2): what happens to the statement, closed, right above the picker. */}
+          {showUploadPicker && <StatementHandlingPanel />}
           {showUploadPicker && (
             <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_0.85fr] gap-4">
               <div

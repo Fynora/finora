@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { Card, SectionHeading } from '../../components/Card';
+import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
 import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
@@ -1179,6 +1180,10 @@ export function ImportScreen() {
                 />
               </View>
             )}
+            {/* Gate 2b (spec §5.2): what happens to the statement, closed, below the picker -- or
+                below the password card, which takes the picker's place and is where the panel's
+                password line matters most. */}
+            {uploadProgress === null && <StatementHandlingPanel />}
           </Card>
           )}
 

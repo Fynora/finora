@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -104,6 +105,30 @@ public class PreviewGenerator {
         ctx.recordTables(1);
         ctx.recordHeaders(List.of(headerRow));
 
+        // Whether the file's numeric dates are day-first or month-first, decided once from every
+        // row's date cell before any row is read, so every row is read the same way (CsvDateOrder).
+        // A file whose dates prove both orders is refused here. When the date cells prove nothing,
+        // the file's other dates may: the lines above the header, and the other date columns.
+        List<String> dateCells = new ArrayList<>();
+        List<String> otherDates = new ArrayList<>();
+        for (int i = 0; i < headerIdx; i++) {
+            for (String cell : allRows.get(i)) otherDates.addAll(CsvDateOrder.datesIn(cell));
+        }
+        for (int i = headerIdx + 1; i < allRows.size(); i++) {
+            if (csvParser.isBlankRow(allRows.get(i))) continue;
+            Map<String, String> row = csvParser.zipRow(headerRow, allRows.get(i));
+            String dateCell = TransactionNormalizer.dateCellOf(row);
+            dateCells.add(dateCell);
+            for (Map.Entry<String, String> e : row.entrySet()) {
+                if (e.getValue() != dateCell && CsvDateOrder.namesADate(e.getKey())) {
+                    otherDates.addAll(CsvDateOrder.datesIn(e.getValue()));
+                }
+            }
+        }
+        CsvDateOrder.Decision dateOrder = CsvDateOrder.infer(dateCells, otherDates);
+        ctx.recordCsvDateOrder(dateOrder);
+        signals.readDatesAs(dateOrder.order());
+
         // Loaded once for the whole statement, not once per row. The per-row overload re-queried
         // category_rules twice for every row, always returning the same two result sets -- 2.00
         // queries/row measured, the largest single N+1 in this pipeline. A user's rules cannot
@@ -126,12 +151,18 @@ public class PreviewGenerator {
         List<Map<String, String>> located = new ArrayList<>();
         List<Integer> stagedIndexOfLocatedRow = new ArrayList<>();
 
+        // Dated rows whose amount could not be read. Each one is a transaction of unknown size, so
+        // the statement's amounts are not confirmed and the file is held (Sid, 2026-10-24) --
+        // see RowAccountingValidator.withUnreadableAmounts.
+        int unreadableAmountRows = 0;
+
         for (int i = headerIdx + 1; i < allRows.size(); i++) {
             String[] cells = allRows.get(i);
             if (csvParser.isBlankRow(cells)) continue;
 
             Map<String, String> row = csvParser.zipRow(headerRow, cells);
             located.add(row);
+            LocalDate unreadableAmountDate = null;
             stagedIndexOfLocatedRow.add(ColumnAmbiguityValidator.NOT_SHOWN);
 
             StagedRow parsed = transactionNormalizer.normalize(userId, row, ctx, rules, duplicateIndex, merchantIndex,
@@ -175,15 +206,28 @@ public class PreviewGenerator {
                     // unparseable diagnostic instead, same as the unrecognized-column case above.
                     unparseable.add(new UnparseableRow(row, UnparseableReasons.UNPARSEABLE_RECOGNIZED_AMOUNT));
                     ctx.recordUnanchored(transactionNormalizer.unparseableRecognizedAmountReasonKey(row));
+                    unreadableAmountDate = parsed.date();
                 }
             } else {
-                unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
-                ctx.recordUnanchored(transactionNormalizer.failureReasonKey(row));
+                unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row, ctx)));
+                String reason = transactionNormalizer.failureReasonKey(row, ctx);
+                ctx.recordUnanchored(reason);
+                // The date was read (a date failure is reported first) and the amount was not.
+                if (reason.startsWith(TransactionNormalizer.REASON_AMOUNT_UNPARSEABLE_PREFIX)) {
+                    unreadableAmountDate = TransactionNormalizer.dateOf(TransactionNormalizer.dateCellOf(row), ctx);
+                }
             }
 
             // Account-level signals are scanned on every row regardless of whether it parsed as
-            // a transaction — see StatementValidator.scanRow.
-            statementValidator.scanRow(row, parsed, signals);
+            // a transaction — see StatementValidator.scanRow. A row whose amount could not be read
+            // keeps its balance out of the opening/closing derivation, where the fallback amount
+            // would have been read as money moving.
+            if (unreadableAmountDate != null) {
+                unreadableAmountRows++;
+                statementValidator.scanRowWithUnreadableAmount(row, unreadableAmountDate, signals);
+            } else {
+                statementValidator.scanRow(row, parsed, signals);
+            }
         }
 
         int dupCount = (int) staged.stream().filter(StagedRow::likelyDuplicate).count();
@@ -194,7 +238,8 @@ public class PreviewGenerator {
         var verification = importVerifier.verifyCsv(staged,
                 detected == null ? null : detected.openingBalance(),
                 detected == null ? null : detected.closingBalance(),
-                located, unparseable, stagedIndexOfLocatedRow.stream().mapToInt(Integer::intValue).toArray());
+                located, unparseable, stagedIndexOfLocatedRow.stream().mapToInt(Integer::intValue).toArray(),
+                dateOrder, unreadableAmountRows);
         return new CsvGenerationResult(
                 new StagingResponse(staged, staged.size(), dupCount, detected, unparseable, verification), ctx);
     }

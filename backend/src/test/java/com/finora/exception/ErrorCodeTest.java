@@ -90,7 +90,10 @@ class ErrorCodeTest {
                         ErrorCode.IMPORT_PAYMENT_APP_HISTORY,
                         // IMPORT_MULTI_ACCOUNT_FILE (2026-10-22): a file combining several
                         // accounts; the fix is the user's, uploading each statement on its own.
-                        ErrorCode.IMPORT_MULTI_ACCOUNT_FILE);
+                        ErrorCode.IMPORT_MULTI_ACCOUNT_FILE,
+                        // IMPORT_DATE_ORDER_CONFLICT (2026-10-24): dates written day-first and
+                        // month-first in one file; the fix is the user's, exporting it again.
+                        ErrorCode.IMPORT_DATE_ORDER_CONFLICT);
     }
 
     /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */

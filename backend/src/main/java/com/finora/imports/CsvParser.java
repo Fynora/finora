@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 
 /**
  * Mechanical CSV parsing: reads the raw file, locates the real header row, and zips each data
@@ -32,6 +33,19 @@ import java.util.Set;
  */
 @Component
 public class CsvParser {
+
+    /**
+     * The first year a two-digit year can mean: 26 means 2026, and 99 means 1999 rather than 2099.
+     * The window is the 100 years ending {@value #TWO_DIGIT_YEAR_YEARS_AHEAD} years after the year
+     * this class loaded in, so it moves with the calendar instead of breaking in some future year.
+     * Every two-digit year this parser reads goes through it: {@link #twoDigitYear} for the
+     * formatters, {@link #fullYear} for {@link #parseDate(String, CsvDateOrder.Order)}.
+     */
+    static final int TWO_DIGIT_YEAR_YEARS_AHEAD = 20;
+    // Declared above DATE_FORMATS on purpose: static fields initialise in source order, and the
+    // two-digit-year formatters in that list read this value while it is being built.
+    static final int TWO_DIGIT_YEAR_BASE =
+            LocalDate.now(java.time.ZoneOffset.UTC).getYear() + TWO_DIGIT_YEAR_YEARS_AHEAD - 99;
 
     // EVERY formatter below resolves STRICTLY -- built through strict(), caseInsensitive() or
     // monthNameFirst(), never a bare DateTimeFormatter.ofPattern.
@@ -77,14 +91,15 @@ public class CsvParser {
             // whole string, so "01/07/2026" cannot match "dd/MM/yy" -- but ordering makes that
             // independent of the resolver's strictness rather than reliant on it.
             //
-            // Java resolves "yy" against a base of 2000, so 26 is 2026 and never 1926. That is the
-            // right answer here and not a coincidence worth leaving implicit: a bank statement is
-            // a recent document, and the alternative reading would place transactions a century
-            // before the product existed.
-            strict("dd/MM/yy"),
-            strict("dd-MM-yy"),
-            caseInsensitive("dd MMM yy"),
-            caseInsensitive("dd-MMM-yy"),
+            // The century comes from TWO_DIGIT_YEAR_BASE, not from Java's default. A "yy" pattern
+            // resolves against a fixed base of 2000, so 26 is 2026 -- right -- but 99 was 2099:
+            // a CSV row dated "02/07/99" imported 73 years in the future with every check passing.
+            // A bank statement is a recent document, so a two-digit year is read as the nearest
+            // year in a window ending a few years after today (see twoDigitYear).
+            twoDigitYear(false, "dd/MM/"),
+            twoDigitYear(false, "dd-MM-"),
+            twoDigitYear(true, "dd MMM "),
+            twoDigitYear(true, "dd-MMM-"),
             caseInsensitive("dd-MMM-yyyy"),
             // The four-digit space-separated form, case-insensitively. "dd MMM yyyy" above is
             // case-SENSITIVE, so it reads "01 Jul 2026" and rejects "01 JUL 2026" -- and statements
@@ -113,6 +128,26 @@ public class CsvParser {
             // parseDate's retry below.
             monthNameFirst("MMMM d, yyyy")
     );
+
+    /** {@code prefix} then a two-digit year read through {@link #TWO_DIGIT_YEAR_BASE}, resolved
+     *  strictly like every other formatter here. */
+    private static DateTimeFormatter twoDigitYear(boolean caseInsensitive, String prefix) {
+        DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+        if (caseInsensitive) builder.parseCaseInsensitive();
+        return builder.appendPattern(prefix)
+                .appendValueReduced(ChronoField.YEAR_OF_ERA, 2, 2, TWO_DIGIT_YEAR_BASE)
+                .parseDefaulting(ChronoField.ERA, 1)
+                .toFormatter(Locale.ENGLISH)
+                .withResolverStyle(ResolverStyle.STRICT);
+    }
+
+    /** A year as printed, with a two-digit one placed in the {@link #TWO_DIGIT_YEAR_BASE} window. */
+    static int fullYear(String printed) {
+        int value = Integer.parseInt(printed);
+        if (printed.length() != 2) return value;
+        int year = TWO_DIGIT_YEAR_BASE - Math.floorMod(TWO_DIGIT_YEAR_BASE, 100) + value;
+        return year < TWO_DIGIT_YEAR_BASE ? year + 100 : year;
+    }
 
     /**
      * A case-sensitive pattern, resolved strictly with the era defaulted to CE -- see the comment
@@ -495,6 +530,95 @@ public class CsvParser {
         return zeroForOSeparated.equals(zeroForO) ? null : tryEveryFormat(zeroForOSeparated);
     }
 
+    /**
+     * A CSV date cell, read in the order its file was found to use ({@link CsvDateOrder}).
+     *
+     * <p>Numeric dates are read here directly rather than through {@link #DATE_FORMATS}, because
+     * that list tries day-first and then month-first on every cell, which is the per-cell guessing
+     * {@link CsvDateOrder} exists to replace. Reading the numbers also accepts the shapes a
+     * spreadsheet export prints and the list never did, each of which used to fail the whole file
+     * with IMPORT_007: an unpadded day or month ({@code 1/7/2026}), a year-first date with either
+     * separator ({@code 2026/07/01}), an eight-digit {@code 20260701}, an ISO time after a
+     * {@code T} ({@code 2026-07-01T10:00:00}), and a time with fractions of a second
+     * ({@code 30/06/2026 14:18:05.123}). A full month name ({@code 01 July 2026}) is read too.
+     *
+     * <p>A numeric cell that is not a real date ({@code 31/02/2026}, {@code 13/13/2026}) is null:
+     * it is never handed on to the per-cell list, which would try the other reading.
+     *
+     * <p>Kept separate from {@link #parseDate(String)} on purpose. The PDF table locator calls that
+     * one to decide where a row starts, and an eight-digit reference number or a looser numeric
+     * shape read as a date there would start rows that are not there; the real corpus has such
+     * eight-digit numbers.
+     *
+     * @param order null reads exactly as {@link #parseDate(String)} does
+     */
+    public static LocalDate parseDate(String raw, CsvDateOrder.Order order) {
+        if (raw == null) return null;
+        if (order == null) return parseDate(raw);
+        String cell = withoutCsvTime(raw);
+
+        Matcher dayMonth = DAY_MONTH_YEAR.matcher(cell);
+        if (dayMonth.matches()) {
+            int first = Integer.parseInt(dayMonth.group(1));
+            int second = Integer.parseInt(dayMonth.group(3));
+            int year = fullYear(dayMonth.group(4));
+            return order == CsvDateOrder.Order.DAY_FIRST ? dateOf(year, second, first) : dateOf(year, first, second);
+        }
+        Matcher yearFirst = YEAR_MONTH_DAY.matcher(cell);
+        if (yearFirst.matches()) {
+            return dateOf(Integer.parseInt(yearFirst.group(1)), Integer.parseInt(yearFirst.group(3)),
+                    Integer.parseInt(yearFirst.group(4)));
+        }
+        Matcher compact = COMPACT_YEAR_MONTH_DAY.matcher(cell);
+        if (compact.matches()) {
+            return dateOf(Integer.parseInt(compact.group(1)), Integer.parseInt(compact.group(2)),
+                    Integer.parseInt(compact.group(3)));
+        }
+        // Every remaining shape names its month in letters, so the order question does not arise.
+        // A cell of digits and separators alone that matched none of the above is not a date.
+        if (!cell.chars().anyMatch(Character::isLetter)) return null;
+        LocalDate named = parseDate(cell);
+        if (named != null) return named;
+        try {
+            return LocalDate.parse(cell, FULL_MONTH_NAME);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /** The cell without a trailing time of day, in any of the forms a CSV prints one. Wider than
+     *  {@link #TRAILING_TIME}: also a {@code T} before the time, fractions of a second, and a zone
+     *  ({@code Z}, {@code +05:30}). */
+    static String withoutCsvTime(String raw) {
+        return CSV_TRAILING_TIME.matcher(raw.strip()).replaceFirst("").strip();
+    }
+
+    private static final java.util.regex.Pattern CSV_TRAILING_TIME = java.util.regex.Pattern.compile(
+            "(?i)(?:[\\s|]+|(?<=\\d)T)\\d{1,2}:\\d{2}(?::\\d{2}(?:[.,]\\d{1,9})?)?\\s*(?:am|pm)?\\s*(?:Z|[+-]\\d{2}:?\\d{2})?$");
+
+    /** Two numbers then a year, one separator used both times -- the shape {@link CsvDateOrder}
+     *  judges. */
+    static final java.util.regex.Pattern DAY_MONTH_YEAR =
+            java.util.regex.Pattern.compile("^(\\d{1,2})([/\\-.])(\\d{1,2})\\2(\\d{4}|\\d{2})$");
+    private static final java.util.regex.Pattern YEAR_MONTH_DAY =
+            java.util.regex.Pattern.compile("^(\\d{4})([/\\-.])(\\d{1,2})\\2(\\d{1,2})$");
+    private static final java.util.regex.Pattern COMPACT_YEAR_MONTH_DAY =
+            java.util.regex.Pattern.compile("^((?:19|20)\\d{2})(\\d{2})(\\d{2})$");
+
+    /** "01 July 2026" and "1 July 2026": a full month name, which "dd MMM yyyy" does not read. */
+    private static final DateTimeFormatter FULL_MONTH_NAME = monthNameFirst("d MMMM yyyy");
+
+    /** A real calendar date, or null -- never one clamped to the month's last day. Year 0 and
+     *  below are refused, as the formatters' year-of-era refuses them. */
+    private static LocalDate dateOf(int year, int month, int day) {
+        if (year < 1) return null;
+        try {
+            return LocalDate.of(year, month, day);
+        } catch (java.time.DateTimeException e) {
+            return null;
+        }
+    }
+
     private static final java.util.regex.Pattern LETTER_O_FOR_ZERO =
             java.util.regex.Pattern.compile("(?<![A-Za-z])[Oo](?=\\d)");
 
@@ -632,9 +756,21 @@ public class CsvParser {
 
     private static BigDecimal parseNumericAsPrinted(String raw) {
         if (raw == null) return null;
-        String s = raw.trim();
+        // A no-break space (U+00A0, and its narrow and figure-width cousins) is what a spreadsheet
+        // often puts between digit groups ("1\u00A0000.00"), and the Unicode minus sign (U+2212)
+        // is what some exports print for "-". trim() and \s know neither, so such a cell failed to
+        // parse. Read as the plain space and hyphen-minus they stand for (Sid, 2026-10-24).
+        String s = raw.replace('\u00A0', ' ').replace('\u202F', ' ').replace('\u2007', ' ')
+                .replace('\u2212', '-').trim();
         if (s.isEmpty()) return null;
+        // Refused, not read (Sid, 2026-10-24). Scientific notation ("1.5E+3") is the form a
+        // spreadsheet writes a number in once it has stopped showing every digit, so the value may
+        // already be rounded. A comma after the decimal point ("1.234,56") is a European decimal
+        // comma, which no Indian bank prints -- and stripping the comma as a group separator read
+        // it as 1.23456, silently. Either way the cell does not say an amount this parser can trust.
+        if (EXPONENT.matcher(s).find() || DECIMAL_COMMA.matcher(s).find()) return null;
         boolean negative = false;
+        boolean creditMarker = false;
         // Bug fix: verified against a real Union Bank of India statement -- its Dr/Cr marker is
         // parenthesized ("50000.00(Cr)", "1627.00(Dr)"), not the bare trailing " Dr"/" Cr" this
         // used to require exclusively (Axis's format). Every amount cell failed to parse and the
@@ -644,6 +780,7 @@ public class CsvParser {
             negative = true;
             s = TRAILING_DR.matcher(s).replaceFirst("");
         } else if (TRAILING_CR.matcher(s).find()) {
+            creditMarker = true;
             s = TRAILING_CR.matcher(s).replaceFirst("");
         }
         s = s.trim();
@@ -657,6 +794,10 @@ public class CsvParser {
         // parse, so the row imports with the account's running balance staged as the transaction
         // amount instead of vanishing loudly.
         if (s.length() >= 2 && s.charAt(0) == '(' && s.charAt(s.length() - 1) == ')') {
+            // "(500) Cr": the brackets say money out and the marker says money in. The cell
+            // contradicts itself, so it is not read either way (Sid, 2026-10-24) -- it used to
+            // stage as a 500 credit, the marker silently winning.
+            if (creditMarker) return null;
             negative = true;
             s = s.substring(1, s.length() - 1).trim();
         }
@@ -694,6 +835,15 @@ public class CsvParser {
         // Any whitespace still left at this point (e.g. between a sign and the digits, once the
         // currency-glyph artifact above was removed) can't be part of a valid number either way.
         s = s.replaceAll("\\s+", "");
+        // A trailing minus ("500.00-"), as some ledger exports print a debit: read as "-500.00"
+        // (Sid, 2026-10-24). Only with a decimal part, as every printed amount has, so a reference
+        // or flat number cut before a hyphen ("2026-") is never read as money; and never on top of
+        // another negative sign, which would be the cell saying minus twice.
+        if (TRAILING_MINUS.matcher(s).matches()) {
+            if (negative) return null;
+            negative = true;
+            s = s.substring(0, s.length() - 1);
+        }
         if (s.isEmpty() || s.equals("-")) return null;
         try {
             BigDecimal value = new BigDecimal(s);
@@ -702,6 +852,10 @@ public class CsvParser {
             return null;
         }
     }
+
+    private static final java.util.regex.Pattern EXPONENT = java.util.regex.Pattern.compile("\\d[eE][+-]?\\d");
+    private static final java.util.regex.Pattern DECIMAL_COMMA = java.util.regex.Pattern.compile("\\d\\.\\d*,");
+    private static final java.util.regex.Pattern TRAILING_MINUS = java.util.regex.Pattern.compile("^\\d+\\.\\d+-$");
 
     public static String maskAccountNumber(String raw) {
         if (raw == null) return null;

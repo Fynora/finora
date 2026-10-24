@@ -33,31 +33,34 @@ import static org.mockito.Mockito.when;
  */
 class CsvColumnAmbiguityTest {
 
+    // Every date below has a day over 12, so each file proves it is day-first and the only
+    // ambiguity left is the column one under test (CsvDateOrder reports an unsettled date order as
+    // an ambiguity of its own).
     private static final String HEADER = "Date,Narration,Withdrawal,Deposit,Balance\n";
 
     private static Stream<Arguments> statements() {
         return Stream.of(
                 Arguments.of("both columns filled on the third line", HEADER
-                        + "01/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
-                        + "02/07/2026,UPI/DR/ROW B,200.00,,9700.00\n"
-                        + "03/07/2026,UPI/DR/ROW C,300.00,50.00,9450.00\n"
-                        + "04/07/2026,UPI/DR/ROW D,400.00,,9050.00\n", List.of("C")),
+                        + "13/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
+                        + "14/07/2026,UPI/DR/ROW B,200.00,,9700.00\n"
+                        + "15/07/2026,UPI/DR/ROW C,300.00,50.00,9450.00\n"
+                        + "16/07/2026,UPI/DR/ROW D,400.00,,9050.00\n", List.of("C")),
                 Arguments.of("the statement's own opening-balance line first", HEADER
-                        + "01/07/2026,OPENING BALANCE,,,10000.00\n"
-                        + "01/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
-                        + "02/07/2026,UPI/DR/ROW B,200.00,50.00,9750.00\n"
-                        + "03/07/2026,UPI/DR/ROW C,300.00,,9450.00\n", List.of("B")),
+                        + "13/07/2026,OPENING BALANCE,,,10000.00\n"
+                        + "13/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
+                        + "14/07/2026,UPI/DR/ROW B,200.00,50.00,9750.00\n"
+                        + "15/07/2026,UPI/DR/ROW C,300.00,,9450.00\n", List.of("B")),
                 Arguments.of("a line with an unreadable amount and blank lines before the ambiguous one", HEADER
-                        + "01/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
+                        + "13/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
                         + "\n"
-                        + "02/07/2026,UPI/DR/ROW X,150/-,,9750.00\n"
+                        + "14/07/2026,UPI/DR/ROW X,150/-,,9750.00\n"
                         + ",,,,\n"
-                        + "03/07/2026,UPI/DR/ROW C,300.00,50.00,9500.00\n", List.of("C")),
+                        + "15/07/2026,UPI/DR/ROW C,300.00,50.00,9500.00\n", List.of("C")),
                 Arguments.of("newest first, two ambiguous lines", HEADER
-                        + "04/07/2026,UPI/DR/ROW D,400.00,25.00,9000.00\n"
-                        + "03/07/2026,UPI/DR/ROW C,300.00,,9375.00\n"
-                        + "02/07/2026,UPI/DR/ROW B,200.00,50.00,9675.00\n"
-                        + "01/07/2026,UPI/DR/ROW A,100.00,,9825.00\n", List.of("D", "B")));
+                        + "16/07/2026,UPI/DR/ROW D,400.00,25.00,9000.00\n"
+                        + "15/07/2026,UPI/DR/ROW C,300.00,,9375.00\n"
+                        + "14/07/2026,UPI/DR/ROW B,200.00,50.00,9675.00\n"
+                        + "13/07/2026,UPI/DR/ROW A,100.00,,9825.00\n", List.of("D", "B")));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -90,8 +93,8 @@ class CsvColumnAmbiguityTest {
     @Test
     void aCsvWhoseColumnsAgreeIsVerifiedAndEveryOtherCheckIsUnchanged() throws Exception {
         String csv = HEADER
-                + "01/07/2026,UPI/DR/ROW A,100.00,0.00,9900.00\n"
-                + "02/07/2026,UPI/CR/ROW B,0.00,50.00,9950.00\n";
+                + "13/07/2026,UPI/DR/ROW A,100.00,0.00,9900.00\n"
+                + "14/07/2026,UPI/CR/ROW B,0.00,50.00,9950.00\n";
         StagingResponse response = viaCsv(csv);
 
         assertThat(ambiguityOf(response).outcome()).isEqualTo("VERIFIED");
@@ -124,8 +127,8 @@ class CsvColumnAmbiguityTest {
     @Test
     void anAmbiguousCsvIsMarkedForReviewLikeAnAmbiguousPdf() throws Exception {
         StagingResponse response = viaCsv(HEADER
-                + "01/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
-                + "02/07/2026,UPI/DR/ROW B,200.00,50.00,9750.00\n");
+                + "13/07/2026,UPI/DR/ROW A,100.00,,9900.00\n"
+                + "14/07/2026,UPI/DR/ROW B,200.00,50.00,9750.00\n");
 
         assertThat(ambiguityOf(response).outcome()).isEqualTo("WARNING");
         assertThat(response.verification().reliabilityStatus())

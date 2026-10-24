@@ -78,6 +78,11 @@ const FAILURE_TERMS: Record<string, Term & { wire?: string }> = {
     label: 'Several accounts in one file',
     meaning: 'The upload lists transactions from more than one account (a combined ledger), so it cannot be imported into one account.',
   },
+  IMPORT_DATE_ORDER_CONFLICT: {
+    wire: 'IMPORT_021',
+    label: 'Dates in two orders',
+    meaning: 'A CSV where some dates can only be day-first and others only month-first, so no single reading fits every row.',
+  },
   IMPORT_SYSTEM_BUSY: {
     wire: 'IMPORT_006',
     label: 'System busy',

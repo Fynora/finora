@@ -28,6 +28,7 @@ import {
   MALFORMED_CSV,
   PAYMENT_APP_HISTORY,
   MULTI_ACCOUNT_FILE,
+  DATE_ORDER_CONFLICT,
   PDF_TOO_LARGE,
   TRUST_REVIEW_REJECTED,
   IMPORT_SYSTEM_BUSY,
@@ -76,6 +77,11 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
   [MULTI_ACCOUNT_FILE]:
     "This file lists transactions from more than one account, so it can't be imported into a " +
     'single account. Please upload each bank or card statement on its own.',
+  // Some dates read only day-first and others only month-first, so no one reading fits the file.
+  [DATE_ORDER_CONFLICT]:
+    'The dates in this file are written in two different orders (some day first, some month ' +
+    "first), so we can't tell which date each transaction belongs to. Please export the statement " +
+    'again and upload that file.',
   [PDF_TOO_LARGE]:
     'This PDF has too many pages to process. Split it into smaller files (e.g. by date range) ' +
     'and import each one separately.',
@@ -118,6 +124,7 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
   [MALFORMED_CSV]: 'This file looks damaged',
   [PAYMENT_APP_HISTORY]: 'This is a payment app history',
   [MULTI_ACCOUNT_FILE]: 'This file mixes several accounts',
+  [DATE_ORDER_CONFLICT]: 'The dates in this file disagree',
   [PDF_TOO_LARGE]: 'This statement is too long',
   [NO_ACTIVITY_IN_PERIOD]: 'Nothing to import',
   [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",

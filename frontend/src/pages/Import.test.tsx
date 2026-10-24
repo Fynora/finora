@@ -417,6 +417,13 @@ describe('Import — file-type routing', () => {
     expect(within(ask).getByText('Start with one statement:').tagName).toBe('STRONG');
   });
 
+  it('showsCardStatementLine', async () => {
+    renderImport();
+
+    expect(await screen.findByTestId('first-ask-card')).toHaveTextContent(
+      'No bank statement to hand? A credit card statement works too.');
+  });
+
   it('hidesItWhileImporting', async () => {
     vi.mocked(importApi.stageCsv).mockReset().mockImplementation(() => new Promise(() => {}));
     const user = userEvent.setup();
@@ -426,6 +433,7 @@ describe('Import — file-type routing', () => {
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
     await waitFor(() => expect(screen.queryByTestId('first-ask')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('first-ask-card')).not.toBeInTheDocument();
   });
 
   it('reviewSaysNothingSavedUntilConfirm', async () => {

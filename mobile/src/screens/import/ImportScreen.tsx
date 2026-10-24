@@ -1039,6 +1039,12 @@ export function ImportScreen() {
                 <Text style={{ fontWeight: '700' }}>Start with one statement:</Text> last month, from the account you use most.
               </Text>
             )}
+            {uploadProgress === null && (
+              // Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named.
+              <Text style={[styles.helpText, { color: c.muted }]}>
+                No bank statement to hand? A credit card statement works too.
+              </Text>
+            )}
             <Text style={[styles.body, { color: c.muted }]}>
               Choose a CSV or PDF statement from your bank. You'll review every transaction before
               anything is added.

@@ -552,6 +552,12 @@ describe('ImportScreen — upload completion dwell', () => {
     expect(screen.getByTestId('first-ask')).toHaveTextContent('Start with one statement: last month, from the account you use most.');
   });
 
+  it('showsCardStatementLine', async () => {
+    render(tree());
+
+    expect(await screen.findByText('No bank statement to hand? A credit card statement works too.')).toBeOnTheScreen();
+  });
+
   it('hidesItWhileImporting', async () => {
     api.import.stageCsv.mockReset().mockImplementation(() => new Promise(() => {}));
     render(tree());
@@ -561,6 +567,7 @@ describe('ImportScreen — upload completion dwell', () => {
     await settle();
 
     expect(screen.queryByTestId('first-ask')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No bank statement to hand? A credit card statement works too.')).not.toBeOnTheScreen();
   });
 
   it('reviewSaysNothingSavedUntilConfirm', async () => {

@@ -1410,9 +1410,15 @@ export default function Import() {
               internally, per direct feedback that the two belong side by side. */}
           {showUploadPicker && !uploading && (
             // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
-            <p data-testid="first-ask" className="text-sm text-ink">
-              <strong>Start with one statement:</strong> last month, from the account you use most.
-            </p>
+            <div className="space-y-1">
+              <p data-testid="first-ask" className="text-sm text-ink">
+                <strong>Start with one statement:</strong> last month, from the account you use most.
+              </p>
+              {/* Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named. */}
+              <p data-testid="first-ask-card" className="text-sm text-muted">
+                No bank statement to hand? A credit card statement works too.
+              </p>
+            </div>
           )}
           {showUploadPicker && (
             <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_0.85fr] gap-4">

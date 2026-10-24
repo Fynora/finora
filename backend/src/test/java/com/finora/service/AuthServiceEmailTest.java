@@ -106,8 +106,21 @@ class AuthServiceEmailTest {
         authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
 
         // The request stores no IP of its own, so this row is the only trace of who asked.
-        verify(auditService).record(eq(userId), eq("PASSWORD_RESET_REQUESTED"), eq("User"), eq(userId),
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("PASSWORD_RESET_REQUESTED"), eq("User"), eq(userId),
                 argThat(metadata -> "203.0.113.9".equals(metadata.get("ip")) && "Mac".equals(metadata.get("device"))));
+    }
+
+    /** SEC-07: the known-account path must not do more synchronous work than the unknown one needs to
+     *  hide, and an inline audit insert is exactly that. The row is written after commit instead. */
+    @Test
+    void forgotPassword_doesNotWriteTheRequestAuditInline() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(emailProvider.sendPasswordResetEmail(any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
+
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
     }
 
     @Test
@@ -117,6 +130,7 @@ class AuthServiceEmailTest {
         var response = authService.forgotPassword(new ForgotPasswordRequest("nobody@example.com", "USER"), null);
 
         // No user id to attach a row to, and the response must not differ from the known-account one.
+        verify(auditService, org.mockito.Mockito.never()).recordEvenOnRollback(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
         verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
         assertThat(response.message()).isEqualTo("If an account exists for that email, we've sent a password reset link.");
         verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());

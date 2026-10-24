@@ -289,8 +289,12 @@ public class ResendEmailProvider implements EmailProvider {
         // from a request header. Omitted when unavailable, never a placeholder.
         String deviceLine = (device != null && !device.isBlank())
                 ? "<p>Device: %s</p>".formatted(HtmlUtils.htmlEscape(device)) : "";
+        // The caveat is not decoration: the address the app records is often a shared network or VPN
+        // exit, not the person's own, so an unexplained one would otherwise read as more precise
+        // than it is.
         String ipLine = (ip != null && !ip.isBlank())
-                ? "<p>IP address: %s</p>".formatted(HtmlUtils.htmlEscape(ip)) : "";
+                ? "<p>IP address: %s (shared networks and VPNs can make an address look unfamiliar)</p>"
+                        .formatted(HtmlUtils.htmlEscape(ip)) : "";
         String bodyHtml = """
                 <p>Someone entered the wrong password for your Fynora account too many times, so we locked it on %s (UTC).</p>
                 %s%s

@@ -1398,6 +1398,11 @@ public class AuthService {
      * commit, like every other auth email, so a rolled-back lock never produces a notice.
      */
     private void notifyOwnerOfLockout(User user, Instant lockedAt, Instant unlocksAt) {
+        // Only to a verified address. Anyone can register an account with an email that is not
+        // theirs and leave it unverified, then fail five logins to make this mail land in a
+        // stranger's inbox; the sign-in-code request already refuses an unverified address for the
+        // same reason. The lock itself and its audit row are unaffected.
+        if (!user.isEmailVerified()) return;
         // No isConfigured() guard, unlike reset and sign-in-code: those return a dev link in the
         // response when no provider is set, so they must know. This mail has no such fallback, and
         // the welcome and deactivated mails call the provider the same way -- NoOpEmailProvider
@@ -1450,8 +1455,16 @@ public class AuthService {
         // afterwards: on 2026-10-24 one arrived at 06:25 and the only record was "email sent".
         // Existing accounts only -- an unknown address has no user id to attach it to, and the
         // response must stay identical for both (the enumeration rule above).
-        auditService.record(userOpt.get().getId(), "PASSWORD_RESET_REQUESTED", "User", userOpt.get().getId(),
-                requestMetadata.addTo(new java.util.HashMap<>()));
+        //
+        // Written from the after-commit executor, not inline. The known-account path already does
+        // two more writes than the unknown one, which SEC-07 below accepts; one more synchronous
+        // insert here would widen that gap for no reason, since nothing in the response depends on
+        // it. The labels are read now, on the request thread -- RequestMetadata is request-scoped.
+        UUID requestedUserId = userOpt.get().getId();
+        Map<String, Object> requestLabels = requestMetadata.addTo(new java.util.HashMap<>());
+        AfterCommit.run("password reset request audit", () -> authEmailExecutor.execute(() ->
+                auditService.recordEvenOnRollback(requestedUserId, "PASSWORD_RESET_REQUESTED", "User",
+                        requestedUserId, requestLabels)));
 
         // Bug fix: this used to always build the link from the single user-frontend base URL,
         // regardless of which app the request actually came from -- the user frontend and admin

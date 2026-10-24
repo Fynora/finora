@@ -114,6 +114,7 @@ class ResendEmailProviderTest {
         assertThat(message.html()).contains("24 Oct 2026, 01:10");
         assertThat(message.html()).contains("Device: Chrome on macOS");
         assertThat(message.html()).contains("IP address: 203.0.113.4");
+        assertThat(message.html()).contains("shared networks and VPNs can make an address look unfamiliar");
         // States only what the lock knows: those attempts failed. No claim about the rest of the account.
         assertThat(message.html()).contains("None of those attempts got in");
     }
@@ -136,6 +137,8 @@ class ResendEmailProviderTest {
 
         assertThat(message.html()).doesNotContain("Device:");
         assertThat(message.html()).doesNotContain("IP address:");
+        // No address, no caveat about addresses.
+        assertThat(message.html()).doesNotContain("shared networks");
     }
 
     @Test

@@ -559,6 +559,7 @@ class AuthServiceLoginTest {
         when(emailProvider.sendAccountLockedEmail(any(), any(), any(), any(), any()))
                 .thenReturn(com.finora.service.EmailResult.success(com.finora.service.ProviderType.RESEND, "m1"));
         User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        u.setEmailVerified(true);
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
 
@@ -589,6 +590,7 @@ class AuthServiceLoginTest {
         when(emailProvider.sendAccountLockedEmail(any(), any(), any(), any(), any()))
                 .thenReturn(com.finora.service.EmailResult.failure(com.finora.service.ProviderType.RESEND, "boom"));
         User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        u.setEmailVerified(true);
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
 
@@ -603,6 +605,25 @@ class AuthServiceLoginTest {
                 org.mockito.ArgumentMatchers.eq("User"), org.mockito.ArgumentMatchers.eq(userId),
                 org.mockito.ArgumentMatchers.<java.util.Map<String, Object>>argThat(m ->
                         "account_locked".equals(m.get("type")) && Boolean.FALSE.equals(m.get("success"))));
+    }
+
+    /** Anyone can register an account with an address that is not theirs and leave it unverified; the
+     *  lock notice must not become a way to put mail in that stranger's inbox. The lock still happens. */
+    @Test
+    void login_whenWrongPasswordsLockAnAccountWithAnUnverifiedEmail_locksButSendsNothing() {
+        var settings = new com.finora.entity.PlatformSettings();
+        settings.setMaxFailedLoginAttempts(1);
+        when(platformSettingsService.getEntity()).thenReturn(settings);
+        User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        u.setEmailVerified(false);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+
+        assertThat(u.getLockedUntil()).isNotNull();
+        org.mockito.Mockito.verify(emailProvider, org.mockito.Mockito.never())
+                .sendAccountLockedEmail(any(), any(), any(), any(), any());
     }
 
     @Test

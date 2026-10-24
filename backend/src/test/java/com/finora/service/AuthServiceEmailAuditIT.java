@@ -114,6 +114,7 @@ class AuthServiceEmailAuditIT extends AbstractIntegrationTest {
         user.setPasswordHash(passwordEncoder.encode("correct-horse-battery-staple"));
         user.setFullName("Lock Audit IT User");
         user.setPhoneVerified(true);
+        user.setEmailVerified(true); // the notice goes only to a verified address
         User saved = userRepository.save(user);
 
         int max = platformSettingsService.getEntity().getMaxFailedLoginAttempts();
@@ -136,6 +137,13 @@ class AuthServiceEmailAuditIT extends AbstractIntegrationTest {
                     .toList();
             if (sent.isEmpty()) Thread.sleep(100);
         }
+        // Polling stops at the first row it sees, so a duplicate still in flight would go unseen.
+        // Give the pool a moment to finish, then count again.
+        Thread.sleep(750);
+        sent = auditLogRepository.findByUserIdOrderByCreatedAtDesc(saved.getId()).stream()
+                .filter(a -> "EMAIL_SENT".equals(a.getAction())
+                        && "account_locked".equals(a.getMetadata().get("type")))
+                .toList();
         assertThat(sent)
                 .as("exactly one locked-account notice for one lock, however many attempts followed")
                 .hasSize(1);

@@ -331,11 +331,14 @@ export const everywhere = {
     { when: 'Afternoon', what: "Check what's left in the food budget before ordering lunch." },
     { when: 'Evening', what: 'Nudge a goal after the salary lands. Same numbers, same account.' },
   ],
-  // The web app is responsive and runs anywhere today. The native apps are built and on no store.
-  // Update this note and the section wording together, never just the note.
-  nativeStatus: 'In development',
+  // The web app is responsive and runs anywhere. The Android app is live on Google Play: checked
+  // 2026-10-24, the listing URL answers 200 and is titled "Fynora - Apps on Google Play" (a made-up
+  // package answers 404). The iOS app is not on the App Store: an iTunes lookup for its bundle id
+  // in the India store returned no results the same day. Update this note, the badge and the
+  // section wording together, never just one, and re-check both stores before changing any of it.
+  nativeStatus: 'Now on Android',
   nativeNote:
-    'Fynora runs in any browser today. Native iOS and Android apps are being built and are not on the app stores yet.',
+    'The Fynora app for Android is live on Google Play, and Fynora runs in any browser. The iOS app is not on the App Store yet.',
 };
 
 export const useCases = {
@@ -407,4 +410,11 @@ export const footer = {
   tagline: 'Understand every rupee. Not just your balance.',
   instagram: 'https://www.instagram.com/fynora_technovation/',
   instagramHandle: '@fynora_technovation',
+  // The Android app is on Google Play (verified live 2026-10-24, see `everywhere` above). The iOS
+  // app is not on the App Store, so there is deliberately no App Store badge here.
+  appLabel: 'Get the Android app',
+  playStoreCta: 'Get it on Google Play',
+  qrCaption: 'Scan with your phone',
+  qrAlt: 'QR code that opens the Fynora app on Google Play',
+  trademark: 'Google Play and the Google Play logo are trademarks of Google LLC.',
 };

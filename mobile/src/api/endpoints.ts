@@ -2193,18 +2193,23 @@ export const billingApi = {
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
 };
 
-/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+/** GET/PUT /notification-preferences -- FINANCIAL on EMAIL/PUSH and REMINDERS on PUSH are exposed (see the backend's
  *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */
 export interface NotificationPreference {
-  category: 'FINANCIAL';
+  // REMINDERS (Gate 2b): the month-start statement reminder, PUSH only.
+  category: 'FINANCIAL' | 'REMINDERS';
   channel: 'EMAIL' | 'PUSH';
   enabled: boolean;
 }
 
+// The server lists REMINDERS only when asked (the 1.0.0 app draws one switch per channel, so it must
+// never see a second PUSH row). This build draws the reminders switch, so it always asks.
+const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS' } };
+
 export const notificationPreferencesApi = {
-  list: () => api.get<NotificationPreference[]>('/notification-preferences').then((r) => r.data),
-  set: (channel: NotificationPreference['channel'], enabled: boolean) =>
-    api.put<NotificationPreference[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+  list: () => api.get<NotificationPreference[]>('/notification-preferences', PREFERENCE_CATEGORIES).then((r) => r.data),
+  set: (category: NotificationPreference['category'], channel: NotificationPreference['channel'], enabled: boolean) =>
+    api.put<NotificationPreference[]>('/notification-preferences', { category, channel, enabled }, PREFERENCE_CATEGORIES)
       .then((r) => r.data),
 };
 

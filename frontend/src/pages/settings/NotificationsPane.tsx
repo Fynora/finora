@@ -4,16 +4,26 @@ import { Skeleton } from '../../design-system/Skeleton';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
 
-const CHANNEL_COPY: Record<NotificationPreferenceDto['channel'], { label: string; description: string }> = {
-  EMAIL: {
+type PrefKey = `${NotificationPreferenceDto['category']}:${NotificationPreferenceDto['channel']}`;
+
+const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>> = {
+  'FINANCIAL:EMAIL': {
     label: 'Email',
     description: 'Statement and referral updates by email: a statement is ready, being checked or resolved, and referral rewards.',
   },
-  PUSH: {
+  'FINANCIAL:PUSH': {
     label: 'Push notifications',
     description: 'The same updates as notifications on every phone you use the Fynora app on.',
   },
+  // Gate 2b (spec §6, Sid's decision (b)): reminders have their own switch, so turning them off
+  // never silences "your statement is ready".
+  'REMINDERS:PUSH': {
+    label: 'Statement reminders',
+    description: 'A push at the start of the month when a new statement has probably arrived.',
+  },
 };
+
+const keyOf = (pref: NotificationPreferenceDto): PrefKey => `${pref.category}:${pref.channel}`;
 
 /**
  * The switch every FINANCIAL email's "Turn them off in your notification settings" line points to
@@ -23,7 +33,7 @@ const CHANNEL_COPY: Record<NotificationPreferenceDto['channel'], { label: string
 export function NotificationsPane() {
   const [prefs, setPrefs] = useState<NotificationPreferenceDto[] | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [saving, setSaving] = useState<NotificationPreferenceDto['channel'] | null>(null);
+  const [saving, setSaving] = useState<PrefKey | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,10 +41,10 @@ export function NotificationsPane() {
   }, []);
 
   async function toggle(pref: NotificationPreferenceDto) {
-    setSaving(pref.channel);
+    setSaving(keyOf(pref));
     setSaveError(null);
     try {
-      setPrefs(await notificationPreferencesApi.set(pref.channel, !pref.enabled));
+      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, !pref.enabled));
     } catch {
       setSaveError("Couldn't save that change. Please try again.");
     } finally {
@@ -54,11 +64,11 @@ export function NotificationsPane() {
         </Skeleton.Region>
       ) : (
         <>
-          {/* A channel this build has no copy for (a newer backend) is skipped, not rendered blank. */}
-          {prefs.filter((pref) => pref.channel in CHANNEL_COPY).map((pref) => {
-            const copy = CHANNEL_COPY[pref.channel];
+          {/* A preference this build has no copy for (a newer backend) is skipped, not rendered blank. */}
+          {prefs.filter((pref) => PREF_COPY[keyOf(pref)]).map((pref) => {
+            const copy = PREF_COPY[keyOf(pref)]!;
             return (
-              <div key={pref.channel} className="flex items-center justify-between gap-4 py-3 border-b border-border">
+              <div key={keyOf(pref)} className="flex items-center justify-between gap-4 py-3 border-b border-border">
                 <div>
                   <p className="text-sm text-ink font-medium">{copy.label}</p>
                   <p className="text-xs text-muted mt-0.5">{copy.description}</p>

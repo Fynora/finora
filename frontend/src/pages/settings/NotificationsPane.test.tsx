@@ -36,8 +36,28 @@ describe('NotificationsPane', () => {
 
     await user.click(await screen.findByRole('switch', { name: 'Email' }));
 
-    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('EMAIL', false);
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false);
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Email' })).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // Gate 2b PR 5 (spec §6): a separate switch for statement reminders, push only.
+  it('togglesStatementReminders', async () => {
+    const user = userEvent.setup();
+    const withReminders = (reminders: boolean) => [
+      ...both(true, true), { category: 'REMINDERS' as const, channel: 'PUSH' as const, enabled: reminders },
+    ];
+    vi.mocked(notificationPreferencesApi.list).mockResolvedValue(withReminders(true));
+    vi.mocked(notificationPreferencesApi.set).mockResolvedValue(withReminders(false));
+    render(<NotificationsPane />);
+
+    const reminders = await screen.findByRole('switch', { name: 'Statement reminders' });
+    expect(reminders).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('A push at the start of the month when a new statement has probably arrived.')).toBeInTheDocument();
+    await user.click(reminders);
+
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false);
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Statement reminders' })).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
   });
 

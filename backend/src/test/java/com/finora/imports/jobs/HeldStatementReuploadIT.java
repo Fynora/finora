@@ -80,9 +80,11 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
 
     /** Nothing in it trips the trust predicate -- the same document HeldStatementServiceRerunIT
      *  uses for a statement that clears. */
+    // The coffee row is dated the 15th: a day over 12 settles the file's date order, which would
+    // otherwise hold it on its own (CsvDateOrder).
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
             + "01/01/2026,Opening balance,,1000.00\n"
-            + "05/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
+            + "15/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final byte[] FUTURE_PERIOD_CSV = ("Date,Description,Amount,Balance,Statement Period\n"

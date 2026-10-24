@@ -33,6 +33,8 @@ class AuthServiceEmailTest {
     private EmailProvider emailProvider;
     private EmailProperties emailProperties;
     private AuditService auditService;
+    private com.finora.config.RequestMetadata requestMetadata;
+    private AccountRequestThrottle accountRequestThrottle;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -44,12 +46,22 @@ class AuthServiceEmailTest {
         emailProperties = new EmailProperties();
         emailProperties.setAppBaseUrl("http://localhost:5173");
         auditService = mock(AuditService.class);
+        // Mirrors the real addTo contract (mutate and return) and supplies the labels a real request
+        // would, so the audit rows below can be checked for who asked and from where.
+        requestMetadata = mock(com.finora.config.RequestMetadata.class);
+        when(requestMetadata.addTo(any())).thenAnswer(inv -> {
+            java.util.Map<String, Object> metadata = inv.getArgument(0);
+            metadata.put("ip", "203.0.113.9");
+            metadata.put("device", "Mac");
+            return metadata;
+        });
 
         User user = new User();
         ReflectionTestUtils.setField(user, "id", userId);
         user.setEmail("test@example.com");
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("test@example.com", "USER")).thenReturn(Optional.of(user));
 
+        accountRequestThrottle = mock(AccountRequestThrottle.class);
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), resetTokenRepository,
                 mock(com.finora.repository.AccountReactivationTokenRepository.class),
@@ -58,7 +70,7 @@ class AuthServiceEmailTest {
                 auditService, mock(RefreshTokenService.class), emailProvider, emailProperties,
                 mock(PhoneVerificationProvider.class), mock(PlatformSettingsService.class),
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
-                mock(com.finora.config.RequestMetadata.class),
+                requestMetadata,
                 mock(com.finora.service.SubscriptionService.class),
                 mock(com.finora.service.ReferralService.class),
                 mock(com.finora.service.MerchantSeedService.class),
@@ -69,7 +81,8 @@ class AuthServiceEmailTest {
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                accountRequestThrottle
         );
     }
 
@@ -85,6 +98,120 @@ class AuthServiceEmailTest {
         assertThat(response.devResetLink()).isNull();
         verify(auditService).recordEvenOnRollback(eq(userId), eq("EMAIL_SENT"), eq("User"), eq(userId),
                 argThat(metadata -> "password_reset".equals(metadata.get("type")) && Boolean.TRUE.equals(metadata.get("success"))));
+    }
+
+    @Test
+    void forgotPassword_recordsWhoAskedAndFromWhere_forAnExistingAccount() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(emailProvider.sendPasswordResetEmail(any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
+
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        // The request stores no IP of its own, so this row is the only trace of who asked.
+        verify(auditService).recordEvenOnRollback(eq(userId), eq("PASSWORD_RESET_REQUESTED"), eq("User"), eq(userId),
+                argThat(metadata -> "203.0.113.9".equals(metadata.get("ip")) && "Mac".equals(metadata.get("device"))));
+    }
+
+    /** SEC-07: the known-account path must not do more synchronous work than the unknown one needs to
+     *  hide, and an inline audit insert is exactly that. The row is written after commit instead. */
+    @Test
+    void forgotPassword_doesNotWriteTheRequestAuditInline() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(emailProvider.sendPasswordResetEmail(any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
+
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
+    }
+
+    private com.finora.exception.ApiException refusedForgotPassword(String email) {
+        return org.assertj.core.api.Assertions.catchThrowableOfType(
+                () -> authService.forgotPassword(new ForgotPasswordRequest(email, "USER"), null),
+                com.finora.exception.ApiException.class);
+    }
+
+    /** Over the ceiling, nothing is issued and nothing is sent, and the owner is told so: the clients
+     *  print a fixed "a reset link has been sent" for any success, so answering 200 would be a lie. */
+    @Test
+    void forgotPassword_overThePerAccountCeiling_issuesNothingAndSaysSoWithTheWait() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(accountRequestThrottle.resetRequestsExceeded("USER", "test@example.com")).thenReturn(true);
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
+
+        var refused = refusedForgotPassword("test@example.com");
+
+        assertThat(refused).isNotNull();
+        assertThat(refused.getStatus()).isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(refused.getCode()).isEqualTo(com.finora.exception.ErrorCode.AUTH_RESET_REQUEST_LIMIT);
+        assertThat(refused.getMessage()).contains("try again in about 15 minutes").contains("spam");
+        assertThat(refused.getDetails()).containsEntry("retryAfterSeconds", 900L);
+        verify(resetTokenRepository, org.mockito.Mockito.never()).save(any());
+        verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());
+    }
+
+    /** The refusal depends only on the count for the typed address, so a known and an unknown
+     *  address are refused with exactly the same words. */
+    @Test
+    void forgotPassword_refusesAKnownAndAnUnknownAddressIdentically() {
+        when(accountRequestThrottle.resetRequestsExceeded(eq("USER"), any())).thenReturn(true);
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
+
+        var known = refusedForgotPassword("test@example.com");
+        var unknown = refusedForgotPassword("nobody@example.com");
+
+        assertThat(known.getMessage()).isEqualTo(unknown.getMessage());
+        assertThat(known.getCode()).isEqualTo(unknown.getCode());
+        assertThat(known.getStatus()).isEqualTo(unknown.getStatus());
+        assertThat(known.getMessage()).as("the typed address is never echoed back").doesNotContain("example.com");
+    }
+
+    /** The wait is rounded UP to whole minutes, so nobody is told to retry before the window ends. */
+    @Test
+    void forgotPassword_theWaitInTheMessageIsRoundedUpToWholeMinutes() {
+        when(accountRequestThrottle.resetRequestsExceeded(eq("USER"), any())).thenReturn(true);
+
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(0L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about a minute.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(60L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about a minute.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(61L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about 2 minutes.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about 15 minutes.");
+    }
+
+    /** The count is taken on the typed address before any lookup, so a known and an unknown address
+     *  do the same work at this step. */
+    @Test
+    void forgotPassword_countsAnUnknownAddressExactlyLikeAKnownOne() {
+        authService.forgotPassword(new ForgotPasswordRequest("nobody@example.com", "USER"), null);
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        verify(accountRequestThrottle).resetRequestsExceeded("USER", "nobody@example.com");
+        verify(accountRequestThrottle).resetRequestsExceeded("USER", "test@example.com");
+    }
+
+    /** The admin portal's reset is a different account from the same address's user one. */
+    @Test
+    void forgotPassword_countsTheAdminScopeSeparately() {
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "ADMIN"), null);
+
+        verify(accountRequestThrottle).resetRequestsExceeded("ADMIN", "test@example.com");
+    }
+
+    @Test
+    void forgotPassword_forAnUnknownAddress_recordsNothing_andAnswersTheSameWay() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+
+        var response = authService.forgotPassword(new ForgotPasswordRequest("nobody@example.com", "USER"), null);
+
+        // No user id to attach a row to, and the response must not differ from the known-account one.
+        verify(auditService, org.mockito.Mockito.never()).recordEvenOnRollback(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
+        verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
+        assertThat(response.message()).isEqualTo("If an account exists for that email, we've sent a password reset link.");
+        verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());
     }
 
     /**
@@ -115,7 +242,8 @@ class AuthServiceEmailTest {
                 captured::set, // records the work instead of running it
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                mock(com.finora.service.AccountRequestThrottle.class)
         );
         when(emailProvider.isConfigured()).thenReturn(true);
         when(emailProvider.sendPasswordResetEmail(any(), any()))

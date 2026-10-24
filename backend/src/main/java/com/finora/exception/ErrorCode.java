@@ -344,6 +344,14 @@ public enum ErrorCode {
     // can see the shared-cookie mix-up in logs rather than a generic expiry.
     AUTH_REFRESH_PORTAL_MISMATCH("AUTH_016", HttpStatus.UNAUTHORIZED,
             "This session belongs to a different portal. Please sign in again."),
+    // The per-account ceiling on password-reset emails (AccountRequestThrottle). Answered with a
+    // 429 and a message that says what happened, not with the generic "if an account exists" text:
+    // every client prints a fixed "a reset link has been sent" on a 2xx, so a silent refusal would
+    // tell an owner a link was sent when none was. The refusal depends only on how many times the
+    // typed address was asked for, and unknown addresses are counted the same way, so it reveals
+    // nothing about whether an account exists. The thrower supplies the message with the wait in it.
+    AUTH_RESET_REQUEST_LIMIT("AUTH_017", HttpStatus.TOO_MANY_REQUESTS,
+            "Too many reset emails have been requested for this address. Try again later."),
 
     // Uploads (com.finora.uploads.UploadScanGate, audit F-18). Every upload endpoint shares these,
     // so a client can tell "your file was refused" from "the platform could not check it" by code

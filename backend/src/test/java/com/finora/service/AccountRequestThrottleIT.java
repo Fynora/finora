@@ -12,8 +12,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,45 +51,56 @@ class AccountRequestThrottleIT extends AbstractIntegrationTest {
         return jdbc.queryForObject("select count(*) from password_reset_tokens where user_id = ?", Long.class, userId);
     }
 
-    @Test
-    void onlyTheFirstThreeResetRequestsForAnAccountIssueAToken_andEveryAnswerIsTheSame() {
-        User user = verifiedUser();
-        Set<String> messages = new HashSet<>();
-
-        for (int i = 0; i < 6; i++) {
-            messages.add(authService.forgotPassword(new ForgotPasswordRequest(user.getEmail(), "USER"), null).message());
+    /** What a caller of the reset endpoint gets back, as one comparable string: the message when it
+     *  is accepted, or the status, code and message when it is refused. */
+    private String outcomeOfReset(String email) {
+        try {
+            return "ACCEPTED " + authService.forgotPassword(new ForgotPasswordRequest(email, "USER"), null).message();
+        } catch (ApiException e) {
+            return "REFUSED " + e.getStatus() + " " + e.getCode() + " " + e.getMessage();
         }
+    }
+
+    @Test
+    void onlyTheFirstThreeResetRequestsForAnAccountIssueAToken_andTheRestAreToldSo() {
+        User user = verifiedUser();
+        List<String> outcomes = new ArrayList<>();
+
+        for (int i = 0; i < 6; i++) outcomes.add(outcomeOfReset(user.getEmail()));
 
         assertThat(resetTokensOf(user.getId()))
                 .as("the ceiling is three per window, however many were asked for")
                 .isEqualTo(3);
-        assertThat(messages)
-                .as("a throttled request answers exactly like an accepted one")
-                .hasSize(1);
+        assertThat(outcomes.subList(0, 3)).allSatisfy(o -> assertThat(o).startsWith("ACCEPTED"));
+        assertThat(outcomes.subList(3, 6)).allSatisfy(o -> assertThat(o)
+                .startsWith("REFUSED 429 TOO_MANY_REQUESTS")
+                .contains("AUTH_RESET_REQUEST_LIMIT")
+                .contains("try again in about 15 minutes"));
     }
 
     @Test
-    void anUnknownAddressAnswersTheSameAsAKnownOneAtEveryStep() {
+    void anUnknownAddressIsAnsweredTheSameAsAKnownOneAtEveryStep() {
         User known = verifiedUser();
         String unknown = "nobody-" + UUID.randomUUID() + "@example.com";
-        Set<String> knownMessages = new HashSet<>();
-        Set<String> unknownMessages = new HashSet<>();
+        List<String> knownOutcomes = new ArrayList<>();
+        List<String> unknownOutcomes = new ArrayList<>();
 
         for (int i = 0; i < 6; i++) {
-            knownMessages.add(authService.forgotPassword(new ForgotPasswordRequest(known.getEmail(), "USER"), null).message());
-            unknownMessages.add(authService.forgotPassword(new ForgotPasswordRequest(unknown, "USER"), null).message());
+            knownOutcomes.add(outcomeOfReset(known.getEmail()));
+            unknownOutcomes.add(outcomeOfReset(unknown));
         }
 
-        assertThat(unknownMessages).as("before and after the ceiling").isEqualTo(knownMessages).hasSize(1);
+        assertThat(unknownOutcomes).as("accepted and refused alike, step for step").isEqualTo(knownOutcomes);
+        assertThat(knownOutcomes.stream().filter(o -> o.startsWith("REFUSED")).count()).isEqualTo(3);
     }
 
     @Test
     void anotherAccountIsUnaffectedByOneThatHasHitItsCeiling() {
         User noisy = verifiedUser();
         User other = verifiedUser();
-        for (int i = 0; i < 6; i++) authService.forgotPassword(new ForgotPasswordRequest(noisy.getEmail(), "USER"), null);
+        for (int i = 0; i < 6; i++) outcomeOfReset(noisy.getEmail());
 
-        authService.forgotPassword(new ForgotPasswordRequest(other.getEmail(), "USER"), null);
+        assertThat(outcomeOfReset(other.getEmail())).startsWith("ACCEPTED");
 
         assertThat(resetTokensOf(other.getId())).isEqualTo(1);
     }
@@ -114,6 +125,7 @@ class AccountRequestThrottleIT extends AbstractIntegrationTest {
         assertThat(refused).as("the sixth request is refused").isNotNull();
         assertThat(refused.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(refused.getDetails()).containsEntry("retryAfterSeconds", 600L);
+        assertThat(refused.getMessage()).contains("try again in about 10 minutes").contains("sign in with your password");
         assertThat(jdbc.queryForObject("select count(*) from email_login_otps where user_id = ?", Long.class, user.getId()))
                 .as("the refused request issued no code")
                 .isEqualTo(5);

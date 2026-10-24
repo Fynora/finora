@@ -126,19 +126,60 @@ class AuthServiceEmailTest {
         verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
     }
 
-    /** Over the ceiling, nothing is issued and nothing is sent, and the answer is the generic one a
-     *  caller always gets -- so being throttled reveals nothing about whether the account exists. */
+    private com.finora.exception.ApiException refusedForgotPassword(String email) {
+        return org.assertj.core.api.Assertions.catchThrowableOfType(
+                () -> authService.forgotPassword(new ForgotPasswordRequest(email, "USER"), null),
+                com.finora.exception.ApiException.class);
+    }
+
+    /** Over the ceiling, nothing is issued and nothing is sent, and the owner is told so: the clients
+     *  print a fixed "a reset link has been sent" for any success, so answering 200 would be a lie. */
     @Test
-    void forgotPassword_overThePerAccountCeiling_issuesNothingAndAnswersTheSame() {
+    void forgotPassword_overThePerAccountCeiling_issuesNothingAndSaysSoWithTheWait() {
         when(emailProvider.isConfigured()).thenReturn(true);
         when(accountRequestThrottle.resetRequestsExceeded("USER", "test@example.com")).thenReturn(true);
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
 
-        var response = authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+        var refused = refusedForgotPassword("test@example.com");
 
-        assertThat(response.message()).isEqualTo("If an account exists for that email, we've sent a password reset link.");
-        assertThat(response.devResetLink()).isNull();
+        assertThat(refused).isNotNull();
+        assertThat(refused.getStatus()).isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(refused.getCode()).isEqualTo(com.finora.exception.ErrorCode.AUTH_RESET_REQUEST_LIMIT);
+        assertThat(refused.getMessage()).contains("try again in about 15 minutes").contains("spam");
+        assertThat(refused.getDetails()).containsEntry("retryAfterSeconds", 900L);
         verify(resetTokenRepository, org.mockito.Mockito.never()).save(any());
         verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());
+    }
+
+    /** The refusal depends only on the count for the typed address, so a known and an unknown
+     *  address are refused with exactly the same words. */
+    @Test
+    void forgotPassword_refusesAKnownAndAnUnknownAddressIdentically() {
+        when(accountRequestThrottle.resetRequestsExceeded(eq("USER"), any())).thenReturn(true);
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
+
+        var known = refusedForgotPassword("test@example.com");
+        var unknown = refusedForgotPassword("nobody@example.com");
+
+        assertThat(known.getMessage()).isEqualTo(unknown.getMessage());
+        assertThat(known.getCode()).isEqualTo(unknown.getCode());
+        assertThat(known.getStatus()).isEqualTo(unknown.getStatus());
+        assertThat(known.getMessage()).as("the typed address is never echoed back").doesNotContain("example.com");
+    }
+
+    /** The wait is rounded UP to whole minutes, so nobody is told to retry before the window ends. */
+    @Test
+    void forgotPassword_theWaitInTheMessageIsRoundedUpToWholeMinutes() {
+        when(accountRequestThrottle.resetRequestsExceeded(eq("USER"), any())).thenReturn(true);
+
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(0L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about a minute.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(60L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about a minute.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(61L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about 2 minutes.");
+        when(accountRequestThrottle.resetWindowSeconds()).thenReturn(900L);
+        assertThat(refusedForgotPassword("test@example.com").getMessage()).contains("try again in about 15 minutes.");
     }
 
     /** The count is taken on the typed address before any lookup, so a known and an unknown address

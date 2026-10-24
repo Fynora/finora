@@ -100,7 +100,8 @@ class AccountRequestThrottleTest {
     }
 
     @Test
-    void theWaitReportedToTheOwnerIsTheWholeCodeWindow() {
+    void theWaitReportedToTheOwnerIsTheWholeWindow() {
         assertThat(throttle().codeWindowSeconds()).isEqualTo(600);
+        assertThat(throttle().resetWindowSeconds()).isEqualTo(900);
     }
 }

@@ -364,6 +364,13 @@ public class AuthService {
      * safe as the account-not-found path every caller already handles, and never reveals the
      * ambiguity to the caller (no account enumeration).
      */
+    /** A wait in words for an error message, rounded UP to whole minutes so the owner is never told
+     *  to retry before the window has really passed ("about 15 minutes"; never "0 minutes"). */
+    private static String waitHint(long seconds) {
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        return minutes == 1 ? "about a minute" : "about " + minutes + " minutes";
+    }
+
     private Optional<User> findUserByEmailIgnoreCaseSafely(String email, String scope) {
         try {
             return userRepository.findByEmailIgnoreCaseAndAccountScope(email, scope);
@@ -1434,13 +1441,18 @@ public class AuthService {
                 : "If an account exists for that email, a reset link has been issued.";
         String resetScope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
         // Counted for known and unknown addresses alike, on the address as typed, BEFORE the lookup:
-        // both paths do the same work here and answer the same generic message, so being over the
-        // ceiling tells a caller nothing about whether the account exists. The owner is not told
-        // either; the reset email simply does not go out again until the window passes. Logged
-        // without the address.
+        // both paths do the same work here, so being over the ceiling tells a caller nothing about
+        // whether the account exists. It is refused with a 429 that says so rather than answered
+        // with the generic "sent" message: the clients print a fixed "a reset link has been sent"
+        // for any 2xx, so a silent refusal would tell an owner a link was sent when none was.
+        // Logged without the address.
         if (accountRequestThrottle.resetRequestsExceeded(resetScope, request.email())) {
             log.info("Password reset request over the per-account ceiling (scope={}); nothing issued or sent", resetScope);
-            return new ForgotPasswordResponse(genericMessage, null);
+            long waitSeconds = accountRequestThrottle.resetWindowSeconds();
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_RESET_REQUEST_LIMIT,
+                    "Too many reset emails have been requested for this address. Check your inbox and spam "
+                            + "folder for an earlier email, or try again in " + waitHint(waitSeconds) + ".",
+                    Map.of("retryAfterSeconds", waitSeconds));
         }
         var userOpt = findUserByEmailIgnoreCaseSafely(request.email(), resetScope);
         if (userOpt.isEmpty()) {
@@ -1562,9 +1574,14 @@ public class AuthService {
         // the allowance: a tap that the wait refused does not. Existence is already disclosed by
         // /auth/identify before this endpoint is reached, so naming the refusal reveals nothing new.
         if (accountRequestThrottle.codeRequestsExceeded(user.getId())) {
+            long waitSeconds = accountRequestThrottle.codeWindowSeconds();
+            // Not the cooldown's "wait a bit": this wait is minutes, and the owner has a way
+            // forward in the meantime.
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_OTP_RESEND_COOLDOWN,
-                    ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
-                    Map.of("retryAfterSeconds", accountRequestThrottle.codeWindowSeconds()));
+                    "Too many sign-in codes have been requested for this account. Check your inbox and spam "
+                            + "folder for an earlier code, try again in " + waitHint(waitSeconds)
+                            + ", or sign in with your password.",
+                    Map.of("retryAfterSeconds", waitSeconds));
         }
 
         emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, scope, Instant.now());

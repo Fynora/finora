@@ -39,6 +39,7 @@ public class AccountRequestThrottle {
 
     private final RateLimiter resetRequests;
     private final RateLimiter codeRequests;
+    private final long resetWindowSeconds;
     private final long codeWindowSeconds;
 
     public AccountRequestThrottle(
@@ -49,6 +50,7 @@ public class AccountRequestThrottle {
             @Value("${app.rate-limit.code-request-per-account.window-seconds:600}") long codeWindowSeconds) {
         this.resetRequests = new RateLimiter(resetMax, resetWindowSeconds, "reset-request-account", redisTemplate);
         this.codeRequests = new RateLimiter(codeMax, codeWindowSeconds, "code-request-account", redisTemplate);
+        this.resetWindowSeconds = resetWindowSeconds;
         this.codeWindowSeconds = codeWindowSeconds;
     }
 
@@ -57,7 +59,8 @@ public class AccountRequestThrottle {
      *
      * <p>Keyed by the address AS TYPED, for known and unknown addresses alike, so the known and
      * unknown paths of {@code forgotPassword} do the same work here and a refusal reveals nothing
-     * about whether the account exists: the caller answers the same generic message either way.
+     * about whether the account exists: the caller refuses the same way, with the same message,
+     * whichever kind of address it was.
      * A mock returns {@code false}, so tests that do not care about throttling are unaffected.
      */
     public boolean resetRequestsExceeded(String scope, String typedEmail) {
@@ -70,6 +73,11 @@ public class AccountRequestThrottle {
      *  not use up the allowance. */
     public boolean codeRequestsExceeded(UUID userId) {
         return !codeRequests.allow(TokenHasher.sha256(userId.toString()));
+    }
+
+    /** The longest an owner can be told to wait for a reset email: the whole window. */
+    public long resetWindowSeconds() {
+        return resetWindowSeconds;
     }
 
     /** The longest the owner can be told to wait: the whole window, since the limiter does not

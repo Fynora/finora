@@ -184,6 +184,8 @@ class AuthServiceOtpLoginTest {
                 .isInstanceOfSatisfying(ApiException.class, ex -> {
                     assertThat(ex.getStatus()).isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
                     assertThat(ex.getDetails()).containsEntry("retryAfterSeconds", 600L);
+                    // Says how long, and what to do meanwhile, instead of the cooldown's "wait a bit".
+                    assertThat(ex.getMessage()).contains("try again in about 10 minutes").contains("password");
                 });
 
         // Refused before anything is written or sent, and not recorded as an issued code.

@@ -1,5 +1,6 @@
 package com.finora.config;
 
+import com.finora.observability.UserRequestLoadInterceptor;
 import com.finora.security.AdminUserDataReadAuditInterceptor;
 import com.finora.security.UserActivityInterceptor;
 import org.springframework.context.annotation.Configuration;
@@ -27,16 +28,21 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor;
     private final UserActivityInterceptor userActivityInterceptor;
+    private final UserRequestLoadInterceptor userRequestLoadInterceptor;
 
     public WebMvcConfig(AdminUserDataReadAuditInterceptor adminUserDataReadAuditInterceptor,
-                        UserActivityInterceptor userActivityInterceptor) {
+                        UserActivityInterceptor userActivityInterceptor,
+                        UserRequestLoadInterceptor userRequestLoadInterceptor) {
         this.adminUserDataReadAuditInterceptor = adminUserDataReadAuditInterceptor;
         this.userActivityInterceptor = userActivityInterceptor;
+        this.userRequestLoadInterceptor = userRequestLoadInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(adminUserDataReadAuditInterceptor).addPathPatterns(ADMIN_SINGLE_USER_ROUTES);
         registry.addInterceptor(userActivityInterceptor).addPathPatterns(USER_ACTIVITY_ROUTES);
+        // Measures per-user request rates, refuses nothing (see UserRequestLoad).
+        registry.addInterceptor(userRequestLoadInterceptor).addPathPatterns(USER_ACTIVITY_ROUTES);
     }
 }

@@ -952,4 +952,15 @@ public class ImportSessionService {
             throw new IllegalStateException("Failed to deserialize import session state", e);
         }
     }
+
+    /**
+     * Gate 2b (spec §5.3): whether a reviewer released this session after an accuracy hold. True
+     * only for a COMPLETED job that carries a held statement: a job still held, a rejected one
+     * (FAILED) and a session that was never held all answer false.
+     */
+    public boolean wasApprovedAfterReview(UUID sessionId) {
+        if (sessionId == null) return false;
+        return importJobRepository.existsByImportSessionIdAndStatusAndHeldStatementIdIsNotNull(
+                sessionId, com.finora.entity.ImportJob.Status.COMPLETED);
+    }
 }

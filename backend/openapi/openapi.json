@@ -19433,14 +19433,18 @@
                 "properties": {
                     "name": {
                         "type": "string",
-                        "minLength": 1
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "pattern": "[^\\x00-\\x1F\\x7F]*"
                     },
                     "targetAmount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     },
                     "currentAmount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.0
                     },
                     "targetDate": {
@@ -19508,6 +19512,7 @@
                 "properties": {
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },

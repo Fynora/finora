@@ -91,6 +91,28 @@ class GoalServiceTest {
     }
 
     @Test
+    void addContribution_thatWouldTakeTheTotalPastTheLargestStorableAmount_isRefusedBeforeAnyWrite() {
+        // Each contribution can be valid on its own and still overflow the NUMERIC(14,2) total.
+        // That used to fail in the database and come back as a 409 "refresh and try again".
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("999999999999.00"))));
+
+        assertThatThrownBy(() -> service.addContribution(userId, goalId, new BigDecimal("1.00")))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> assertThat(((ApiException) e).getCode()).isEqualTo(com.finora.exception.ErrorCode.GOAL_AMOUNT_TOO_LARGE));
+        verify(goalRepository, never()).save(any());
+        verify(contributionRepository, never()).save(any());
+    }
+
+    @Test
+    void addContribution_reachingExactlyTheLargestStorableAmount_isAllowed() {
+        when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("999999999999.00"))));
+
+        GoalDto result = service.addContribution(userId, goalId, new BigDecimal("0.99"));
+
+        assertThat(result.currentAmount()).isEqualByComparingTo(GoalDto.MAX_AMOUNT);
+    }
+
+    @Test
     void addContribution_forAGoalBelongingToAnotherUser_throwsForbidden() {
         when(goalRepository.findById(goalId)).thenReturn(Optional.of(goalWith(new BigDecimal("100"))));
 

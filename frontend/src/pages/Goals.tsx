@@ -6,6 +6,7 @@ import type { Goal } from '../types';
 import { FinoraCard, EmptyState, ConfirmDialog, Button, Skeleton, Badge } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { toLocalDateString } from '../utils/date';
+import { parseNonNegativeAmount, parsePositiveAmount } from '../lib/validation';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
@@ -68,16 +69,31 @@ export default function Goals() {
   }
 
   async function addGoal() {
-    if (!name || !target) return;
-    const targetAmount = parseFloat(target);
-    if (!(targetAmount > 0)) {
-      setError('Target amount must be greater than zero.');
+    // A number input reports what it can't read ("1,00,000", "12abc", "1e400") as an empty value,
+    // so these used to return silently -- the button looked broken.
+    if (!name.trim()) {
+      setError('Give this goal a name.');
+      return;
+    }
+    if (!target.trim()) {
+      setError('Enter a target amount as a number, without commas -- for example 50000.');
+      return;
+    }
+    // Not parseFloat, which reads "1e400" as Infinity -- sent over the wire as null.
+    const targetAmount = parsePositiveAmount(target);
+    if (targetAmount === null) {
+      setError('Target amount must be a number greater than zero.');
+      return;
+    }
+    const currentAmount = current.trim() ? parseNonNegativeAmount(current) : 0;
+    if (currentAmount === null) {
+      setError("Starting amount must be a number, and can't be negative.");
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      await goalsApi.create({ name, targetAmount, currentAmount: parseFloat(current || '0'), targetDate: deadline || undefined });
+      await goalsApi.create({ name, targetAmount, currentAmount, targetDate: deadline || undefined });
       setName(''); setTarget(''); setCurrent(''); setDeadline('');
       load();
       invalidateSharedCaches();
@@ -89,8 +105,16 @@ export default function Goals() {
   }
 
   async function contribute(id: string) {
-    const amt = parseFloat(prompt('Contribution amount:') ?? '');
-    if (isNaN(amt) || amt <= 0) return;
+    const raw = prompt('Contribution amount:');
+    if (raw === null) return; // cancelled
+    // Not parseFloat: it stops at the first character it can't read, so "1,00,000" recorded a
+    // contribution of 1 and "12abc" one of 12, with nothing on screen to say so.
+    const amt = parsePositiveAmount(raw);
+    if (amt === null) {
+      setError('Enter the contribution as a number greater than zero, without commas -- for example 1500 or 1500.50.');
+      return;
+    }
+    setError(null);
     try {
       await goalsApi.addContribution(id, amt);
       load();

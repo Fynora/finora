@@ -75,6 +75,9 @@ jest.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ fullName: mockFullName }),
 }));
 
+// The real hook resolves once per test process, so the first test in a run saw GlassScreen remount
+// its content mid-test and an element it had just found leave the tree.
+jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -545,6 +548,32 @@ describe('ImportScreen — upload completion dwell', () => {
   // celebrateThenAdvance mechanism; this locks in that this screen's copy of it actually holds the
   // step on 'upload' (rendering the Completed checkmark) rather than jumping the instant stageCsv
   // resolves.
+  // Gate 2b PR 4 (spec §5.2): what happens to the statement, beside the file picker, closed.
+  it('shows what happens to my statement beside the file picker', async () => {
+    render(tree());
+
+    expect(await screen.findByRole('button', { name: 'What happens to my statement?' })).toBeOnTheScreen();
+  });
+
+  // The password card takes the picker's place. It is the moment the panel's line about passwords
+  // matters most, so the panel stays, once, below the card.
+  it('keeps what happens to my statement at the PDF password step', async () => {
+    mockRouteParams = {
+      sharedFile: {
+        file: { uri: 'file:///cache/statement.pdf', name: 'statement.pdf', type: 'application/pdf' },
+        format: 'PDF',
+        nonce: 1,
+      },
+    };
+    render(tree());
+    await screen.findByTestId('pdf-password-panel');
+
+    const toggles = screen.getAllByRole('button', { name: 'What happens to my statement?' });
+    expect(toggles).toHaveLength(1);
+    fireEvent.press(toggles[0]);
+    expect(screen.getByText(/A PDF password is saved only if you choose/)).toBeOnTheScreen();
+  });
+
   // Gate 2b PR 3 (spec §3): tell people a statement can be shared in from their email.
   it('showsShareHint', async () => {
     render(tree());

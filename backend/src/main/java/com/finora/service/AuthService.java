@@ -132,6 +132,7 @@ public class AuthService {
     // SEC-07: dispatches the forgotPassword() email send off the request thread -- see
     // BackgroundWorkConfig.authEmailExecutor's own doc comment for why.
     private final Executor authEmailExecutor;
+    private final AccountRequestThrottle accountRequestThrottle;
     // SEC-03: the MFA gate login() checks and completeMfaLogin() resolves against.
     private final AdminMfaService adminMfaService;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -155,7 +156,8 @@ public class AuthService {
                         @Qualifier("authEmailExecutor") Executor authEmailExecutor,
                         AdminMfaService adminMfaService,
                         EmailLoginOtpRepository emailLoginOtpRepository,
-                        SignupAttributionService signupAttributionService) {
+                        SignupAttributionService signupAttributionService,
+                        AccountRequestThrottle accountRequestThrottle) {
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
         this.resetTokenRepository = resetTokenRepository;
@@ -178,6 +180,7 @@ public class AuthService {
         this.referralService = referralService;
         this.merchantSeedService = merchantSeedService;
         this.authEmailExecutor = authEmailExecutor;
+        this.accountRequestThrottle = accountRequestThrottle;
         this.adminMfaService = adminMfaService;
         this.emailLoginOtpRepository = emailLoginOtpRepository;
         this.signupAttributionService = signupAttributionService;
@@ -361,6 +364,13 @@ public class AuthService {
      * safe as the account-not-found path every caller already handles, and never reveals the
      * ambiguity to the caller (no account enumeration).
      */
+    /** A wait in words for an error message, rounded UP to whole minutes so the owner is never told
+     *  to retry before the window has really passed ("about 15 minutes"; never "0 minutes"). */
+    private static String waitHint(long seconds) {
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        return minutes == 1 ? "about a minute" : "about " + minutes + " minutes";
+    }
+
     private Optional<User> findUserByEmailIgnoreCaseSafely(String email, String scope) {
         try {
             return userRepository.findByEmailIgnoreCaseAndAccountScope(email, scope);
@@ -1373,11 +1383,49 @@ public class AuthService {
         int attempts = user.getFailedLoginAttempts() + 1;
         user.setFailedLoginAttempts(attempts);
         if (attempts >= settings.getMaxFailedLoginAttempts()) {
-            user.setLockedUntil(Instant.now().plusSeconds(settings.getLockoutDurationMinutes() * 60L));
+            Instant lockedAt = Instant.now();
+            Instant unlocksAt = lockedAt.plusSeconds(settings.getLockoutDurationMinutes() * 60L);
+            user.setLockedUntil(unlocksAt);
             auditService.record(user.getId(), "ACCOUNT_LOCKED", "User", user.getId(),
-                    java.util.Map.of("failedAttempts", attempts));
+                    requestMetadata.addTo(new java.util.HashMap<>(java.util.Map.of("failedAttempts", attempts))));
+            notifyOwnerOfLockout(user, lockedAt, unlocksAt);
         }
         userRepository.save(user);
+    }
+
+    /**
+     * Tells the account's owner that wrong passwords locked it, and from where. Someone who was
+     * asleep, or never watches the audit log, otherwise learns nothing -- on 2026-10-24 an account
+     * was locked three times overnight and its owner heard only about the reset and sign-in-code
+     * mails that followed.
+     *
+     * <p>One email per lock, not per attempt: a locked account counts no further failures until
+     * the lock ends (see login()), so an attacker cannot turn this into a stream of mail to the
+     * owner faster than once per lockout period.
+     *
+     * <p>The device and IP are read here, on the request thread -- the request-scoped
+     * {@link RequestMetadata} is not available once the send is handed to the executor. After
+     * commit, like every other auth email, so a rolled-back lock never produces a notice.
+     */
+    private void notifyOwnerOfLockout(User user, Instant lockedAt, Instant unlocksAt) {
+        // Only to a verified address. Anyone can register an account with an email that is not
+        // theirs and leave it unverified, then fail five logins to make this mail land in a
+        // stranger's inbox; the sign-in-code request already refuses an unverified address for the
+        // same reason. The lock itself and its audit row are unaffected.
+        if (!user.isEmailVerified()) return;
+        // No isConfigured() guard, unlike reset and sign-in-code: those return a dev link in the
+        // response when no provider is set, so they must know. This mail has no such fallback, and
+        // the welcome and deactivated mails call the provider the same way -- NoOpEmailProvider
+        // logs and reports failure, and the audit row below records success=false.
+        UUID userId = user.getId();
+        String email = user.getEmail();
+        String device = requestMetadata.device();
+        String ip = requestMetadata.ip();
+        AfterCommit.run("account locked email", () -> authEmailExecutor.execute(() -> {
+            EmailResult result = emailProvider.sendAccountLockedEmail(email, lockedAt, unlocksAt, device, ip);
+            auditService.recordEvenOnRollback(userId, "EMAIL_SENT", "User", userId, Map.of(
+                    "type", "account_locked", "provider", result.provider().name(), "success", result.success()));
+        }));
     }
 
     /**
@@ -1391,8 +1439,22 @@ public class AuthService {
         String genericMessage = emailProvider.isConfigured()
                 ? "If an account exists for that email, we've sent a password reset link."
                 : "If an account exists for that email, a reset link has been issued.";
-        var userOpt = findUserByEmailIgnoreCaseSafely(request.email(),
-                User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER);
+        String resetScope = User.SCOPE_ADMIN.equalsIgnoreCase(request.scope()) ? User.SCOPE_ADMIN : User.SCOPE_USER;
+        // Counted for known and unknown addresses alike, on the address as typed, BEFORE the lookup:
+        // both paths do the same work here, so being over the ceiling tells a caller nothing about
+        // whether the account exists. It is refused with a 429 that says so rather than answered
+        // with the generic "sent" message: the clients print a fixed "a reset link has been sent"
+        // for any 2xx, so a silent refusal would tell an owner a link was sent when none was.
+        // Logged without the address.
+        if (accountRequestThrottle.resetRequestsExceeded(resetScope, request.email())) {
+            log.info("Password reset request over the per-account ceiling (scope={}); nothing issued or sent", resetScope);
+            long waitSeconds = accountRequestThrottle.resetWindowSeconds();
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_RESET_REQUEST_LIMIT,
+                    "Too many reset emails have been requested for this address. Check your inbox and spam "
+                            + "folder for an earlier email, or try again in " + waitHint(waitSeconds) + ".",
+                    Map.of("retryAfterSeconds", waitSeconds));
+        }
+        var userOpt = findUserByEmailIgnoreCaseSafely(request.email(), resetScope);
         if (userOpt.isEmpty()) {
             return new ForgotPasswordResponse(genericMessage, null);
         }
@@ -1411,6 +1473,22 @@ public class AuthService {
         prt.setTokenHash(TokenHasher.sha256(rawToken));
         prt.setExpiresAt(Instant.now().plusSeconds(RESET_TOKEN_TTL_MINUTES * 60));
         resetTokenRepository.save(prt);
+
+        // Who asked, from where. The reset email goes to the account's owner and a request stores
+        // no IP of its own, so without this row a reset the owner did not ask for cannot be traced
+        // afterwards: on 2026-10-24 one arrived at 06:25 and the only record was "email sent".
+        // Existing accounts only -- an unknown address has no user id to attach it to, and the
+        // response must stay identical for both (the enumeration rule above).
+        //
+        // Written from the after-commit executor, not inline. The known-account path already does
+        // two more writes than the unknown one, which SEC-07 below accepts; one more synchronous
+        // insert here would widen that gap for no reason, since nothing in the response depends on
+        // it. The labels are read now, on the request thread -- RequestMetadata is request-scoped.
+        UUID requestedUserId = userOpt.get().getId();
+        Map<String, Object> requestLabels = requestMetadata.addTo(new java.util.HashMap<>());
+        AfterCommit.run("password reset request audit", () -> authEmailExecutor.execute(() ->
+                auditService.recordEvenOnRollback(requestedUserId, "PASSWORD_RESET_REQUESTED", "User",
+                        requestedUserId, requestLabels)));
 
         // Bug fix: this used to always build the link from the single user-frontend base URL,
         // regardless of which app the request actually came from -- the user frontend and admin
@@ -1492,6 +1570,20 @@ public class AuthService {
             }
         });
 
+        // After the 30-second wait above, so only a request that would really issue a code uses up
+        // the allowance: a tap that the wait refused does not. Existence is already disclosed by
+        // /auth/identify before this endpoint is reached, so naming the refusal reveals nothing new.
+        if (accountRequestThrottle.codeRequestsExceeded(user.getId())) {
+            long waitSeconds = accountRequestThrottle.codeWindowSeconds();
+            // Not the cooldown's "wait a bit": this wait is minutes, and the owner has a way
+            // forward in the meantime.
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.AUTH_OTP_RESEND_COOLDOWN,
+                    "Too many sign-in codes have been requested for this account. Check your inbox and spam "
+                            + "folder for an earlier code, try again in " + waitHint(waitSeconds)
+                            + ", or sign in with your password.",
+                    Map.of("retryAfterSeconds", waitSeconds));
+        }
+
         emailLoginOtpRepository.markAllUnconsumedAsConsumed(realEmail, scope, Instant.now());
 
         String code = String.format("%06d", secureRandom.nextInt(1_000_000));
@@ -1514,6 +1606,11 @@ public class AuthService {
                     ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
                     Map.of("retryAfterSeconds", EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS));
         }
+
+        // Who asked, from where -- see the same row in forgotPassword. Only a code that was really
+        // issued is recorded, not a refused or raced request.
+        auditService.record(user.getId(), "LOGIN_OTP_REQUESTED", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>()));
 
         if (emailProvider.isConfigured()) {
             UUID otpUserId = user.getId();

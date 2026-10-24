@@ -65,7 +65,7 @@ describe('ChecklistWidget', () => {
 
     fireEvent.press(header);
     expect(await screen.findByText(/Complete your profile/)).toBeTruthy();
-    expect(screen.getByText(/Import first statement/)).toBeTruthy();
+    expect(screen.getByText(/Start with one statement/)).toBeTruthy();
 
     fireEvent.press(header);
     await waitFor(() => expect(screen.queryByText(/Complete your profile/)).toBeNull());
@@ -85,7 +85,7 @@ describe('ChecklistWidget', () => {
     fireEvent.press(await screen.findByRole('button', { name: /Getting Started/ }));
 
     expect(await screen.findByLabelText('Complete your profile, done')).toBeTruthy();
-    expect(screen.getByLabelText('Import first statement, not done')).toBeTruthy();
+    expect(screen.getByLabelText('Start with one statement, not done')).toBeTruthy();
   });
 
   it('draws the progress bar at the completed share once expanded', async () => {

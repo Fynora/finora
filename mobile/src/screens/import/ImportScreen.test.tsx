@@ -1,4 +1,5 @@
 import { AppAlert } from '../../lib/appAlert';
+import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT } from '../../api/importFailureMessages';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -544,6 +545,46 @@ describe('ImportScreen — upload completion dwell', () => {
   // celebrateThenAdvance mechanism; this locks in that this screen's copy of it actually holds the
   // step on 'upload' (rendering the Completed checkmark) rather than jumping the instant stageCsv
   // resolves.
+  // Gate 2b PR 3 (spec §3): tell people a statement can be shared in from their email.
+  it('showsShareHint', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Statement in your email? Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+  });
+
+  // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.
+  it('showsStartWithOneStatement', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Start with one statement:')).toBeOnTheScreen();
+    expect(screen.getByTestId('first-ask')).toHaveTextContent('Start with one statement: last month, from the account you use most.');
+  });
+
+  it('showsCardStatementLine', async () => {
+    render(tree());
+
+    expect(await screen.findByText('No bank statement to hand? A credit card statement works too.')).toBeOnTheScreen();
+  });
+
+  it('hidesItWhileImporting', async () => {
+    api.import.stageCsv.mockReset().mockImplementation(() => new Promise(() => {}));
+    render(tree());
+    expect(await screen.findByTestId('first-ask')).toBeOnTheScreen();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(screen.queryByTestId('first-ask')).not.toBeOnTheScreen();
+    expect(screen.queryByText('No bank statement to hand? A credit card statement works too.')).not.toBeOnTheScreen();
+  });
+
+  it('reviewSaysNothingSavedUntilConfirm', async () => {
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    expect(await screen.findByText('Nothing is saved until you confirm.', {}, { timeout: 3000 })).toBeOnTheScreen();
+  });
+
   it('flashes a Completed checkmark before advancing to the review step', async () => {
     render(tree());
 
@@ -1267,11 +1308,11 @@ describe('ImportScreen — arriving via Android share sheet', () => {
 
   it('shows the share-sheet error message for an unsupported shared file', async () => {
     mockRouteParams = {
-      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+      sharedFileError: { message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.", nonce: 1 },
     };
     render(tree());
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeTruthy();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeTruthy();
   });
 
   it('does not re-apply the same shared file twice on a later re-render (nonce dedupe)', async () => {
@@ -1382,6 +1423,32 @@ describe('ImportScreen — async import job (Phase 4)', () => {
 
     await waitFor(() => expect(api.import.getSession).toHaveBeenCalledWith('session-1'), { timeout: 3000 });
     expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
+  });
+
+  // Gate 2b PR 2 (spec §5.3): the review says nothing is saved until the user confirms, and says
+  // "Approved." first when a reviewer released this session after an accuracy hold.
+  it.each([
+    ['approvedHoldSaysNothingSaved', true, 'Approved. Nothing is saved until you confirm.'],
+    ['rejectedHoldDoesNotSayApproved', false, 'Nothing is saved until you confirm.'],
+  ])('%s', async (_name, approvedAfterReview, expected) => {
+    api.importJobs.progress.mockResolvedValueOnce(
+      jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 1, rowsProcessed: 1, importSessionId: 'session-1' })
+    );
+    api.import.getSession.mockResolvedValue({
+      sessionId: 'session-1',
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: detectedWithBank, unparseableRows: [],
+      },
+      approvedAfterReview,
+    } as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(expected, {}, { timeout: 3000 })).toBeOnTheScreen();
+    if (!approvedAfterReview) expect(screen.queryByText(/Approved\./)).not.toBeOnTheScreen();
   });
 
   it('shows the curated failure reason and a way back once the job fails', async () => {
@@ -2190,7 +2257,7 @@ describe('ImportScreen — funnel events', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -2232,12 +2299,12 @@ describe('ImportScreen — funnel events', () => {
 
   it('sendsFileChosenForARefusedSharedFile', async () => {
     mockRouteParams = {
-      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+      sharedFileError: { message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.", nonce: 1 },
     };
     render(tree());
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -2340,9 +2407,41 @@ describe('ImportScreen — what stopped you', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Something went wrong on our side.')).toBeOnTheScreen();
+    // Gate 2b PR 1: a code with curated copy shows that copy (IMPORT_006 now has some).
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode] ?? 'Something went wrong on our side.')).toBeOnTheScreen();
     expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
     expect(question).not.toHaveBeenCalled();
+  });
+
+  // Gate 2b PR 1 (docs/research/gate2/refusal-audit.md): the gaps the audit found.
+  it.each([
+    ['an empty file', 400, 'IMPORT_021'],
+    ['a file whose contents do not match its name', 415, 'IMPORT_022'],
+    ['a file the virus check flags', 400, 'UPLOAD_001'],
+    ['too many uploads in a short time', 429, 'RATE_LIMITED'],
+  ])('gives a reason and a next step for %s', async (_label, status, errorCode) => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(errorCode, 'Server words.', status));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode])).toBeOnTheScreen();
+    expect(screen.queryByText('Server words.')).not.toBeOnTheScreen();
+  });
+
+  it('says what the PDF password is not, under the password field', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.pdf', name: 'statement.pdf' } as never],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(PDF_PASSWORD_HINT)).toBeOnTheScreen();
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
   });
 
   // Spec §4.3: within 30 days of answering REFUSED (or after any answer today, from before a
@@ -2384,7 +2483,7 @@ describe('ImportScreen — what stopped you', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
   });
 

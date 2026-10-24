@@ -47,7 +47,7 @@ import { AuthProvider } from '../context/AuthContext';
 import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
-import { IMPORT_FAILURE_MESSAGES } from '../api/importFailureMessages';
+import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
 import { resetActivationAnsweredForTests } from '../lib/activationQuestions';
 import type { DetectedAccountInfo } from '../types';
 
@@ -403,9 +403,48 @@ describe('Import — file-type routing', () => {
     const notAStatement = new File(['hello'], 'notes.txt', { type: 'text/plain' });
     fireEvent.drop(screen.getByTestId('statement-dropzone'), { dataTransfer: { files: [notAStatement] } });
 
-    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(await screen.findByText(UNSUPPORTED_FILE_MESSAGE)).toBeInTheDocument();
     expect(importApi.stageCsv).not.toHaveBeenCalled();
     expect(importApi.stagePdf).not.toHaveBeenCalled();
+  });
+
+  // Gate 2b PR 2 (spec §4, §5.3): ask for one statement first, and promise nothing is saved early.
+  it('showsStartWithOneStatement', async () => {
+    renderImport();
+
+    const ask = await screen.findByTestId('first-ask');
+    expect(ask).toHaveTextContent('Start with one statement: last month, from the account you use most.');
+    expect(within(ask).getByText('Start with one statement:').tagName).toBe('STRONG');
+  });
+
+  it('showsCardStatementLine', async () => {
+    renderImport();
+
+    expect(await screen.findByTestId('first-ask-card')).toHaveTextContent(
+      'No bank statement to hand? A credit card statement works too.');
+  });
+
+  it('hidesItWhileImporting', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockImplementation(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    renderImport();
+    expect(await screen.findByTestId('first-ask')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    await waitFor(() => expect(screen.queryByTestId('first-ask')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('first-ask-card')).not.toBeInTheDocument();
+  });
+
+  it('reviewSaysNothingSavedUntilConfirm', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByText('Nothing is saved until you confirm.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Approved\./)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('first-ask')).not.toBeInTheDocument();
   });
 
   it('advances to the review step once staging succeeds', async () => {
@@ -490,7 +529,7 @@ describe('Import — funnel events', () => {
     fireEvent.drop(screen.getByTestId('statement-dropzone'),
       { dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } });
 
-    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(await screen.findByText(UNSUPPORTED_FILE_MESSAGE)).toBeInTheDocument();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -501,7 +540,7 @@ describe('Import — funnel events', () => {
     fireEvent.drop(dropzone, { dataTransfer: { files: [new File(['a'], 'first.txt', { type: 'text/plain' })] } });
     fireEvent.drop(dropzone, { dataTransfer: { files: [new File(['b'], 'second.txt', { type: 'text/plain' })] } });
 
-    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(await screen.findByText(UNSUPPORTED_FILE_MESSAGE)).toBeInTheDocument();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -565,8 +604,59 @@ describe('Import — what stopped you', () => {
 
     await user.upload(screen.getByTestId('statement-file-input'), csvFile());
 
-    expect(await screen.findByText('Something went wrong on our side.')).toBeInTheDocument();
+    // Gate 2b PR 1: a code with curated copy shows that copy (IMPORT_006 now has some).
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode] ?? 'Something went wrong on our side.')).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('What will you do now?')).toBeNull();
+  });
+
+  // Gate 2b PR 1 (docs/research/gate2/refusal-audit.md): the gaps the audit found.
+  it('says what the PDF password is not, under the password field', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), pdfFile());
+
+    expect(await screen.findByText(PDF_PASSWORD_HINT)).toBeInTheDocument();
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
+  });
+
+  it('refuses a file that is not .csv or .pdf in the same words as the app', async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), new File(['x'], 'notes.txt', { type: 'text/plain' }));
+
+    expect(await screen.findByText(UNSUPPORTED_FILE_MESSAGE)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['an empty file', 400, 'IMPORT_021'],
+    ['a file whose contents do not match its name', 415, 'IMPORT_022'],
+    ['a file the virus check flags', 400, 'UPLOAD_001'],
+    ['too many uploads in a short time', 429, 'RATE_LIMITED'],
+  ])('gives a reason and a next step for %s', async (_label, status, errorCode) => {
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue({
+      response: { status, data: { errorCode, message: 'Server words.' } },
+    });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode])).toBeInTheDocument();
+    expect(screen.queryByText('Server words.')).toBeNull();
+  });
+
+  it('does not blame the file when the server fails without an answer', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockRejectedValue({ response: { status: 502, data: '' } });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText(SERVER_FAILURE_MESSAGE)).toBeInTheDocument();
+    expect(screen.queryByText(/could not parse/i)).toBeNull();
     expect(screen.queryByText('What will you do now?')).toBeNull();
   });
 
@@ -605,7 +695,7 @@ describe('Import — what stopped you', () => {
     fireEvent.drop(screen.getByTestId('statement-dropzone'),
       { dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] } });
 
-    expect(await screen.findByText(/please upload a \.csv or \.pdf/i)).toBeInTheDocument();
+    expect(await screen.findByText(UNSUPPORTED_FILE_MESSAGE)).toBeInTheDocument();
     expect(screen.queryByText('What will you do now?')).toBeNull();
   });
 
@@ -1340,7 +1430,7 @@ describe('Import — failure UX contract', () => {
     fireEvent.drop(screen.getByTestId('statement-dropzone'), { dataTransfer: { files: [notAStatement] } });
 
     const validationBanner = (await screen.findByText(
-      /please upload a \.csv or \.pdf/i
+      UNSUPPORTED_FILE_MESSAGE
     )).closest('p');
     expect(validationBanner?.className).toContain('text-danger');
     expect(validationBanner?.className).not.toContain('text-warning');
@@ -2760,6 +2850,44 @@ describe('Import — queued imports', () => {
 
     await waitFor(() => expect(importApi.stageCsv).toHaveBeenCalled());
     expect(importJobsApi.submit).not.toHaveBeenCalled();
+  });
+
+  it('approvedHoldSaysNothingSaved', async () => {
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
+      status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-9',
+    }));
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: { rows: [], totalParsed: 2, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
+      approvedAfterReview: true,
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Approved. Nothing is saved until you confirm.', {}, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it('rejectedHoldDoesNotSayApproved', async () => {
+    // A session no reviewer released (the server leaves approvedAfterReview false or absent).
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
+      status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-9',
+    }));
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: { rows: [], totalParsed: 2, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
+      approvedAfterReview: false,
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Nothing is saved until you confirm.', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText(/Approved\./)).not.toBeInTheDocument();
   });
 
   it('loads what the worker staged once the job completes', async () => {

@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom';
 import { Logo } from './Nav';
 import { footer } from './landing-config';
+import { PLAY_STORE_URL } from '../../lib/openInApp';
+import playStoreQr from '../../assets/landing/play-store-qr.svg';
+import googlePlayBadge from '../../assets/landing/google-play-badge.png';
 
 // lucide-react dropped brand/logo icons (Instagram included) -- kept as an inline glyph rather
 // than pulling in a whole icon-brand package for a single footer link.
@@ -30,6 +33,17 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
  * where most lead nowhere reads as abandoned; one that goes somebody real reads as a company.
  * `rel="noopener noreferrer"` on the external link is not optional -- `target="_blank"` without
  * it hands the opened tab a reference back to this one.
+ *
+ * The QR code is a static SVG (assets/landing/play-store-qr.svg) that encodes PLAY_STORE_URL
+ * exactly. It was generated offline with the `qrcode` package (error correction M, 4-module quiet
+ * zone) and checked by decoding the rendered image. It does not follow the constant: if
+ * ANDROID_PACKAGE in lib/openInApp.ts ever changes, regenerate the SVG for the new URL and decode
+ * it again before shipping, or the code will send people to a dead listing. The badge
+ * (assets/landing/google-play-badge.png) is Google's official en_badge_web_generic.png from
+ * play.google.com/intl/en_us/badges/, unmodified; if it is ever replaced, take the new file from
+ * there, never a stock-photo copy. Only the Android app
+ * is on a store (Everywhere.tsx says so); an App Store badge belongs here the day an iOS listing
+ * exists, not before.
  */
 export function SiteFooter() {
   return (
@@ -57,6 +71,37 @@ export function SiteFooter() {
               <InstagramIcon size={17} />
               {footer.instagramHandle}
             </a>
+
+            <p className="mt-7 mb-3 text-xs font-semibold uppercase tracking-wide text-slate-300">{footer.appLabel}</p>
+            <div className="flex flex-wrap items-start gap-x-4 gap-y-4">
+              {/* A phone cannot scan its own screen, so the code only appears from tablet width
+                  up; on a phone the button is the whole call to action. The white tile is the
+                  SVG's own quiet zone, which a scanner needs, so it is not cropped or tinted. */}
+              <div className="hidden md:block shrink-0 text-center">
+                <img
+                  src={playStoreQr}
+                  alt={footer.qrAlt}
+                  width={112}
+                  height={112}
+                  className="rounded-lg"
+                />
+                <p className="text-[11px] mt-1.5 text-slate-400">{footer.qrCaption}</p>
+              </div>
+              <div>
+                {/* Google's own badge, shown unmodified: their rules forbid redrawing, recoloring,
+                    cropping or rescaling its parts. The PNG carries its own clear space, so the
+                    negative margin lines the badge's visible edge up with the text above. */}
+                <a
+                  href={PLAY_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="m-tap inline-block -ml-2.5"
+                >
+                  <img src={googlePlayBadge} alt={footer.playStoreCta} width={180} height={70} className="h-auto" />
+                </a>
+                <p className="text-[11px] mt-3 max-w-[200px] leading-snug text-slate-400">{footer.trademark}</p>
+              </div>
+            </div>
           </div>
 
           {COLUMNS.map((col) => (

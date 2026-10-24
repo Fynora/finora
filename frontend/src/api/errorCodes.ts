@@ -35,7 +35,7 @@ export const PAYMENT_APP_HISTORY = 'IMPORT_018';
 export const MULTI_ACCOUNT_FILE = 'IMPORT_020';
 // A CSV whose dates are written day-first in some rows and month-first in others, so no one
 // reading fits the file. Refused; the user exports the statement again.
-export const DATE_ORDER_CONFLICT = 'IMPORT_021';
+export const DATE_ORDER_CONFLICT = 'IMPORT_023';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
 export const PDF_TOO_LARGE = 'IMPORT_013';
 // Deliberately separate from NO_TRANSACTIONS_FOUND even though both arrive from the same
@@ -82,3 +82,13 @@ export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';
 // is asked about neither -- see isStatementRefusal in importFailureMessages.ts.
 export const IMPORT_SYSTEM_BUSY = 'IMPORT_006';
 export const IMPORT_SESSION_HELD_FOR_REVIEW = 'IMPORT_016';
+
+// Gate 2b PR 1 (docs/research/gate2/refusal-audit.md): refusals at upload that used to reach the
+// user as the server's own words, with no next step or with words like "endpoint". EMPTY_FILE and
+// WRONG_FILE_TYPE are statement refusals with their own codes; UPLOAD_MALWARE_DETECTED and
+// RATE_LIMITED are shared with other uploads and endpoints, and only the import screens give them
+// statement-specific copy.
+export const EMPTY_FILE = 'IMPORT_021';
+export const WRONG_FILE_TYPE = 'IMPORT_022';
+export const UPLOAD_MALWARE_DETECTED = 'UPLOAD_001';
+export const RATE_LIMITED = 'RATE_LIMITED';

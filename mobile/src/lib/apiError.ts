@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { SERVER_FAILURE_MESSAGE } from '../api/importFailureMessages';
 
 /**
  * One place that turns any thrown error into something worth showing a user.
@@ -137,7 +138,7 @@ export function toUserMessage(err: unknown, fallback: string): string {
 
     // A 5xx with no body is the server's problem, and telling someone to check their input for it
     // just sends them in circles.
-    if (err.response.status >= 500) return 'Something went wrong on our end. Try again shortly.';
+    if (err.response.status >= 500) return SERVER_FAILURE_MESSAGE;
   }
 
   return fallback;

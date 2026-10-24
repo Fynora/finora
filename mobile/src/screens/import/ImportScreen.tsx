@@ -25,6 +25,7 @@ import {
 import {
   importFailureMessage,
   isStatementRefusal,
+  PDF_PASSWORD_HINT,
   isUnreadStatementLayout,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
@@ -240,6 +241,9 @@ export function ImportScreen() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // Gate 2b (spec §5.3): the session a reviewer released after an accuracy hold. The review then
+  // says it was approved, as well as that nothing is saved until the user confirms.
+  const [approvedAfterReview, setApprovedAfterReview] = useState(false);
   // The Free one-month limit this statement will be refused under at Import, told up front so the
   // person doesn't review every row first (FreePlanLimitNotice). Unlike the notice above it IS a
   // gate (canConfirmImport): the backend would refuse. `limitOverridden` is the way past it for
@@ -445,6 +449,7 @@ export function ImportScreen() {
     setDetected(null);
     setVerification(null);
     setPreviousImport(null);
+    setApprovedAfterReview(false);
     setFreePlanLimit(null);
     setLimitOverridden(false);
     setSummary(null);
@@ -547,6 +552,7 @@ export function ImportScreen() {
     try {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
+      setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -630,6 +636,7 @@ export function ImportScreen() {
         return;
       }
       setSessionId(res.sessionId);
+      setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -748,6 +755,7 @@ export function ImportScreen() {
       }
 
       setSessionId(res.sessionId);
+      setApprovedAfterReview(false);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -1026,6 +1034,18 @@ export function ImportScreen() {
           ) : (
           <Card>
             <SectionHeading title="Import a statement" />
+            {uploadProgress === null && (
+              // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+              <Text testID="first-ask" style={[styles.body, { color: c.ink }]}>
+                <Text style={{ fontWeight: '700' }}>Start with one statement:</Text> last month, from the account you use most.
+              </Text>
+            )}
+            {uploadProgress === null && (
+              // Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named.
+              <Text style={[styles.helpText, { color: c.muted }]}>
+                No bank statement to hand? A credit card statement works too.
+              </Text>
+            )}
             <Text style={[styles.body, { color: c.muted }]}>
               Choose a CSV or PDF statement from your bank. You'll review every transaction before
               anything is added.
@@ -1047,6 +1067,14 @@ export function ImportScreen() {
                   progress={uploadProgress ?? 0}
                   idle={<Button label="Choose a file" onPress={handlePick} />}
                 />
+                {/* Gate 2b (spec §3): most statements arrive by email, and the share sheet is the
+                    shortest way in -- Android's intent filters and the iOS Share Extension already
+                    accept one PDF or CSV (app.config.ts), but nothing said so. */}
+                {uploadProgress === null && (
+                  <Text style={[styles.helpText, { color: c.muted }]}>
+                    Statement in your email? Open the email, tap the PDF, then Share → Fynora.
+                  </Text>
+                )}
                 {/* The only way out of this screen while an upload is in flight. It matters most
                     on the request that can never time out on its own (see toUploadProgressConfig):
                     on a dead connection the bar simply freezes, and without this the user is stuck
@@ -1097,7 +1125,7 @@ export function ImportScreen() {
                     ? "That password didn't open this statement — check it and try again."
                     : passwordState === 'required'
                       ? 'This statement is password protected. Enter the password your bank uses for it.'
-                      : 'Many banks protect statements with a password — often a mix of your name, PAN, date of birth or account number. Check the email it came in.'}
+                      : PDF_PASSWORD_HINT}
                 </Text>
                 {savePasswordOffered ? (
                   <View style={styles.savePasswordRow}>
@@ -1346,6 +1374,9 @@ export function ImportScreen() {
         ListHeaderComponent={
           <View>
             {header}
+            <Text testID="review-promise" accessibilityRole="text" style={[styles.body, styles.section, { color: c.ink }]}>
+              {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
+            </Text>
             <Card style={styles.section}>
               {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill bug
                   found and fixed elsewhere in the app; a border makes the badge's own boundary

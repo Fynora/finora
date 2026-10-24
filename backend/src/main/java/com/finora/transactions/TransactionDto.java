@@ -109,6 +109,7 @@ public record TransactionDto(
     // authenticated user could submit a multi-megabyte notes field or a huge tags array, self-
     // service reachable, persisted indefinitely and re-serialized on every subsequent read.
     private static final String DESCRIPTION_SIZE_MESSAGE = "Description can't exceed 500 characters";
+    private static final String CATEGORY_NAME_SIZE_MESSAGE = "Category name can't exceed 80 characters";
     private static final String NOTES_SIZE_MESSAGE = "Notes can't exceed 5000 characters";
     private static final String TAGS_COUNT_MESSAGE = "A transaction can have at most 20 tags";
     private static final String TAG_SIZE_MESSAGE = "Each tag can't exceed 255 characters";
@@ -122,7 +123,11 @@ public record TransactionDto(
      * one new, optional field.
      */
     @Schema(name = "TransactionCreateRequest")
-    public record CreateRequest(UUID accountId, String categoryName, LocalDate date,
+    // categoryName: categories.name is VARCHAR(80). A longer name typed here was cut to 80 characters
+    // without a word (CategorizationService.resolveOrCreateCategory truncates, which is right for an
+    // imported cell and wrong for what a person typed); budgets already refuse it the same way.
+    public record CreateRequest(UUID accountId,
+                                 @Size(max = 80, message = CATEGORY_NAME_SIZE_MESSAGE) String categoryName, LocalDate date,
                                  @Size(max = 500, message = DESCRIPTION_SIZE_MESSAGE) String description,
                                  BigDecimal amount, String type,
                                  @Size(max = 20, message = TAGS_COUNT_MESSAGE)
@@ -146,7 +151,8 @@ public record TransactionDto(
     public record UpdateRequest(LocalDate date,
                                  @Size(max = 500, message = DESCRIPTION_SIZE_MESSAGE) String description,
                                  @Size(max = 255, message = "Merchant can't exceed 255 characters") String merchant,
-                                 BigDecimal amount, String type, String categoryName,
+                                 BigDecimal amount, String type,
+                                 @Size(max = 80, message = CATEGORY_NAME_SIZE_MESSAGE) String categoryName,
                                  @Size(max = 5000, message = NOTES_SIZE_MESSAGE) String notes,
                                  @Size(max = 20, message = TAGS_COUNT_MESSAGE)
                                  List<@Size(max = 255, message = TAG_SIZE_MESSAGE) String> tags,

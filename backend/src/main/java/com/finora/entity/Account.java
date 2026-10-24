@@ -166,7 +166,19 @@ public class Account extends BaseEntity {
     public Type getAccountType() { return accountType; }
     public void setAccountType(Type accountType) { this.accountType = accountType; }
     public BigDecimal getBalance() { return balance; }
-    public void setBalance(BigDecimal balance) { this.balance = balance; }
+    /**
+     * Refuses a balance accounts.balance (NUMERIC(14,2)) cannot hold. Thirteen code paths move a
+     * balance -- manual transactions, imports, statement refresh, reconciliation -- and a valid
+     * transaction into a near-full account used to fail in the database as a 409 "refresh and try
+     * again". Checked here, the one place they all pass through. Hibernate reads and writes the
+     * field directly, so loading a row never runs this.
+     */
+    public void setBalance(BigDecimal balance) {
+        if (balance != null && balance.abs().compareTo(com.finora.validation.MoneyLimits.MAX_AMOUNT) > 0) {
+            throw new com.finora.exception.ApiException(com.finora.exception.ErrorCode.ACCOUNT_BALANCE_TOO_LARGE);
+        }
+        this.balance = balance;
+    }
     public BigDecimal getCreditLimit() { return creditLimit; }
     public void setCreditLimit(BigDecimal creditLimit) { this.creditLimit = creditLimit; }
     public LocalDate getDueDate() { return dueDate; }

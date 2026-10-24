@@ -198,6 +198,9 @@ describe('UnusualList', () => {
     wrap(<UnusualList items={[{ transactionId: 't1', date: '2026-08-17', label: 'IndiGo', category: 'Travel', amount: 38400, typicalAmount: 4000, timesTypical: 9.6, sampleSize: 6 }]} onOpen={open} />);
     expect(screen.getByText(/about 9.6 times the usual ₹4,000/)).toBeTruthy();
     expect(screen.getByText(/not a sign that anything is wrong/)).toBeTruthy();
+    // Any expense can be flagged, money sent to a friend included, so the rule says payments.
+    expect(screen.getByText(/A payment shows here when it is at least three times the middle amount of your other payments in the same category/)).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
 
     fireEvent.press(screen.getByLabelText(/IndiGo, ₹38,400/));
 

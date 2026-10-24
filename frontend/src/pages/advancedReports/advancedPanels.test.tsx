@@ -100,7 +100,7 @@ describe('CategoriesPanel', () => {
       { ...base.categories.rows[0], name: 'Personal Transfer', transactionCount: 1 },
       { ...base.categories.rows[1], name: 'Food & Dining', transactionCount: 5 },
     ] } })} />);
-    expect(screen.getByTestId('category-Personal Transfer')).toHaveTextContent('1 payment');
+    expect(screen.getByTestId('category-Personal Transfer')).toHaveTextContent(/(^|\D)1 payment(?!s)/);
     expect(screen.getByTestId('category-Food & Dining')).toHaveTextContent('5 payments');
     expect(screen.getByTestId('category-rows')).not.toHaveTextContent(/purchase/i);
   });
@@ -142,7 +142,7 @@ describe('MerchantsPanel', () => {
       { ...base.merchants.rows[0], merchantId: 'm1', name: 'Sample Person', transactionCount: 1, logoDomain: null },
       { ...base.merchants.rows[1], merchantId: 'm2', name: 'Swiggy', transactionCount: 30 },
     ] } })} />);
-    expect(screen.getByTestId('merchant-Sample Person')).toHaveTextContent('1 payment');
+    expect(screen.getByTestId('merchant-Sample Person')).toHaveTextContent(/(^|\D)1 payment(?!s)/);
     expect(screen.getByTestId('merchant-Swiggy')).toHaveTextContent('30 payments');
     expect(screen.getByTestId('merchant-rows')).not.toHaveTextContent(/purchase/i);
   });
@@ -196,6 +196,9 @@ describe('UnusualSpends', () => {
     expect(screen.getByTestId('unusual-spends')).toHaveTextContent('about 9.6 times the usual ₹4,000');
     expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/app/transactions?from=2026-08-17&to=2026-08-17&category=Travel');
     expect(screen.getByText(/not a sign that anything is wrong/)).toBeInTheDocument();
+    // Any expense can be flagged, money sent to a friend included, so the rule says payments.
+    expect(screen.getByText(/A payment shows here when it is at least three times the middle amount of your other payments in the same category/)).toBeInTheDocument();
+    expect(screen.queryByText(/purchase/i)).not.toBeInTheDocument();
   });
 });
 

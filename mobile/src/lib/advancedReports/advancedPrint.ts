@@ -310,7 +310,7 @@ const METHOD = [
   'The period ends at your newest whole month. A month still in progress, or one an account\'s statement does not yet reach, is left out; months only partly in your data are marked as part months.',
   'Transfers to your own investments are not counted as spending or as income.',
   'The earlier period is the same number of months just before this one, or the same months a year earlier. It is set beside this one only when your history reaches back to it, it has enough transactions, and no statement is missing or partial in either period.',
-  'A purchase is marked larger than usual when it is at least three times the typical purchase in its category over this period and the 12 months before, there are at least five other purchases to judge by, and it is at least 5% of the period\'s spending.',
+  'A payment is marked larger than usual when it is at least three times the typical payment in its category over this period and the 12 months before, there are at least five other payments to judge by, and it is at least 5% of the period\'s spending.',
   'Categories and merchants are as they are set in your account. Shares are of the period\'s spending.',
 ];
 

@@ -243,11 +243,12 @@ public class GlobalExceptionHandler {
 
     /** True when the database refused a value rather than a combination of rows (SQLSTATE 22xxx). */
     static boolean isDataException(Throwable ex) {
-        for (Throwable t = ex; t != null; t = t.getCause()) {
+        // Bounded: a cause chain can in principle loop, and this runs on an error path.
+        Throwable t = ex;
+        for (int depth = 0; t != null && depth < 20; depth++, t = t.getCause()) {
             if (t instanceof java.sql.SQLException sql && sql.getSQLState() != null) {
                 return sql.getSQLState().startsWith("22");
             }
-            if (t.getCause() == t) break;
         }
         return false;
     }

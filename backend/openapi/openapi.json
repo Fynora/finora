@@ -14084,6 +14084,7 @@
                 "properties": {
                     "lowBalanceThreshold": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.0
                     },
                     "theme": {
@@ -14194,7 +14195,9 @@
                         "type": "string"
                     },
                     "categoryName": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
                     },
                     "notes": {
                         "type": "string",
@@ -14632,6 +14635,7 @@
                     },
                     "monthlyLimit": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -14928,10 +14932,14 @@
                         "type": "string"
                     },
                     "balance": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "creditLimit": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "dueDate": {
                         "type": "string",
@@ -14968,20 +14976,28 @@
                         "minLength": 0
                     },
                     "principalAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "interestRate": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 9999.99,
+                        "minimum": -9999.99
                     },
                     "maturityDate": {
                         "type": "string",
                         "format": "date"
                     },
                     "maturityAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "installmentAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "installmentsPaid": {
                         "type": "integer",
@@ -16715,7 +16731,9 @@
                         "format": "uuid"
                     },
                     "categoryName": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
                     },
                     "date": {
                         "type": "string",
@@ -18332,6 +18350,7 @@
                     },
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -18435,6 +18454,7 @@
                     },
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },

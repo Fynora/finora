@@ -1,5 +1,8 @@
 package com.finora.goals;
 
+import com.finora.validation.FourDigitYear;
+import com.finora.validation.MoneyLimits;
+import com.finora.validation.WholePaise;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.DecimalMax;
@@ -17,12 +20,13 @@ public record GoalDto(UUID id, String name, BigDecimal targetAmount, BigDecimal 
     // Matches NUMERIC(14,2). A larger value used to reach the database, fail there, and come back
     // as a 409 "refresh and try again"; a huge exponent ("1e999999999") is rejected here too,
     // before any arithmetic. A third decimal place (see WholePaise) was silently rounded by the
-    // column, so the response disagreed with what was stored.
-    private static final String MAX_AMOUNT_TEXT = "999999999999.99";
+    // column, so the response disagreed with what was stored. The limits are shared with every
+    // other money request -- see MoneyLimits.
+    private static final String MAX_AMOUNT_TEXT = MoneyLimits.MAX_AMOUNT_TEXT;
     /** The largest amount the goals table can hold: every amount column there is NUMERIC(14,2). */
-    public static final BigDecimal MAX_AMOUNT = new BigDecimal(MAX_AMOUNT_TEXT);
-    private static final String AMOUNT_TOO_LARGE = " can be at most 999,999,999,999.99";
-    private static final String FINER_THAN_PAISA = " can have at most 2 decimal places";
+    public static final BigDecimal MAX_AMOUNT = MoneyLimits.MAX_AMOUNT;
+    private static final String AMOUNT_TOO_LARGE = MoneyLimits.TOO_LARGE;
+    private static final String FINER_THAN_PAISA = MoneyLimits.FINER_THAN_PAISA;
 
     // The frontend (Goals.tsx) already guards against a non-positive target amount and blank
     // name client-side, but nothing enforced this server-side -- any other API caller could

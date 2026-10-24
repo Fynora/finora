@@ -11,13 +11,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.sql.Date;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -161,8 +161,8 @@ public class StatementMonthStartNudge {
                          ORDER BY u.id LIMIT ?
                         """, UUID.class,
                 User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(),
-                Date.valueOf(today.minusDays(STALE_AFTER_DAYS)),
-                Timestamp.from(now.minus(Duration.ofDays(RECENT_IMPORT_GRACE_DAYS))), BATCH_SIZE);
+                today.minusDays(STALE_AFTER_DAYS),
+                utc(now.minus(Duration.ofDays(RECENT_IMPORT_GRACE_DAYS))), BATCH_SIZE);
     }
 
     /**
@@ -191,7 +191,12 @@ public class StatementMonthStartNudge {
                                          WHERE n3.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')))
                          ORDER BY u.id LIMIT ?
                         """, UUID.class,
-                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), Timestamp.from(dueFrom),
+                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(dueFrom),
                 first, previous, first, beforeThat, UserZone.DEFAULT.getId(), beforeThat, BATCH_SIZE);
+    }
+
+    /** java.time for the driver, as the rest of the code passes instants (ProductionCodeHygieneTest). */
+    private static OffsetDateTime utc(Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
     }
 }

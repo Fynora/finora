@@ -75,6 +75,13 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
         return accountRepository.save(account).getId();
     }
 
+    private void statementImportedAt(User user, UUID accountId, LocalDate periodEnd, Instant importedAt) {
+        jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, statement_period_end, "
+                        + "imported_at) VALUES (?, ?, ?, ?, ?, ?)",
+                user.getId(), accountId, "statement.csv", "Date,Description,Amount\n".getBytes(StandardCharsets.UTF_8),
+                Date.valueOf(periodEnd), Timestamp.from(importedAt));
+    }
+
     private void statement(User user, UUID accountId, LocalDate periodEnd) {
         jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, statement_period_end) "
                         + "VALUES (?, ?, ?, ?, ?)",
@@ -311,5 +318,79 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
             assertThat(String.valueOf(n.get("params"))).doesNotContain("Example").doesNotContain("100000000001");
             assertThat(String.valueOf(n.get("title")) + n.get("message")).doesNotContain("Example");
         });
+    }
+
+    // ---- Found in review (2026-10-24): the no-data nudge belongs to the start of the month ----
+
+    /** Spec §6 says the 3rd. Sending on any later day would push every no-data user on the day this
+     *  ships, and a user who signed up mid-month within the hour. */
+    @Test
+    void noDataNudgeIsNotSentMidMonth() {
+        User user = userWithPhone();
+
+        nudge.runDue(ist(2031, 5, 20, 11, 0));
+
+        assertThat(nudgesOf(user)).isEmpty();
+    }
+
+    /** A run missed on the 3rd (a deploy, an outage) still catches up within the first week. */
+    @Test
+    void noDataNudgeCatchesUpWithinTheFirstWeek() {
+        User user = userWithPhone();
+
+        nudge.runDue(ist(2031, 5, 9, 11, 0));
+
+        assertThat(nudgesOf(user)).hasSize(1);
+    }
+
+    @Test
+    void aUserWhoSignedUpAfterTheThirdWaitsForNextMonth() {
+        User user = userWithPhone();
+        jdbc.update("UPDATE users SET created_at = ? WHERE id = ?",
+                Timestamp.from(ist(2031, 5, 4, 9, 0)), user.getId());
+
+        nudge.runDue(ist(2031, 5, 5, 11, 0));
+
+        assertThat(nudgesOf(user)).isEmpty();
+    }
+
+    // ---- Found in review: someone catching up on old statements is not told a new one arrived ----
+
+    @Test
+    void notRightAfterImportingAnOldStatement() {
+        User user = userWithPhone();
+        statementImportedAt(user, account(user, "Synthetic Savings"), MAY_3.minusDays(60), MAY_3_1030.minusSeconds(86_400));
+
+        nudge.runDue(MAY_3_1030);
+
+        assertThat(nudgesOf(user)).isEmpty();
+    }
+
+    @Test
+    void anOldStatementImportedMoreThanThreeDaysAgoStillCounts() {
+        User user = userWithPhone();
+        statementImportedAt(user, account(user, "Synthetic Savings"), MAY_3.minusDays(60), MAY_3_1030.minusSeconds(4 * 86_400));
+
+        nudge.runDue(MAY_3_1030);
+
+        assertThat(nudgesOf(user)).hasSize(1);
+    }
+
+    // ---- Found in review: a user who switched reminders off is never a candidate ----
+
+    /** Otherwise they stay due every hour of every month (nothing is queued for them), and enough of
+     *  them would fill each batch and starve everyone behind them. */
+    @Test
+    void aUserWhoSwitchedRemindersOffIsNotACandidate() {
+        User noData = userWithPhone();
+        User hasData = userWithPhone();
+        statement(hasData, account(hasData, "Synthetic Savings"), MAY_3.minusDays(40));
+        for (User u : List.of(noData, hasData)) {
+            jdbc.update("INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
+                    + "VALUES (gen_random_uuid(), ?, 'REMINDERS', 'PUSH', false)", u.getId());
+        }
+
+        assertThat(nudge.noDataDue(MAY_3_1030, java.time.YearMonth.of(2031, 5))).doesNotContain(noData.getId());
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, java.time.YearMonth.of(2031, 5))).doesNotContain(hasData.getId());
     }
 }

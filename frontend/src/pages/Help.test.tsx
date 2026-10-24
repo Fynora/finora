@@ -16,6 +16,13 @@ describe('Help', () => {
     expect(document.body.textContent ?? '').not.toMatch(/gmail/i);
   });
 
+  // Gate 2b PR 3 (spec §3): the import help says a statement can be shared in from email.
+  it('tells people they can share a statement from their email into the app', () => {
+    const article = HELP_ARTICLES.find((a) => a.category === 'Importing Statements'
+      && a.answer.includes('Statement in your email? Open the email, tap the PDF, then Share → Fynora.'));
+    expect(article).toBeDefined();
+  });
+
   it('does not say Premium -- it is hidden from the UI (owner decision, 2026-09-22)', () => {
     render(
       <MemoryRouter>

@@ -24,6 +24,9 @@ export const HELP_ARTICLES: HelpArticle[] = [
   { category: 'Login & Authentication', question: 'Why do I need to verify my phone number?', answer: "Phone verification confirms you have access to the number on file and is required before you can use the rest of the app — you'll be redirected to the verification screen until it's complete." },
 
   { category: 'Importing Statements', question: 'Which file formats are supported?', answer: 'CSV exports from your bank or card portal, and PDF statements — including password-protected ones your bank emails you. Fynora automatically detects common column-naming variants (e.g. "Debit (INR)" vs "Withdrawal Amt") across different banks. PDF support covers digital, text-based statements; a scanned or photographed PDF has no selectable text for us to read, so those still need a CSV export instead.' },
+  // Gate 2b (spec §3): sharing a statement in from the phone's mail app. Proven on iOS from Files and
+  // on Android up to the share sheet; see the PR for what each platform was checked on.
+  { category: 'Importing Statements', question: 'Can I import a statement straight from my email?', answer: 'Yes, in the Fynora app on your phone. Statement in your email? Open the email, tap the PDF, then Share → Fynora.' },
   { category: 'Importing Statements', question: 'Can I import statements for more than one account?', answer: 'Yes — each statement is matched to an existing account or used to create a new one automatically, based on details detected in the file.' },
   { category: 'Importing Statements', question: 'What if I import the same statement twice?', answer: 'Fynora checks for likely duplicate transactions during import and flags them for your review rather than silently double-counting them.' },
 

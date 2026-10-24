@@ -1,4 +1,5 @@
 import { AppAlert } from '../../lib/appAlert';
+import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT } from '../../api/importFailureMessages';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
@@ -1267,11 +1268,11 @@ describe('ImportScreen — arriving via Android share sheet', () => {
 
   it('shows the share-sheet error message for an unsupported shared file', async () => {
     mockRouteParams = {
-      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+      sharedFileError: { message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.", nonce: 1 },
     };
     render(tree());
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeTruthy();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeTruthy();
   });
 
   it('does not re-apply the same shared file twice on a later re-render (nonce dedupe)', async () => {
@@ -2190,7 +2191,7 @@ describe('ImportScreen — funnel events', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -2232,12 +2233,12 @@ describe('ImportScreen — funnel events', () => {
 
   it('sendsFileChosenForARefusedSharedFile', async () => {
     mockRouteParams = {
-      sharedFileError: { message: 'Choose a .csv or .pdf bank or credit card statement.', nonce: 1 },
+      sharedFileError: { message: "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.", nonce: 1 },
     };
     render(tree());
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(callsFor('FILE_CHOSEN')).toBe(1);
   });
 
@@ -2340,9 +2341,41 @@ describe('ImportScreen — what stopped you', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Something went wrong on our side.')).toBeOnTheScreen();
+    // Gate 2b PR 1: a code with curated copy shows that copy (IMPORT_006 now has some).
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode] ?? 'Something went wrong on our side.')).toBeOnTheScreen();
     expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
     expect(question).not.toHaveBeenCalled();
+  });
+
+  // Gate 2b PR 1 (docs/research/gate2/refusal-audit.md): the gaps the audit found.
+  it.each([
+    ['an empty file', 400, 'IMPORT_021'],
+    ['a file whose contents do not match its name', 415, 'IMPORT_022'],
+    ['a file the virus check flags', 400, 'UPLOAD_001'],
+    ['too many uploads in a short time', 429, 'RATE_LIMITED'],
+  ])('gives a reason and a next step for %s', async (_label, status, errorCode) => {
+    api.import.stageCsv.mockReset().mockRejectedValue(rejectWithCode(errorCode, 'Server words.', status));
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(IMPORT_FAILURE_MESSAGES[errorCode])).toBeOnTheScreen();
+    expect(screen.queryByText('Server words.')).not.toBeOnTheScreen();
+  });
+
+  it('says what the PDF password is not, under the password field', async () => {
+    jest.mocked(DocumentPicker.getDocumentAsync).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.pdf', name: 'statement.pdf' } as never],
+    } as never);
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(PDF_PASSWORD_HINT)).toBeOnTheScreen();
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
   });
 
   // Spec §4.3: within 30 days of answering REFUSED (or after any answer today, from before a
@@ -2384,7 +2417,7 @@ describe('ImportScreen — what stopped you', () => {
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
-    expect(await screen.findByText('Choose a .csv or .pdf bank or credit card statement.')).toBeOnTheScreen();
+    expect(await screen.findByText("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.")).toBeOnTheScreen();
     expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
   });
 

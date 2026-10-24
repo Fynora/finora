@@ -32,6 +32,11 @@ import {
   TRUST_REVIEW_REJECTED,
   IMPORT_SYSTEM_BUSY,
   IMPORT_SESSION_HELD_FOR_REVIEW,
+  PDF_PASSWORD_INVALID,
+  EMPTY_FILE,
+  WRONG_FILE_TYPE,
+  UPLOAD_MALWARE_DETECTED,
+  RATE_LIMITED,
 } from './errorCodes';
 
 export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
@@ -88,6 +93,26 @@ export const IMPORT_FAILURE_MESSAGES: Record<string, string> = {
   [TRUST_REVIEW_REJECTED]:
     'We checked this statement and could not read it accurately enough to import it. Nothing ' +
     'was added to your accounts.',
+  // Gate 2b PR 1: the gaps docs/research/gate2/refusal-audit.md found. Each says what happened and
+  // one thing to do. EMPTY_FILE, WRONG_FILE_TYPE and IMPORT_SYSTEM_BUSY match the server's own
+  // message, which is what older clients show.
+  [EMPTY_FILE]:
+    'This file is empty. Download the statement again from your bank and choose the new copy.',
+  [WRONG_FILE_TYPE]:
+    "This file's contents don't match its name, so Fynora can't read it. Download the statement " +
+    'again from your bank and choose the new copy.',
+  [UPLOAD_MALWARE_DETECTED]:
+    "Our virus check flagged this file, so Fynora didn't open it. Download the statement again " +
+    "from your bank's website and choose the new copy.",
+  [IMPORT_SYSTEM_BUSY]:
+    'Fynora is reading a lot of statements right now. Try again in a moment.',
+  [RATE_LIMITED]:
+    "You've uploaded several statements in a short time. Wait a few minutes, then try again.",
+  // At upload the wrong password is answered inside the password field; this is what the
+  // failed-imports lists show for it, which used to fall back to "couldn't complete this import".
+  [PDF_PASSWORD_INVALID]:
+    "That password didn't open this statement. Choose it again and check the password your bank " +
+    'set for it.',
 };
 
 /**
@@ -120,8 +145,26 @@ export const IMPORT_FAILURE_TITLES: Record<string, string> = {
   [MULTI_ACCOUNT_FILE]: 'This file mixes several accounts',
   [PDF_TOO_LARGE]: 'This statement is too long',
   [NO_ACTIVITY_IN_PERIOD]: 'Nothing to import',
-  [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",
+  [TRUST_REVIEW_REJECTED]: "We couldn't read this accurately",  [EMPTY_FILE]: 'This file is empty',
+  [WRONG_FILE_TYPE]: "This file doesn't match its name",
+  [UPLOAD_MALWARE_DETECTED]: "We couldn't safely open this file",
+  [IMPORT_SYSTEM_BUSY]: 'Fynora is busy right now',
+  [RATE_LIMITED]: 'Too many uploads at once',
+  [PDF_PASSWORD_INVALID]: "That password didn't work",
 };
+
+/** Spec §8.1, verbatim: what the PDF password is, and what it is not. */
+export const PDF_PASSWORD_HINT =
+  'This is the password your bank set for the statement file, usually a mix of your name, PAN, date ' +
+  "of birth or account number. It's not your UPI PIN, card PIN or netbanking password. Check the email " +
+  'the statement came in.';
+
+/** A chosen file that is neither .csv nor .pdf, refused before anything is sent. */
+export const UNSUPPORTED_FILE_MESSAGE =
+  "This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.";
+
+/** A server failure that came back with no words of its own (a proxy's 502, say): not the file's fault. */
+export const SERVER_FAILURE_MESSAGE = 'Something went wrong on our end. Try again shortly.';
 
 export function importFailureTitle(code: string | null | undefined): string | undefined {
   return code ? IMPORT_FAILURE_TITLES[code] : undefined;

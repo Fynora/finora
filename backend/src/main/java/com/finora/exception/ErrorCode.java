@@ -58,7 +58,7 @@ public enum ErrorCode {
     // now throws this the instant every permit is taken, rather than after a rare 20s timeout, so
     // it fires on ordinary bursts routinely, not on genuine server trouble.
     IMPORT_SYSTEM_BUSY("IMPORT_006", HttpStatus.SERVICE_UNAVAILABLE,
-            "Finora is processing a lot of statement imports right now. Please try again in a moment.",
+            "Fynora is reading a lot of statements right now. Try again in a moment.",
             RetryPolicy.FAIL_FAST, false, true),
     // Deliberately separate from IMPORT_001 even though both mean "you got nothing". They fail at
     // different stages and need different follow-up: 001 means the document's layout defeated
@@ -131,6 +131,16 @@ public enum ErrorCode {
     IMPORT_MULTI_ACCOUNT_FILE("IMPORT_020", HttpStatus.UNPROCESSABLE_ENTITY,
             "This file lists transactions from more than one account, so it cannot be imported into a "
                     + "single account. Please upload each bank or card statement on its own.", true),
+    // Gate 2b refusal audit (docs/research/gate2/refusal-audit.md, rows 2 to 4). Both used to be
+    // codeless (BAD_REQUEST / UNSUPPORTED_MEDIA_TYPE), so neither app could tell them from any other
+    // bad request, and the 415 told people which "endpoint" they had reached. Their own codes let
+    // both apps show the same words, and the messages carry a reason and one next action for
+    // clients older than that copy. userActionRequired=true: the fix is the user's, a fresh download.
+    IMPORT_EMPTY_FILE("IMPORT_021", HttpStatus.BAD_REQUEST,
+            "This file is empty. Download the statement again from your bank and choose the new copy.", true),
+    IMPORT_WRONG_FILE_TYPE("IMPORT_022", HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+            "This file's contents don't match its name, so Fynora can't read it. "
+                    + "Download the statement again from your bank and choose the new copy.", true),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

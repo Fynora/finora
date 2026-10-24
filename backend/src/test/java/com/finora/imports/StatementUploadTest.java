@@ -1,6 +1,7 @@
 package com.finora.imports;
 
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
@@ -23,6 +24,10 @@ class StatementUploadTest {
                 () -> StatementUpload.requireReadable(file("statement.csv", ""), StatementUpload.Format.CSV),
                 ApiException.class);
         assertThat(thrown.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // Gate 2b PR 1: its own code, so both apps can say what happened and what to do.
+        assertThat(thrown.getCode()).isEqualTo(ErrorCode.IMPORT_EMPTY_FILE);
+        assertThat(thrown.getMessage()).isEqualTo(
+                "This file is empty. Download the statement again from your bank and choose the new copy.");
     }
 
     /** Format used to be inferred purely from which URL was called, so this produced a confusing
@@ -33,6 +38,8 @@ class StatementUploadTest {
                 () -> StatementUpload.requireReadable(file("statement.csv", "%PDF-1.7\nbinary"), StatementUpload.Format.CSV),
                 ApiException.class);
         assertThat(thrown.getStatus()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(thrown.getCode()).isEqualTo(ErrorCode.IMPORT_WRONG_FILE_TYPE);
+        assertThat(thrown.getMessage()).doesNotContain("endpoint");
     }
 
     @Test
@@ -41,6 +48,9 @@ class StatementUploadTest {
                 () -> StatementUpload.requireReadable(file("statement.pdf", "Date,Description,Amount"), StatementUpload.Format.PDF),
                 ApiException.class);
         assertThat(thrown.getStatus()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(thrown.getCode()).isEqualTo(ErrorCode.IMPORT_WRONG_FILE_TYPE);
+        assertThat(thrown.getMessage()).isEqualTo("This file's contents don't match its name, so Fynora can't read it. "
+                + "Download the statement again from your bank and choose the new copy.");
     }
 
     /** Magic bytes decide, not the extension or the content type -- browsers disagree wildly about

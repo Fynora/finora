@@ -79,3 +79,13 @@ export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';
 // is asked about neither -- see isStatementRefusal in importFailureMessages.ts.
 export const IMPORT_SYSTEM_BUSY = 'IMPORT_006';
 export const IMPORT_SESSION_HELD_FOR_REVIEW = 'IMPORT_016';
+
+// Gate 2b PR 1 (docs/research/gate2/refusal-audit.md): refusals at upload that used to reach the
+// user as the server's own words, with no next step or with words like "endpoint". EMPTY_FILE and
+// WRONG_FILE_TYPE are statement refusals with their own codes; UPLOAD_MALWARE_DETECTED and
+// RATE_LIMITED are shared with other uploads and endpoints, and only the import screens give them
+// statement-specific copy.
+export const EMPTY_FILE = 'IMPORT_021';
+export const WRONG_FILE_TYPE = 'IMPORT_022';
+export const UPLOAD_MALWARE_DETECTED = 'UPLOAD_001';
+export const RATE_LIMITED = 'RATE_LIMITED';

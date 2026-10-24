@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { importFailureMessage, importFailureTitle, isStatementRefusal } from './importFailureMessages';
+import {
+  IMPORT_FAILURE_MESSAGES, IMPORT_FAILURE_TITLES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE,
+  importFailureMessage, importFailureTitle, isStatementRefusal,
+} from './importFailureMessages';
+// The mobile app's copy of the same map, read by path: both apps must say the same words.
+import * as mobile from '../../../mobile/src/api/importFailureMessages';
 import {
   IMPORT_SESSION_HELD_FOR_REVIEW, IMPORT_SYSTEM_BUSY, NO_TRANSACTIONS_FOUND, PAYMENT_APP_HISTORY, PDF_PASSWORD_REQUIRED,
   PDF_TOO_LARGE, TRUST_REVIEW_REJECTED,
@@ -72,5 +77,44 @@ describe('isStatementRefusal', () => {
     expect(isStatementRefusal(IMPORT_SESSION_HELD_FOR_REVIEW)).toBe(false);
     expect(isStatementRefusal(null)).toBe(false);
     expect(isStatementRefusal(undefined)).toBe(false);
+  });
+});
+
+// Gate 2b PR 1 (spec §8): the refusal audit's gaps, in docs/research/gate2/refusal-audit.md.
+// Copied from that audit's rows, not derived from the map, so a removed entry fails here.
+const AUDITED_GAP_CODES = ['IMPORT_021', 'IMPORT_022', 'UPLOAD_001', 'IMPORT_006', 'RATE_LIMITED', 'IMPORT_009'];
+
+describe('Gate 2b recovery copy', () => {
+  it('passwordHintSaysWhatItIsNot', () => {
+    expect(PDF_PASSWORD_HINT).toBe(
+      'This is the password your bank set for the statement file, usually a mix of your name, PAN, date ' +
+        "of birth or account number. It's not your UPI PIN, card PIN or netbanking password. Check the email " +
+        'the statement came in.',
+    );
+    expect(PDF_PASSWORD_HINT).toContain('not your UPI PIN, card PIN or netbanking password');
+  });
+
+  it('everyAuditedCodeHasTitleAndMessage', () => {
+    for (const code of AUDITED_GAP_CODES) {
+      expect(importFailureTitle(code), code).toBeTruthy();
+      expect(importFailureMessage(code), code).toBeTruthy();
+    }
+  });
+
+  it('never names the old spelling, an endpoint, or blames the file for a server failure', () => {
+    const all = [...Object.values(IMPORT_FAILURE_MESSAGES), ...Object.values(IMPORT_FAILURE_TITLES),
+      UNSUPPORTED_FILE_MESSAGE, SERVER_FAILURE_MESSAGE, PDF_PASSWORD_HINT];
+    for (const text of all) {
+      expect(text).not.toMatch(/Finora|endpoint/);
+    }
+    expect(SERVER_FAILURE_MESSAGE).not.toMatch(/parse|file/i);
+  });
+
+  it('webAndMobileMapsAgree', () => {
+    expect(mobile.IMPORT_FAILURE_MESSAGES).toEqual(IMPORT_FAILURE_MESSAGES);
+    expect(mobile.IMPORT_FAILURE_TITLES).toEqual(IMPORT_FAILURE_TITLES);
+    expect(mobile.PDF_PASSWORD_HINT).toBe(PDF_PASSWORD_HINT);
+    expect(mobile.UNSUPPORTED_FILE_MESSAGE).toBe(UNSUPPORTED_FILE_MESSAGE);
+    expect(mobile.SERVER_FAILURE_MESSAGE).toBe(SERVER_FAILURE_MESSAGE);
   });
 });

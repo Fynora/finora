@@ -37,7 +37,7 @@ describe('pickStatement', () => {
     const error = await pickStatement().catch((e: unknown) => e);
 
     expect(isUnsupportedStatementFile(error)).toBe(true);
-    expect((error as Error).message).toBe('Choose a .csv or .pdf bank or credit card statement.');
+    expect((error as Error).message).toBe("This isn't a .csv or .pdf file. Choose a .csv or .pdf bank or credit card statement.");
   });
 
   it('does not mark any other failure as an unsupported statement file', () => {

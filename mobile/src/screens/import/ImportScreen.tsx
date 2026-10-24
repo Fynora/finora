@@ -25,6 +25,7 @@ import {
 import {
   importFailureMessage,
   isStatementRefusal,
+  PDF_PASSWORD_HINT,
   isUnreadStatementLayout,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
@@ -1097,7 +1098,7 @@ export function ImportScreen() {
                     ? "That password didn't open this statement — check it and try again."
                     : passwordState === 'required'
                       ? 'This statement is password protected. Enter the password your bank uses for it.'
-                      : 'Many banks protect statements with a password — often a mix of your name, PAN, date of birth or account number. Check the email it came in.'}
+                      : PDF_PASSWORD_HINT}
                 </Text>
                 {savePasswordOffered ? (
                   <View style={styles.savePasswordRow}>

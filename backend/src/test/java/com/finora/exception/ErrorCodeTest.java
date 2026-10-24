@@ -90,7 +90,24 @@ class ErrorCodeTest {
                         ErrorCode.IMPORT_PAYMENT_APP_HISTORY,
                         // IMPORT_MULTI_ACCOUNT_FILE (2026-10-22): a file combining several
                         // accounts; the fix is the user's, uploading each statement on its own.
-                        ErrorCode.IMPORT_MULTI_ACCOUNT_FILE);
+                        ErrorCode.IMPORT_MULTI_ACCOUNT_FILE,
+                        // IMPORT_EMPTY_FILE and IMPORT_WRONG_FILE_TYPE (Gate 2b, 2026-10-24): the
+                        // file itself is unusable, and the fix is the user's: download it again.
+                        ErrorCode.IMPORT_EMPTY_FILE,
+                        ErrorCode.IMPORT_WRONG_FILE_TYPE);
+    }
+
+    /** Gate 2b refusal audit, row 8: the busy message named the product's old spelling. */
+    @Test
+    void systemBusyMessageNamesFynora() {
+        assertThat(ErrorCode.IMPORT_SYSTEM_BUSY.defaultMessage())
+                .isEqualTo("Fynora is reading a lot of statements right now. Try again in a moment.");
+    }
+
+    @Test
+    void theUploadRefusalCodesHaveTheirOwnWireCodes() {
+        assertThat(ErrorCode.IMPORT_EMPTY_FILE.code()).isEqualTo("IMPORT_021");
+        assertThat(ErrorCode.IMPORT_WRONG_FILE_TYPE.code()).isEqualTo("IMPORT_022");
     }
 
     /** A malformed CSV is the CSV twin of a corrupt PDF: never retried, and plain failed for the same reason. */

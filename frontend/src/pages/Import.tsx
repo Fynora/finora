@@ -16,6 +16,9 @@ import {
   importFailureMessage,
   isStatementRefusal,
   isUnreadStatementLayout,
+  PDF_PASSWORD_HINT,
+  SERVER_FAILURE_MESSAGE,
+  UNSUPPORTED_FILE_MESSAGE,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
   UNREAD_LAYOUT_REVIEW_MESSAGE,
@@ -481,7 +484,7 @@ export default function Import() {
     const isPdf = lowerName.endsWith('.pdf');
     const isCsv = lowerName.endsWith('.csv');
     if (!isPdf && !isCsv) {
-      showError('Please upload a .csv or .pdf bank/credit card statement.');
+      showError(UNSUPPORTED_FILE_MESSAGE);
       return;
     }
     if (isPdf) {
@@ -822,7 +825,13 @@ export default function Import() {
         // backend-side -- see GlobalExceptionHandler), not a second frontend-maintained copy of
         // which codes qualify, so the banner's color can never drift from the backend's own answer.
         showError(contractMessage, !!e.response?.data?.userActionRequired);
-        setAskMoment('REFUSED');
+        // Busy, a rate limit and the virus check have copy now too, and none of them judged the
+        // statement, so the question is asked only for a refusal.
+        if (isStatementRefusal(code)) setAskMoment('REFUSED');
+      } else if (!e.response.data?.message && e.response.status >= 500) {
+        // A server failure with no words of its own (a proxy's 502): the file was never read, so
+        // "could not parse" would send the user to check a file that is fine.
+        showError(SERVER_FAILURE_MESSAGE);
       } else {
         showError(e.response?.data?.message ?? (isPdf ? 'Could not parse this PDF.' : 'Could not parse this CSV.'));
         // A refusal only when the server refused the statement, never a crash, a rate limit or sign-in.
@@ -1264,7 +1273,7 @@ export default function Import() {
                     ? "That password didn't open this statement — check it and try again."
                     : passwordState === 'required'
                       ? 'This statement is password protected. Enter the password your bank uses for it.'
-                      : 'Many banks protect statements with a password — often a mix of your name, PAN, date of birth or account number. Check the email the statement came in.'}
+                      : PDF_PASSWORD_HINT}
                 </p>
               </div>
 

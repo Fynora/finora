@@ -44,7 +44,7 @@ describe('ChecklistWidget', () => {
     });
     renderWithClient(<ChecklistWidget />);
     await waitFor(() => expect(screen.getByText(/Complete your profile/)).toBeInTheDocument());
-    expect(screen.getByText(/Import first statement/)).toBeInTheDocument();
+    expect(screen.getByText(/Start with one statement/)).toBeInTheDocument();
   });
 
   it('marks a completed item with a checkmark, distinct from an incomplete one', async () => {
@@ -58,7 +58,7 @@ describe('ChecklistWidget', () => {
     expect(completedCircle).toHaveClass('bg-primary');
     expect(completedCircle?.querySelector('svg')).toBeTruthy(); // the Check icon
 
-    const incompleteLabel = screen.getByText('Import first statement');
+    const incompleteLabel = screen.getByText('Start with one statement');
     const incompleteCircle = incompleteLabel.closest('li')!.querySelector('span.rounded-full');
     expect(incompleteCircle).toHaveClass('border-border');
     expect(incompleteCircle?.querySelector('svg')).toBeFalsy();

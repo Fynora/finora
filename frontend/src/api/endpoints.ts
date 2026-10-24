@@ -646,6 +646,8 @@ export const importApi = {
         staging: StagingResult;
         previousImport?: PreviousImport | null;
         freePlanLimit?: FreePlanLimitNotice | null;
+        // Gate 2b: true when a reviewer released this session after an accuracy hold.
+        approvedAfterReview?: boolean;
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),

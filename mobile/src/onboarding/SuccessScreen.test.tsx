@@ -5,7 +5,7 @@ describe('SuccessScreen', () => {
   it('shows all 6 checklist items', () => {
     render(<SuccessScreen onDone={jest.fn()} />);
     expect(screen.getByText(/Complete your profile/)).toBeTruthy();
-    expect(screen.getByText(/Import first statement/)).toBeTruthy();
+    expect(screen.getByText(/Start with one statement/)).toBeTruthy();
     expect(screen.getByText(/Review transactions/)).toBeTruthy();
     expect(screen.getByText(/Create a budget/)).toBeTruthy();
     expect(screen.getByText(/Create a goal/)).toBeTruthy();

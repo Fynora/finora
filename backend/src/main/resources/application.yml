@@ -565,6 +565,13 @@ app:
     client-ip:
       enabled: ${CLIENT_IP_DIAGNOSTICS_ENABLED:true}
       summary-interval-ms: ${CLIENT_IP_DIAGNOSTICS_SUMMARY_INTERVAL_MS:900000}
+    # Counts how many requests one signed-in user makes in a minute, to size a per-user request
+    # limit from data. No user is stored, logged or used as a metric tag, and nobody is limited.
+    # See UserRequestLoad; remove once the limit has been chosen.
+    user-load:
+      enabled: ${USER_LOAD_DIAGNOSTICS_ENABLED:true}
+      flush-interval-ms: ${USER_LOAD_DIAGNOSTICS_FLUSH_INTERVAL_MS:30000}
+      summary-interval-ms: ${USER_LOAD_DIAGNOSTICS_SUMMARY_INTERVAL_MS:900000}
     # Bug 53 (docs/quality/bug-reports/BUG_REVIEW_REPORT.md). Lax is correct only while the SPA
     # and API share a registrable domain (see RefreshTokenCookie's own doc comment) -- true today
     # per that comment, but a deployment where that stops holding would silently lose the refresh

@@ -417,7 +417,7 @@ export function advancedPrintBody(report: AdvancedReport, now: Date = new Date()
     parts.push(section('Who you paid most',
       `${Math.round(merchants.attributedSharePct)}% of spending is tied to a named merchant.`,
       table(
-        ['Merchant', 'Spent', 'Purchases', 'Change'],
+        ['Merchant', 'Spent', 'Payments', 'Change'],
         merchants.rows.map((m) => [
           `${esc(m.name)}${rowBar(m.amount, max, GRAPHITE)}`, esc(fmt(m.amount)), esc(m.transactionCount), spendChange(m.changeAmount),
         ]),

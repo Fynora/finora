@@ -119,6 +119,19 @@ describe('MerchantList', () => {
     expect(screen.queryByTestId('merchant-coverage')).toBeNull();
   });
 
+  // A friend can rank here under their own name, and money sent to a person is not a purchase, so
+  // every row counts payments.
+  it('counts payments, never purchases, since a row can be a person', () => {
+    const base = fixtureReport();
+    wrap(<MerchantList report={fixtureReport({ merchants: { ...base.merchants, rows: [
+      { ...base.merchants.rows[0], merchantId: 'm1', name: 'Sample Person', transactionCount: 1, logoDomain: null },
+      { ...base.merchants.rows[1], merchantId: 'm2', name: 'Swiggy', transactionCount: 30 },
+    ] } })} onOpen={open} />);
+    expect(screen.getByText('1 payment')).toBeTruthy();
+    expect(screen.getByText('30 payments')).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
+  });
+
   // A friend or a small vendor can rank here under their own name (every payment gets a merchant
   // id). Logo.dev is asked only by the row's `logoDomain`, so a name never reaches it.
   it('asks Logo.dev only by the row\'s address, never with a name', () => {

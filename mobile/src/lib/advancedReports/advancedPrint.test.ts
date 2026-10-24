@@ -85,6 +85,15 @@ describe('advancedPrintBody: what it qualifies', () => {
   });
 });
 
+describe('advancedPrintBody: who you paid most', () => {
+  // A friend can rank among the merchants, and money sent to a person is not a purchase.
+  it('heads the merchant count "Payments", never "Purchases"', () => {
+    const html = body();
+    expect(html).toContain('Payments</th>');
+    expect(html).not.toMatch(/purchases<\/th>/i);
+  });
+});
+
 describe('advancedPrintBody: the charts', () => {
   it('draws money in and out for every month of the period', () => {
     const html = body();

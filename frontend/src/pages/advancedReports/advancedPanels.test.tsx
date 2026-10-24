@@ -121,6 +121,19 @@ describe('MerchantsPanel', () => {
     expect(screen.getByTestId('merchant-coverage')).toHaveTextContent('take 45% of all your spending');
   });
 
+  // A friend can rank here under their own name, and money sent to a person is not a purchase, so
+  // every row counts payments.
+  it('counts payments, never purchases, since a row can be a person', () => {
+    const base = fixtureReport();
+    wrap(<MerchantsPanel report={fixtureReport({ merchants: { ...base.merchants, rows: [
+      { ...base.merchants.rows[0], merchantId: 'm1', name: 'Sample Person', transactionCount: 1, logoDomain: null },
+      { ...base.merchants.rows[1], merchantId: 'm2', name: 'Swiggy', transactionCount: 30 },
+    ] } })} />);
+    expect(screen.getByTestId('merchant-Sample Person')).toHaveTextContent('1 payment');
+    expect(screen.getByTestId('merchant-Swiggy')).toHaveTextContent('30 payments');
+    expect(screen.getByTestId('merchant-rows')).not.toHaveTextContent(/purchase/i);
+  });
+
   it('has an empty state when no spending names a merchant', () => {
     const base = fixtureReport();
     wrap(<MerchantsPanel report={fixtureReport({ merchants: { ...base.merchants, rows: [], merchantCount: 0, attributedSharePct: 0, topFiveSharePct: 0 } })} />);

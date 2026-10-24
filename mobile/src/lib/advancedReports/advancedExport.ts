@@ -69,7 +69,7 @@ export function advancedCsvRows(report: AdvancedReport): Row[] {
   }
 
   if (report.merchants.rows.length > 0) {
-    rows.push([], ['Merchant', 'Amount', 'Share (%)', 'Purchases', 'Earlier period', 'Change'],
+    rows.push([], ['Merchant', 'Amount', 'Share (%)', 'Payments', 'Earlier period', 'Change'],
       ...report.merchants.rows.map((m): Row => [
         m.name, m.amount, oneDecimal(m.sharePct), m.transactionCount, m.previousAmount ?? '', m.changeAmount ?? '',
       ]));

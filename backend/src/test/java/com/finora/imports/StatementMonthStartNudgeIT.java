@@ -104,7 +104,7 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
     }
 
     private List<Map<String, Object>> nudgesOf(User user) {
-        return jdbc.queryForList("SELECT notification_key, type, category, channel, title, message, created_at "
+        return jdbc.queryForList("SELECT notification_key, type, category, channel, priority, title, message, created_at "
                 + "FROM notifications WHERE user_id = ? AND type LIKE 'STATEMENT_MONTH_START%' "
                 + "AND notification_key NOT LIKE '%_2031-03:%' AND notification_key NOT LIKE '%_2031-04:%'", user.getId());
     }
@@ -120,6 +120,8 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
             assertThat(n.get("type")).isEqualTo("STATEMENT_MONTH_START_FIRST");
             assertThat(n.get("category")).isEqualTo("REMINDERS");
             assertThat(n.get("channel")).isEqualTo("PUSH");
+            // A month-start batch waits behind everyone's own notifications ("your statement is ready").
+            assertThat(n.get("priority")).isEqualTo("LOW");
             assertThat(n.get("title")).isEqualTo("Your April statement is out");
             assertThat(n.get("message")).isEqualTo(
                     "Your April statement is out. It's a good one to start with, and takes a couple of minutes.");

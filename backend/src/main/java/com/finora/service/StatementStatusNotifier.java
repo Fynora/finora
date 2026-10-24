@@ -71,7 +71,8 @@ public class StatementStatusNotifier {
      * Gate 2b spec §6: the month-start nudge -- see {@code StatementMonthStartNudge}. One key per user
      * per month for both cases, so a user gets at most one nudge in a month whichever case fires
      * first, and a rerun (a restart, or a second instance) sends nothing. REMINDERS, so the user's
-     * own "Statement reminders" switch decides, independently of FINANCIAL.
+     * own "Statement reminders" switch decides, independently of FINANCIAL. LOW priority, and left out
+     * of the queue-age alert ({@code NotificationRepository.findOldestPendingAt}).
      *
      * @param hasData false: never imported anything, the copy names last month; true: an account is
      *     overdue for a newer statement, no params at all
@@ -82,7 +83,9 @@ public class StatementStatusNotifier {
                 userId,
                 hasData ? NotificationType.STATEMENT_MONTH_START_NEXT : NotificationType.STATEMENT_MONTH_START_FIRST,
                 NotificationCategory.REMINDERS,
-                NotificationPriority.NORMAL,
+                // A batch for every eligible user at once, like a campaign: it waits behind each
+                // user's own notifications ("your statement is ready"), never ahead of them.
+                NotificationPriority.LOW,
                 monthStartKey(userId, month),
                 Set.of(NotificationChannel.PUSH),
                 hasData ? Map.of() : Map.of("month", month.minusMonths(1).getMonth()

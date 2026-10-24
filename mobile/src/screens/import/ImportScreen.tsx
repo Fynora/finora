@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { Card, SectionHeading } from '../../components/Card';
+import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
 import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
@@ -1058,6 +1059,8 @@ export function ImportScreen() {
                     sitting there through the entire dwell, doing nothing (cancelUpload's abort
                     controller is already null by then -- upload() already succeeded). */}
                 {panelState === 'uploading' && <Button label="Cancel upload" variant="link" onPress={cancelUpload} />}
+                {/* Gate 2b (spec §5.2): what happens to the statement, closed, beside the picker. */}
+                {uploadProgress === null && <StatementHandlingPanel />}
               </>
             )}
             {showPasswordPanel && pendingPdf && (

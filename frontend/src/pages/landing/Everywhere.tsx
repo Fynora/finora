@@ -11,8 +11,9 @@ import { everywhere } from './landing-config';
  *
  * The honesty constraint here is specific and easy to lose in a redesign: the WEB app is
  * responsive and genuinely runs on any device today, so the three moments below are all true.
- * The native iOS/Android apps are built but released to neither store, so the note at the bottom
- * stays until they are. Update the note and the wording together, not just the note.
+ * The Android app is live on Google Play and the iOS app is not on the App Store yet, and the
+ * note at the bottom says exactly that. Update the wording and the note together, not just one.
+ * The Play Store button and QR code live in SiteFooter.tsx.
  */
 const ICONS = [<Laptop size={18} />, <Smartphone size={18} />, <Tablet size={18} />];
 
@@ -40,7 +41,7 @@ export function Everywhere() {
 
       <Reveal delayMs={260}>
         <p className="text-center text-sm mt-8" style={{ color: 'var(--m-ink-3)' }}>
-          <span className="inline-block text-[11px] font-semibold px-2 py-1 rounded-md mr-2" style={{ background: '#FEF3C7', color: '#92400E' }}>
+          <span className="inline-block text-[11px] font-semibold px-2 py-1 rounded-md mr-2" style={{ background: '#DCFCE7', color: '#166534' }}>
             {everywhere.nativeStatus}
           </span>
           {everywhere.nativeNote}

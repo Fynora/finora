@@ -33,6 +33,7 @@ class AuthServiceEmailTest {
     private EmailProvider emailProvider;
     private EmailProperties emailProperties;
     private AuditService auditService;
+    private com.finora.config.RequestMetadata requestMetadata;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -44,6 +45,15 @@ class AuthServiceEmailTest {
         emailProperties = new EmailProperties();
         emailProperties.setAppBaseUrl("http://localhost:5173");
         auditService = mock(AuditService.class);
+        // Mirrors the real addTo contract (mutate and return) and supplies the labels a real request
+        // would, so the audit rows below can be checked for who asked and from where.
+        requestMetadata = mock(com.finora.config.RequestMetadata.class);
+        when(requestMetadata.addTo(any())).thenAnswer(inv -> {
+            java.util.Map<String, Object> metadata = inv.getArgument(0);
+            metadata.put("ip", "203.0.113.9");
+            metadata.put("device", "Mac");
+            return metadata;
+        });
 
         User user = new User();
         ReflectionTestUtils.setField(user, "id", userId);
@@ -58,7 +68,7 @@ class AuthServiceEmailTest {
                 auditService, mock(RefreshTokenService.class), emailProvider, emailProperties,
                 mock(PhoneVerificationProvider.class), mock(PlatformSettingsService.class),
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
-                mock(com.finora.config.RequestMetadata.class),
+                requestMetadata,
                 mock(com.finora.service.SubscriptionService.class),
                 mock(com.finora.service.ReferralService.class),
                 mock(com.finora.service.MerchantSeedService.class),
@@ -85,6 +95,31 @@ class AuthServiceEmailTest {
         assertThat(response.devResetLink()).isNull();
         verify(auditService).recordEvenOnRollback(eq(userId), eq("EMAIL_SENT"), eq("User"), eq(userId),
                 argThat(metadata -> "password_reset".equals(metadata.get("type")) && Boolean.TRUE.equals(metadata.get("success"))));
+    }
+
+    @Test
+    void forgotPassword_recordsWhoAskedAndFromWhere_forAnExistingAccount() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(emailProvider.sendPasswordResetEmail(any(), any()))
+                .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
+
+        authService.forgotPassword(new ForgotPasswordRequest("test@example.com", "USER"), null);
+
+        // The request stores no IP of its own, so this row is the only trace of who asked.
+        verify(auditService).record(eq(userId), eq("PASSWORD_RESET_REQUESTED"), eq("User"), eq(userId),
+                argThat(metadata -> "203.0.113.9".equals(metadata.get("ip")) && "Mac".equals(metadata.get("device"))));
+    }
+
+    @Test
+    void forgotPassword_forAnUnknownAddress_recordsNothing_andAnswersTheSameWay() {
+        when(emailProvider.isConfigured()).thenReturn(true);
+
+        var response = authService.forgotPassword(new ForgotPasswordRequest("nobody@example.com", "USER"), null);
+
+        // No user id to attach a row to, and the response must not differ from the known-account one.
+        verify(auditService, org.mockito.Mockito.never()).record(any(), eq("PASSWORD_RESET_REQUESTED"), any(), any(), any());
+        assertThat(response.message()).isEqualTo("If an account exists for that email, we've sent a password reset link.");
+        verify(emailProvider, org.mockito.Mockito.never()).sendPasswordResetEmail(any(), any());
     }
 
     /**

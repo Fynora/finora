@@ -104,6 +104,41 @@ class ResendEmailProviderTest {
     }
 
     @Test
+    void accountLocked_saysWhenItLockedWhenItUnlocksAndWhereTheAttemptCameFrom() {
+        EmailMessage message = provider.buildAccountLockedMessage("user@example.test",
+                Instant.parse("2026-10-24T00:55:00Z"), Instant.parse("2026-10-24T01:10:00Z"),
+                "Chrome on macOS", "203.0.113.4");
+
+        assertThat(message.subject()).isEqualTo("Your Fynora account was locked after wrong passwords");
+        assertThat(message.html()).contains("24 Oct 2026, 00:55");
+        assertThat(message.html()).contains("24 Oct 2026, 01:10");
+        assertThat(message.html()).contains("Device: Chrome on macOS");
+        assertThat(message.html()).contains("IP address: 203.0.113.4");
+        // States only what the lock knows: those attempts failed. No claim about the rest of the account.
+        assertThat(message.html()).contains("None of those attempts got in");
+    }
+
+    @Test
+    void accountLocked_escapesTheDeviceAndIp_becauseTheyDescribeSomeoneElsesRequest() {
+        EmailMessage message = provider.buildAccountLockedMessage("user@example.test",
+                Instant.now(), Instant.now().plusSeconds(900),
+                "<script>alert(1)</script>", "1.2.3.4\"><img src=x>");
+
+        assertThat(message.html()).doesNotContain("<script>alert(1)</script>");
+        assertThat(message.html()).doesNotContain("<img src=x>");
+        assertThat(message.html()).contains("&lt;script&gt;");
+    }
+
+    @Test
+    void accountLocked_omitsDeviceAndIpLinesWhenUnavailable() {
+        EmailMessage message = provider.buildAccountLockedMessage("user@example.test",
+                Instant.now(), Instant.now().plusSeconds(900), null, " ");
+
+        assertThat(message.html()).doesNotContain("Device:");
+        assertThat(message.html()).doesNotContain("IP address:");
+    }
+
+    @Test
     void accountReactivated_hasNoButtonAndTheExpectedSubject() {
         EmailMessage message = provider.buildAccountReactivatedMessage("user@example.test");
 

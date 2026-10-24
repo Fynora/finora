@@ -39,6 +39,7 @@ class AuthServiceOtpLoginTest {
     private PasswordEncoder passwordEncoder;
     private AuditService auditService;
     private PhoneVerificationProvider phoneVerificationProvider;
+    private com.finora.config.RequestMetadata requestMetadata;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -55,6 +56,13 @@ class AuthServiceOtpLoginTest {
         when(passwordEncoder.encode(anyString())).thenAnswer(inv -> "hash(" + inv.getArgument(0) + ")");
         auditService = mock(AuditService.class);
         phoneVerificationProvider = mock(PhoneVerificationProvider.class);
+        requestMetadata = mock(com.finora.config.RequestMetadata.class);
+        when(requestMetadata.addTo(any())).thenAnswer(inv -> {
+            java.util.Map<String, Object> metadata = inv.getArgument(0);
+            metadata.put("ip", "203.0.113.9");
+            metadata.put("device", "Mac");
+            return metadata;
+        });
         RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any()))
                 .thenReturn(new RefreshTokenService.IssuedToken("raw-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
@@ -67,7 +75,7 @@ class AuthServiceOtpLoginTest {
                 auditService, refreshTokenService, emailProvider,
                 new EmailProperties(), phoneVerificationProvider, mock(PlatformSettingsService.class),
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
-                mock(com.finora.config.RequestMetadata.class),
+                requestMetadata,
                 mock(com.finora.service.SubscriptionService.class),
                 mock(com.finora.service.ReferralService.class),
                 mock(com.finora.service.MerchantSeedService.class),
@@ -103,6 +111,33 @@ class AuthServiceOtpLoginTest {
         verify(emailLoginOtpRepository).markAllUnconsumedAsConsumed(eq("jane@example.com"), eq(User.SCOPE_USER), any());
         verify(emailProvider).sendLoginOtpEmail(eq("jane@example.com"), anyString());
         verify(passwordEncoder).encode(anyString()); // the code is hashed before it's ever persisted
+    }
+
+    @Test
+    void requestEmailLoginOtp_recordsWhoAskedAndFromWhere() {
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
+                .thenReturn(Optional.of(verifiedUser()));
+
+        authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null));
+
+        // The request stores no IP of its own; this row is the only trace of who asked for the code.
+        verify(auditService).record(eq(userId), eq("LOGIN_OTP_REQUESTED"), eq("User"), eq(userId),
+                org.mockito.ArgumentMatchers.argThat(metadata ->
+                        "203.0.113.9".equals(metadata.get("ip")) && "Mac".equals(metadata.get("device"))));
+    }
+
+    @Test
+    void requestEmailLoginOtp_forAnUnverifiedEmail_recordsNoRequest() {
+        User unverified = verifiedUser();
+        unverified.setEmailVerified(false);
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("jane@example.com", User.SCOPE_USER))
+                .thenReturn(Optional.of(unverified));
+
+        assertThatThrownBy(() -> authService.requestEmailLoginOtp(new EmailOtpRequestRequest("jane@example.com", null)))
+                .isInstanceOf(ApiException.class);
+
+        // A request that issued no code leaves no "code requested" row.
+        verify(auditService, never()).record(any(), eq("LOGIN_OTP_REQUESTED"), any(), any(), any());
     }
 
     @Test

@@ -1,17 +1,20 @@
 package com.finora.service;
 
 import com.finora.AbstractIntegrationTest;
+import com.finora.dto.AuthDtos.LoginRequest;
 import com.finora.dto.AuthDtos.ReactivateRequest;
 import com.finora.dto.AuthDtos.RegisterRequest;
 import com.finora.entity.AccountReactivationToken;
 import com.finora.entity.AuditLog;
 import com.finora.entity.User;
+import com.finora.exception.ApiException;
 import com.finora.repository.AccountReactivationTokenRepository;
 import com.finora.repository.AuditLogRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.TokenHasher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +43,8 @@ class AuthServiceEmailAuditIT extends AbstractIntegrationTest {
     @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private AccountReactivationTokenRepository reactivationTokenRepository;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private PlatformSettingsService platformSettingsService;
 
     @Test
     void registerRecordsBothTheWelcomeAndVerificationEmailAudits() {
@@ -89,5 +94,57 @@ class AuthServiceEmailAuditIT extends AbstractIntegrationTest {
                 .filteredOn(a -> "EMAIL_SENT".equals(a.getAction())
                         && "account_reactivated".equals(a.getMetadata().get("type")))
                 .hasSize(1);
+    }
+
+    /**
+     * The lockout email is sent from an {@code AfterCommit} callback, and the request that
+     * triggers it ends by THROWING (a wrong password). Whether that callback ever runs depends on
+     * the transaction committing despite the throw -- {@code login()}'s {@code noRollbackFor} --
+     * which a mocked {@code AuditService} and a same-thread executor cannot show. This drives the
+     * real login path to the real lockout threshold, over a real commit.
+     *
+     * <p>The email provider here is the no-op one (no API key), so the send itself fails; what is
+     * proved is that the notice was attempted exactly once and recorded, and that it is not
+     * repeated by the attempts a locked account refuses.
+     */
+    @Test
+    void wrongPasswordsThatLockAnAccountRecordOneLockedEmail_andNoMoreWhileItStaysLocked() throws Exception {
+        User user = new User();
+        user.setEmail("lock-audit-it-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash(passwordEncoder.encode("correct-horse-battery-staple"));
+        user.setFullName("Lock Audit IT User");
+        user.setPhoneVerified(true);
+        User saved = userRepository.save(user);
+
+        int max = platformSettingsService.getEntity().getMaxFailedLoginAttempts();
+        for (int i = 0; i < max + 3; i++) { // the last three arrive while the account is locked
+            try {
+                authService.login(new LoginRequest(saved.getEmail(), "definitely-not-the-password", null));
+            } catch (ApiException expected) { /* every one of them is a plain wrong password */ }
+        }
+
+        assertThat(userRepository.findById(saved.getId()).orElseThrow().getLockedUntil())
+                .as("the account is locked after the configured number of wrong passwords")
+                .isNotNull();
+
+        // The send is handed to a real thread pool, so the row can land a moment after login returns.
+        List<AuditLog> sent = List.of();
+        for (int waited = 0; waited < 5000 && sent.isEmpty(); waited += 100) {
+            sent = auditLogRepository.findByUserIdOrderByCreatedAtDesc(saved.getId()).stream()
+                    .filter(a -> "EMAIL_SENT".equals(a.getAction())
+                            && "account_locked".equals(a.getMetadata().get("type")))
+                    .toList();
+            if (sent.isEmpty()) Thread.sleep(100);
+        }
+        assertThat(sent)
+                .as("exactly one locked-account notice for one lock, however many attempts followed")
+                .hasSize(1);
+
+        List<AuditLog> rows = auditLogRepository.findByUserIdOrderByCreatedAtDesc(saved.getId());
+        assertThat(rows)
+                .as("the lock itself is audited once, with the attempt count")
+                .filteredOn(a -> "ACCOUNT_LOCKED".equals(a.getAction()))
+                .hasSize(1)
+                .allSatisfy(a -> assertThat(a.getMetadata()).containsEntry("failedAttempts", max));
     }
 }

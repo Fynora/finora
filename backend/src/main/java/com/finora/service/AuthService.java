@@ -1373,11 +1373,44 @@ public class AuthService {
         int attempts = user.getFailedLoginAttempts() + 1;
         user.setFailedLoginAttempts(attempts);
         if (attempts >= settings.getMaxFailedLoginAttempts()) {
-            user.setLockedUntil(Instant.now().plusSeconds(settings.getLockoutDurationMinutes() * 60L));
+            Instant lockedAt = Instant.now();
+            Instant unlocksAt = lockedAt.plusSeconds(settings.getLockoutDurationMinutes() * 60L);
+            user.setLockedUntil(unlocksAt);
             auditService.record(user.getId(), "ACCOUNT_LOCKED", "User", user.getId(),
-                    java.util.Map.of("failedAttempts", attempts));
+                    requestMetadata.addTo(new java.util.HashMap<>(java.util.Map.of("failedAttempts", attempts))));
+            notifyOwnerOfLockout(user, lockedAt, unlocksAt);
         }
         userRepository.save(user);
+    }
+
+    /**
+     * Tells the account's owner that wrong passwords locked it, and from where. Someone who was
+     * asleep, or never watches the audit log, otherwise learns nothing -- on 2026-10-24 an account
+     * was locked three times overnight and its owner heard only about the reset and sign-in-code
+     * mails that followed.
+     *
+     * <p>One email per lock, not per attempt: a locked account counts no further failures until
+     * the lock ends (see login()), so an attacker cannot turn this into a stream of mail to the
+     * owner faster than once per lockout period.
+     *
+     * <p>The device and IP are read here, on the request thread -- the request-scoped
+     * {@link RequestMetadata} is not available once the send is handed to the executor. After
+     * commit, like every other auth email, so a rolled-back lock never produces a notice.
+     */
+    private void notifyOwnerOfLockout(User user, Instant lockedAt, Instant unlocksAt) {
+        // No isConfigured() guard, unlike reset and sign-in-code: those return a dev link in the
+        // response when no provider is set, so they must know. This mail has no such fallback, and
+        // the welcome and deactivated mails call the provider the same way -- NoOpEmailProvider
+        // logs and reports failure, and the audit row below records success=false.
+        UUID userId = user.getId();
+        String email = user.getEmail();
+        String device = requestMetadata.device();
+        String ip = requestMetadata.ip();
+        AfterCommit.run("account locked email", () -> authEmailExecutor.execute(() -> {
+            EmailResult result = emailProvider.sendAccountLockedEmail(email, lockedAt, unlocksAt, device, ip);
+            auditService.recordEvenOnRollback(userId, "EMAIL_SENT", "User", userId, Map.of(
+                    "type", "account_locked", "provider", result.provider().name(), "success", result.success()));
+        }));
     }
 
     /**
@@ -1411,6 +1444,14 @@ public class AuthService {
         prt.setTokenHash(TokenHasher.sha256(rawToken));
         prt.setExpiresAt(Instant.now().plusSeconds(RESET_TOKEN_TTL_MINUTES * 60));
         resetTokenRepository.save(prt);
+
+        // Who asked, from where. The reset email goes to the account's owner and a request stores
+        // no IP of its own, so without this row a reset the owner did not ask for cannot be traced
+        // afterwards: on 2026-10-24 one arrived at 06:25 and the only record was "email sent".
+        // Existing accounts only -- an unknown address has no user id to attach it to, and the
+        // response must stay identical for both (the enumeration rule above).
+        auditService.record(userOpt.get().getId(), "PASSWORD_RESET_REQUESTED", "User", userOpt.get().getId(),
+                requestMetadata.addTo(new java.util.HashMap<>()));
 
         // Bug fix: this used to always build the link from the single user-frontend base URL,
         // regardless of which app the request actually came from -- the user frontend and admin
@@ -1514,6 +1555,11 @@ public class AuthService {
                     ErrorCode.AUTH_OTP_RESEND_COOLDOWN.defaultMessage(),
                     Map.of("retryAfterSeconds", EMAIL_LOGIN_OTP_RESEND_COOLDOWN_SECONDS));
         }
+
+        // Who asked, from where -- see the same row in forgotPassword. Only a code that was really
+        // issued is recorded, not a refused or raced request.
+        auditService.record(user.getId(), "LOGIN_OTP_REQUESTED", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>()));
 
         if (emailProvider.isConfigured()) {
             UUID otpUserId = user.getId();

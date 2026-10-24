@@ -37,6 +37,7 @@ class AuthServiceLoginTest {
     private com.finora.repository.AccountReactivationTokenRepository reactivationTokenRepository;
     private AuditService auditService;
     private com.finora.config.RequestMetadata requestMetadata;
+    private EmailProvider emailProvider;
     private AuthService authService;
     private final UUID userId = UUID.randomUUID();
 
@@ -68,12 +69,17 @@ class AuthServiceLoginTest {
         // Mockito's unstubbed default returns null and every login-audit metadata map silently
         // vanishes before reaching auditService.record(), even though production code built one.
         when(requestMetadata.addTo(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(requestMetadata.ip()).thenReturn("203.0.113.9");
+        when(requestMetadata.device()).thenReturn("Mac");
+        // Not configured unless a test says so, exactly as the inline mock was: an unstubbed
+        // isConfigured() is false, so no other test in this class sends anything.
+        emailProvider = mock(EmailProvider.class);
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), mock(PasswordResetTokenRepository.class),
                 reactivationTokenRepository,
                 mock(com.finora.repository.EmailVerificationTokenRepository.class),
                 mock(PasswordEncoder.class), mock(JwtService.class), authenticationManager,
-                auditService, refreshTokenService, mock(EmailProvider.class),
+                auditService, refreshTokenService, emailProvider,
                 new EmailProperties(), mock(PhoneVerificationProvider.class), platformSettingsService,
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
                 requestMetadata,
@@ -538,6 +544,85 @@ class AuthServiceLoginTest {
         } catch (Exception ignored) { /* expected */ }
         assertThat(u.getLockedUntil()).isNotNull();
         assertThat(u.getLockedUntil()).isAfter(java.time.Instant.now().plusSeconds(29 * 60));
+    }
+
+    /** The owner hears about a lock, once, with where it came from -- the attempts themselves reach
+     *  nobody, and the only other mail an attacker's activity produces (a reset or sign-in code) is
+     *  indistinguishable from the owner's own. */
+    @Test
+    void login_whenWrongPasswordsLockTheAccount_emailsTheOwnerOnce_withDeviceAndIp() {
+        var settings = new com.finora.entity.PlatformSettings();
+        settings.setMaxFailedLoginAttempts(2);
+        settings.setLockoutDurationMinutes(30);
+        when(platformSettingsService.getEntity()).thenReturn(settings);
+        when(emailProvider.isConfigured()).thenReturn(true);
+        when(emailProvider.sendAccountLockedEmail(any(), any(), any(), any(), any()))
+                .thenReturn(com.finora.service.EmailResult.success(com.finora.service.ProviderType.RESEND, "m1"));
+        User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+        // Below the threshold: nothing to tell the owner yet.
+        org.mockito.Mockito.verify(emailProvider, org.mockito.Mockito.never())
+                .sendAccountLockedEmail(any(), any(), any(), any(), any());
+
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+        org.mockito.Mockito.verify(emailProvider).sendAccountLockedEmail(
+                org.mockito.ArgumentMatchers.eq("locksout@example.com"), any(), any(),
+                org.mockito.ArgumentMatchers.eq("Mac"), org.mockito.ArgumentMatchers.eq("203.0.113.9"));
+
+        // Retrying while locked counts no failure and sends nothing more.
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+        org.mockito.Mockito.verify(emailProvider, org.mockito.Mockito.times(1))
+                .sendAccountLockedEmail(any(), any(), any(), any(), any());
+    }
+
+    /** A provider that fails (or is the no-op one) must neither stop the lock nor surface to the caller:
+     *  the attempt still answers as a plain wrong password, and the failure is recorded, not thrown. */
+    @Test
+    void login_whenWrongPasswordsLockTheAccount_andTheEmailFails_stillLocks_andRecordsTheFailure() {
+        var settings = new com.finora.entity.PlatformSettings();
+        settings.setMaxFailedLoginAttempts(1);
+        when(platformSettingsService.getEntity()).thenReturn(settings);
+        when(emailProvider.sendAccountLockedEmail(any(), any(), any(), any(), any()))
+                .thenReturn(com.finora.service.EmailResult.failure(com.finora.service.ProviderType.RESEND, "boom"));
+        User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")))
+                .isInstanceOf(com.finora.exception.ApiException.class)
+                .hasMessageContaining("Invalid credentials");
+
+        assertThat(u.getLockedUntil()).isNotNull();
+        org.mockito.Mockito.verify(auditService).recordEvenOnRollback(
+                org.mockito.ArgumentMatchers.eq(userId), org.mockito.ArgumentMatchers.eq("EMAIL_SENT"),
+                org.mockito.ArgumentMatchers.eq("User"), org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.<java.util.Map<String, Object>>argThat(m ->
+                        "account_locked".equals(m.get("type")) && Boolean.FALSE.equals(m.get("success"))));
+    }
+
+    @Test
+    void login_lockAuditRowCarriesTheIpAndDevice_ofTheAttemptThatTippedIt() {
+        var settings = new com.finora.entity.PlatformSettings();
+        settings.setMaxFailedLoginAttempts(1);
+        when(platformSettingsService.getEntity()).thenReturn(settings);
+        User u = user("locksout@example.com", "+919876500077"); // synthetic-ok
+        when(userRepository.findByEmailIgnoreCaseAndAccountScope("locksout@example.com", "USER")).thenReturn(Optional.of(u));
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Bad credentials"));
+
+        try { authService.login(new LoginRequest("locksout@example.com", "wrong", "USER")); } catch (Exception ignored) { }
+
+        // requestMetadata.addTo is stubbed as pass-through in setUp, so the map is what production built:
+        // the attempt count, to which the real addTo adds ip and device.
+        org.mockito.Mockito.verify(requestMetadata, org.mockito.Mockito.atLeastOnce()).addTo(any());
+        org.mockito.Mockito.verify(auditService).record(org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.eq("ACCOUNT_LOCKED"), org.mockito.ArgumentMatchers.eq("User"),
+                org.mockito.ArgumentMatchers.eq(userId),
+                org.mockito.ArgumentMatchers.<java.util.Map<String, Object>>argThat(m -> Integer.valueOf(1).equals(m.get("failedAttempts"))));
     }
 
     /** A locked account being retried is also a failed login attempt from the audit trail's

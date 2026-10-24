@@ -98,6 +98,19 @@ describe('CategoryList', () => {
     expect(screen.queryByLabelText('Sort by change')).toBeNull();
   });
 
+  // A category can be money sent to people (Personal Transfer), which is not a purchase, so every
+  // row counts payments.
+  it('counts payments, never purchases, since a category can be money sent to people', () => {
+    const base = fixtureReport();
+    wrap(<CategoryList report={fixtureReport({ categories: { ...base.categories, rows: [
+      { ...base.categories.rows[0], name: 'Personal Transfer', transactionCount: 1 },
+      { ...base.categories.rows[1], name: 'Food & Dining', transactionCount: 5 },
+    ] } })} onOpen={open} />);
+    expect(screen.getByText('1 payment')).toBeTruthy();
+    expect(screen.getByText('5 payments')).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
+  });
+
   it('writes a share under one percent as "<1%"', () => {
     const base = fixtureReport();
     wrap(<CategoryList report={fixtureReport({ categories: { ...base.categories, rows: [{ ...base.categories.rows[0], sharePct: 0.4 }] } })} onOpen={open} />);

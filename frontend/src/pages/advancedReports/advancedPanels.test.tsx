@@ -92,6 +92,19 @@ describe('CategoriesPanel', () => {
     expect(screen.getByTestId('category-other')).toHaveTextContent('8%');
   });
 
+  // A category can be money sent to people (Personal Transfer), which is not a purchase, so every
+  // row counts payments.
+  it('counts payments, never purchases, since a category can be money sent to people', () => {
+    const base = fixtureReport();
+    wrap(<CategoriesPanel report={fixtureReport({ categories: { ...base.categories, rows: [
+      { ...base.categories.rows[0], name: 'Personal Transfer', transactionCount: 1 },
+      { ...base.categories.rows[1], name: 'Food & Dining', transactionCount: 5 },
+    ] } })} />);
+    expect(screen.getByTestId('category-Personal Transfer')).toHaveTextContent('1 payment');
+    expect(screen.getByTestId('category-Food & Dining')).toHaveTextContent('5 payments');
+    expect(screen.getByTestId('category-rows')).not.toHaveTextContent(/purchase/i);
+  });
+
   it('writes a share under one percent as "<1%", never "0%"', () => {
     const base = fixtureReport();
     wrap(<CategoriesPanel report={fixtureReport({ categories: { ...base.categories, rows: [{ ...base.categories.rows[0], sharePct: 0.4 }] } })} />);

@@ -70,7 +70,7 @@ export function CategoriesPanel({ report, limit, onViewAll }: { report: Advanced
                 <div className="h-full rounded-full bg-primary" style={{ width: `${(c.amount / largest) * 100}%` }} />
               </div>
               <div className="mt-1 flex items-center justify-between gap-3">
-                <span className="text-2xs text-muted">{c.transactionCount} {c.transactionCount === 1 ? 'purchase' : 'purchases'}</span>
+                <span className="text-2xs text-muted">{c.transactionCount} {c.transactionCount === 1 ? 'payment' : 'payments'}</span>
                 <span className="flex items-center gap-2">
                   <ChangeLine previousAmount={c.previousAmount} changeAmount={c.changeAmount} changePct={c.changePct} />
                   <Sparkline values={c.monthly} />

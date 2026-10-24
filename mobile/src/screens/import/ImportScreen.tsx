@@ -1048,6 +1048,14 @@ export function ImportScreen() {
                   progress={uploadProgress ?? 0}
                   idle={<Button label="Choose a file" onPress={handlePick} />}
                 />
+                {/* Gate 2b (spec §3): most statements arrive by email, and the share sheet is the
+                    shortest way in -- Android's intent filters and the iOS Share Extension already
+                    accept one PDF or CSV (app.config.ts), but nothing said so. */}
+                {uploadProgress === null && (
+                  <Text style={[styles.helpText, { color: c.muted }]}>
+                    Statement in your email? Open the email, tap the PDF, then Share → Fynora.
+                  </Text>
+                )}
                 {/* The only way out of this screen while an upload is in flight. It matters most
                     on the request that can never time out on its own (see toUploadProgressConfig):
                     on a dead connection the bar simply freezes, and without this the user is stuck

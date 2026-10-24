@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import { ArrowUpRight } from 'lucide-react';
 import { Logo } from './Nav';
 import { footer } from './landing-config';
 import { PLAY_STORE_URL } from '../../lib/openInApp';
 import playStoreQr from '../../assets/landing/play-store-qr.svg';
+import googlePlayBadge from '../../assets/landing/google-play-badge.png';
 
 // lucide-react dropped brand/logo icons (Instagram included) -- kept as an inline glyph rather
 // than pulling in a whole icon-brand package for a single footer link.
@@ -38,7 +38,10 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
  * exactly. It was generated offline with the `qrcode` package (error correction M, 4-module quiet
  * zone) and checked by decoding the rendered image. It does not follow the constant: if
  * ANDROID_PACKAGE in lib/openInApp.ts ever changes, regenerate the SVG for the new URL and decode
- * it again before shipping, or the code will send people to a dead listing. Only the Android app
+ * it again before shipping, or the code will send people to a dead listing. The badge
+ * (assets/landing/google-play-badge.png) is Google's official en_badge_web_generic.png from
+ * play.google.com/intl/en_us/badges/, unmodified; if it is ever replaced, take the new file from
+ * there, never a stock-photo copy. Only the Android app
  * is on a store (Everywhere.tsx says so); an App Store badge belongs here the day an iOS listing
  * exists, not before.
  */
@@ -85,13 +88,16 @@ export function SiteFooter() {
                 <p className="text-[11px] mt-1.5 text-slate-400">{footer.qrCaption}</p>
               </div>
               <div>
+                {/* Google's own badge, shown unmodified: their rules forbid redrawing, recoloring,
+                    cropping or rescaling its parts. The PNG carries its own clear space, so the
+                    negative margin lines the badge's visible edge up with the text above. */}
                 <a
                   href={PLAY_STORE_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="m-tap inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
+                  className="m-tap inline-block -ml-2.5"
                 >
-                  {footer.playStoreCta} <ArrowUpRight size={15} aria-hidden="true" />
+                  <img src={googlePlayBadge} alt={footer.playStoreCta} width={180} height={70} className="h-auto" />
                 </a>
                 <p className="text-[11px] mt-3 max-w-[200px] leading-snug text-slate-400">{footer.trademark}</p>
               </div>

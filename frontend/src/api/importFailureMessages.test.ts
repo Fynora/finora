@@ -3,8 +3,9 @@ import {
   IMPORT_FAILURE_MESSAGES, IMPORT_FAILURE_TITLES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE,
   importFailureMessage, importFailureTitle, isStatementRefusal,
 } from './importFailureMessages';
-// The mobile app's copy of the same map, read by path: both apps must say the same words.
-import * as mobile from '../../../mobile/src/api/importFailureMessages';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   IMPORT_SESSION_HELD_FOR_REVIEW, IMPORT_SYSTEM_BUSY, NO_TRANSACTIONS_FOUND, PAYMENT_APP_HISTORY, PDF_PASSWORD_REQUIRED,
   PDF_TOO_LARGE, TRUST_REVIEW_REJECTED,
@@ -111,10 +112,26 @@ describe('Gate 2b recovery copy', () => {
   });
 
   it('webAndMobileMapsAgree', () => {
-    expect(mobile.IMPORT_FAILURE_MESSAGES).toEqual(IMPORT_FAILURE_MESSAGES);
-    expect(mobile.IMPORT_FAILURE_TITLES).toEqual(IMPORT_FAILURE_TITLES);
-    expect(mobile.PDF_PASSWORD_HINT).toBe(PDF_PASSWORD_HINT);
-    expect(mobile.UNSUPPORTED_FILE_MESSAGE).toBe(UNSUPPORTED_FILE_MESSAGE);
-    expect(mobile.SERVER_FAILURE_MESSAGE).toBe(SERVER_FAILURE_MESSAGE);
+    // Read as text, not imported: the web CI job installs no mobile dependencies, and importing a
+    // mobile file makes the transform resolve mobile's tsconfig (which extends Expo's).
+    const here = dirname(fileURLToPath(import.meta.url));
+    const read = (p: string) => readFileSync(resolve(here, p), 'utf8');
+    // Comments differ between the two files by design; the code must not.
+    const code = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s+/g, ' ').trim();
+    const fromMaps = (src: string) => code(src.slice(src.indexOf('export const IMPORT_FAILURE_MESSAGES')));
+    expect(fromMaps(read('../../../mobile/src/api/importFailureMessages.ts')))
+      .toBe(fromMaps(read('./importFailureMessages.ts')));
+
+    // The maps are keyed by constant names, so the constants must carry the same wire codes too.
+    const constants = (src: string) =>
+      Object.fromEntries([...src.matchAll(/export const (\w+) = '([^']*)';/g)].map((m) => [m[1], m[2]]));
+    const mobileCodes = constants(read('../../../mobile/src/api/errorCodes.ts'));
+    for (const [name, value] of Object.entries(constants(read('./errorCodes.ts')))) {
+      if (name in mobileCodes) expect(mobileCodes[name], name).toBe(value);
+    }
+    for (const key of Object.keys(IMPORT_FAILURE_MESSAGES)) {
+      expect(Object.values(mobileCodes), key).toContain(key);
+    }
   });
 });

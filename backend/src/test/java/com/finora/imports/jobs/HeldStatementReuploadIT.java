@@ -156,6 +156,28 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
                 .isEqualTo(ImportSession.STATUS_CONFIRMED);
     }
 
+    /** Gate 2b (spec §5.3): what the review screen reads to say "Approved." first. */
+    private boolean approvedAfterReviewOf(User owner, UUID sessionId) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, owner));
+        ResponseEntity<String> review = restTemplate.exchange(
+                "/api/v1/import/sessions/" + sessionId, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+        assertThat(review.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(review.getBody()).get("data").get("approvedAfterReview").asBoolean();
+    }
+
+    @Test
+    void theReviewSaysApprovedOnlyOnceTheReviewerApproves() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+        assertThat(approvedAfterReviewOf(owner, held.getImportSessionId())).as("still held").isFalse();
+
+        heldStatementService.approve(user().getId(), heldIdOf(held), null, null);
+
+        assertThat(approvedAfterReviewOf(owner, held.getImportSessionId())).as("approved").isTrue();
+    }
+
     @Test
     void reuploadWhileHeldReturnsTheHeldJobAndApprovingItLetsTheUserConfirm() throws Exception {
         User owner = user();

@@ -287,6 +287,9 @@ export default function Import() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // Gate 2b (spec §5.3): the session a reviewer released after an accuracy hold. The review step
+  // then says it was approved, as well as that nothing is saved until the user confirms.
+  const [approvedAfterReview, setApprovedAfterReview] = useState(false);
   // The Free one-month limit this statement will be refused under at Import, told up front so the
   // person doesn't review every row first (FreePlanLimitNotice). It IS a gate, unlike the notice
   // above: the Import button waits on it, because the backend would refuse. `limitOverridden` is
@@ -558,6 +561,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(sessionId);
       setSessionId(session.sessionId);
+      setApprovedAfterReview(session.approvedAfterReview === true);
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -600,6 +604,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(id);
       setSessionId(session.sessionId);
+      setApprovedAfterReview(session.approvedAfterReview === true);
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -751,6 +756,7 @@ export default function Import() {
         return;
       }
       setSessionId(res.sessionId);
+      setApprovedAfterReview(false);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -1027,6 +1033,7 @@ export default function Import() {
 
   function startOver() {
     setStep('upload');
+    setApprovedAfterReview(false);
     setPreviousImport(null);
     setFreePlanLimit(null);
     setLimitOverridden(false);
@@ -1401,6 +1408,12 @@ export default function Import() {
           {/* Dropzone beside the connected-accounts panel and trust cards, matching the mockup's
               layout -- was a standalone full-width block below this row; moved here, unchanged
               internally, per direct feedback that the two belong side by side. */}
+          {showUploadPicker && !uploading && (
+            // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+            <p data-testid="first-ask" className="text-sm text-ink">
+              <strong>Start with one statement:</strong> last month, from the account you use most.
+            </p>
+          )}
           {showUploadPicker && (
             <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_0.85fr] gap-4">
               <div
@@ -1651,6 +1664,9 @@ export default function Import() {
 
         {step === 'review' && (
           <motion.div key="review" className="space-y-4" {...stepMotionProps}>
+          <p data-testid="review-promise" role="status" className="text-sm text-ink">
+            {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
+          </p>
           {freePlanLimit && !reimportState && (
             <FreePlanLimitBanner
               notice={freePlanLimit}

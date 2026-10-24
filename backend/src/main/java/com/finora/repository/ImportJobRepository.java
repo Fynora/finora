@@ -218,6 +218,12 @@ public interface ImportJobRepository extends JpaRepository<ImportJob, UUID> {
     boolean existsByImportSessionIdAndStatusIn(UUID importSessionId,
                                                java.util.Collection<ImportJob.Status> statuses);
 
+    /** Gate 2b: a job in this status that went through a trust hold ({@code heldStatementId} is
+     *  set by {@code holdForTrustReview} and never cleared). With COMPLETED, the hold was approved
+     *  -- {@code releaseAfterTrustReview} is the only way a held job reaches COMPLETED. Same null
+     *  caveat as {@link #findByImportSessionId}. */
+    boolean existsByImportSessionIdAndStatusAndHeldStatementIdIsNotNull(UUID importSessionId, ImportJob.Status status);
+
     /** The jobs behind these sessions sitting in one status -- for
      *  {@code ImportSessionService.sessionsBlockedByTrustReview}, which must see a trust hold whose
      *  review record was never written, and for {@code HeldStatementService}, which resolves such a

@@ -408,6 +408,37 @@ describe('Import — file-type routing', () => {
     expect(importApi.stagePdf).not.toHaveBeenCalled();
   });
 
+  // Gate 2b PR 2 (spec §4, §5.3): ask for one statement first, and promise nothing is saved early.
+  it('showsStartWithOneStatement', async () => {
+    renderImport();
+
+    const ask = await screen.findByTestId('first-ask');
+    expect(ask).toHaveTextContent('Start with one statement: last month, from the account you use most.');
+    expect(within(ask).getByText('Start with one statement:').tagName).toBe('STRONG');
+  });
+
+  it('hidesItWhileImporting', async () => {
+    vi.mocked(importApi.stageCsv).mockReset().mockImplementation(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    renderImport();
+    expect(await screen.findByTestId('first-ask')).toBeInTheDocument();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    await waitFor(() => expect(screen.queryByTestId('first-ask')).not.toBeInTheDocument());
+  });
+
+  it('reviewSaysNothingSavedUntilConfirm', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await pickAndUploadPdf(user);
+
+    expect(await screen.findByText('Nothing is saved until you confirm.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Approved\./)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('first-ask')).not.toBeInTheDocument();
+  });
+
   it('advances to the review step once staging succeeds', async () => {
     const user = userEvent.setup();
     renderImport();
@@ -2760,6 +2791,44 @@ describe('Import — queued imports', () => {
 
     await waitFor(() => expect(importApi.stageCsv).toHaveBeenCalled());
     expect(importJobsApi.submit).not.toHaveBeenCalled();
+  });
+
+  it('approvedHoldSaysNothingSaved', async () => {
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
+      status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-9',
+    }));
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: { rows: [], totalParsed: 2, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
+      approvedAfterReview: true,
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Approved. Nothing is saved until you confirm.', {}, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it('rejectedHoldDoesNotSayApproved', async () => {
+    // A session no reviewer released (the server leaves approvedAfterReview false or absent).
+    vi.mocked(importJobsApi.progress).mockResolvedValue(queuedJob({
+      status: 'COMPLETED', rowsTotal: 2, rowsProcessed: 2, importSessionId: 'session-9',
+    }));
+    vi.mocked(importApi.getSession).mockResolvedValue({
+      sessionId: 'session-9',
+      staging: { rows: [], totalParsed: 2, flaggedDuplicates: 0, detectedAccount, unparseableRows: [] },
+      approvedAfterReview: false,
+    });
+    const user = userEvent.setup();
+    renderImport();
+    await waitFor(() => expect(importJobsApi.availability).toHaveBeenCalled());
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+
+    expect(await screen.findByText('Nothing is saved until you confirm.', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText(/Approved\./)).not.toBeInTheDocument();
   });
 
   it('loads what the worker staged once the job completes', async () => {

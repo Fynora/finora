@@ -216,7 +216,8 @@ public class ImportController {
         // open the review from here. Judged on the plan as it is now, so an upgrade clears it.
         return ApiResponse.ok(new StagingSessionResponse(session.getId(), staging,
                 importService.previousImportOf(currentUser.id(), session.getContentHash()))
-                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), staging, null)));
+                .withFreePlanLimit(importService.freePlanLimitNotice(currentUser.id(), staging, null))
+                .withApprovedAfterReview(importSessionService.wasApprovedAfterReview(session.getId())));
     }
 
     @DeleteMapping("/sessions/{id}")

@@ -240,6 +240,9 @@ export function ImportScreen() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // Gate 2b (spec §5.3): the session a reviewer released after an accuracy hold. The review then
+  // says it was approved, as well as that nothing is saved until the user confirms.
+  const [approvedAfterReview, setApprovedAfterReview] = useState(false);
   // The Free one-month limit this statement will be refused under at Import, told up front so the
   // person doesn't review every row first (FreePlanLimitNotice). Unlike the notice above it IS a
   // gate (canConfirmImport): the backend would refuse. `limitOverridden` is the way past it for
@@ -445,6 +448,7 @@ export function ImportScreen() {
     setDetected(null);
     setVerification(null);
     setPreviousImport(null);
+    setApprovedAfterReview(false);
     setFreePlanLimit(null);
     setLimitOverridden(false);
     setSummary(null);
@@ -547,6 +551,7 @@ export function ImportScreen() {
     try {
       const res = await importApi.getSession(id);
       setSessionId(res.sessionId);
+      setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -630,6 +635,7 @@ export function ImportScreen() {
         return;
       }
       setSessionId(res.sessionId);
+      setApprovedAfterReview(res.approvedAfterReview === true);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -748,6 +754,7 @@ export function ImportScreen() {
       }
 
       setSessionId(res.sessionId);
+      setApprovedAfterReview(false);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -1026,6 +1033,12 @@ export function ImportScreen() {
           ) : (
           <Card>
             <SectionHeading title="Import a statement" />
+            {uploadProgress === null && (
+              // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+              <Text testID="first-ask" style={[styles.body, { color: c.ink }]}>
+                <Text style={{ fontWeight: '700' }}>Start with one statement:</Text> last month, from the account you use most.
+              </Text>
+            )}
             <Text style={[styles.body, { color: c.muted }]}>
               Choose a CSV or PDF statement from your bank. You'll review every transaction before
               anything is added.
@@ -1346,6 +1359,9 @@ export function ImportScreen() {
         ListHeaderComponent={
           <View>
             {header}
+            <Text testID="review-promise" accessibilityRole="text" style={[styles.body, styles.section, { color: c.ink }]}>
+              {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
+            </Text>
             <Card style={styles.section}>
               {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill bug
                   found and fixed elsewhere in the app; a border makes the badge's own boundary

@@ -689,26 +689,36 @@ public class ImportDto {
      *        same "being checked" state, instead of opening the review screen. Null otherwise.
      */
     public record StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport,
-                                         UUID heldForReviewJobId, FreePlanLimitNotice freePlanLimit) {
+                                         UUID heldForReviewJobId, FreePlanLimitNotice freePlanLimit,
+                                         boolean approvedAfterReview) {
         /** See {@link PdfStagingSessionResponse}'s matching constructor. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging) {
-            this(sessionId, staging, null, null, null);
+            this(sessionId, staging, null, null, null, false);
         }
 
         /** Every construction site that predates the trust check on this endpoint: not held. */
         public StagingSessionResponse(UUID sessionId, StagingResponse staging, PreviousImport previousImport) {
-            this(sessionId, staging, previousImport, null, null);
+            this(sessionId, staging, previousImport, null, null, false);
         }
 
         public StagingSessionResponse heldForReview(UUID jobId) {
-            return new StagingSessionResponse(sessionId, staging, previousImport, jobId, freePlanLimit);
+            return new StagingSessionResponse(sessionId, staging, previousImport, jobId, freePlanLimit, approvedAfterReview);
         }
 
         /** The Free one-month limit this statement will be refused under at confirm, or null when it
          *  fits or the plan has no such limit -- see {@link FreePlanLimitNotice}. Set by the
          *  controller on every response the review screen opens from. */
         public StagingSessionResponse withFreePlanLimit(FreePlanLimitNotice notice) {
-            return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, notice);
+            return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, notice,
+                    approvedAfterReview);
+        }
+
+        /** Gate 2b (spec §5.3): a reviewer released this session after an accuracy hold, so the
+         *  review screen says "Approved." before "Nothing is saved until you confirm." Set by
+         *  GET /import/sessions/{id}, the one door an approved hold's review opens from. */
+        public StagingSessionResponse withApprovedAfterReview(boolean approved) {
+            return new StagingSessionResponse(sessionId, staging, previousImport, heldForReviewJobId, freePlanLimit,
+                    approved);
         }
     }
 

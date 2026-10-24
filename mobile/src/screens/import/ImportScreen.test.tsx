@@ -544,6 +544,32 @@ describe('ImportScreen — upload completion dwell', () => {
   // celebrateThenAdvance mechanism; this locks in that this screen's copy of it actually holds the
   // step on 'upload' (rendering the Completed checkmark) rather than jumping the instant stageCsv
   // resolves.
+  // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.
+  it('showsStartWithOneStatement', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Start with one statement:')).toBeOnTheScreen();
+    expect(screen.getByTestId('first-ask')).toHaveTextContent('Start with one statement: last month, from the account you use most.');
+  });
+
+  it('hidesItWhileImporting', async () => {
+    api.import.stageCsv.mockReset().mockImplementation(() => new Promise(() => {}));
+    render(tree());
+    expect(await screen.findByTestId('first-ask')).toBeOnTheScreen();
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(screen.queryByTestId('first-ask')).not.toBeOnTheScreen();
+  });
+
+  it('reviewSaysNothingSavedUntilConfirm', async () => {
+    render(tree());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    expect(await screen.findByText('Nothing is saved until you confirm.', {}, { timeout: 3000 })).toBeOnTheScreen();
+  });
+
   it('flashes a Completed checkmark before advancing to the review step', async () => {
     render(tree());
 
@@ -1382,6 +1408,32 @@ describe('ImportScreen — async import job (Phase 4)', () => {
 
     await waitFor(() => expect(api.import.getSession).toHaveBeenCalledWith('session-1'), { timeout: 3000 });
     expect(await screen.findByText(/^Import \d+ transaction/)).toBeTruthy();
+  });
+
+  // Gate 2b PR 2 (spec §5.3): the review says nothing is saved until the user confirms, and says
+  // "Approved." first when a reviewer released this session after an accuracy hold.
+  it.each([
+    ['approvedHoldSaysNothingSaved', true, 'Approved. Nothing is saved until you confirm.'],
+    ['rejectedHoldDoesNotSayApproved', false, 'Nothing is saved until you confirm.'],
+  ])('%s', async (_name, approvedAfterReview, expected) => {
+    api.importJobs.progress.mockResolvedValueOnce(
+      jobProgress({ status: 'COMPLETED', userStatus: 'COMPLETED', rowsTotal: 1, rowsProcessed: 1, importSessionId: 'session-1' })
+    );
+    api.import.getSession.mockResolvedValue({
+      sessionId: 'session-1',
+      staging: {
+        rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: detectedWithBank, unparseableRows: [],
+      },
+      approvedAfterReview,
+    } as never);
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+
+    expect(await screen.findByText(expected, {}, { timeout: 3000 })).toBeOnTheScreen();
+    if (!approvedAfterReview) expect(screen.queryByText(/Approved\./)).not.toBeOnTheScreen();
   });
 
   it('shows the curated failure reason and a way back once the job fails', async () => {

@@ -613,6 +613,10 @@ public class PdfPreviewGenerator {
         // Which staged row each balance point came from (-1 for a balance-marker row that was not
         // staged), so an OCR balance-cell correction lands on both -- see OcrBalanceCellRepair.
         List<Integer> balancePointStagedIndex = new ArrayList<>();
+        // Rows whose amount column held a value that could not be read -- kept out of balancePoints
+        // and only consulted for whether one may sit at either end of the statement. See
+        // BalanceSequenceResolver.UnreadAmountRow.
+        List<com.finora.imports.BalanceSequenceResolver.UnreadAmountRow> unreadAmountRows = new ArrayList<>();
         // Hoisted for the same reason as PreviewGenerator's CSV loop -- see its comment. A
         // multi-account PDF calls this once per section, so the rule set is loaded once per
         // section rather than once per row.
@@ -736,6 +740,13 @@ public class PdfPreviewGenerator {
                 // would silently vanish it with zero trace. Route it to the unparseable diagnostic
                 // instead, same as the unrecognized-column case above.
                 unparseable.add(new UnparseableRow(row, UnparseableReasons.UNPARSEABLE_RECOGNIZED_AMOUNT));
+                // Its balance is real but what moved it is not known, so it is not a balance point:
+                // the normaliser's fallback amount is the balance itself, and as a first point that
+                // gave an opening balance of twice the row's balance. It only tells the opening and
+                // closing derivation whether an unread row may be first or last.
+                unreadAmountRows.add(new com.finora.imports.BalanceSequenceResolver.UnreadAmountRow(
+                        parsed.date(), printedBalance));
+                continue;
             } else if (printedBalance != null && balanceBeforeThisRow != null && nextPrintedBalance[i] != null
                     && printedBalance.compareTo(balanceBeforeThisRow) != 0
                     && printedBalance.compareTo(nextPrintedBalance[i]) != 0) {
@@ -844,7 +855,8 @@ public class PdfPreviewGenerator {
         boolean cardFactsApply = creditLimitAppliesTo(product, sectionCount);
         CreditCardSummaryEvidence sectionCardSummary = cardFactsApply && printedCreditCardSummary != null
                 ? printedCreditCardSummary : CreditCardSummaryEvidence.NONE;
-        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, balancePoints, product, ctx,
+        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, balancePoints,
+                unreadAmountRows, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
                 gridAccountNumberMasked, gridAccountNumberIsCardLabelled,
                 // The printed summary belongs to the one ledger that printed it: only a single-
@@ -1268,6 +1280,7 @@ public class PdfPreviewGenerator {
     private DetectedAccountInfo buildDetectedAccountInfo(String filename, PdfTableLocator.LocatedSection section,
                                                            List<StagedRow> stagedRows,
                                                            List<BalancePoint> balancePoints,
+                                                           List<com.finora.imports.BalanceSequenceResolver.UnreadAmountRow> unreadAmountRows,
                                                            ProductDiscovery.DiscoveredProduct product,
                                                            DocumentContext ctx,
                                                            CreditCardSummaryEvidence printedCreditCardSummary,
@@ -1316,11 +1329,17 @@ public class PdfPreviewGenerator {
         // sync the way the two independent implementations silently did before BalanceChainUtil was
         // first extracted. Returns no opening/closing balance at all -- rather than a guess -- when
         // a day's ordering genuinely cannot be determined.
-        if (!balancePoints.isEmpty()) {
+        //
+        // A row whose amount could not be read is not among the balance points; when one may be the
+        // first or the last row, the opening or closing balance is not established here, and the
+        // statement's own printed balance below is what fills it -- the same rule as the CSV path.
+        if (!balancePoints.isEmpty() || !unreadAmountRows.isEmpty()) {
             com.finora.imports.BalanceSequenceResolver.Resolution resolution =
                     com.finora.imports.BalanceSequenceResolver.resolve(balancePoints);
-            openingBalance = resolution.openingBalance();
-            closingBalance = resolution.closingBalance();
+            openingBalance = com.finora.imports.BalanceSequenceResolver.openingAround(
+                    resolution, balancePoints, unreadAmountRows);
+            closingBalance = com.finora.imports.BalanceSequenceResolver.closingAround(
+                    resolution, balancePoints, unreadAmountRows);
         }
         // The statement's own printed opening/closing balance: the fallback when the chain gave
         // none (a real Bandhan Bank and a real Canara Bank statement), and otherwise a cross-check

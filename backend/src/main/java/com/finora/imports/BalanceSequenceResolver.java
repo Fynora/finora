@@ -394,6 +394,68 @@ public final class BalanceSequenceResolver {
         return null;
     }
 
+    /**
+     * A dated row whose amount could not be read, and the running balance it printed (null when it
+     * printed none). Its balance is real, but what moved it is unknown, so it must never be one of
+     * the observations {@link #resolve} derives the opening and closing balances from: the
+     * normaliser falls back to the balance for such a row's amount, and a first row read that way
+     * gave an opening balance of twice its balance -- the balance minus a debit of itself.
+     */
+    public record UnreadAmountRow(LocalDate date, BigDecimal balanceAfter) {}
+
+    /**
+     * The opening balance, unless a row whose amount could not be read may come first.
+     *
+     * <p>The opening balance is the balance before the first transaction: that row's balance minus
+     * what it moved. When the first row is one whose amount is unknown, so is the opening balance,
+     * and it is reported as not established (null) rather than derived from the next row -- which
+     * would be the balance after the unread row, and would let the statement totals agree around a
+     * missing transaction. A row on the same day as the first readable one may be first, so it
+     * counts too. A statement's own opening-balance line still settles it.
+     *
+     * @param readable the observations {@code resolution} was resolved from
+     */
+    public static BigDecimal openingAround(Resolution resolution, List<? extends DatedLink> readable,
+                                           List<UnreadAmountRow> unread) {
+        if (unread == null || unread.isEmpty()) return resolution.openingBalance();
+        if (resolution.anchorSource() == AnchorSource.STATEMENT_OPENING_BALANCE) return resolution.openingBalance();
+        LocalDate firstReadable = readable.stream().map(DatedLink::date)
+                .filter(java.util.Objects::nonNull).min(LocalDate::compareTo).orElse(null);
+        boolean unreadMayComeFirst = unread.stream()
+                .anyMatch(u -> u.date() == null || firstReadable == null || !u.date().isAfter(firstReadable));
+        return unreadMayComeFirst ? null : resolution.openingBalance();
+    }
+
+    /**
+     * The closing balance, accounting for rows whose amount could not be read.
+     *
+     * <p>The closing balance is the balance after the last transaction, which does not depend on
+     * what that transaction moved. So a single unread row dated after every readable one still
+     * gives it, by its own running balance. When an unread row may be the last but cannot be placed
+     * -- on the same day as the last readable row, or one of several on the last day, or with no
+     * date or no balance printed -- the closing balance is not established (null).
+     *
+     * @param readable the observations {@code resolution} was resolved from
+     */
+    public static BigDecimal closingAround(Resolution resolution, List<? extends DatedLink> readable,
+                                           List<UnreadAmountRow> unread) {
+        if (unread == null || unread.isEmpty()) return resolution.closingBalance();
+        LocalDate lastReadable = readable.stream().map(DatedLink::date)
+                .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
+        List<UnreadAmountRow> mayBeLast = unread.stream()
+                .filter(u -> u.date() == null || lastReadable == null || !u.date().isBefore(lastReadable))
+                .toList();
+        if (mayBeLast.isEmpty()) return resolution.closingBalance();
+        LocalDate latest = mayBeLast.stream().map(UnreadAmountRow::date)
+                .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
+        List<UnreadAmountRow> onLatest = mayBeLast.stream()
+                .filter(u -> latest != null && latest.equals(u.date())).toList();
+        boolean placedLast = latest != null && onLatest.size() == 1
+                && (lastReadable == null || latest.isAfter(lastReadable))
+                && mayBeLast.stream().allMatch(u -> u.date() != null);
+        return placedLast ? onLatest.get(0).balanceAfter() : null;
+    }
+
     private static <T extends DatedLink> Resolution ambiguous(List<T> observations, String reason) {
         return new Resolution(observations, null, null, AnchorSource.NONE, AmbiguityStatus.AMBIGUOUS, reason);
     }

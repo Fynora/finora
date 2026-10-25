@@ -53,6 +53,12 @@ describe('money figures refresh after an inflow-kind change (web caches them for
 
   // Shared payments and loans: a share, a loan entry or a rule moves the same figures, a repeating
   // bill's share, and the people rows; an inflow kind on a sender also stops the questions about it.
+  // A category change, a share or an answer anywhere can add or remove an Insights "To look at" row,
+  // and the sidebar dot counts them (as mobile's FINANCIAL_QUERY_KEYS does).
+  it('covers "To look at" and its sidebar dot', () => {
+    expect(MONEY_FIGURE_KEYS).toContain('ai-insights');
+  });
+
   it('covers the people rows and repeating payments too', () => {
     expect(MONEY_FIGURE_KEYS).toEqual(expect.arrayContaining(['people', 'recurring']));
   });

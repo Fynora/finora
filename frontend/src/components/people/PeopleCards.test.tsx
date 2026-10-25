@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { inflowApi, insightsApi, peopleApi, transactionsApi, type PeopleSuggestion } from '../../api/endpoints';
-import { PeopleQuestionsCard } from './PeopleQuestionsCard';
 import { WithPeopleCard } from './WithPeopleCard';
 
 // Every name and amount here is invented.
@@ -54,66 +53,6 @@ beforeEach(() => {
   vi.mocked(insightsApi.acknowledge).mockReset().mockResolvedValue(undefined);
   vi.mocked(inflowApi.kinds).mockReset().mockResolvedValue([{ id: 'k-paid-back', name: 'Paid back', countsAsIncome: false, builtIn: 'PAID_BACK' }] as never);
   vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({ content: [], page: 0, size: 50, totalElements: 0, totalPages: 0 } as never);
-});
-
-describe('PeopleQuestionsCard', () => {
-  it('asks the server\'s questions under "Money with people", and the bill picker opens with its bills', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck], expected: [] });
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Money with people' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Yes, link it to a bill' }));
-    expect(await screen.findByRole('heading', { name: 'Share of which bill?' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Rent, 1 Sep, Sample Owner, ₹36,000' })).toBeChecked();
-  });
-
-  it('hides a question marked "Leave as it is" at once and saves it under its own kind', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck, lentCheck], expected: [] });
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Leave as it is: Flatmate A' }));
-    await waitFor(() => expect(screen.queryByText(/from Flatmate A on 4 Sep/)).toBeNull());
-    expect(insightsApi.acknowledge).toHaveBeenCalledWith('SHARE_CHECK', 'c-1');
-    expect(screen.getByText('₹2,000 to Friend K on 3 Aug. Nothing back yet.')).toBeInTheDocument();
-  });
-
-  it('brings the question back when the server refuses "Leave as it is"', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck], expected: [] });
-    vi.mocked(insightsApi.acknowledge).mockRejectedValue(new Error('offline'));
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Leave as it is: Flatmate A' }));
-    expect(await screen.findByText('₹9,000 from Flatmate A on 4 Sep. You filed it under Rent.')).toBeInTheDocument();
-  });
-
-  it('does not ask what was marked "Got it" on another device', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [shareCheck, lentCheck], expected: [] });
-    vi.mocked(insightsApi.acknowledgements).mockResolvedValue([{ kind: 'LENT_CHECK', itemKey: 'd-1' }]);
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    expect(await screen.findByText(/from Flatmate A on 4 Sep/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText(/to Friend K on 3 Aug/)).toBeNull());
-  });
-
-  it('"Paid for something" opens that day\'s transactions', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [lentCheck], expected: [] });
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Paid for something' }));
-    expect(screen.getByTestId('where')).toHaveTextContent('/app/transactions?from=2026-08-03&to=2026-08-03');
-  });
-
-  it('tells the page after an answer is saved, so it re-reads its figures', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({ items: [lentCheck], expected: [] });
-    vi.mocked(peopleApi.addEntry).mockResolvedValue({} as never);
-    const onChanged = vi.fn();
-    show(<PeopleQuestionsCard onChanged={onChanged} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Lent to Friend K' }));
-    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
-  });
-
-  it('shows nothing with no questions, or on a server without them', async () => {
-    vi.mocked(peopleApi.suggestions).mockRejectedValue(new Error('404'));
-    show(<PeopleQuestionsCard onChanged={vi.fn()} />);
-    await waitFor(() => expect(peopleApi.suggestions).toHaveBeenCalled());
-    expect(screen.queryByRole('heading', { name: 'Money with people' })).toBeNull();
-  });
 });
 
 describe('WithPeopleCard', () => {

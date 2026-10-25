@@ -47,11 +47,11 @@ function pending<T>(): Promise<T> {
   return new Promise<T>(() => {});
 }
 
-function renderPage() {
+function renderPage(url = '/app/reports') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>
         <Reports />
       </MemoryRouter>
     </QueryClientProvider>
@@ -1053,5 +1053,29 @@ describe('Reports — Export CSV', () => {
     expect(text).toContain('"Received, not counted as income yet","3000"');
     expect(text).toContain(`"Part of this month isn't in yet, so these figures may change."`);
     expect(text).toContain('"Big Mart","Food","9000"');
+  });
+});
+
+// Insights' "See the full month in Reports" names its month (web Insights spec, "Reports month link").
+describe('Reports — opens on the month a link names', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(reportsApi.forMonth).mockReturnValue(pending<ReportData>());
+  });
+
+  it('opens on that month when Reports has it', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
+    renderPage('/app/reports?month=2026-07');
+    expect(await screen.findByText("Loading July 2026's report")).toBeInTheDocument();
+    expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07');
+  });
+
+  it('opens on the newest month when the link names one it does not have, or nothing usable', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
+    const first = renderPage('/app/reports?month=2025-01');
+    expect(await screen.findByText("Loading August 2026's report")).toBeInTheDocument();
+    first.unmount();
+    renderPage('/app/reports?month=garbage');
+    expect(await screen.findByText("Loading August 2026's report")).toBeInTheDocument();
   });
 });

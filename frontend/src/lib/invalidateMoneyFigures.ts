@@ -13,6 +13,8 @@ export const MONEY_FIGURE_KEYS = [
   // Shared payments and loans: a share, a loan entry or a rule also moves a repeating bill's share and
   // who owes whom, and a kind on a sender stops the questions about its money.
   'people', 'recurring',
+  // Insights' "To look at" rows and the sidebar dot that counts them (web Insights spec).
+  'ai-insights',
 ] as const;
 
 export function useInvalidateMoneyFigures() {

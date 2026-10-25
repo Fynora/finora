@@ -1,13 +1,13 @@
 import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import Insights from './Insights';
 import {
-  aiInsightsApi, categoriesApi, insightsApi, peopleApi, recurringApi, onboardingApi, usageApi,
-  type AiStory, type InsightsData, type RecurringItem,
+  aiInsightsApi, categoriesApi, insightsApi, peopleApi, recurringApi, onboardingApi, reportsApi, usageApi,
+  type AiStory, type InsightsData, type LookAtServerRow, type RecurringItem,
 } from '../api/endpoints';
 
 vi.mock('../api/endpoints', () => ({
@@ -17,7 +17,14 @@ vi.mock('../api/endpoints', () => ({
   },
   // The month story (AI insights spec §8.4). The beforeEach below puts "nothing to show" back before
   // every test, so a story one test sets up never leaks into the next.
-  aiInsightsApi: { story: vi.fn(), generateStory: vi.fn(), feedback: vi.fn() },
+  aiInsightsApi: { story: vi.fn(), generateStory: vi.fn(), feedback: vi.fn(), lookAt: vi.fn() },
+  // The month line reads Reports' trend; "first month" reads Reports' months; the statement note the
+  // accounts. Defaults: three months, no trend point, no accounts.
+  reportsApi: {
+    availableMonths: vi.fn().mockResolvedValue(['2026-07', '2026-08', '2026-09']),
+    trend: vi.fn().mockResolvedValue([]),
+  },
+  accountsApi: { list: vi.fn().mockResolvedValue([]) },
   // Shared payments and loans: nothing to ask and nobody owing unless a test says so.
   peopleApi: {
     suggestions: vi.fn().mockResolvedValue({ items: [], expected: [] }), list: vi.fn().mockResolvedValue([]),
@@ -61,6 +68,7 @@ beforeEach(() => {
   vi.mocked(aiInsightsApi.generateStory).mockReset().mockResolvedValue(story());
   vi.mocked(aiInsightsApi.feedback).mockReset().mockResolvedValue(undefined);
   vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+  vi.mocked(aiInsightsApi.lookAt).mockReset().mockResolvedValue({ rows: [], orderedByAi: false });
 });
 
 function insights(overrides: Partial<InsightsData> = {}): InsightsData {
@@ -104,6 +112,18 @@ function renderInsights() {
   );
 }
 
+/** A "To look at" row from the server, every field its kind does not use left null. */
+function lookAtRow(fields: Partial<LookAtServerRow> & Pick<LookAtServerRow, 'kind' | 'key'>): LookAtServerRow {
+  return {
+    ackKind: null, ackItemKey: null, month: null, total: null, count: null, cardName: null, cardLast4: null,
+    people: null, recurring: null, merchant: null, category: null, latestAmount: null, latestDate: null,
+    current: null, priorAverage: null, whyAvailable: null, ...fields,
+  };
+}
+function serverRows(...rows: LookAtServerRow[]) {
+  vi.mocked(aiInsightsApi.lookAt).mockResolvedValue({ rows, orderedByAi: false });
+}
+
 describe('Insights — section-scoped loading', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -114,85 +134,86 @@ describe('Insights — section-scoped loading', () => {
    * `loading` flag, so the whole page waited on the slower of two endpoints that have no dependency
    * on each other. §1's rule: section-scoped loading whenever sections are independently sourced.
    */
-  it('renders the Recurring card as soon as /recurring resolves, without waiting on /insights', async () => {
+  it('shows the repeating payments as soon as /recurring resolves, without waiting on /insights', async () => {
     vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
     vi.mocked(recurringApi.list).mockResolvedValue([recurringItem()]);
 
     renderInsights();
 
-    expect(await screen.findByText(/netflix/i)).toBeInTheDocument();
-    // ...while the other two cards are still, correctly, loading.
+    expect(await screen.findByRole('listitem', { name: /^netflix, Monthly/ })).toBeInTheDocument();
     expect(screen.getByText('Loading your observations')).toBeInTheDocument();
-    expect(screen.getByText('Loading category movers')).toBeInTheDocument();
   });
 
-  it('asks what an unanswered repeating payment is, under its row', async () => {
+  it('asks what an unanswered repeating payment is, in To look at', async () => {
     vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
-    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({
-      merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000,
-    })]);
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+    serverRows(lookAtRow({
+      kind: 'new-recurring', key: 'NEW_RECURRING|sample owner',
+      recurring: recurringItem({ merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null }),
+    }));
 
     renderInsights();
 
     expect(await screen.findByText('What is this ₹10,000 monthly payment?')).toBeInTheDocument();
   });
 
-  it('still asks "still Rent?" for a payee whose amount moved when no group is detected at all', async () => {
+  it('still asks "still Rent?" for a payee whose amount moved', async () => {
     vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
     vi.mocked(recurringApi.list).mockResolvedValue([]);
-    vi.mocked(recurringApi.changedAmounts).mockResolvedValueOnce([
-      { merchant: 'sample owner', category: 'Rent', latestAmount: 12500, latestDate: '2026-07-03', amountMin: 7999, amountMax: 12001 },
-    ]);
+    serverRows(lookAtRow({
+      kind: 'amount-changed', key: 'AMOUNT_CHANGED|sample owner|2026-07-03', ackKind: 'AMOUNT_CHANGED',
+      ackItemKey: 'sample owner|2026-07-03', merchant: 'sample owner', category: 'Rent', latestAmount: 12500,
+      latestDate: '2026-07-03',
+    }));
 
     renderInsights();
 
     expect(await screen.findByText('₹12,500 to sample owner — still Rent?')).toBeInTheDocument();
   });
 
-  it('renders Observations and Movers as soon as /insights resolves, without waiting on /recurring', async () => {
+  it('shows the month card as soon as /insights resolves, without waiting on /recurring', async () => {
     vi.mocked(insightsApi.get).mockResolvedValue(insights());
     vi.mocked(recurringApi.list).mockReturnValue(pending<RecurringItem[]>());
 
     renderInsights();
 
     expect(await screen.findByText(/You spent more on Food/)).toBeInTheDocument();
-    expect(screen.getByText('Loading recurring payments')).toBeInTheDocument();
+    expect(screen.getByText('Loading repeating payments')).toBeInTheDocument();
   });
 
   /**
    * The sharper half of the same bug: `error` was shared, so ONE failing endpoint replaced the whole
    * page with a single line of text -- including the sections whose own fetch had succeeded.
    */
-  it('keeps Observations and Movers when /recurring is the endpoint that failed', async () => {
+  it('keeps the month card when /recurring is the endpoint that failed', async () => {
     vi.mocked(insightsApi.get).mockResolvedValue(insights());
     vi.mocked(recurringApi.list).mockRejectedValue(new Error('boom'));
 
     renderInsights();
 
-    expect(await screen.findByText(/Couldn't load your recurring payments/)).toBeInTheDocument();
+    expect(await screen.findAllByText("Couldn't load your repeating payments.")).toHaveLength(2);
     expect(screen.getByText(/You spent more on Food/)).toBeInTheDocument();
-    expect(screen.getByText('Food')).toBeInTheDocument();
   });
 
-  it('keeps the Recurring card when /insights is the endpoint that failed', async () => {
+  it('keeps the repeating payments when /insights is the endpoint that failed', async () => {
     vi.mocked(insightsApi.get).mockRejectedValue(new Error('boom'));
     vi.mocked(recurringApi.list).mockResolvedValue([recurringItem()]);
 
     renderInsights();
 
-    expect(await screen.findByText(/netflix/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Couldn't load your insights/)).toHaveLength(2);
+    expect(await screen.findByRole('listitem', { name: /^netflix, Monthly/ })).toBeInTheDocument();
+    expect(screen.getAllByText(/Couldn't load your insights/)).toHaveLength(1);
   });
 
   /**
    * The accessibility contract that makes this swap an improvement rather than a regression: the
-   * page previously rendered readable "Loading…" text, so replacing it with aria-hidden shapes and
-   * no announcing region would be strictly worse. The Region must be present IMMEDIATELY, before
-   * useDelayedLoading's anti-flash window has elapsed and any shape has rendered.
+   * Region must be present IMMEDIATELY, before useDelayedLoading's anti-flash window has elapsed and
+   * any shape has rendered.
    */
   it('announces each loading section immediately, before any skeleton shape appears', () => {
     vi.mocked(insightsApi.get).mockReturnValue(pending<InsightsData>());
     vi.mocked(recurringApi.list).mockReturnValue(pending<RecurringItem[]>());
+    vi.mocked(aiInsightsApi.lookAt).mockReturnValue(pending());
 
     renderInsights();
 
@@ -200,8 +221,20 @@ describe('Insights — section-scoped loading', () => {
     expect(regions).toHaveLength(3);
     regions.forEach((r) => expect(r).toHaveAttribute('aria-busy', 'true'));
     expect(screen.getByText('Loading your observations')).toBeInTheDocument();
-    expect(screen.getByText('Loading recurring payments')).toBeInTheDocument();
-    expect(screen.getByText('Loading category movers')).toBeInTheDocument();
+    expect(screen.getByText('Loading what needs a look')).toBeInTheDocument();
+    expect(screen.getByText('Loading repeating payments')).toBeInTheDocument();
+  });
+
+  it("says when what needs a look didn't load, and tries again", async () => {
+    vi.mocked(insightsApi.get).mockResolvedValue(insights());
+    vi.mocked(recurringApi.list).mockResolvedValue([]);
+    vi.mocked(aiInsightsApi.lookAt).mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ rows: [], orderedByAi: false });
+
+    renderInsights();
+
+    expect(await screen.findByText("Couldn't load what needs a look.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Nothing new to look at.')).toBeInTheDocument();
   });
 });
 
@@ -345,43 +378,97 @@ describe('Insights — Top Merchant highlight', () => {
   });
 });
 
-describe('Insights — Category Movers emphasis', () => {
+describe('Insights — the new layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(insightsApi.get).mockResolvedValue(insights({ reportingMonth: '2026-09', reportingMonthIsCurrent: false }));
     vi.mocked(recurringApi.list).mockResolvedValue([]);
   });
 
-  // 60% clears InsightsService's own MOVER_SIGNIFICANCE_THRESHOLD_PCT (15) -- reused here so a
-  // mover's badge and its sentence agree on what counts as significant.
-  it('badges a mover past the significance threshold as Up', async () => {
-    vi.mocked(insightsApi.get).mockResolvedValue(
-      insights({ movers: [{ category: 'Food', current: 8000, priorAverage: 5000, pctChange: 60 }] })
-    );
+  it('no longer has a Category Movers card: a category running high comes from the server\'s rows', async () => {
+    serverRows(lookAtRow({
+      kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+      month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300,
+    }));
     renderInsights();
 
-    await screen.findByText('Food');
-    expect(screen.getByText('Up')).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'Food is ₹3,100 above your usual month, ₹9,400 vs ₹6,300. Shows the payments' });
+    expect(link).toHaveAttribute('href', '/app/transactions?category=Food&from=2026-09-01&to=2026-09-30');
+    expect(screen.queryByText('Category Movers vs. Recent Average')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recurring Payments & Subscriptions')).not.toBeInTheDocument();
   });
 
-  it('badges a significant decrease as Down', async () => {
-    vi.mocked(insightsApi.get).mockResolvedValue(
-      insights({ movers: [{ category: 'Travel', current: 1000, priorAverage: 5000, pctChange: -80 }] })
-    );
+  it('opens with the month line from Reports\' own trend', async () => {
+    vi.mocked(reportsApi.trend).mockResolvedValue([
+      { month: '2026-08', income: 0, expense: 40000, transactionCount: 9, complete: true },
+      { month: '2026-09', income: 0, expense: 48200, transactionCount: 9, complete: true },
+    ]);
     renderInsights();
 
-    await screen.findByText('Travel');
-    expect(screen.getByText('Down')).toBeInTheDocument();
+    expect(await screen.findByText('You spent ₹48,200 in September 2026, 21% more than August.')).toBeInTheDocument();
+    expect(reportsApi.trend).toHaveBeenCalledWith('2026-09', 6);
   });
 
-  it('shows no badge for a mover under the significance threshold', async () => {
-    vi.mocked(insightsApi.get).mockResolvedValue(
-      insights({ movers: [{ category: 'Utilities', current: 2100, priorAverage: 2000, pctChange: 5 }] })
-    );
+  it('links to Reports for the same month', async () => {
+    renderInsights();
+    await screen.findByText(/You spent more on Food/);
+    expect(screen.getByRole('link', { name: 'See the full month in Reports' })).toHaveAttribute('href', '/app/reports?month=2026-09');
+  });
+
+  it('asks for the month before when there is only one month to go on', async () => {
+    vi.mocked(reportsApi.availableMonths).mockResolvedValueOnce(['2026-09']);
+    renderInsights();
+    expect(await screen.findByText(
+      'Nothing to compare September 2026 with yet. Add the month before and Fynora can tell you what changed.',
+    )).toBeInTheDocument();
+  });
+
+  it('jumps to each section that has something, from questions shown on narrow screens', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({ nextEstimate: '2099-01-01' })]);
+    serverRows(lookAtRow({
+      kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+      month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300,
+    }));
     renderInsights();
 
-    await screen.findByText('Utilities');
-    expect(screen.queryByText('Up')).not.toBeInTheDocument();
-    expect(screen.queryByText('Down')).not.toBeInTheDocument();
+    const nav = await screen.findByRole('navigation', { name: 'Jump to' });
+    expect(nav).toHaveClass('lg:hidden');
+    await waitFor(() => expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual([
+      'What needs a look? (1)', "What's coming up?", 'What do I pay regularly?', 'Where did my money go?',
+    ]));
+    expect(within(nav).getByRole('link', { name: 'What needs a look? (1)' })).toHaveAttribute('href', '#look-at');
+  });
+
+  it('hides a "Got it" row at once and saves it once the undo time is over', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    serverRows(lookAtRow({
+      kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+      month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300,
+    }));
+    renderInsights();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Got it: Food' }));
+    expect(screen.getByText('Hidden: Food above your usual month')).toBeInTheDocument();
+    expect(insightsApi.acknowledge).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(insightsApi.acknowledge).toHaveBeenCalledWith('CATEGORY_HIGH', 'Food|2026-09');
+    await waitFor(() => expect(screen.getByText('Nothing new to look at for September 2026.')).toBeInTheDocument());
+    vi.useRealTimers();
+  });
+
+  it('brings a "Got it" row back when the server does not save it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(insightsApi.acknowledge).mockRejectedValueOnce(new Error('offline'));
+    serverRows(lookAtRow({
+      kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+      month: '2026-09', category: 'Food', current: 9400, priorAverage: 6300,
+    }));
+    renderInsights();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Got it: Food' }));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await screen.findByRole('link', { name: /Food is ₹3,100/ })).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });
 
@@ -391,16 +478,27 @@ describe('Insights — Recurring Payments dismiss', () => {
     vi.mocked(insightsApi.get).mockResolvedValue(insights());
   });
 
-  it('dismisses a wrongly-detected group and removes it from the list', async () => {
-    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({ merchant: 'netflix' })]);
+  it('dismisses a wrongly-detected group and removes it from Coming up and Paid regularly', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValueOnce([recurringItem({ merchant: 'netflix' })]).mockResolvedValue([]);
     vi.mocked(recurringApi.dismiss).mockResolvedValue(undefined);
     renderInsights();
-    await screen.findByText('netflix');
+    await screen.findByRole('listitem', { name: /^netflix, Monthly/ });
 
     await userEvent.click(screen.getByRole('button', { name: 'Not recurring: dismiss netflix' }));
 
     expect(recurringApi.dismiss).toHaveBeenCalledWith('netflix');
     await waitFor(() => expect(screen.queryByText('netflix')).not.toBeInTheDocument());
+  });
+
+  it('keeps "Yes, keep tracking this" and says Fynora will remember', async () => {
+    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({ merchant: 'netflix' })]);
+    vi.mocked(recurringApi.confirm).mockResolvedValue(undefined);
+    renderInsights();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm netflix as recurring' }));
+
+    expect(recurringApi.confirm).toHaveBeenCalledWith('netflix');
+    expect(await screen.findByRole('button', { name: 'netflix confirmed as recurring' })).toBeDisabled();
   });
 });
 
@@ -615,33 +713,26 @@ describe('Insights: money with people', () => {
     vi.mocked(recurringApi.list).mockResolvedValue([]);
   });
 
-  it('asks about money with people, and re-reads its figures once an answer is saved', async () => {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({
-      items: [{
-        kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', relatedTxnId: null, personKey: 'vpa:friend.k', label: 'Friend K',
-        amount: 2000, date: '2026-08-03', category: null, bills: [], owed: null,
-      }],
-      expected: [],
-    });
+  // The server's people row (AI insights spec §8.2), as GET /insights/look-at sends it.
+  function lentQuestion() {
+    serverRows(lookAtRow({ kind: 'people', key: 'LENT_CHECK|d-1', ackKind: 'LENT_CHECK', ackItemKey: 'd-1', people: {
+      kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', relatedTxnId: null, personKey: 'vpa:friend.k', label: 'Friend K',
+      amount: 2000, date: '2026-08-03', category: null, bills: [], owed: null,
+    } }));
     vi.mocked(peopleApi.addEntry).mockResolvedValue({} as never);
+  }
+
+  it('asks about money with people in To look at, and re-reads its figures once an answer is saved', async () => {
+    lentQuestion();
     renderInsights();
-    expect(await screen.findByRole('heading', { name: 'Money with people' })).toBeInTheDocument();
+    expect(await screen.findByText('₹2,000 to Friend K on 3 Aug. Nothing back yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Money with people' })).not.toBeInTheDocument();
     expect(insightsApi.get).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole('button', { name: 'Lent to Friend K' }));
     await waitFor(() => expect(insightsApi.get).toHaveBeenCalledTimes(2));
     expect(recurringApi.list).toHaveBeenCalledTimes(2);
   });
 
-  function lentQuestion() {
-    vi.mocked(peopleApi.suggestions).mockResolvedValue({
-      items: [{
-        kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', relatedTxnId: null, personKey: 'vpa:friend.k', label: 'Friend K',
-        amount: 2000, date: '2026-08-03', category: null, bills: [], owed: null,
-      }],
-      expected: [],
-    });
-    vi.mocked(peopleApi.addEntry).mockResolvedValue({} as never);
-  }
 
   // An answer moves the month's figures, so the story written from them is read again, and
   // rewritten when the server allows it.
@@ -693,9 +784,10 @@ describe('Insights: money with people', () => {
   // Answering a repeating payment re-files its past payments (RecurringAnswerService), which moves
   // the month's figures just as a people answer does.
   it('re-reads the figures and the story after a repeating-payment answer', async () => {
-    vi.mocked(recurringApi.list).mockResolvedValue([recurringItem({
-      merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000,
-    })]);
+    serverRows(lookAtRow({
+      kind: 'new-recurring', key: 'NEW_RECURRING|sample owner',
+      recurring: recurringItem({ merchant: 'sample owner', averageAmount: 10000, state: 'NEEDS_ANSWER', answer: null, latestAmount: 10000 }),
+    }));
     vi.mocked(categoriesApi.list).mockResolvedValue(
       [{ id: 'cat-1', name: 'Rent', isSystem: true, icon: 'tag', color: 'gray' }] as never,
     );
@@ -706,6 +798,8 @@ describe('Insights: money with people', () => {
 
     await waitFor(() => expect(insightsApi.get).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(aiInsightsApi.story).toHaveBeenCalledTimes(2));
+    // ...and the server's list, which no longer holds the answered row.
+    await waitFor(() => expect(aiInsightsApi.lookAt).toHaveBeenCalledTimes(2));
   });
 
   it('lists who owes whom under With people', async () => {
@@ -721,6 +815,8 @@ describe('Insights: money with people', () => {
       recurringItem({ merchant: 'sample owner', averageAmount: 36000, yourShare: 9000, sharedWith: 3 }),
     ]);
     renderInsights();
-    expect(await screen.findByText('Your share ₹9,000 of ₹36,000 · split with 3 · 4x seen')).toBeInTheDocument();
+    const row = await screen.findByRole('listitem', { name: 'sample owner, Monthly, your share ₹9,000 of ₹36,000, split with 3' });
+    expect(within(row).getByText('Monthly · your share of ₹36,000, split with 3')).toBeInTheDocument();
+    expect(within(row).getByText('₹9,000')).toBeInTheDocument();
   });
 });

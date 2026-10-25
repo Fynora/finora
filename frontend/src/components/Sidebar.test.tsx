@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Sidebar } from './Sidebar';
 import { AuthProvider } from '../context/AuthContext';
-import { entitlementsApi } from '../api/endpoints';
+import { aiInsightsApi, entitlementsApi, insightsApi, type LookAtServerRow } from '../api/endpoints';
 
 // entitlementsApi.mine() backs the plan badge next to the brand mark -- mocked here (rather than
 // letting the real axios call hit the network in jsdom) same as every other endpoints call this
@@ -23,6 +23,9 @@ vi.mock('../lib/premiumVisibility', () => ({
 
 vi.mock('../api/endpoints', () => ({
   entitlementsApi: { mine: vi.fn().mockResolvedValue({ planCode: null, planName: null, features: {} }) },
+  // Insights' "To look at" rows, for the dot. Default: nothing to look at.
+  aiInsightsApi: { lookAt: vi.fn().mockResolvedValue({ rows: [], orderedByAi: false }) },
+  insightsApi: { acknowledgements: vi.fn().mockResolvedValue([]) },
 }));
 
 function withProviders(children: ReactNode, initialEntries?: string[]) {
@@ -206,5 +209,52 @@ describe('Sidebar — plan badge while Premium is hidden', () => {
     expect(await screen.findByText('FYNORA')).toBeInTheDocument();
     expect(screen.queryByText('PLUS')).not.toBeInTheDocument();
     expect(screen.queryByText('PREMIUM')).not.toBeInTheDocument();
+  });
+});
+
+// Web Insights spec, "Sidebar dot": the Insights item shows a dot while "To look at" has rows.
+describe('Sidebar — Insights dot', () => {
+  const high: LookAtServerRow = {
+    kind: 'running-high', key: 'CATEGORY_HIGH|Food|2026-09', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food|2026-09',
+    month: '2026-09', total: null, count: null, cardName: null, cardLast4: null, people: null, recurring: null,
+    merchant: null, category: 'Food', latestAmount: null, latestDate: null, current: 9400, priorAverage: 6300,
+    whyAvailable: null,
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(aiInsightsApi.lookAt).mockReset().mockResolvedValue({ rows: [], orderedByAi: false });
+    vi.mocked(insightsApi.acknowledgements).mockReset().mockResolvedValue([]);
+  });
+
+  it('shows a dot, and says so, while something needs a look', async () => {
+    vi.mocked(aiInsightsApi.lookAt).mockResolvedValue({ rows: [high], orderedByAi: false });
+    renderSidebar();
+    expect(await screen.findByRole('link', { name: 'Insights, something to look at' })).toBeInTheDocument();
+    expect(screen.getByTestId('insights-dot')).toBeInTheDocument();
+  });
+
+  it('shows no dot with nothing to look at, or a row already marked "Got it"', async () => {
+    vi.mocked(aiInsightsApi.lookAt).mockResolvedValue({ rows: [high], orderedByAi: false });
+    vi.mocked(insightsApi.acknowledgements).mockResolvedValue([{ kind: 'CATEGORY_HIGH', itemKey: 'Food|2026-09' }]);
+    renderSidebar();
+    await waitFor(() => expect(insightsApi.acknowledgements).toHaveBeenCalled());
+    await waitFor(() => expect(aiInsightsApi.lookAt).toHaveBeenCalled());
+    expect(screen.getByRole('link', { name: 'Insights' })).toBeInTheDocument();
+    expect(screen.queryByTestId('insights-dot')).not.toBeInTheDocument();
+  });
+
+  it('shows no dot when the list cannot be read', async () => {
+    vi.mocked(aiInsightsApi.lookAt).mockRejectedValue(new Error('older server'));
+    renderSidebar();
+    await waitFor(() => expect(aiInsightsApi.lookAt).toHaveBeenCalled());
+    expect(screen.queryByTestId('insights-dot')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dot on the collapsed sidebar', async () => {
+    localStorage.setItem('finora_sidebar_collapsed', 'true');
+    vi.mocked(aiInsightsApi.lookAt).mockResolvedValue({ rows: [high], orderedByAi: false });
+    renderSidebar();
+    expect(await screen.findByTestId('insights-dot')).toBeInTheDocument();
   });
 });

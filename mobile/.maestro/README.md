@@ -55,6 +55,11 @@ backend, and signs in required resolving three things nobody had actually finish
 MAESTRO_API_ORIGIN=http://localhost:18090 \
 MAESTRO_DB_URL=postgresql://finora:finora@localhost:5434/finora \
   ./mobile/.maestro/seed-test-user.sh
+#    The flows need an account that has not yet answered the spending question or finished
+#    onboarding, so a second run against the same database fails at login. To run them again, seed
+#    another account and name it: MAESTRO_TEST_EMAIL=<email> MAESTRO_TEST_PHONE=<phone> on the seed
+#    script, then MAESTRO_TEST_EMAIL=<email> ./mobile/.maestro/run-flows.sh (or maestro test
+#    -e TEST_EMAIL=<email> <flow>). The nightly's retry attempt does exactly this.
 
 # 3. Build a self-contained release APK against that backend. MAESTRO_ALLOW_CLEARTEXT has to be
 #    set on prebuild, not on the gradle step -- it gates a config plugin that only runs during

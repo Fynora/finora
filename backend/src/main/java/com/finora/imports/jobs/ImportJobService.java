@@ -367,6 +367,14 @@ public class ImportJobService {
      * phase 6 describes, this instance is the wrong one to ask — which is a reason to revisit the
      * signal then, not a reason to let a single-instance deployment silently swallow uploads now.
      */
+    /**
+     * Whether {@link #accept} can take an upload here at all: object storage, its one hard gate (see
+     * accept's own comment for why the queue flag deliberately is not one).
+     */
+    public boolean acceptsUploads() {
+        return storage.isPresent();
+    }
+
     public ImportJobDto.Availability availability() {
         boolean async = queueEnabled && storage.isPresent();
         return new ImportJobDto.Availability(async, async && statementPasswordService.enabled());

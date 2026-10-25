@@ -223,7 +223,7 @@ class AccountPurgeSweepServiceTest {
                 mock(com.finora.repository.InflowKindRepository.class),
                 mock(com.finora.repository.SenderInflowRuleRepository.class),
                 auditService, passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider, adminAlerts);
+                auditLogRepository, emailProvider, adminAlerts, mock(com.finora.imports.send.StatementSendCodeRepository.class));
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);

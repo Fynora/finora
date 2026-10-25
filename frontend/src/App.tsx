@@ -36,6 +36,8 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const AuthEntry = lazy(() => import('./pages/AuthEntry'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+// Gate 2b spec §7: public, no sign-in -- a code from the phone and one file.
+const SendStatement = lazy(() => import('./pages/SendStatement'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const VerifyPhone = lazy(() => import('./pages/VerifyPhone'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -156,6 +158,7 @@ export default function App() {
           <Route path="/register" element={<Navigate to="/auth" replace />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/send" element={<SendStatement />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/verify-phone" element={<ProtectedRoute allowUnverified><VerifyPhone /></ProtectedRoute>} />
           <Route path="/email-change-verify" element={<ProtectedRoute><VerifyEmailChange /></ProtectedRoute>} />

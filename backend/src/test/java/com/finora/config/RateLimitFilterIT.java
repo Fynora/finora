@@ -539,6 +539,8 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.identify.window-seconds", DEFAULT_IDENTIFY_WINDOW),
                 Map.entry("app.rate-limit.import-stage.max", DEFAULT_IMPORT_STAGE_MAX),
                 Map.entry("app.rate-limit.import-stage.window-seconds", DEFAULT_IMPORT_STAGE_WINDOW),
+                Map.entry("app.rate-limit.send-statement.max", DEFAULT_SEND_STATEMENT_MAX),
+                Map.entry("app.rate-limit.send-statement.window-seconds", DEFAULT_SEND_STATEMENT_WINDOW),
                 Map.entry("app.rate-limit.statement-refresh.max", DEFAULT_STATEMENT_REFRESH_MAX),
                 Map.entry("app.rate-limit.statement-refresh.window-seconds", DEFAULT_STATEMENT_REFRESH_WINDOW),
                 Map.entry("app.rate-limit.password-change.max", DEFAULT_PASSWORD_CHANGE_MAX),
@@ -734,7 +736,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60,
-                globalMax, 60);
+                globalMax, 60, high, 60);
     }
 
     @Test

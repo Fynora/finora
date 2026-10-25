@@ -1861,6 +1861,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("passwordHistoryRepository.deleteByUserId", "password_history"),
                 Map.entry("passwordChangeSessionRepository.deleteByUserId", "password_change_sessions"),
                 Map.entry("passwordResetTokenRepository.deleteByUserId", "password_reset_tokens"),
+                Map.entry("statementSendCodeRepository.deleteByUserId", "statement_send_codes"),
                 Map.entry("accountReactivationTokenRepository.deleteByUserId", "account_reactivation_tokens"),
                 Map.entry("emailVerificationTokenRepository.deleteByUserId", "email_verification_tokens"),
                 Map.entry("emailLoginOtpRepository.deleteByUserId", "email_login_otps"),

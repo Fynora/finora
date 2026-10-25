@@ -12,6 +12,7 @@ import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { Card, SectionHeading } from '../../components/Card';
 import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
+import { SendFromComputerSheet } from '../../components/SendFromComputerSheet';
 import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
@@ -103,6 +104,8 @@ export function ImportScreen() {
   // beside a server refusal, NOT_CONFIRMED after a cancelled review. Cleared whenever a new attempt
   // starts (resetToUpload, a pick, a share), the same moments that clear the error.
   const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
+  // Gate 2b spec §7: the "My statement is on my computer" sheet.
+  const [sendFromComputerOpen, setSendFromComputerOpen] = useState(false);
 
   // The import-funnel moments this visit has already sent. One visit is one stretch of the Import tab
   // being focused. A blur ends it there and then, so anything that happens before the next focus
@@ -1076,6 +1079,15 @@ export function ImportScreen() {
                     Statement in your email? Open the email, tap the PDF, then Share → Fynora.
                   </Text>
                 )}
+                {/* Gate 2b spec §7: a code to type into app.fynora.net/send. Only where queued
+                    uploads are on: the file from the computer goes through the queue. */}
+                {uploadProgress === null && asyncAvailable && (
+                  <Button
+                    label="My statement is on my computer"
+                    variant="link"
+                    onPress={() => setSendFromComputerOpen(true)}
+                  />
+                )}
                 {/* The only way out of this screen while an upload is in flight. It matters most
                     on the request that can never time out on its own (see toUploadProgressConfig):
                     on a dead connection the bar simply freezes, and without this the user is stuck
@@ -1289,6 +1301,19 @@ export function ImportScreen() {
             </Card>
           ) : null}
         </ScrollView>
+        {sendFromComputerOpen && (
+          <SendFromComputerSheet
+            onClose={() => setSendFromComputerOpen(false)}
+            onReceived={(importJobId) => {
+              setSendFromComputerOpen(false);
+              setError(null);
+              setAskMoment(null);
+              // Followed exactly like a file picked here: the progress card, then the review.
+              setJobId(importJobId);
+              void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+            }}
+          />
+        )}
       </GlassScreen>
     );
   }

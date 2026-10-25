@@ -2,7 +2,8 @@
 #
 # Everything under /app is the signed-in product and everything below it is an auth flow: none of it
 # is public content. /reset-password and /verify-email carry one-time tokens in their URLs, which is
-# a further reason not to have a crawler request them.
+# a further reason not to have a crawler request them. /send (Gate 2b) is a public page that only
+# takes a code from the user's phone and a file; it has nothing to index.
 #
 # This file used to not exist at all: /robots.txt fell through to the SPA and returned the app's
 # HTML with a 200.
@@ -17,5 +18,6 @@ Disallow: /reset-password
 Disallow: /verify-email
 Disallow: /verify-phone
 Disallow: /email-change-verify
+Disallow: /send
 
 Sitemap: https://app.fynora.net/sitemap.xml

@@ -395,4 +395,66 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
         assertThat(nudge.noDataDue(MAY_3_1030, java.time.YearMonth.of(2031, 5))).doesNotContain(noData.getId());
         assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, java.time.YearMonth.of(2031, 5))).doesNotContain(hasData.getId());
     }
+
+    // ---- Found in the second review: a statement already on its way, and an account a live
+    // ---- Account Aggregator link owns ----
+
+    private void importJob(User user, String status) {
+        jdbc.update("INSERT INTO import_jobs (id, user_id, file_name, status, source_format) "
+                + "VALUES (gen_random_uuid(), ?, 'statement.pdf', ?, 'PDF')", user.getId(), status);
+    }
+
+    private void stagedSession(User user, Instant expiresAt) {
+        jdbc.update("INSERT INTO import_sessions (user_id, file_name, file_content, status, expires_at) "
+                + "VALUES (?, 'statement.csv', ?, 'STAGED', ?)", user.getId(),
+                "Date,Description,Amount\n".getBytes(StandardCharsets.UTF_8), Timestamp.from(expiresAt));
+    }
+
+    /** A statement held for our team's check is waiting on us ("we'll notify you as soon as it's
+     *  done"); asking the user to add one would contradict that. The same for one still being read. */
+    @Test
+    void notWhileTheirStatementIsHeldOrStillBeingRead() {
+        java.time.YearMonth may = java.time.YearMonth.of(2031, 5);
+        User held = userWithPhone();
+        importJob(held, "HELD_FOR_TRUST_REVIEW");
+        User heldForParser = userWithPhone();
+        importJob(heldForParser, "HELD_FOR_REVIEW");
+        User reading = userWithPhone();
+        statement(reading, account(reading, "Synthetic Savings"), MAY_3.minusDays(40));
+        importJob(reading, "PARSING");
+        User failed = userWithPhone();
+        importJob(failed, "FAILED");
+
+        assertThat(nudge.noDataDue(MAY_3_1030, may)).doesNotContain(held.getId(), heldForParser.getId());
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, may)).doesNotContain(reading.getId());
+        // A failed import is over: the nudge is how they hear to try again.
+        assertThat(nudge.noDataDue(MAY_3_1030, may)).contains(failed.getId());
+    }
+
+    /** A staged import waiting for them to confirm has its own reminder (UnconfirmedImportReminder). */
+    @Test
+    void notWhileAStagedImportWaitsForThemToConfirm() {
+        java.time.YearMonth may = java.time.YearMonth.of(2031, 5);
+        User waiting = userWithPhone();
+        stagedSession(waiting, MAY_3_1030.plus(java.time.Duration.ofDays(2)));
+        User expired = userWithPhone();
+        stagedSession(expired, MAY_3_1030.minus(java.time.Duration.ofDays(1)));
+
+        assertThat(nudge.noDataDue(MAY_3_1030, may)).doesNotContain(waiting.getId()).contains(expired.getId());
+    }
+
+    /** The import screen refuses an upload into an account a live Account Aggregator link owns
+     *  (AccountAggregatorGuard), so a nudge for it would send them to a refusal. */
+    @Test
+    void notForAnAccountAnAccountAggregatorLinkOwns() {
+        java.time.YearMonth may = java.time.YearMonth.of(2031, 5);
+        User linked = userWithPhone();
+        UUID linkedAccount = account(linked, "Synthetic Linked");
+        statement(linked, linkedAccount, MAY_3.minusDays(40));
+        jdbc.update("UPDATE accounts SET primary_source = 'ACCOUNT_AGGREGATOR' WHERE id = ?", linkedAccount);
+        User manual = userWithPhone();
+        statement(manual, account(manual, "Synthetic Savings"), MAY_3.minusDays(40));
+
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, may)).doesNotContain(linked.getId()).contains(manual.getId());
+    }
 }

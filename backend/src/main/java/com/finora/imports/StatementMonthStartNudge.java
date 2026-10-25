@@ -48,6 +48,9 @@ import java.util.UUID;
  *       with no phone would only collect dead-lettered rows.</li>
  *   <li>A user who switched REMINDERS push off is never a candidate (and the outbox would refuse it
  *       anyway).</li>
+ *   <li>Nobody with a statement already on its way: being read, held for our check, or staged and
+ *       waiting for them to confirm.</li>
+ *   <li>An account a live Account Aggregator link owns never counts as overdue.</li>
  *   <li>Never a bank, an account or an amount in the text: it shows on lock screens.</li>
  * </ul>
  *
@@ -134,6 +137,13 @@ public class StatementMonthStartNudge {
      * The users every nudge may go to and who have had none this month. Shared by both cases. A user
      * who switched reminders off is left out here, not only by the outbox: nothing is ever queued for
      * them, so they would stay due on every run and could fill the batch ahead of everyone else.
+     *
+     * <p>Also left out: a user with a statement already on its way. An import job not yet COMPLETED,
+     * FAILED or CANCELLED is still being read or is held for our check, where the user was told
+     * "we'll notify you as soon as it's done"; asking them for a statement then would contradict
+     * that. (A status added later counts as on its way, the quieter side.) A staged import that has
+     * not expired waits for them to confirm, which {@code UnconfirmedImportReminder} reminds them of.
+     * A failed import is over: the nudge is how they hear to try again.
      */
     private static final String ELIGIBLE = """
              u.status = ? AND u.account_scope = ?
@@ -143,24 +153,31 @@ public class StatementMonthStartNudge {
                                 AND p.enabled = false)
              AND NOT EXISTS (SELECT 1 FROM notifications n
                               WHERE n.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')
+             AND NOT EXISTS (SELECT 1 FROM import_jobs j
+                              WHERE j.user_id = u.id AND j.status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED'))
+             AND NOT EXISTS (SELECT 1 FROM import_sessions s
+                              WHERE s.user_id = u.id AND s.status = 'STAGED' AND s.expires_at > ?)
             """;
 
     /**
      * Accounts overdue for a newer statement. The account's latest import must also be more than
      * {@link #RECENT_IMPORT_GRACE_DAYS} old: someone who has just imported an old statement is catching
      * up, and telling them an hour later that "a new statement has probably arrived" would nag.
+     * An account a live Account Aggregator link owns is left out: its data arrives by the link, and
+     * the import screen refuses an upload into it ({@code AccountAggregatorGuard}).
      */
     List<UUID> hasDataDue(Instant now, LocalDate today, YearMonth month) {
         return jdbc.queryForList("SELECT u.id FROM users u WHERE " + ELIGIBLE + """
                          AND EXISTS (SELECT 1 FROM accounts a
                                       WHERE a.user_id = u.id AND a.deleted_at IS NULL
+                                        AND a.primary_source <> 'ACCOUNT_AGGREGATOR'
                                         AND (SELECT MAX(si.statement_period_end) FROM statement_imports si
                                               WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?
                                         AND (SELECT MAX(si.imported_at) FROM statement_imports si
                                               WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?)
                          ORDER BY u.id LIMIT ?
                         """, UUID.class,
-                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(),
+                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now),
                 today.minusDays(STALE_AFTER_DAYS),
                 utc(now.minus(Duration.ofDays(RECENT_IMPORT_GRACE_DAYS))), BATCH_SIZE);
     }
@@ -191,7 +208,7 @@ public class StatementMonthStartNudge {
                                          WHERE n3.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')))
                          ORDER BY u.id LIMIT ?
                         """, UUID.class,
-                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(dueFrom),
+                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now), utc(dueFrom),
                 first, previous, first, beforeThat, UserZone.DEFAULT.getId(), beforeThat, BATCH_SIZE);
     }
 

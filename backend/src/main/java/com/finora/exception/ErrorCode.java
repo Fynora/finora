@@ -159,7 +159,7 @@ public enum ErrorCode {
     // Five codes that didn't work from one network address within an hour block it for the rest of
     // that hour (spec §7), whatever code comes next. Copy new, shown to Sid in the PR.
     SEND_CODE_BLOCKED("IMPORT_025", HttpStatus.TOO_MANY_REQUESTS,
-            "Too many codes didn't work from this network. Try again in an hour.", true),
+            "Too many codes didn't work from this network. Try again in an hour."),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

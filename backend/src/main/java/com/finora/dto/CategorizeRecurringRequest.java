@@ -9,5 +9,6 @@ import jakarta.validation.constraints.Size;
  * name the user does not have yet is created, since choosing it is an explicit decision.
  */
 public record CategorizeRecurringRequest(
-        @NotBlank @Size(max = 255) String merchant,
-        @NotBlank @Size(max = 100) String category) {}
+        @NotBlank @Size(min = 1, max = 255, message = "Payee name can't exceed 255 characters") String merchant,
+        // categories.name holds 80: a longer name was cut to 80 without a word.
+        @NotBlank @Size(min = 1, max = 80, message = "Category name can't exceed 80 characters") String category) {}

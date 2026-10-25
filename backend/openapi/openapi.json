@@ -18181,6 +18181,7 @@
                 "properties": {
                     "merchant": {
                         "type": "string",
+                        "maxLength": 255,
                         "minLength": 1
                     }
                 },
@@ -18193,6 +18194,7 @@
                 "properties": {
                     "merchant": {
                         "type": "string",
+                        "maxLength": 255,
                         "minLength": 1
                     }
                 },
@@ -18206,12 +18208,12 @@
                     "merchant": {
                         "type": "string",
                         "maxLength": 255,
-                        "minLength": 0
+                        "minLength": 1
                     },
                     "category": {
                         "type": "string",
-                        "maxLength": 100,
-                        "minLength": 0
+                        "maxLength": 80,
+                        "minLength": 1
                     }
                 },
                 "required": [

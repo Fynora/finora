@@ -216,7 +216,7 @@ public class PeopleService {
             // Only the leftover beside a credit's shares can be answered in part: anywhere else the
             // rest of the payment would read as answered too.
             if (shared.signum() == 0) throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
-            if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_LEFT);
+            if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_MORE_THAN_LEFT);
             amount = req.amount();
         } else if (!out) {
             shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, t.getId()));
@@ -352,8 +352,11 @@ public class PeopleService {
         Map<UUID, Transaction> rows = byId(entries.stream().map(LoanEntry::getTxnId).filter(java.util.Objects::nonNull).toList());
         for (LoanEntry e : entries) {
             Transaction t = e.getTxnId() == null ? null : rows.get(e.getTxnId());
+            // As the balance reads it: a corrected payment's amount, nothing for one that no longer fits.
+            BigDecimal amount = PeopleLedger.entryAmount(e, t, t == null ? BigDecimal.ZERO : ledger.sharedFromCredit(t.getId()));
+            if (amount == null) continue;
             LocalDate date = t != null ? t.getTxnDate() : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            timeline.add(new PeopleDtos.TimelineItem(date, e.getDirection().name(), e.getAmount(), e.getTxnId()));
+            timeline.add(new PeopleDtos.TimelineItem(date, e.getDirection().name(), amount, e.getTxnId()));
         }
         Map<UUID, Transaction> credits = byId(ledger.allShares().stream().map(PeopleLedger.Share::creditId).toList());
         for (PeopleLedger.Share s : ledger.allShares()) {

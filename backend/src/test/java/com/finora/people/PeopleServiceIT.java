@@ -286,7 +286,7 @@ class PeopleServiceIT extends AbstractIntegrationTest {
         people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
         assertThatThrownBy(() -> people.addEntry(userId,
                 new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("600"))))
-                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_NOTHING_LEFT));
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_MORE_THAN_LEFT));
     }
 
     @Test

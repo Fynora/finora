@@ -201,6 +201,31 @@ public class RecurringService {
         return senders.isEmpty() ? null : senders.size();
     }
 
+    /**
+     * A payment as a repeating pattern reads it: not a duplicate copy, not a transfer, and not a
+     * replaced statement's old copy. A replaced statement's rows stay (SUPERSEDED) beside the
+     * replacement's own, so counting them put every payment in twice on the same day -- a zero-day
+     * gap that broke every pattern, and the payee left the list (measured: the list went empty).
+     */
+    public static boolean countsAsAPayment(Transaction t) {
+        return t.getIsDuplicateOf() == null && !t.isTransfer()
+                && t.getReconciliationStatus() != Transaction.ReconciliationStatus.SUPERSEDED;
+    }
+
+    /**
+     * Whether a pattern has stopped: the payee's accounts have payments well past the point where two
+     * more of its charges were due, and neither came. Judged against the accounts' own latest payment,
+     * not today, because the data stops at the latest statement: a pattern whose next charge falls
+     * after it may well have been paid. An ended pattern keeps its rows' recurring badge (they were
+     * recurring) but leaves the list, which is sorted soonest-first: one that stopped years ago had
+     * the earliest "next" date of all and took the top of the Dashboard's upcoming card (measured).
+     */
+    static boolean hasEnded(LocalDate lastDate, double avgGap, LocalDate latestOnItsAccounts) {
+        if (latestOnItsAccounts == null) return false;
+        long slack = Math.round(Math.max(5, avgGap * 0.35));
+        return latestOnItsAccounts.isAfter(lastDate.plusDays(Math.round(2 * avgGap) + slack));
+    }
+
     @Transactional
     public List<RecurringDto> detectForUser(UUID userId) {
         // Was featureFlagRepository.isEnabled(...) directly -- bypassed FeatureFlagService, which
@@ -221,7 +246,7 @@ public class RecurringService {
         List<Transaction> allTransactions = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
         List<Transaction> active = allTransactions.stream()
-                .filter(t -> t.getIsDuplicateOf() == null && !t.isTransfer() && t.getTxnType() == Transaction.Type.EXPENSE)
+                .filter(t -> countsAsAPayment(t) && t.getTxnType() == Transaction.Type.EXPENSE)
                 .toList();
         Set<UUID> activeIds = active.stream().map(Transaction::getId).collect(java.util.stream.Collectors.toSet());
 
@@ -257,6 +282,10 @@ public class RecurringService {
                 ? com.finora.people.PeopleLedger.EMPTY : peopleLedgerService.forUser(userId);
         Map<UUID, Transaction> rowsById = new HashMap<>();
         allTransactions.forEach(t -> rowsById.put(t.getId(), t));
+        // How far each account's data runs, for hasEnded: its latest payment that counts.
+        Map<UUID, LocalDate> latestByAccount = new HashMap<>();
+        allTransactions.stream().filter(RecurringService::countsAsAPayment).filter(t -> t.getTxnDate() != null)
+                .forEach(t -> latestByAccount.merge(t.getAccountId(), t.getTxnDate(), (a, b) -> a.isAfter(b) ? a : b));
 
         List<RecurringDto> results = new ArrayList<>();
         for (var entry : byMerchant.entrySet()) {
@@ -290,6 +319,9 @@ public class RecurringService {
                 // decision about what counts as "regular," not something this fix should invent.
                 String label = avgGap < 10 ? "Weekly" : avgGap < 20 ? "Biweekly" : avgGap < 40 ? "Monthly" : "Quarterly";
                 LocalDate lastDate = group.get(group.size() - 1).getTxnDate();
+                LocalDate latestOnItsAccounts = group.stream().map(t -> latestByAccount.get(t.getAccountId()))
+                        .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
+                if (hasEnded(lastDate, avgGap, latestOnItsAccounts)) continue;
                 // The payment the question is about: the latest one the user did not file by hand. A
                 // payment they filed themselves (a one-off deposit moved to its own category) is
                 // already decided, so it neither makes a saved answer "amount changed" nor is shown.

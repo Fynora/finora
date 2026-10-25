@@ -123,7 +123,7 @@ public class RecurringAnswerService {
         // never widens over a payment outside the group.
         String grouped = group.merchant();
         for (Transaction t : payeeRows) {
-            if (grouped.equals(t.getMerchant()) && !t.isTransfer() && t.getIsDuplicateOf() == null) {
+            if (grouped.equals(t.getMerchant()) && RecurringService.countsAsAPayment(t)) {
                 range = range.cover(t.getAmount());
             }
         }
@@ -277,15 +277,16 @@ public class RecurringAnswerService {
     /**
      * The user's live-account money-out rows with a payee label, grouped by that label, each oldest
      * first -- without transfers and hidden duplicates, as RecurringService groups them. The question
-     * is about those payments; an own-account transfer or a duplicate copy that shares the label is
-     * neither re-filed by an answer nor taken as the payee's latest payment.
+     * is about those payments; an own-account transfer, a duplicate copy or a replaced statement's
+     * old copy that shares the label is neither re-filed by an answer nor taken as the payee's latest
+     * payment.
      */
     private Map<String, List<Transaction>> expenseRowsByPayee(UUID userId) {
         List<UUID> live = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
         if (live.isEmpty()) return Map.of();
         return transactionRepository.findByUserIdAndAccountIdIn(userId, live).stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getMerchant() != null
-                        && !t.isTransfer() && t.getIsDuplicateOf() == null)
+                        && RecurringService.countsAsAPayment(t))
                 .sorted(Comparator.comparing(Transaction::getTxnDate))
                 .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchant())));
     }

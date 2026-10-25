@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppModal } from './AppModal';
@@ -25,63 +25,59 @@ type Phase = { kind: 'issuing' } | { kind: 'failed' } | { kind: 'code'; code: st
  * with the address to type it into, and watches until the file arrives or the code runs out. The code
  * lets a computer add one file and see nothing; nothing is saved until the user reviews it here.
  *
- * Polls only while mounted, and stops at RECEIVED or EXPIRED. A chained timeout rather than an
- * interval, so a slow answer never overlaps the next question.
+ * Polls only while mounted, and stops at RECEIVED or EXPIRED. One timeout per check, scheduled only
+ * after the previous answer, so a slow answer never overlaps the next question.
  */
 export function SendFromComputerSheet({ onClose, onReceived }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>({ kind: 'issuing' });
-  const mounted = useRef(true);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const stopPolling = () => {
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    pollTimer.current = null;
-  };
-
-  const poll = useCallback(() => {
-    pollTimer.current = setTimeout(() => {
-      sendCodesApi.current()
-        .then(({ state }) => {
-          if (!mounted.current) return;
-          setPhase((p) => (p.kind === 'code' ? { ...p, state } : p));
-          if (state === 'RECEIVED') {
-            closeTimer.current = setTimeout(() => { if (mounted.current) onReceived(); }, RECEIVED_DWELL_MS);
-          } else if (state === 'WAITING') {
-            poll();
-          }
-          // EXPIRED (or NONE, a code cancelled elsewhere): stop and offer a new one.
-        })
-        // A failed check is not an answer: ask again on the next tick.
-        .catch(() => { if (mounted.current) poll(); });
-    }, POLL_MS);
-  }, [onReceived]);
-
-  const issue = useCallback(() => {
-    stopPolling();
-    setPhase({ kind: 'issuing' });
-    sendCodesApi.issue()
-      .then(({ code }) => {
-        if (!mounted.current) return;
-        setPhase({ kind: 'code', code, state: 'WAITING' });
-        poll();
-      })
-      .catch(() => { if (mounted.current) setPhase({ kind: 'failed' }); });
-  }, [poll]);
+  // Bumped to ask for a new code ("Get a new code", "Try again"); the first ask is on open.
+  const [attempt, setAttempt] = useState(0);
+  // Bumped after each WAITING answer, to schedule the next check.
+  const [tick, setTick] = useState(0);
+  const onReceivedRef = useRef(onReceived);
+  useEffect(() => {
+    onReceivedRef.current = onReceived;
+  });
 
   useEffect(() => {
-    mounted.current = true;
-    issue();
-    return () => {
-      mounted.current = false;
-      stopPolling();
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
-    // Once per open: a new code each time the sheet is opened, never on a re-render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
+    sendCodesApi.issue()
+      .then(({ code }) => { if (!cancelled) setPhase({ kind: 'code', code, state: 'WAITING' }); })
+      .catch(() => { if (!cancelled) setPhase({ kind: 'failed' }); });
+    return () => { cancelled = true; };
+  }, [attempt]);
+
+  const newCode = () => {
+    setPhase({ kind: 'issuing' });
+    setAttempt((a) => a + 1);
+  };
+
+  const waitingCode = phase.kind === 'code' && phase.state === 'WAITING' ? phase.code : null;
+  useEffect(() => {
+    if (!waitingCode) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      sendCodesApi.current()
+        .then(({ state }) => {
+          if (cancelled) return;
+          if (state === 'WAITING') setTick((t) => t + 1);
+          // RECEIVED, or EXPIRED (NONE: a code cancelled elsewhere): polling stops here.
+          else setPhase((p) => (p.kind === 'code' && p.code === waitingCode ? { ...p, state } : p));
+        })
+        // A failed check is not an answer: ask again on the next tick.
+        .catch(() => { if (!cancelled) setTick((t) => t + 1); });
+    }, POLL_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [waitingCode, tick]);
+
+  const received = phase.kind === 'code' && phase.state === 'RECEIVED';
+  useEffect(() => {
+    if (!received) return;
+    const timer = setTimeout(() => onReceivedRef.current(), RECEIVED_DWELL_MS);
+    return () => clearTimeout(timer);
+  }, [received]);
 
   const status = phase.kind === 'code' ? phase.state : null;
 
@@ -97,7 +93,7 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
               <Text style={[styles.body, { color: c.dangerInk }]}>
                 Couldn&apos;t get a code. Check your connection and try again.
               </Text>
-              <Button label="Try again" onPress={issue} />
+              <Button label="Try again" onPress={newCode} />
             </View>
           ) : (
             <View>
@@ -120,7 +116,7 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
                   <Text style={[styles.status, { color: c.muted }]} accessibilityLiveRegion="polite">
                     This code has expired.
                   </Text>
-                  <Button label="Get a new code" onPress={issue} />
+                  <Button label="Get a new code" onPress={newCode} />
                 </View>
               ) : (
                 <Text style={[styles.status, { color: c.muted }]} accessibilityLiveRegion="polite">

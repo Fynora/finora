@@ -52,15 +52,12 @@ public class StatementValidator {
          *  printed period are read the same way as the transactions. Null reads per cell. */
         CsvDateOrder.Order dateOrder;
         /** Rows with a date whose amount could not be read -- see scanRowWithUnreadableAmount. */
-        final List<UnreadableAmountRow> unreadableAmountRows = new ArrayList<>();
+        final List<BalanceSequenceResolver.UnreadAmountRow> unreadableAmountRows = new ArrayList<>();
 
         public void readDatesAs(CsvDateOrder.Order order) {
             this.dateOrder = order;
         }
     }
-
-    /** A dated row whose amount could not be read, and the running balance it printed, if any. */
-    record UnreadableAmountRow(LocalDate date, BigDecimal balanceAfter) {}
 
     /** One row's running-balance observation, kept alongside its transaction date and signed
      *  amount so the statement's true transaction order can be reconstructed from the balance
@@ -93,7 +90,7 @@ public class StatementValidator {
     public void scanRowWithUnreadableAmount(Map<String, String> row, LocalDate date, AccountSignalAccumulator acc) {
         String balanceRaw = CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance");
         BigDecimal balance = TransactionNormalizer.withBalanceDirection(row, CsvParser.parseNumeric(balanceRaw));
-        acc.unreadableAmountRows.add(new UnreadableAmountRow(date, balance));
+        acc.unreadableAmountRows.add(new BalanceSequenceResolver.UnreadAmountRow(date, balance));
         scanRow(row, null, acc);
     }
 
@@ -212,8 +209,11 @@ public class StatementValidator {
         // returns no opening/closing balance at all -- rather than a guess -- when a day's ordering
         // genuinely cannot be determined.
         BalanceSequenceResolver.Resolution resolution = BalanceSequenceResolver.resolve(acc.balanceObservations);
-        BigDecimal openingBalance = openingAround(resolution, acc);
-        BigDecimal closingBalance = closingAround(resolution, acc);
+        // Around any row whose amount could not be read -- see BalanceSequenceResolver.edgesAround.
+        BalanceSequenceResolver.Edges edges = BalanceSequenceResolver.edgesAround(
+                resolution, acc.balanceObservations, acc.unreadableAmountRows);
+        BigDecimal openingBalance = edges.opening();
+        BigDecimal closingBalance = edges.closing();
 
         List<String> bankTextHints = collectBankTextHints(allRows, headerIdx);
         BankRegistry.BankInfo bank = BankRegistry.detect(filename, bankTextHints);
@@ -249,55 +249,6 @@ public class StatementValidator {
                 // Test Corpus Strategy's "evidence before capability" rule warns against.
                 null, null, null, null, null, null, null
         );
-    }
-
-    /**
-     * The opening balance, unless a row whose amount could not be read may come first.
-     *
-     * <p>The opening balance is the balance before the first transaction: that row's balance minus
-     * what it moved. When the first row is one whose amount is unknown, so is the opening balance,
-     * and it is reported as not established rather than derived from the next row -- which would
-     * be the balance after the unread row, and would let the statement totals agree around a
-     * missing transaction. A row on the same day as the first readable one may be first, so it
-     * counts too. A statement's own printed opening-balance line still settles it.
-     */
-    private static BigDecimal openingAround(BalanceSequenceResolver.Resolution resolution, AccountSignalAccumulator acc) {
-        if (acc.unreadableAmountRows.isEmpty()) return resolution.openingBalance();
-        if (resolution.anchorSource() == BalanceSequenceResolver.AnchorSource.STATEMENT_OPENING_BALANCE) {
-            return resolution.openingBalance();
-        }
-        LocalDate firstReadable = acc.balanceObservations.stream().map(BalanceObservation::date)
-                .filter(java.util.Objects::nonNull).min(LocalDate::compareTo).orElse(null);
-        boolean unreadableMayComeFirst = acc.unreadableAmountRows.stream()
-                .anyMatch(u -> u.date() == null || firstReadable == null || !u.date().isAfter(firstReadable));
-        return unreadableMayComeFirst ? null : resolution.openingBalance();
-    }
-
-    /**
-     * The closing balance, accounting for rows whose amount could not be read.
-     *
-     * <p>The closing balance is the balance after the last transaction, which does not depend on
-     * what that transaction moved. So a single unread row dated after every readable one still
-     * gives it, by its own running balance. When an unread row may be the last but cannot be placed
-     * -- on the same day as the last readable row, or one of several on the last day, or with no
-     * balance printed -- the closing balance is not established.
-     */
-    private static BigDecimal closingAround(BalanceSequenceResolver.Resolution resolution, AccountSignalAccumulator acc) {
-        if (acc.unreadableAmountRows.isEmpty()) return resolution.closingBalance();
-        LocalDate lastReadable = acc.balanceObservations.stream().map(BalanceObservation::date)
-                .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
-        List<UnreadableAmountRow> mayBeLast = acc.unreadableAmountRows.stream()
-                .filter(u -> u.date() == null || lastReadable == null || !u.date().isBefore(lastReadable))
-                .toList();
-        if (mayBeLast.isEmpty()) return resolution.closingBalance();
-        LocalDate latest = mayBeLast.stream().map(UnreadableAmountRow::date)
-                .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
-        List<UnreadableAmountRow> onLatest = mayBeLast.stream()
-                .filter(u -> latest != null && latest.equals(u.date())).toList();
-        boolean placedLast = latest != null && onLatest.size() == 1
-                && (lastReadable == null || latest.isAfter(lastReadable))
-                && mayBeLast.stream().allMatch(u -> u.date() != null);
-        return placedLast ? onLatest.get(0).balanceAfter() : null;
     }
 
     /** Real bank exports commonly carry the bank's name in the letterhead/metadata rows that sit

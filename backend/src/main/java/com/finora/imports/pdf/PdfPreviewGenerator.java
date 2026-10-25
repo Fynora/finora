@@ -702,6 +702,14 @@ public class PdfPreviewGenerator {
             if (printedBalance != null) previousPrintedBalance = printedBalance;
             if (parsed == null) {
                 unparseable.add(new UnparseableRow(row, transactionNormalizer.explainFailure(row)));
+                // The date was read (a date failure is reported first) and the amount was not: a
+                // row of unknown size, which may sit at either end of the statement -- the same
+                // rule as the CSV path (PreviewGenerator) and the unread-amount marker below.
+                if (transactionNormalizer.failureReasonKey(row)
+                        .startsWith(TransactionNormalizer.REASON_AMOUNT_UNPARSEABLE_PREFIX)) {
+                    unreadAmountRows.add(new com.finora.imports.BalanceSequenceResolver.UnreadAmountRow(
+                            TransactionNormalizer.dateOf(TransactionNormalizer.dateCellOf(row), ctx), printedBalance));
+                }
                 continue;
             }
             parsed = parsed.withRowPosition(rowPosition);
@@ -855,8 +863,15 @@ public class PdfPreviewGenerator {
         boolean cardFactsApply = creditLimitAppliesTo(product, sectionCount);
         CreditCardSummaryEvidence sectionCardSummary = cardFactsApply && printedCreditCardSummary != null
                 ? printedCreditCardSummary : CreditCardSummaryEvidence.NONE;
-        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, balancePoints,
-                unreadAmountRows, product, ctx,
+        // The opening and closing balances the running balances give, around any row whose amount
+        // could not be read -- see BalanceSequenceResolver.edgesAround. Null when the section printed
+        // no running balance and has no such row.
+        com.finora.imports.BalanceSequenceResolver.Edges chainEdges =
+                balancePoints.isEmpty() && unreadAmountRows.isEmpty() ? null
+                        : com.finora.imports.BalanceSequenceResolver.edgesAround(
+                                com.finora.imports.BalanceSequenceResolver.resolve(balancePoints),
+                                balancePoints, unreadAmountRows);
+        DetectedAccountInfo detected = buildDetectedAccountInfo(filename, section, staged, chainEdges, product, ctx,
                 printedCreditCardSummary, printedDateRange, gridPaymentDueDate, gridCreditLimit,
                 gridAccountNumberMasked, gridAccountNumberIsCardLabelled,
                 // The printed summary belongs to the one ledger that printed it: only a single-
@@ -874,6 +889,20 @@ public class PdfPreviewGenerator {
                 sectionCardSummary,
                 section.evidence().headerReconstructionFindings(), ctx.textSource(), ctx.contentDamage(),
                 displayedPositionOf, displayedPositionOfLocatedRow);
+        // Held when a row whose amount could not be read left the opening or closing balance not
+        // established and the statement printed none to fill it (Sid, 2026-10-25). Then nothing
+        // confirms the statement's amounts: the totals check cannot run, and before the balance was
+        // kept out of the derivation such a statement was held only because the unread row doubled
+        // its opening balance. Not every such row holds -- in a PDF it can be a summary line under
+        // the table (two real statements, both of whose printed balances fill in), not a transaction
+        // -- and a section whose running balances never gave that end (no balance column, a day that
+        // could not be ordered) is not left open by the row (see Edges).
+        boolean openingUnknown = detected == null || detected.openingBalance() == null;
+        boolean closingUnknown = detected == null || detected.closingBalance() == null;
+        if (chainEdges != null && ((chainEdges.openingLeftOpenByUnread() && openingUnknown)
+                || (chainEdges.closingLeftOpenByUnread() && closingUnknown))) {
+            verification = com.finora.imports.ImportVerifier.withUnreadableAmounts(verification, unreadAmountRows.size());
+        }
         return new StagedAccountSection(detected, staged, staged.size(), dupCount, unparseable, verification);
     }
 
@@ -1279,8 +1308,7 @@ public class PdfPreviewGenerator {
 
     private DetectedAccountInfo buildDetectedAccountInfo(String filename, PdfTableLocator.LocatedSection section,
                                                            List<StagedRow> stagedRows,
-                                                           List<BalancePoint> balancePoints,
-                                                           List<com.finora.imports.BalanceSequenceResolver.UnreadAmountRow> unreadAmountRows,
+                                                           com.finora.imports.BalanceSequenceResolver.Edges chainEdges,
                                                            ProductDiscovery.DiscoveredProduct product,
                                                            DocumentContext ctx,
                                                            CreditCardSummaryEvidence printedCreditCardSummary,
@@ -1333,13 +1361,9 @@ public class PdfPreviewGenerator {
         // A row whose amount could not be read is not among the balance points; when one may be the
         // first or the last row, the opening or closing balance is not established here, and the
         // statement's own printed balance below is what fills it -- the same rule as the CSV path.
-        if (!balancePoints.isEmpty() || !unreadAmountRows.isEmpty()) {
-            com.finora.imports.BalanceSequenceResolver.Resolution resolution =
-                    com.finora.imports.BalanceSequenceResolver.resolve(balancePoints);
-            openingBalance = com.finora.imports.BalanceSequenceResolver.openingAround(
-                    resolution, balancePoints, unreadAmountRows);
-            closingBalance = com.finora.imports.BalanceSequenceResolver.closingAround(
-                    resolution, balancePoints, unreadAmountRows);
+        if (chainEdges != null) {
+            openingBalance = chainEdges.opening();
+            closingBalance = chainEdges.closing();
         }
         // The statement's own printed opening/closing balance: the fallback when the chain gave
         // none (a real Bandhan Bank and a real Canara Bank statement), and otherwise a cross-check

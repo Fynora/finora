@@ -109,11 +109,13 @@ public final class BalanceSequenceResolver {
      * statement's zero-activity savings block ("BALANCE BROUGHT FORWARD" then "CLOSING BALANCE",
      * no transactions) got no opening or closing balance at all.
      *
-     * <p>Confident only: a row classified BALANCE_MARKER because its real amount cell failed to
-     * parse is a transaction the pipeline could not read, not a marker. Zeroing that one would let
-     * the statement totals "verify" around a missing transaction -- measured on the
-     * merged-amount-single-run fixture, whose FAILED is the honest answer. Shared by both staging
-     * paths (PDF and CSV) so they cannot disagree about it.
+     * <p>Confident only: a row classified BALANCE_MARKER for want of a readable amount may be a
+     * transaction the pipeline could not read, not a marker, and zeroing it would let the statement
+     * totals "verify" around a missing transaction. A row whose amount cell held a value that
+     * failed to parse never reaches here -- both staging paths keep it out of the balance
+     * observations ({@link UnreadAmountRow}, {@link #edgesAround}) -- so the case left is a marker
+     * with a value under a column the normaliser does not recognise. Shared by both staging paths
+     * (PDF and CSV) so they cannot disagree about it.
      */
     public static BigDecimal signedAmountOf(com.finora.dto.ImportDto.StagedRow row, java.util.Map<String, String> raw) {
         if (TransactionNormalizer.isConfidentBalanceMarker(row, raw)) return BigDecimal.ZERO;
@@ -404,56 +406,74 @@ public final class BalanceSequenceResolver {
     public record UnreadAmountRow(LocalDate date, BigDecimal balanceAfter) {}
 
     /**
-     * The opening balance, unless a row whose amount could not be read may come first.
+     * The opening and closing balances once rows whose amount could not be read are accounted for,
+     * and whether such a row is what left either one not established.
      *
-     * <p>The opening balance is the balance before the first transaction: that row's balance minus
-     * what it moved. When the first row is one whose amount is unknown, so is the opening balance,
-     * and it is reported as not established (null) rather than derived from the next row -- which
-     * would be the balance after the unread row, and would let the statement totals agree around a
-     * missing transaction. A row on the same day as the first readable one may be first, so it
-     * counts too. A statement's own opening-balance line still settles it.
-     *
-     * @param readable the observations {@code resolution} was resolved from
+     * @param openingLeftOpenByUnread the readable rows give an opening balance, but an unread row
+     *                                may come first, so it is null
+     * @param closingLeftOpenByUnread the readable rows give a closing balance, but an unread row may
+     *                                be the last and cannot be placed there, so it is null
      */
-    public static BigDecimal openingAround(Resolution resolution, List<? extends DatedLink> readable,
-                                           List<UnreadAmountRow> unread) {
-        if (unread == null || unread.isEmpty()) return resolution.openingBalance();
-        if (resolution.anchorSource() == AnchorSource.STATEMENT_OPENING_BALANCE) return resolution.openingBalance();
-        LocalDate firstReadable = readable.stream().map(DatedLink::date)
-                .filter(java.util.Objects::nonNull).min(LocalDate::compareTo).orElse(null);
-        boolean unreadMayComeFirst = unread.stream()
-                .anyMatch(u -> u.date() == null || firstReadable == null || !u.date().isAfter(firstReadable));
-        return unreadMayComeFirst ? null : resolution.openingBalance();
-    }
+    public record Edges(BigDecimal opening, BigDecimal closing,
+                        boolean openingLeftOpenByUnread, boolean closingLeftOpenByUnread) {}
 
     /**
-     * The closing balance, accounting for rows whose amount could not be read.
+     * {@code resolution}'s opening and closing balances, around the rows whose amount could not be
+     * read. Shared by both staging paths (PDF and CSV) so they cannot disagree about it.
      *
-     * <p>The closing balance is the balance after the last transaction, which does not depend on
-     * what that transaction moved. So a single unread row dated after every readable one still
-     * gives it, by its own running balance. When an unread row may be the last but cannot be placed
-     * -- on the same day as the last readable row, or one of several on the last day, or with no
-     * date or no balance printed -- the closing balance is not established (null).
+     * <p><b>Opening.</b> The opening balance is the balance before the first transaction: that
+     * row's balance minus what it moved. When the first row is one whose amount is unknown, so is
+     * the opening balance, and it is reported as not established rather than derived from the next
+     * row -- which would be the balance after the unread row, and would let the statement totals
+     * agree around a missing transaction. A row on the same day as the first readable one may be
+     * first, so it counts too. A statement's own opening-balance line still settles it.
+     *
+     * <p><b>Closing.</b> The closing balance is the balance after the last transaction, which does
+     * not depend on what that transaction moved. So a single unread row dated after every readable
+     * one still gives it, by its own running balance. When an unread row may be the last but cannot
+     * be placed -- on the same day as the last readable row, or one of several on the last day, or
+     * with no date or no balance printed -- the closing balance is not established.
      *
      * @param readable the observations {@code resolution} was resolved from
      */
-    public static BigDecimal closingAround(Resolution resolution, List<? extends DatedLink> readable,
-                                           List<UnreadAmountRow> unread) {
-        if (unread == null || unread.isEmpty()) return resolution.closingBalance();
+    public static Edges edgesAround(Resolution resolution, List<? extends DatedLink> readable,
+                                    List<UnreadAmountRow> unread) {
+        if (unread == null || unread.isEmpty()) {
+            return new Edges(resolution.openingBalance(), resolution.closingBalance(), false, false);
+        }
+        LocalDate firstReadable = readable.stream().map(DatedLink::date)
+                .filter(java.util.Objects::nonNull).min(LocalDate::compareTo).orElse(null);
         LocalDate lastReadable = readable.stream().map(DatedLink::date)
                 .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
+
+        boolean unreadMayComeFirst = resolution.anchorSource() != AnchorSource.STATEMENT_OPENING_BALANCE
+                && unread.stream().anyMatch(u -> u.date() == null || firstReadable == null
+                        || !u.date().isAfter(firstReadable));
+        BigDecimal opening = unreadMayComeFirst ? null : resolution.openingBalance();
+        // The unread row is what left it open only when the readable rows gave one -- not when the
+        // section printed no running balance, or its days could not be ordered.
+        boolean openingLeftOpen = unreadMayComeFirst && resolution.openingBalance() != null;
+
         List<UnreadAmountRow> mayBeLast = unread.stream()
                 .filter(u -> u.date() == null || lastReadable == null || !u.date().isBefore(lastReadable))
                 .toList();
-        if (mayBeLast.isEmpty()) return resolution.closingBalance();
-        LocalDate latest = mayBeLast.stream().map(UnreadAmountRow::date)
-                .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
-        List<UnreadAmountRow> onLatest = mayBeLast.stream()
-                .filter(u -> latest != null && latest.equals(u.date())).toList();
-        boolean placedLast = latest != null && onLatest.size() == 1
-                && (lastReadable == null || latest.isAfter(lastReadable))
-                && mayBeLast.stream().allMatch(u -> u.date() != null);
-        return placedLast ? onLatest.get(0).balanceAfter() : null;
+        BigDecimal closing;
+        boolean closingLeftOpen;
+        if (mayBeLast.isEmpty()) {
+            closing = resolution.closingBalance();
+            closingLeftOpen = false;
+        } else {
+            LocalDate latest = mayBeLast.stream().map(UnreadAmountRow::date)
+                    .filter(java.util.Objects::nonNull).max(LocalDate::compareTo).orElse(null);
+            List<UnreadAmountRow> onLatest = mayBeLast.stream()
+                    .filter(u -> latest != null && latest.equals(u.date())).toList();
+            boolean placedLast = latest != null && onLatest.size() == 1
+                    && (lastReadable == null || latest.isAfter(lastReadable))
+                    && mayBeLast.stream().allMatch(u -> u.date() != null);
+            closing = placedLast ? onLatest.get(0).balanceAfter() : null;
+            closingLeftOpen = closing == null && resolution.closingBalance() != null;
+        }
+        return new Edges(opening, closing, openingLeftOpen, closingLeftOpen);
     }
 
     private static <T extends DatedLink> Resolution ambiguous(List<T> observations, String reason) {

@@ -94,7 +94,9 @@ public class AdminLayoutRegistryController {
         return ApiResponse.ok(curationService.profiles());
     }
 
-    /** Counts of the bank users chose for layouts whose bank was unknown. Counts only. */
+    /** For layouts whose bank was unknown at staging, counts of the bank each created account ended
+     *  up with. Counts only. The clients echo the detected bank today, so these are not user choices
+     *  until the import review asks for one. */
     @GetMapping("/bank-choices")
     @PreAuthorize(READ)
     public ApiResponse<List<LayoutCurationService.BankChoiceCount>> bankChoices() {

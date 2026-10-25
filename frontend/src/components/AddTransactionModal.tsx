@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { accountsApi, categoriesApi, transactionsApi, type CreateTransactionPayload } from '../api/endpoints';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
-import { toLocalDateString } from '../utils/date';
+import { latestTransactionDate, toLocalDateString } from '../utils/date';
 import { useDialogA11y } from '../design-system';
 
 /**
@@ -143,7 +143,7 @@ export function AddTransactionModal({ onClose, onSaved }: { onClose: () => void;
                 </div>
                 <div>
                   <label htmlFor="add-txn-date" className="block text-2xs uppercase text-muted mb-1">Date</label>
-                  <input id="add-txn-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+                  <input id="add-txn-date" type="date" value={date} max={latestTransactionDate()} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
                 </div>
                 <div>
                   <label htmlFor="add-txn-type" className="block text-2xs uppercase text-muted mb-1">Type</label>

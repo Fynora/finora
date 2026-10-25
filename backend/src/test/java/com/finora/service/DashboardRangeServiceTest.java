@@ -75,8 +75,8 @@ class DashboardRangeServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account));
         // Newest transaction is in March 2026, well before "today" in any real sense -- the range
         // must anchor there, not to LocalDate.now(), mirroring ReportingPeriod's own philosophy.
-        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2026, 3, 15));
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2025, 1, 5));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 3, 15));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2025, 1, 5));
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
 
@@ -89,8 +89,8 @@ class DashboardRangeServiceTest {
     @Test
     void aRangeEndingInAMonthAnAccountsStatementsDoNotReach_carriesTheSoFarNote_andKeepsTheTotals() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2026, 9, 30));
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2025, 1, 5));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 9, 30));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2025, 1, 5));
         when(reportService.forRange(eq(userId), any(), any()))
                 .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5));
         var note = new com.finora.dto.StatementBehindDto("HDFC Card", LocalDate.of(2026, 9, 11), 1);
@@ -107,8 +107,8 @@ class DashboardRangeServiceTest {
     @Test
     void aCustomRangeEndingInAnOldMonth_isJudgedByThatMonth_soTheNewestMonthsAccountsDoNotColourIt() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2026, 9, 30));
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(LocalDate.of(2025, 1, 5));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 9, 30));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2025, 1, 5));
         // Only the range's own last month (March) is asked about; nothing is stubbed for it, so
         // the mock answers "not behind" -- and September is never consulted at all.
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.CUSTOM,
@@ -120,8 +120,8 @@ class DashboardRangeServiceTest {
 
     @Test
     void noTransactionHistory_hasNoSoFarNote_andIsNeverAsked() {
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(null);
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(null);
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(null);
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(null);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
@@ -132,8 +132,8 @@ class DashboardRangeServiceTest {
 
     @Test
     void noTransactionHistory_gatesComparisonAsNoHistory() {
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(null);
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(null);
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(null);
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(null);
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
@@ -148,8 +148,8 @@ class DashboardRangeServiceTest {
         // Newest data: Aug 2026. Account history only goes back to Jun 2026 -- for LAST_6_MONTHS
         // the previous window (Nov 2025-Apr 2026) reaches back well before that, so it isn't a
         // genuine full comparison period.
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 6, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 6, 1));
         when(reportService.forRange(eq(userId), any(), any()))
                 .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5));
 
@@ -166,8 +166,8 @@ class DashboardRangeServiceTest {
     @Test
     void tooFewPriorTransactions_isGated() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         LocalDate prevStart = LocalDate.of(2025, 9, 1);
         LocalDate prevEnd = LocalDate.of(2026, 2, 28);
         when(reportService.forRange(eq(userId), eq(prevStart), eq(prevEnd)))
@@ -182,8 +182,8 @@ class DashboardRangeServiceTest {
     @Test
     void unclassifiedMoneyBeyondIncome_withholdsTheSavingsRate() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         when(reportService.forRange(eq(userId), any(), any())).thenReturn(new ReportService.RangeTotals(
                 new BigDecimal("200"), new BigDecimal("400000"), 40, new BigDecimal("450000"), 30, "PERSON_INFLOW"));
 
@@ -197,8 +197,8 @@ class DashboardRangeServiceTest {
     @Test
     void noIncome_withholdsTheSavingsRate() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         when(reportService.forRange(eq(userId), any(), any()))
                 .thenReturn(new ReportService.RangeTotals(BigDecimal.ZERO, new BigDecimal("500"), 5));
 
@@ -211,8 +211,8 @@ class DashboardRangeServiceTest {
     @Test
     void enoughPriorHistory_computesRealDeltas() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         LocalDate start = LocalDate.of(2026, 3, 1);
         LocalDate end = LocalDate.of(2026, 8, 31);
         LocalDate prevStart = LocalDate.of(2025, 9, 1);
@@ -238,7 +238,7 @@ class DashboardRangeServiceTest {
     @Test
     void customRange_previousPeriodIsSameDayCountImmediatelyBefore() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         LocalDate start = LocalDate.of(2026, 3, 15);
         LocalDate end = LocalDate.of(2026, 8, 20); // 159 days inclusive
 
@@ -269,8 +269,8 @@ class DashboardRangeServiceTest {
     @Test
     void balance_usesTheSnapshotAtOrBeforeRangeEnd() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         NetWorthSnapshot snap = new NetWorthSnapshot();
         snap.setSnapshotDate(LocalDate.of(2026, 8, 29));
         snap.setNetWorth(new BigDecimal("5000"));
@@ -289,8 +289,8 @@ class DashboardRangeServiceTest {
         account.setBalance(new BigDecimal("7500"));
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account));
         LocalDate today = LocalDate.now(com.finora.util.UserZone.DEFAULT);
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(today);
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(today.minusMonths(1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(today);
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(today.minusMonths(1));
         // No snapshot at all -- findFirstByUserIdAnd...LessThanEqual already stubbed to Optional.empty()
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_3_MONTHS, null, null);
@@ -310,8 +310,8 @@ class DashboardRangeServiceTest {
     void balance_noSnapshotAndRangeEndInThePast_returnsNullNotFabricatedZero() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
         LocalDate longAgo = LocalDate.now(com.finora.util.UserZone.DEFAULT).minusYears(1);
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(longAgo);
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(longAgo.minusMonths(6));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(longAgo);
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(longAgo.minusMonths(6));
         // No snapshot at all -- findFirstByUserIdAnd...LessThanEqual already stubbed to Optional.empty()
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_3_MONTHS, null, null);
@@ -326,8 +326,8 @@ class DashboardRangeServiceTest {
     @Test
     void balance_noPriorSnapshot_setsGateReasonAndNullDelta() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         // Every snapshot lookup (current AND previous) stubbed empty in setUp().
 
         DashboardRangeSummaryDto dto = service.summarize(userId, DashboardRangeType.LAST_6_MONTHS, null, null);
@@ -352,8 +352,8 @@ class DashboardRangeServiceTest {
     @Test
     void unresolvedInflow_comesFromTheCurrentPeriodOnly() {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(account()));
-        when(transactionRepository.findLatestTxnDate(any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
-        when(transactionRepository.findEarliestTxnDate(any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
+        when(transactionRepository.findLatestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2026, 8, 20));
+        when(transactionRepository.findEarliestTxnDate(any(), any(), any())).thenReturn(LocalDate.of(2020, 1, 1));
         // First call is the current period, second the previous one (see summarize).
         when(reportService.forRange(eq(userId), any(), any()))
                 .thenReturn(new ReportService.RangeTotals(BigDecimal.TEN, BigDecimal.ONE, 5,

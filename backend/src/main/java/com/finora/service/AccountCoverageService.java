@@ -143,8 +143,10 @@ public class AccountCoverageService {
             if (!notDelivering.isEmpty()) {
                 java.time.ZoneId zone = com.finora.util.UserZone.forUser(userRepository, userId);
                 java.util.Map<UUID, LocalDate> newestTxn = new java.util.HashMap<>();
+                // A row dated in the future proves no coverage: see ReportableDates.
                 transactionRepository.findLatestTxnDatesByAccount(userId,
-                                notDelivering.stream().map(AccountAggregatorLink::getAccountId).toList())
+                                notDelivering.stream().map(AccountAggregatorLink::getAccountId).toList(),
+                                ReportableDates.latestAllowed(LocalDate.now(zone)))
                         .forEach(row -> newestTxn.put(row.getAccountId(), row.getLatestDate()));
                 for (AccountAggregatorLink link : notDelivering) {
                     LocalDate reach = link.getLastSyncStatus() == AccountAggregatorLink.SyncStatus.SUCCESS

@@ -426,7 +426,7 @@ public class InsightsService {
     private Map<String, BigDecimal> groupByCategory(List<Transaction> txns, String month,
                                                      Map<UUID, Category> categoriesById,
                                                      RefundNetting refunds) {
-        return RefundNetting.withoutNegativeSpend(txns.stream()
+        return RefundNetting.withSpendLeft(txns.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(month))
                 .collect(Collectors.groupingBy(
                         t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",

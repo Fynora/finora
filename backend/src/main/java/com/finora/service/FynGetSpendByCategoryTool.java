@@ -96,7 +96,7 @@ public class FynGetSpendByCategoryTool implements FynChatTool {
     static YearMonth parseMonth(Object monthArg) {
         if (!(monthArg instanceof String monthStr) || monthStr.isBlank()) return null;
         try {
-            return YearMonth.parse(monthStr);
+            return com.finora.util.MonthParam.parse(monthStr);
         } catch (DateTimeException e) {
             return null;
         }

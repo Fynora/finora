@@ -38,7 +38,9 @@ import java.util.List;
  * <h2>Invariants</h2>
  * <pre>
  *   reporting month  = the newest month containing transaction data     ({@link #month()})
- *                      null only when the account has no transactions at all
+ *                      null only when the account has no transactions at all; a row dated
+ *                      after tomorrow is no data (ReportRows leaves it out, see ReportableDates),
+ *                      so one typed with the wrong year cannot become the reporting month
  *   calendar month   = the month it is NOW, in the USER's timezone      ({@link #calendarMonth()})
  *                      never null
  *   isCurrent        = reporting month == calendar month                ({@link #isCurrent()})

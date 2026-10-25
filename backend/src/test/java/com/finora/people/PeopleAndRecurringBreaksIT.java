@@ -229,7 +229,7 @@ class PeopleAndRecurringBreaksIT extends AbstractIntegrationTest {
         for (String d : List.of("2023-12-31", "2024-01-31", "2024-02-29", "2024-03-31")) {
             txn(user, acc, d, "999", "EXPENSE", "GYMPASS MEMBERSHIP", "Health");
         }
-        for (String d : List.of("2026-08-31", "2026-09-30", "2026-10-31")) {
+        for (String d : List.of("2026-07-31", "2026-08-31", "2026-09-30")) {
             txn(user, acc, d, "199", "EXPENSE", "NETFLIX SUBSCRIPTION", "Entertainment");
         }
 

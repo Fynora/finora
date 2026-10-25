@@ -158,14 +158,19 @@ public final class RefundNetting {
     }
 
     /**
-     * A category (or other key) spend map with offsets applied: a key whose unlinked refunds exceed
-     * its purchases in the period is DROPPED rather than shown as negative spend -- a negative
-     * category is an accounting statement none of these screens makes (see the class comment).
-     * {@link #spendTotal} floors the same way, so a period's total is the sum of its categories.
+     * A category (or other key) spend map with offsets applied, keeping only the keys with spend
+     * left: one whose unlinked refunds exceed its purchases in the period is DROPPED rather than
+     * shown as negative spend -- a negative category is an accounting statement none of these
+     * screens makes (see the class comment) -- and so is one whose refunds cancel it exactly. That
+     * one was listed at zero (Reports, the Dashboard donut, Insights' movers: a fully refunded
+     * purchase showed as "Electronics ₹0"), where the daily-spend and payment-method lists already
+     * left zero out. Every caller reads a missing key as zero ({@code getOrDefault}), so dropping it
+     * changes no figure. {@link #spendTotal} floors the same way, so a period's total is the sum of
+     * its categories.
      */
-    public static <K> Map<K, BigDecimal> withoutNegativeSpend(Map<K, BigDecimal> spendByKey) {
+    public static <K> Map<K, BigDecimal> withSpendLeft(Map<K, BigDecimal> spendByKey) {
         Map<K, BigDecimal> out = new java.util.LinkedHashMap<>();
-        spendByKey.forEach((k, v) -> { if (v.signum() >= 0) out.put(k, v); });
+        spendByKey.forEach((k, v) -> { if (v.signum() > 0) out.put(k, v); });
         return out;
     }
 

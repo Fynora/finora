@@ -70,7 +70,7 @@ public class AdminUserAnalyticsController {
     private YearMonth parseMonth(String month) {
         if (month == null || month.isBlank()) return null;
         try {
-            return YearMonth.parse(month);
+            return com.finora.util.MonthParam.parse(month);
         } catch (DateTimeParseException e) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "month must be in YYYY-MM format.");
         }

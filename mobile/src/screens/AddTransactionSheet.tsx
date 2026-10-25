@@ -17,7 +17,7 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../lib/idempotencyKey';
-import { toLocalDateString } from '../lib/format';
+import { latestTransactionDay, toLocalDateString } from '../lib/format';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
@@ -143,7 +143,7 @@ export function AddTransactionSheet({ onClose, onSaved }: Props) {
                   <Text style={[styles.pickerValue, { color: c.ink }]}>{selectedAccount?.name}</Text>
                 </Pressable>
 
-                <DateField label="Date" value={date} onChange={setDate} />
+                <DateField label="Date" value={date} onChange={setDate} maximumDate={latestTransactionDay()} />
 
                 <Text style={[styles.sectionLabel, { color: c.muted }]}>Type</Text>
                 <View style={styles.typeRow}>

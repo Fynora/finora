@@ -303,7 +303,7 @@ public class DashboardService {
         // uses the reporting month: an allowance is the one thing that must not be evaluated
         // against a period it does not belong to. BudgetService.listForUser is the definition this
         // now agrees with.
-        Map<UUID, BigDecimal> spendByCategoryId = RefundNetting.withoutNegativeSpend(active.stream()
+        Map<UUID, BigDecimal> spendByCategoryId = RefundNetting.withSpendLeft(active.stream()
                 .filter(t -> spend.countsAsSpend(t)
                         && t.getCategoryId() != null
                         && Objects.equals(YearMonth.from(t.getTxnDate()).toString(), period.calendarMonth()))
@@ -464,7 +464,7 @@ public class DashboardService {
                 .collect(Collectors.collectingAndThen(Collectors.groupingBy(
                         t -> categoriesById.getOrDefault(t.getCategoryId(), unknownCategory()).getName(),
                         Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add)),
-                        RefundNetting::withoutNegativeSpend));
+                        RefundNetting::withSpendLeft));
     }
 
     /** The categories behind an expense delta, ranked by rupee contribution rather than percentage:

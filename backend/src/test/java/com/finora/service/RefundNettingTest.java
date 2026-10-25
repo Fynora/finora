@@ -306,13 +306,13 @@ class RefundNettingTest {
     }
 
     @Test
-    @DisplayName("totals floor at zero; a category pushed negative is dropped, a zero one kept")
+    @DisplayName("totals floor at zero; a category pushed negative or refunded to zero is dropped")
     void floorsAndDrops() {
         assertThat(RefundNetting.floorAtZero(money("-5.00"))).isEqualByComparingTo("0");
         assertThat(RefundNetting.floorAtZero(money("5.00"))).isEqualByComparingTo("5.00");
-        assertThat(RefundNetting.withoutNegativeSpend(java.util.Map.of(
+        assertThat(RefundNetting.withSpendLeft(java.util.Map.of(
                 "Shopping", money("-200.00"), "Dining", money("0"), "Fuel", money("50.00"))))
-                .containsOnlyKeys("Dining", "Fuel");
+                .containsOnlyKeys("Fuel");
     }
 
     // ---- a spend total is the sum of its categories ----

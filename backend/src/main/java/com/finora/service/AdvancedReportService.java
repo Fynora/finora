@@ -128,8 +128,9 @@ public class AdvancedReportService {
         if (range == AdvancedRange.CUSTOM) AdvancedPeriodResolver.validateCustom(customStart, customEnd);
         List<Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(Account::getId).toList();
-        LocalDate earliest = liveAccountIds.isEmpty() ? null : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
-        LocalDate latest = liveAccountIds.isEmpty() ? null : transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        LocalDate through = reportRows.latestDate(userId);
+        LocalDate earliest = liveAccountIds.isEmpty() ? null : transactionRepository.findEarliestTxnDate(userId, liveAccountIds, through);
+        LocalDate latest = liveAccountIds.isEmpty() ? null : transactionRepository.findLatestTxnDate(userId, liveAccountIds, through);
         if (earliest == null || latest == null) {
             return empty(range, "NO_TRANSACTIONS", null, null, null, null, null);
         }
@@ -360,7 +361,7 @@ public class AdvancedReportService {
     // ------------------------------------------------------------------ breakdowns
 
     private Map<String, BigDecimal> categorySpend(View v, Function<Transaction, String> nameOf) {
-        return RefundNetting.withoutNegativeSpend(v.spendRows().stream().collect(Collectors.groupingBy(nameOf,
+        return RefundNetting.withSpendLeft(v.spendRows().stream().collect(Collectors.groupingBy(nameOf,
                 Collectors.reducing(BigDecimal.ZERO, v.spend()::spendAmount, BigDecimal::add))));
     }
 

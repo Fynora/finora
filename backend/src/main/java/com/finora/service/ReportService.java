@@ -58,7 +58,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public ReportDto forMonth(UUID userId, String monthStr) {
-        YearMonth month = YearMonth.parse(monthStr);
+        YearMonth month = com.finora.util.MonthParam.parse(monthStr);
         LocalDate from = month.atDay(1);
         LocalDate to = month.atEndOfMonth();
 
@@ -104,7 +104,7 @@ public class ReportService {
         // Sum of the categories, each floored -- see RefundNetting.spendTotal.
         BigDecimal expense = spend.spendTotal(txnsForTotals);
 
-        Map<String, BigDecimal> byCategory = RefundNetting.withoutNegativeSpend(txns.stream()
+        Map<String, BigDecimal> byCategory = RefundNetting.withSpendLeft(txns.stream()
                 .filter(spend::countsAsSpend)
                 .collect(Collectors.groupingBy(
                         t -> categoriesById.containsKey(t.getCategoryId()) ? categoriesById.get(t.getCategoryId()).getName() : "Uncategorized",
@@ -180,7 +180,7 @@ public class ReportService {
      */
     static List<ReportDto.PaymentMethodAmount> paymentMethodsOf(List<Transaction> spendRows, RefundNetting spend,
                                                                Map<UUID, com.finora.entity.Account.Type> accountTypes) {
-        return RefundNetting.withoutNegativeSpend(spendRows.stream()
+        return RefundNetting.withSpendLeft(spendRows.stream()
                         .collect(Collectors.groupingBy(
                                 t -> PaymentMethodClassifier.classify(t, accountTypes.get(t.getAccountId())).name(),
                                 Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))))
@@ -218,8 +218,9 @@ public class ReportService {
     }
 
     private MonthCoverage coverageFor(UUID userId, YearMonth month, List<UUID> liveAccountIds) {
-        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
-        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        LocalDate through = reportRows.latestDate(userId);
+        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds, through);
+        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds, through);
         boolean behind = latest != null
                 && statementReach.behindFor(userId, month, YearMonth.from(latest)).isPresent();
         return new MonthCoverage(earliest, latest, accountCoverageService.gapsForUser(userId), behind);
@@ -274,8 +275,9 @@ public class ReportService {
         List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
                 .map(com.finora.entity.Account::getId).toList();
         if (liveAccountIds.isEmpty()) return List.of();
-        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
-        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+        LocalDate through = reportRows.latestDate(userId);
+        LocalDate earliest = transactionRepository.findEarliestTxnDate(userId, liveAccountIds, through);
+        LocalDate latest = transactionRepository.findLatestTxnDate(userId, liveAccountIds, through);
         if (earliest == null || latest == null) return List.of();
 
         int window = Math.max(1, Math.min(months, TREND_MAX_MONTHS));
@@ -408,7 +410,7 @@ public class ReportService {
         List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream()
                 .map(com.finora.entity.Account::getId).toList();
         if (liveAccountIds.isEmpty()) return List.of();
-        return transactionRepository.findDistinctTransactionDates(userId, liveAccountIds).stream()
+        return transactionRepository.findDistinctTransactionDates(userId, liveAccountIds, reportRows.latestDate(userId)).stream()
                 .map(date -> YearMonth.from(date).toString())
                 .distinct().sorted().toList();
     }
@@ -416,29 +418,21 @@ public class ReportService {
     private static final int INCOME_TREND_MONTHS = 6;
 
     /**
-     * The mobile Insights screen's Income tab trend chart -- one point per month for the last
-     * {@value #INCOME_TREND_MONTHS} months that actually have transaction history. Built on
-     * {@link #availableMonths} and {@link #forRange} rather than a fresh query: both already carry
-     * the refund-netting and deleted-account-safety this needs, so there's nothing left to
-     * reimplement here beyond picking the window and reshaping the result.
+     * The mobile Insights screen's Income tab trend chart -- one point per calendar month for the
+     * last {@value #INCOME_TREND_MONTHS} months of the user's history, the income of {@link #trend}
+     * for the same window.
      *
-     * <p>No zero-padding when fewer than {@value #INCOME_TREND_MONTHS} months of history exist --
-     * a new account with 2 months of data gets a 2-point chart, not 4 fabricated zero months
-     * before it existed.
+     * <p>It used to take the last {@value #INCOME_TREND_MONTHS} months that had any transaction, so
+     * a month inside the history with no rows at all was left out: the chart stepped from August
+     * straight to October, where {@link #trend} -- the other chart on the same data -- showed
+     * September as a real zero. Built on {@link #trend} now, so the two agree on which months exist.
+     * Still no zero-padding before the history begins or after it ends: a new account with 2 months
+     * of data gets a 2-point chart, not 4 fabricated zero months before it existed.
      */
     @Transactional(readOnly = true)
     public List<IncomeTrendPoint> incomeTrend(UUID userId) {
-        List<String> months = availableMonths(userId);
-        List<String> window = months.size() > INCOME_TREND_MONTHS
-                ? months.subList(months.size() - INCOME_TREND_MONTHS, months.size())
-                : months;
-
-        return window.stream()
-                .map(month -> {
-                    YearMonth ym = YearMonth.parse(month);
-                    RangeTotals totals = forRange(userId, ym.atDay(1), ym.atEndOfMonth());
-                    return new IncomeTrendPoint(month, totals.income());
-                })
+        return trend(userId, null, INCOME_TREND_MONTHS).stream()
+                .map(p -> new IncomeTrendPoint(p.month(), p.income()))
                 .toList();
     }
 

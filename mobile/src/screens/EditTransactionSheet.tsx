@@ -15,6 +15,7 @@ import { askCategoryScope } from '../lib/askCategoryScope';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { latestTransactionDay } from '../lib/format';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import type { Transaction } from '../types';
@@ -130,7 +131,7 @@ export function EditTransactionSheet({ transaction, onClose, onSaved }: Props) {
           <ScrollView keyboardShouldPersistTaps="handled" style={styles.scroll}>
             <Text style={[styles.title, { color: c.ink }]}>Edit Transaction</Text>
 
-            <DateField label="Date" value={date} onChange={setDate} />
+            <DateField label="Date" value={date} onChange={setDate} maximumDate={latestTransactionDay()} />
 
             <Text style={[styles.sectionLabel, { color: c.muted }]}>Type</Text>
             <View style={styles.typeRow}>

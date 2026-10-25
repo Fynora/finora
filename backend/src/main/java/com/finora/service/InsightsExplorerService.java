@@ -104,7 +104,7 @@ public class InsightsExplorerService {
 
     private Map<String, BigDecimal> spendByCategory(List<Transaction> txns, Map<UUID, Category> categoriesById,
                                                     RefundNetting refunds) {
-        return RefundNetting.withoutNegativeSpend(txns.stream().collect(Collectors.groupingBy(
+        return RefundNetting.withSpendLeft(txns.stream().collect(Collectors.groupingBy(
                 t -> categoryNameOf(t, categoriesById),
                 Collectors.reducing(BigDecimal.ZERO, refunds::spendAmount, BigDecimal::add))));
     }

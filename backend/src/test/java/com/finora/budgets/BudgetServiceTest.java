@@ -309,7 +309,9 @@ class BudgetServiceTest {
         Transaction spent1 = expense(new BigDecimal("4000.00"), dining.getId());
         spent1.setTxnDate(thisMonth.atDay(1));
         Transaction spent2 = expense(new BigDecimal("2000.00"), dining.getId());
-        spent2.setTxnDate(thisMonth.atEndOfMonth());
+        // The 1st as well, not the month's last day: a row dated after tomorrow is left out of
+        // every figure (ReportableDates), and the last day is still ahead for most of the month.
+        spent2.setTxnDate(thisMonth.atDay(1));
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
                 .thenReturn(List.of(spent1, spent2));
 

@@ -121,6 +121,79 @@ class RecurringServiceTest {
         assertThat(txns).allMatch(Transaction::isRecurring);
     }
 
+    /** A statement replaced by a re-upload of the same period keeps its rows as SUPERSEDED beside the
+     *  replacement's. Measured on a local backend before the fix: every payment counted twice on one
+     *  day, the zero-day gap broke the pattern, and the payee left the list. */
+    @Test
+    void aReplacedStatementsOldCopies_doNotBreakThePattern() {
+        List<Transaction> txns = new java.util.ArrayList<>();
+        for (int m = 5; m <= 7; m++) {
+            txns.add(expense("jiofiber broadband", LocalDate.of(2026, m, 5), BigDecimal.valueOf(799)));
+            Transaction old = expense("jiofiber broadband", LocalDate.of(2026, m, 5), BigDecimal.valueOf(799));
+            old.setReconciliationStatus(Transaction.ReconciliationStatus.SUPERSEDED);
+            txns.add(old);
+        }
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        var results = recurringService.detectForUser(userId);
+
+        assertThat(results).singleElement().satisfies(r -> {
+            assertThat(r.merchant()).isEqualTo("jiofiber broadband");
+            assertThat(r.occurrences()).isEqualTo(3);
+        });
+        assertThat(txns).filteredOn(t -> t.getReconciliationStatus() == Transaction.ReconciliationStatus.SUPERSEDED)
+                .noneMatch(Transaction::isRecurring);
+    }
+
+    /** A pattern whose account kept going for two charges past it with neither coming has ended.
+     *  Measured before the fix: a gym plan last paid in March 2024 led the soonest-first list, "next"
+     *  in April 2024, above a live subscription. It leaves the list; its rows keep the badge. */
+    @Test
+    void aPatternThatStopped_leavesTheList_butKeepsItsBadge() {
+        List<Transaction> gym = List.of(
+                expense("gympass membership", LocalDate.of(2024, 1, 31), BigDecimal.valueOf(999)),
+                expense("gympass membership", LocalDate.of(2024, 2, 29), BigDecimal.valueOf(999)),
+                expense("gympass membership", LocalDate.of(2024, 3, 31), BigDecimal.valueOf(999)));
+        List<Transaction> netflix = List.of(
+                expense("netflix", LocalDate.of(2026, 8, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 9, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 10, 5), BigDecimal.valueOf(649)));
+        List<Transaction> all = new java.util.ArrayList<>(gym);
+        all.addAll(netflix);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(all);
+
+        var results = recurringService.detectForUser(userId);
+
+        assertThat(results).extracting(RecurringDto::merchant).containsExactly("netflix");
+        assertThat(gym).allMatch(Transaction::isRecurring);
+    }
+
+    /** One missed charge is not an end: a payment can be late, or land on the next statement. */
+    @Test
+    void oneMissedCharge_keepsThePattern() {
+        List<Transaction> txns = new java.util.ArrayList<>(List.of(
+                expense("netflix", LocalDate.of(2026, 5, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 6, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 7, 5), BigDecimal.valueOf(649))));
+        txns.add(expense("grocer", LocalDate.of(2026, 8, 20), BigDecimal.valueOf(100)));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        assertThat(recurringService.detectForUser(userId)).extracting(RecurringDto::merchant).containsExactly("netflix");
+    }
+
+    /** Two average gaps plus the gap tolerance (35%, at least 5 days) past the last charge, exactly. */
+    @Test
+    void hasEnded_atTheBoundary() {
+        LocalDate last = LocalDate.of(2026, 7, 1);
+        // 2 x 30 + max(5, 10.5 -> 11) = 71 days: 10 September.
+        assertThat(RecurringService.hasEnded(last, 30, LocalDate.of(2026, 9, 10))).isFalse();
+        assertThat(RecurringService.hasEnded(last, 30, LocalDate.of(2026, 9, 11))).isTrue();
+        // Weekly: 2 x 7 + 5 = 19 days.
+        assertThat(RecurringService.hasEnded(last, 7, last.plusDays(19))).isFalse();
+        assertThat(RecurringService.hasEnded(last, 7, last.plusDays(20))).isTrue();
+        assertThat(RecurringService.hasEnded(last, 30, null)).isFalse();
+    }
+
     @Test
     void detectForUser_excludesADismissedMerchantFromResults_butStillFlagsItsTransactionsRecurring() {
         List<Transaction> txns = List.of(

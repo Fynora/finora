@@ -211,6 +211,112 @@ class PeopleLedgerTest {
         assertThat(zero.balances()).doesNotContainKey(FRIEND);
     }
 
+    /** Lent 1000, closed as "paid in cash", then the bank repayment shows up (dated before the cash
+     *  settle) and is marked paid back. Measured before the fix: the user then "owed" them 1000, and
+     *  settling again was refused as nothing owed. The cash settle closes only what is still owed. */
+    @Test
+    void repaymentMarkedAfterACashSettleOpensNoDebt() {
+        Transaction lent = row(Transaction.Type.EXPENSE, 1000, d(8, 1), FRIEND, null);
+        Transaction back = row(Transaction.Type.INCOME, 1000, d(8, 15), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(lent, LoanEntry.Direction.LENT, 1000),
+                entry(null, LoanEntry.Direction.CASH_SETTLED, 1000), entry(back, LoanEntry.Direction.PAID_BACK, 1000)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.droppedIds()).contains(lent.getId());
+        assertThat(l.creditDecision(back)).isNotNull();
+    }
+
+    /** A cash settle still closes only its own amount when more was lent after it was made. */
+    @Test
+    void cashSettleClosesNoMoreThanItsAmount() {
+        Transaction first = row(Transaction.Type.EXPENSE, 1000, d(8, 1), FRIEND, null);
+        Transaction second = row(Transaction.Type.EXPENSE, 500, d(9, 1), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(first, LoanEntry.Direction.LENT, 1000),
+                entry(second, LoanEntry.Direction.LENT, 500), entry(null, LoanEntry.Direction.CASH_SETTLED, 1000)), Set.of());
+        assertThat(l.balances().get(FRIEND).owedToUser()).isEqualByComparingTo("500");
+    }
+
+    /** Lent 500 and let it go, then they paid it back and the user marked it. Measured before the
+     *  fix: the 500 stayed a gift in spending and the repayment left income, so 500 vanished from the
+     *  figures. The repayment takes the let-go back: the lent payment is a loan again, out of spending. */
+    @Test
+    void repaymentAfterALetGoTakesItBack() {
+        Transaction lent = row(Transaction.Type.EXPENSE, 500, d(8, 2), FRIEND, null);
+        Transaction back = row(Transaction.Type.INCOME, 500, d(10, 1), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(lent, LoanEntry.Direction.LENT, 500),
+                entry(lent, LoanEntry.Direction.LET_GO, 500), entry(back, LoanEntry.Direction.PAID_BACK, 500)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.droppedIds()).contains(lent.getId());
+        assertThat(l.sharedByBillId()).doesNotContainKey(lent.getId());
+        assertThat(l.creditDecision(back)).isNotNull();
+    }
+
+    /** Part of a let-go coming back: only the rest stays a gift. */
+    @Test
+    void partRepaymentAfterALetGoLeavesTheRestAGift() {
+        Transaction lent = row(Transaction.Type.EXPENSE, 500, d(8, 2), FRIEND, null);
+        Transaction back = row(Transaction.Type.INCOME, 200, d(10, 1), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(lent, LoanEntry.Direction.LENT, 500),
+                entry(lent, LoanEntry.Direction.LET_GO, 500), entry(back, LoanEntry.Direction.PAID_BACK, 200)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.droppedIds()).doesNotContain(lent.getId());
+        // 200 came back, so 300 of the 500 counts as spending.
+        assertThat(l.sharedByBillId().get(lent.getId())).isEqualByComparingTo("200");
+    }
+
+    /** More back than is open: the excess takes back an earlier let-go before it flips the balance. */
+    @Test
+    void excessRepaymentTakesBackALetGoBeforeFlipping() {
+        Transaction gone = row(Transaction.Type.EXPENSE, 500, d(8, 1), FRIEND, null);
+        Transaction open = row(Transaction.Type.EXPENSE, 300, d(9, 1), FRIEND, null);
+        Transaction back = row(Transaction.Type.INCOME, 800, d(9, 20), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(gone, LoanEntry.Direction.LENT, 500),
+                entry(gone, LoanEntry.Direction.LET_GO, 500), entry(open, LoanEntry.Direction.LENT, 300),
+                entry(back, LoanEntry.Direction.PAID_BACK, 800)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.droppedIds()).contains(gone.getId(), open.getId());
+        // More again, with nothing owed and nothing let go left: a debt Fynora never saw, as before --
+        // never the user owing them.
+        Transaction more = row(Transaction.Type.INCOME, 100, d(9, 25), FRIEND, null);
+        PeopleLedger past = build(List.of(), List.of(), List.of(entry(gone, LoanEntry.Direction.LENT, 500),
+                entry(gone, LoanEntry.Direction.LET_GO, 500), entry(open, LoanEntry.Direction.LENT, 300),
+                entry(back, LoanEntry.Direction.PAID_BACK, 800), entry(more, LoanEntry.Direction.PAID_BACK, 100)), Set.of());
+        assertThat(past.balances()).doesNotContainKey(FRIEND);
+    }
+
+    /** Lent 1000, then the payment's amount was corrected to 100. Measured before the fix: they still
+     *  owed 1000. A whole-payment entry follows its payment. */
+    @Test
+    void aCorrectedLentAmountMovesTheBalance() {
+        Transaction lent = row(Transaction.Type.EXPENSE, 100, d(9, 3), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(lent, LoanEntry.Direction.LENT, 1000)), Set.of());
+        assertThat(l.balances().get(FRIEND).owedToUser()).isEqualByComparingTo("100");
+        assertThat(PeopleLedger.entryAmount(entry(lent, LoanEntry.Direction.LENT, 1000), lent, BigDecimal.ZERO))
+                .isEqualByComparingTo("100");
+    }
+
+    /** A lent payment edited into money in. Measured before the fix: still owed, and counted as
+     *  income too. The entry no longer fits its payment, so it counts for nothing. */
+    @Test
+    void aLentPaymentEditedIntoMoneyInLeavesTheBalance() {
+        Transaction flipped = row(Transaction.Type.INCOME, 700, d(9, 3), FRIEND, null);
+        PeopleLedger l = build(List.of(), List.of(), List.of(entry(flipped, LoanEntry.Direction.LENT, 700)), Set.of());
+        assertThat(l.balances()).doesNotContainKey(FRIEND);
+        assertThat(l.droppedIds()).isEmpty();
+    }
+
+    /** The leftover beside a credit's shares never counts past what the corrected credit still holds. */
+    @Test
+    void aLeftoverAnswerFollowsACorrectedCredit() {
+        Transaction bill = bill(1000, d(9, 1));
+        Transaction credit = row(Transaction.Type.INCOME, 1200, d(9, 3), FRIEND, RENT);
+        LoanEntry leftover = entry(credit, LoanEntry.Direction.PAID_BACK, 500);
+        Transaction lent = row(Transaction.Type.EXPENSE, 1000, d(8, 1), FRIEND, null);
+        PeopleLedger l = build(List.of(link(credit, bill, "1000")), List.of(),
+                List.of(entry(lent, LoanEntry.Direction.LENT, 1000), leftover), Set.of());
+        assertThat(PeopleLedger.entryAmount(leftover, credit, new BigDecimal("1000"))).isEqualByComparingTo("200");
+        assertThat(l.balances().get(FRIEND).owedToUser()).isEqualByComparingTo("800");
+    }
+
     /** "They owed you" (spec §6 D): money back for a debt Fynora never saw. It leaves income, and it
      *  must not read as the user now owing them -- only money back past an open loan flips. */
     @Test

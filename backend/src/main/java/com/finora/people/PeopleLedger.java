@@ -154,35 +154,68 @@ public final class PeopleLedger {
             }
         });
 
-        // 3. Loan entries.
-        Set<UUID> letGo = new HashSet<>();
-        for (LoanEntry e : entries) {
-            if (e.getDirection() == LoanEntry.Direction.LET_GO && e.getTxnId() != null) letGo.add(e.getTxnId());
-        }
+        // 3. Loan entries, each for what its payment says now (entryAmount): an entry whose payment was
+        //    corrected follows the correction, and one whose payment no longer fits it is gone.
+        Map<UUID, BigDecimal> sharedFromCredit = new HashMap<>();
+        sharesByBill.values().forEach(list -> list.forEach(s -> sharedFromCredit.merge(s.creditId(), s.amount(), BigDecimal::add)));
         List<Event> events = new ArrayList<>();
         for (LoanEntry e : entries) {
             Transaction t = e.getTxnId() == null ? null : live.get(e.getTxnId());
-            if (e.getTxnId() != null && t == null) continue; // its row is gone: so is the entry
+            BigDecimal amount = entryAmount(e, t, t == null ? BigDecimal.ZERO : sharedFromCredit.getOrDefault(t.getId(), BigDecimal.ZERO));
+            if (amount == null) continue;
+            LocalDate when = t != null ? t.getTxnDate()
+                    : e.getCreatedAt() == null ? LocalDate.now(ZoneOffset.UTC) : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
+            Cap cap = switch (e.getDirection()) {
+                // Money back moves only a balance they owe: past it, it flips (more back than lent), but
+                // with nothing owed it is a debt Fynora never saw ("they owed you"), not money the user
+                // owes -- or, when the user let a loan of theirs go, that loan coming back after all.
+                case PAID_BACK -> Cap.WHILE_OWED;
+                // "Paid in cash" and the part of a let-go no lent payment carries close what is owed and
+                // never more: a repayment the user marks later, dated before them, already closed it.
+                case CASH_SETTLED -> Cap.TO_ZERO;
+                case LET_GO -> t == null ? Cap.TO_ZERO : Cap.NONE;
+                default -> Cap.NONE;
+            };
+            BigDecimal signed = signed(e.getDirection(), amount);
+            events.add(new Event(e.getPersonKey(), when, signed, cap,
+                    e.getDirection() == LoanEntry.Direction.LET_GO, t == null ? null : t.getId()));
+        }
+        for (LoanEntry e : entries) {
+            Transaction t = e.getTxnId() == null ? null : live.get(e.getTxnId());
+            if (t == null) continue; // its row is gone: so is the entry
             switch (e.getDirection()) {
-                case LENT, REPAID -> { if (isBill(t) && !letGo.contains(t.getId())) dropped.add(t.getId()); }
                 case PAID_BACK -> { if (isCredit(t) && !decisions.containsKey(t.getId())) decisions.put(t.getId(), PAID_BACK); }
                 case BORROWED -> { if (isCredit(t) && !decisions.containsKey(t.getId())) decisions.put(t.getId(), BORROWED); }
                 default -> { }
             }
-            LocalDate when = t != null ? t.getTxnDate()
-                    : e.getCreatedAt() == null ? LocalDate.now(ZoneOffset.UTC) : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            // Money back moves only a balance they owe: past it, it flips (more back than lent), but
-            // with nothing owed it is a debt Fynora never saw ("they owed you"), not money the user owes.
-            Cap cap = e.getDirection() == LoanEntry.Direction.PAID_BACK ? Cap.WHILE_OWED : Cap.NONE;
-            events.add(new Event(e.getPersonKey(), when, signed(e), cap));
         }
 
+        // 4. The repayment rule: a credit from the sender with no link or entry counts toward what
+        //    they owe, never past zero.
+        for (Transaction t : byDate) {
+            if (!isCredit(t) || t.getCounterpartyKey() == null || !repaymentSenderKeys.contains(t.getCounterpartyKey())) continue;
+            if (answered.contains(t.getId()) || decisions.containsKey(t.getId())) continue;
+            if (!CounterpartyIdentity.identifiesOnePayee(t.getCounterpartyKey())) continue;
+            events.add(new Event(t.getCounterpartyKey(), t.getTxnDate(), t.getAmount().negate(), Cap.TO_ZERO, false, null));
+        }
+
+        Map<UUID, BigDecimal> reclaimed = new HashMap<>();
+        Map<String, Balance> balances = balances(events, reclaimed);
+
         // A lent payment let go becomes spending, but only the part that never came back: the rest
-        // nets off it the way a share does, so a half-repaid loan let go costs half.
+        // nets off it the way a share does, so a half-repaid loan let go costs half. Money back marked
+        // after the let-go (reclaimed) takes that much off it again.
         Map<UUID, BigDecimal> letGoAmount = new HashMap<>();
+        for (Event ev : events) {
+            if (ev.letGo() && ev.txnId() != null) letGoAmount.merge(ev.txnId(), ev.amount().negate(), BigDecimal::add);
+        }
+        reclaimed.forEach((txnId, back) -> letGoAmount.merge(txnId, back.negate(), BigDecimal::add));
+        letGoAmount.values().removeIf(v -> v.signum() <= 0);
         for (LoanEntry e : entries) {
-            if (e.getDirection() == LoanEntry.Direction.LET_GO && e.getTxnId() != null) {
-                letGoAmount.merge(e.getTxnId(), e.getAmount(), BigDecimal::add);
+            Transaction t = e.getTxnId() == null ? null : live.get(e.getTxnId());
+            if ((e.getDirection() == LoanEntry.Direction.LENT || e.getDirection() == LoanEntry.Direction.REPAID)
+                    && isBill(t) && !letGoAmount.containsKey(t.getId())) {
+                dropped.add(t.getId());
             }
         }
         letGoAmount.forEach((txnId, gone) -> {
@@ -192,48 +225,77 @@ public final class PeopleLedger {
             if (cameBack.signum() > 0) shared.merge(txnId, cameBack, BigDecimal::add);
         });
 
-        // 4. The repayment rule: a credit from the sender with no link or entry counts toward what
-        //    they owe, never past zero.
-        for (Transaction t : byDate) {
-            if (!isCredit(t) || t.getCounterpartyKey() == null || !repaymentSenderKeys.contains(t.getCounterpartyKey())) continue;
-            if (answered.contains(t.getId()) || decisions.containsKey(t.getId())) continue;
-            if (!CounterpartyIdentity.identifiesOnePayee(t.getCounterpartyKey())) continue;
-            events.add(new Event(t.getCounterpartyKey(), t.getTxnDate(), t.getAmount().negate(), Cap.TO_ZERO));
-        }
-
         return new PeopleLedger(Map.copyOf(shared), Map.copyOf(sharesByBill), Set.copyOf(dropped),
-                Map.copyOf(decisions), balances(events));
+                Map.copyOf(decisions), balances);
+    }
+
+    /**
+     * What an entry counts for against its payment as it reads now, or null when it counts for
+     * nothing: its payment is gone, or no longer the kind of payment the entry was made on (a lent
+     * payment edited into money in). A whole-payment entry follows a corrected amount; the leftover
+     * beside a credit's shares, and a let-go, never count past what the payment still holds. Cash
+     * settled and let-go entries without a payment are their own amount.
+     */
+    static BigDecimal entryAmount(LoanEntry e, Transaction t, BigDecimal sharedFromCredit) {
+        if (e.getTxnId() == null) return e.getAmount();
+        if (t == null || t.getAmount() == null) return null;
+        BigDecimal out = switch (e.getDirection()) {
+            case LENT, REPAID -> isBill(t) ? t.getAmount() : null;
+            // A credit with shares beside the entry: the entry is the leftover (PeopleService.addEntry).
+            case PAID_BACK, BORROWED -> !isCredit(t) ? null
+                    : sharedFromCredit.signum() > 0 ? e.getAmount().min(t.getAmount().subtract(sharedFromCredit)) : t.getAmount();
+            case LET_GO -> isBill(t) ? e.getAmount().min(t.getAmount()) : null;
+            case CASH_SETTLED -> e.getAmount();
+        };
+        return out == null || out.signum() <= 0 ? null : out;
     }
 
     /** How far money back may move a balance. TO_ZERO: only bring a positive balance to zero (the
      *  repayment rule). WHILE_OWED: only while one is owed, then in full, so the excess flips it. */
     private enum Cap { NONE, TO_ZERO, WHILE_OWED }
 
-    /** One movement of a person's balance. */
-    private record Event(String personKey, LocalDate date, BigDecimal amount, Cap cap) {}
+    /** One movement of a person's balance. {@code letGo}: a let-go entry, on lent payment {@code txnId}
+     *  (null for the part no lent payment carries). */
+    private record Event(String personKey, LocalDate date, BigDecimal amount, Cap cap, boolean letGo, UUID txnId) {}
 
-    private static BigDecimal signed(LoanEntry e) {
-        BigDecimal a = e.getAmount();
-        return switch (e.getDirection()) {
+    private static BigDecimal signed(LoanEntry.Direction direction, BigDecimal a) {
+        return switch (direction) {
             case LENT, REPAID -> a;
             case PAID_BACK, CASH_SETTLED, LET_GO, BORROWED -> a.negate();
         };
     }
 
-    /** Running balance per person in date order, with the oldest open side's date (first in, first out). */
-    private static Map<String, Balance> balances(List<Event> events) {
+    /**
+     * Running balance per person in date order, with the oldest open side's date (first in, first
+     * out). On one day, what is owed comes before what closes it, so a close capped to the balance
+     * sees the loan it closes. Money back with nothing owed takes back that much of an earlier let-go
+     * of the person's -- the part no lent payment carries first, then the newest lent payment's --
+     * and {@code reclaimed} gets, per lent payment, how much of its let-go came back.
+     */
+    private static Map<String, Balance> balances(List<Event> events, Map<UUID, BigDecimal> reclaimed) {
         Map<String, List<Event>> byPerson = new LinkedHashMap<>();
         for (Event e : events) byPerson.computeIfAbsent(e.personKey(), k -> new ArrayList<>()).add(e);
         Map<String, Balance> out = new LinkedHashMap<>();
         byPerson.forEach((person, list) -> {
-            list.sort(Comparator.comparing(Event::date));
+            list.sort(Comparator.comparing(Event::date).thenComparing(e -> -e.amount().signum()));
             // Open amounts on each side: what they owe the user (+) and what the user owes them (-).
             Deque<Object[]> open = new ArrayDeque<>(); // {LocalDate date, BigDecimal amount}, one sign at a time
+            // Let-go seen so far that money back could still take back: {Event, BigDecimal left}.
+            List<Object[]> letGoLeft = new ArrayList<>();
             BigDecimal total = BigDecimal.ZERO;
             for (Event e : list) {
                 BigDecimal amount = e.amount();
-                if (e.cap() != Cap.NONE && total.signum() <= 0) continue;
+                if (e.cap() != Cap.NONE && total.signum() <= 0) {
+                    if (e.cap() == Cap.WHILE_OWED) reclaim(amount.abs(), letGoLeft, reclaimed);
+                    continue;
+                }
                 if (e.cap() == Cap.TO_ZERO) amount = amount.abs().min(total).negate();
+                // More back than is owed: the excess takes back a let-go before it flips the balance.
+                if (e.cap() == Cap.WHILE_OWED && amount.abs().compareTo(total) > 0) {
+                    BigDecimal back = reclaim(amount.abs().subtract(total), letGoLeft, reclaimed);
+                    amount = amount.add(back);
+                }
+                if (e.letGo()) letGoLeft.add(new Object[]{e, amount.abs()});
                 total = total.add(amount);
                 BigDecimal rest = amount;
                 while (rest.signum() != 0 && !open.isEmpty()
@@ -252,6 +314,25 @@ public final class PeopleLedger {
             }
         });
         return Map.copyOf(out);
+    }
+
+    /** Takes up to {@code amount} back from the let-go seen so far (see {@link #balances}); returns how
+     *  much it took. */
+    private static BigDecimal reclaim(BigDecimal amount, List<Object[]> letGoLeft, Map<UUID, BigDecimal> reclaimed) {
+        List<Object[]> order = new ArrayList<>(letGoLeft);
+        order.sort(Comparator.comparing((Object[] p) -> ((Event) p[0]).txnId() != null)
+                .thenComparing((Object[] p) -> ((Event) p[0]).date(), Comparator.reverseOrder()));
+        BigDecimal want = amount;
+        for (Object[] pot : order) {
+            if (want.signum() <= 0) break;
+            BigDecimal take = want.min((BigDecimal) pot[1]);
+            if (take.signum() <= 0) continue;
+            pot[1] = ((BigDecimal) pot[1]).subtract(take);
+            want = want.subtract(take);
+            UUID txnId = ((Event) pot[0]).txnId();
+            if (txnId != null) reclaimed.merge(txnId, take, BigDecimal::add);
+        }
+        return amount.subtract(want);
     }
 
     /** Bills a rule may fill for this credit: same identity, within the window, the ones before the

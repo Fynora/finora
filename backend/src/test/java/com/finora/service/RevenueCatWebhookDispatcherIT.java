@@ -60,6 +60,62 @@ class RevenueCatWebhookDispatcherIT extends AbstractIntegrationTest {
         assertThat(reloaded.getRenewalDate()).isEqualTo(LocalDate.of(2030, 1, 2));
     }
 
+    /** V291 seeds the Play product. RevenueCat sends Google Play products as
+     *  "subscription_id:base_plan_id", so the Play Console subscription "plus" with base plan
+     *  "monthly" arrives as "plus:monthly". Without the seeded row the purchase is ignored and a
+     *  charged buyer stays on Free. */
+    @Test
+    void playStorePurchaseOfPlusMonthlyPutsTheBuyerOnPlusMonthly() {
+        User user = newUserOnFree("revenuecat-play-plus-it-");
+        String originalTransactionId = "GPA.test-" + UUID.randomUUID();
+
+        dispatcher.dispatch("INITIAL_PURCHASE", Map.of(
+                "app_user_id", user.getId().toString(),
+                "product_id", "plus:monthly",
+                "store", "PLAY_STORE",
+                "original_transaction_id", originalTransactionId,
+                "transaction_id", originalTransactionId,
+                "period_type", "NORMAL",
+                "environment", "SANDBOX",
+                "expiration_at_ms", 1893522600000L)); // synthetic-ok: 2030-01-01T18:30:00Z, fixture epoch millis
+
+        Subscription reloaded = subscriptionRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).get(0);
+        assertThat(reloaded.getPlanId()).isEqualTo(planRepository.findByCode("PLUS").orElseThrow().getId());
+        assertThat(reloaded.getBillingCycle()).isEqualTo("MONTHLY");
+        assertThat(reloaded.getPaymentProvider()).isEqualTo("REVENUECAT");
+        assertThat(reloaded.getStorePlatform()).isEqualTo("ANDROID");
+        assertThat(reloaded.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+    }
+
+    /** The same id from the App Store is a different product: V291 maps Android only. */
+    @Test
+    void appStorePurchaseWithThePlayProductIdIsNotMapped() {
+        User user = newUserOnFree("revenuecat-play-plus-ios-it-");
+        UUID freePlanId = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getPlanId();
+
+        dispatcher.dispatch("INITIAL_PURCHASE", Map.of(
+                "app_user_id", user.getId().toString(),
+                "product_id", "plus:monthly",
+                "store", "APP_STORE",
+                "original_transaction_id", "ios-test-" + UUID.randomUUID()));
+
+        Subscription reloaded = subscriptionRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).get(0);
+        assertThat(reloaded.getPlanId()).isEqualTo(freePlanId);
+        assertThat(reloaded.getPaymentProvider()).isNull();
+    }
+
+    private User newUserOnFree(String emailPrefix) {
+        User user = new User();
+        user.setEmail(emailPrefix + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant");
+        user.setFullName("RevenueCat Play IT User");
+        user.setRole("USER");
+        user.setPhoneVerified(true);
+        user = userRepository.save(user);
+        subscriptionService.provisionFreeSubscription(user.getId());
+        return user;
+    }
+
     @Test
     void renewalForUnknownOriginalTransactionIdThrowsInsteadOfSilentlyDroppingIt() {
         String originalTransactionId = "txn_unknown_" + UUID.randomUUID();

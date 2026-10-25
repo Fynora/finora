@@ -748,6 +748,30 @@ public class TransactionService {
     }
 
     /**
+     * Puts back a category choice that a later automatic re-filing replaced -- the let-go's Gifts &
+     * Donations, when the let-go is undone. Only while the row is still in {@code onlyIfStillIn}: a
+     * category the user chose since is theirs and stays. A kept category deleted since is not
+     * restored either. Returns whether the row changed.
+     */
+    @Transactional
+    public boolean restoreCategoryChoice(UUID userId, UUID txnId, Transaction.CategoryChoice before, UUID onlyIfStillIn) {
+        Transaction t = transactionRepository.findById(txnId).filter(r -> userId.equals(r.getUserId())).orElse(null);
+        if (t == null || before == null || !java.util.Objects.equals(t.getCategoryId(), onlyIfStillIn)) return false;
+        Category category = null;
+        if (before.categoryId() != null) {
+            category = categoryRepository.findById(before.categoryId()).filter(c -> userId.equals(c.getUserId())).orElse(null);
+            if (category == null) return false;
+        }
+        String previousCategoryId = String.valueOf(t.getCategoryId());
+        before.applyTo(t);
+        Transaction saved = transactionRepository.save(t);
+        if (category != null) reconciliationService.reconcileIfInvestmentExclusionMayChange(userId, List.of(saved), category);
+        auditService.record(userId, "TRANSACTION_CATEGORY_RESTORED", "Transaction", txnId,
+                Map.of("previousCategoryId", previousCategoryId, "restoredCategoryId", String.valueOf(before.categoryId())));
+        return true;
+    }
+
+    /**
      * What "apply to all similar" would reach from {@code txnId}: see
      * {@link TransactionDto.SimilarSummary}. Read-only.
      */

@@ -60,6 +60,7 @@ public class PeopleService {
     private final com.finora.repository.UserRepository users;
     private final com.finora.repository.InsightAcknowledgementRepository acknowledgements;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.finora.repository.CategoryRuleRepository categoryRules;
 
     public PeopleService(ShareLinkRepository shareLinks, SplitRuleRepository splitRules, LoanEntryRepository loanEntries,
                          PersonSettingRepository personSettings, PeoplePreferenceRepository preferences,
@@ -67,7 +68,8 @@ public class PeopleService {
                          PeopleLedgerService ledgers, TransactionService transactionService,
                          com.finora.repository.AccountRepository accounts, com.finora.repository.UserRepository users,
                          com.finora.repository.InsightAcknowledgementRepository acknowledgements,
-                         org.springframework.jdbc.core.JdbcTemplate jdbc) {
+                         org.springframework.jdbc.core.JdbcTemplate jdbc,
+                         com.finora.repository.CategoryRuleRepository categoryRules) {
         this.shareLinks = shareLinks;
         this.splitRules = splitRules;
         this.loanEntries = loanEntries;
@@ -81,6 +83,7 @@ public class PeopleService {
         this.users = users;
         this.acknowledgements = acknowledgements;
         this.jdbc = jdbc;
+        this.categoryRules = categoryRules;
     }
 
     /**
@@ -216,7 +219,7 @@ public class PeopleService {
             // Only the leftover beside a credit's shares can be answered in part: anywhere else the
             // rest of the payment would read as answered too.
             if (shared.signum() == 0) throw new ApiException(ErrorCode.PEOPLE_WRONG_DIRECTION);
-            if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_NOTHING_LEFT);
+            if (req.amount().compareTo(t.getAmount().subtract(shared)) > 0) throw new ApiException(ErrorCode.PEOPLE_MORE_THAN_LEFT);
             amount = req.amount();
         } else if (!out) {
             shareLinks.deleteAll(shareLinks.findByUserIdAndCreditTxnId(userId, t.getId()));
@@ -235,11 +238,28 @@ public class PeopleService {
     public void deleteEntry(UUID userId, UUID entryId) {
         oneWriteAtATime(userId);
         loanEntries.findById(entryId).filter(e -> e.getUserId().equals(userId)).ifPresent(e -> {
+            // The let-go this undoes: the lent payment's own, when the loan itself goes, or this entry.
+            List<LoanEntry> letGos = List.of();
             if (e.getDirection() == LoanEntry.Direction.LENT && e.getTxnId() != null) {
-                loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
-                        .filter(x -> x.getDirection() == LoanEntry.Direction.LET_GO).toList());
+                letGos = loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
+                        .filter(x -> x.getDirection() == LoanEntry.Direction.LET_GO).toList();
+                loanEntries.deleteAll(letGos);
+            } else if (e.getDirection() == LoanEntry.Direction.LET_GO && e.getTxnId() != null) {
+                letGos = List.of(e);
             }
             loanEntries.delete(e);
+            // The payment goes back to the category it had before the let-go filed it as a gift, unless
+            // the user has chosen another since. A let-go from before V292 kept nothing to go back to.
+            for (LoanEntry g : letGos) {
+                Transaction.CategoryChoice before = g.categoryBeforeLetGo();
+                // The rule that filed it may have been deleted since: decision_rule_id references
+                // category_rules, so putting a deleted rule's id back failed the whole undo (measured).
+                // Without it, as Postgres leaves any row whose rule is deleted (ON DELETE SET NULL).
+                if (before != null && before.decisionRuleId() != null && !categoryRules.existsById(before.decisionRuleId())) {
+                    before = before.withoutRule();
+                }
+                transactionService.restoreCategoryChoice(userId, g.getTxnId(), before, g.getLetGoCategoryId());
+            }
         });
     }
 
@@ -271,11 +291,18 @@ public class PeopleService {
             if (open.signum() <= 0) break;
             // Already let go (in part, the rest having come back): that payment is closed.
             if (alreadyGone.containsKey(debit.getId())) continue;
+            // A lent payment since edited into money in is no loan any more (PeopleLedger.entryAmount).
+            if (!PeopleLedger.isBill(debit)) continue;
             BigDecimal stillOut = debit.getAmount();
             BigDecimal gone = stillOut.min(open);
             if (gone.signum() <= 0) continue;
-            loanEntries.save(new LoanEntry(userId, req.personKey(), debit.getId(), LoanEntry.Direction.LET_GO, gone));
-            transactionService.updateCategory(userId, debit.getId(), GIFTS_CATEGORY, TransactionDto.CategoryScope.ONLY_THIS);
+            // What the payment was filed under before it becomes a gift, for an undo to put back.
+            Transaction.CategoryChoice before = Transaction.CategoryChoice.of(debit);
+            TransactionDto gift = transactionService.updateCategory(userId, debit.getId(), GIFTS_CATEGORY,
+                    TransactionDto.CategoryScope.ONLY_THIS);
+            LoanEntry letGo = new LoanEntry(userId, req.personKey(), debit.getId(), LoanEntry.Direction.LET_GO, gone);
+            letGo.keepCategoryBeforeLetGo(before, gift.categoryId());
+            loanEntries.save(letGo);
             open = open.subtract(gone);
         }
         if (open.signum() > 0) {
@@ -352,8 +379,11 @@ public class PeopleService {
         Map<UUID, Transaction> rows = byId(entries.stream().map(LoanEntry::getTxnId).filter(java.util.Objects::nonNull).toList());
         for (LoanEntry e : entries) {
             Transaction t = e.getTxnId() == null ? null : rows.get(e.getTxnId());
+            // As the balance reads it: a corrected payment's amount, nothing for one that no longer fits.
+            BigDecimal amount = PeopleLedger.entryAmount(e, t, t == null ? BigDecimal.ZERO : ledger.sharedFromCredit(t.getId()));
+            if (amount == null) continue;
             LocalDate date = t != null ? t.getTxnDate() : e.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-            timeline.add(new PeopleDtos.TimelineItem(date, e.getDirection().name(), e.getAmount(), e.getTxnId()));
+            timeline.add(new PeopleDtos.TimelineItem(date, e.getDirection().name(), amount, e.getTxnId()));
         }
         Map<UUID, Transaction> credits = byId(ledger.allShares().stream().map(PeopleLedger.Share::creditId).toList());
         for (PeopleLedger.Share s : ledger.allShares()) {

@@ -47,6 +47,8 @@ public enum ErrorCode {
     PEOPLE_NOTHING_OWED("TXN_010", HttpStatus.UNPROCESSABLE_ENTITY, "Nothing is owed here."),
     PEOPLE_BILL_HAS_NO_CATEGORY("TXN_011", HttpStatus.UNPROCESSABLE_ENTITY,
             "Give this bill a category first, so Fynora knows which bills to link every month."),
+    PEOPLE_MORE_THAN_LEFT("TXN_012", HttpStatus.UNPROCESSABLE_ENTITY,
+            "That's more than is left of this payment after the bills it's linked to."),
 
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),

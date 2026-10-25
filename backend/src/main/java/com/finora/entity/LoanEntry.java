@@ -44,6 +44,30 @@ public class LoanEntry {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    // A LET_GO on a lent payment: what the payment's category was before the let-go re-filed it, and
+    // the category it was re-filed under (V292). All null on any other entry and on older LET_GOs.
+    @Column(name = "before_category_id")
+    private UUID beforeCategoryId;
+
+    @Column(name = "before_category_manually_set")
+    private Boolean beforeCategoryManuallySet;
+
+    @Column(name = "before_needs_category_review")
+    private Boolean beforeNeedsCategoryReview;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "before_decision_source")
+    private Transaction.DecisionSource beforeDecisionSource;
+
+    @Column(name = "before_decision_rule_id")
+    private UUID beforeDecisionRuleId;
+
+    @Column(name = "before_decision_confidence")
+    private Integer beforeDecisionConfidence;
+
+    @Column(name = "let_go_category_id")
+    private UUID letGoCategoryId;
+
     protected LoanEntry() {}
 
     public LoanEntry(UUID userId, String personKey, UUID txnId, Direction direction, BigDecimal amount) {
@@ -61,4 +85,25 @@ public class LoanEntry {
     public Direction getDirection() { return direction; }
     public BigDecimal getAmount() { return amount; }
     public Instant getCreatedAt() { return createdAt; }
+
+    /** Keeps the payment's category from before a let-go, and the category the let-go filed it under. */
+    public void keepCategoryBeforeLetGo(Transaction.CategoryChoice before, UUID letGoCategoryId) {
+        this.beforeCategoryId = before.categoryId();
+        this.beforeCategoryManuallySet = before.manuallySet();
+        this.beforeNeedsCategoryReview = before.needsReview();
+        this.beforeDecisionSource = before.decisionSource();
+        this.beforeDecisionRuleId = before.decisionRuleId();
+        this.beforeDecisionConfidence = before.decisionConfidence();
+        this.letGoCategoryId = letGoCategoryId;
+    }
+
+    /** The category kept by {@link #keepCategoryBeforeLetGo}, or null when none was. */
+    public Transaction.CategoryChoice categoryBeforeLetGo() {
+        if (beforeDecisionSource == null) return null;
+        return new Transaction.CategoryChoice(beforeCategoryId, Boolean.TRUE.equals(beforeCategoryManuallySet),
+                Boolean.TRUE.equals(beforeNeedsCategoryReview), beforeDecisionSource, beforeDecisionRuleId,
+                beforeDecisionConfidence);
+    }
+
+    public UUID getLetGoCategoryId() { return letGoCategoryId; }
 }

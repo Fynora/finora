@@ -1119,7 +1119,9 @@ public class ImportService {
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
                     sectionConfirm.totalAmountDue(), sectionConfirm.paymentDueDate(),
-                    sectionConfirm.userConfirmedContinue());
+                    sectionConfirm.userConfirmedContinue(),
+                    null, null, // no idempotency key or holder answer on this path, as before
+                    sectionConfirm.amountOwedToday());
             persisted.add(persistSection(userId, session.getFileName(), statementContentService.read(session), perAccountRequest, i,
                     session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 // A multi-section import is CSV/PDF only -- a Gmail receipt is never
@@ -1984,6 +1986,16 @@ public class ImportService {
                         : everyRowCovered
                                 ? StatementImport.BalanceApplicationMode.COVERED
                                 : StatementImport.BalanceApplicationMode.ADDITIVE);
+
+        // "How much do you owe on this card today?" -- asked at review when this statement gives no
+        // closing balance. The answer is the card's balance, stated by the user now, after this
+        // statement's rows are on the account, so none of them (nor a later refresh of them, nor an
+        // earlier-period statement) moves it again. A closing balance, when there is one, is the
+        // statement's own figure and wins; the client never asks then, and a stray answer is
+        // ignored. AccountService ignores it for anything but a card.
+        if (request.amountOwedToday() != null && request.statementClosingBalance() == null) {
+            accountService.stateAmountOwedAtImport(userId, accountId, request.amountOwedToday());
+        }
 
         // Counted HERE rather than after reconciliation, which is where it used to sit. Nothing
         // between the two points creates merchants -- they are created while the rows above are

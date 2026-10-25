@@ -139,7 +139,41 @@ class ImportConfirmValidationIT extends AbstractIntegrationTest {
         assertValidationError(response, "ifscCode");
     }
 
+    @Test
+    void csvConfirm_negativeAmountOwedToday_isRejectedAsValidationError() throws Exception {
+        User user = createUser();
+        ConfirmRequest request = new ConfirmRequest(UUID.randomUUID(), List.of(row(null)), UUID.randomUUID(),
+                null, null, null, null, null, null, null, null, null, null, null, new BigDecimal("-1.00"));
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, request);
+
+        assertValidationError(response, "amountOwedToday");
+    }
+
+    @Test
+    void csvConfirm_amountOwedTodayWithThreeDecimals_isRejectedAsValidationError() throws Exception {
+        User user = createUser();
+        ConfirmRequest request = new ConfirmRequest(UUID.randomUUID(), List.of(row(null)), UUID.randomUUID(),
+                null, null, null, null, null, null, null, null, null, null, null, new BigDecimal("10.001"));
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, request);
+
+        assertValidationError(response, "amountOwedToday");
+    }
+
     // -- /api/v1/import/pdf/confirm-multi ---------------------------------------------------------
+
+    @Test
+    void pdfConfirmMulti_negativeAmountOwedToday_isRejectedAsValidationError() throws Exception {
+        User user = createUser();
+        MultiAccountConfirmRequest request = new MultiAccountConfirmRequest(UUID.randomUUID(), List.of(
+                new com.finora.dto.ImportDto.SectionConfirm(List.of(row(null)), UUID.randomUUID(), null,
+                        null, null, null, null, null, null, null, new BigDecimal("-5.00"))));
+
+        ResponseEntity<String> response = post("/api/v1/import/pdf/confirm-multi", user, request);
+
+        assertValidationError(response, "amountOwedToday");
+    }
 
     @Test
     void pdfConfirmMulti_nullSections_isRejectedAsValidationErrorNotA500() throws Exception {

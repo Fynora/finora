@@ -322,6 +322,25 @@ public class AccountService {
                         "actorId", actingAdminId.toString(), "graphEdgesRejected", edgesRejected));
     }
 
+    /**
+     * The user's answer to "How much do you owe on this card today?" at import review (see
+     * {@link AmountOwedRule}). Stated exactly as an account edit states a balance ({@link
+     * TypedBalance}), and audited as one, with where it came from. Anything but a credit card is
+     * left alone: the question is never asked for one, and a stray answer must not overwrite a
+     * savings balance. Joins the caller's transaction, so a failed import states nothing.
+     */
+    @Transactional
+    public void stateAmountOwedAtImport(UUID userId, UUID accountId, java.math.BigDecimal amountOwed) {
+        Account a = getOwned(userId, accountId);
+        if (a.getAccountType() != Account.Type.CREDIT_CARD) return;
+        java.math.BigDecimal previousBalance = a.getBalance();
+        typedBalance.state(a, amountOwed);
+        Account saved = accountRepository.save(a);
+        auditService.record(userId, "ACCOUNT_UPDATED", "Account", accountId,
+                Map.of("previousBalance", previousBalance, "newBalance", saved.getBalance(),
+                        "source", "IMPORT_CONFIRM", "actorId", userId.toString()));
+    }
+
     private Account getOwned(UUID userId, UUID accountId) {
         return OwnershipGuard.requireOwned(
                 accountRepository.findById(accountId), Account::getUserId, userId, "Account");

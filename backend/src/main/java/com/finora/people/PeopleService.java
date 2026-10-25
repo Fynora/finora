@@ -235,11 +235,21 @@ public class PeopleService {
     public void deleteEntry(UUID userId, UUID entryId) {
         oneWriteAtATime(userId);
         loanEntries.findById(entryId).filter(e -> e.getUserId().equals(userId)).ifPresent(e -> {
+            // The let-go this undoes: the lent payment's own, when the loan itself goes, or this entry.
+            List<LoanEntry> letGos = List.of();
             if (e.getDirection() == LoanEntry.Direction.LENT && e.getTxnId() != null) {
-                loanEntries.deleteAll(loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
-                        .filter(x -> x.getDirection() == LoanEntry.Direction.LET_GO).toList());
+                letGos = loanEntries.findByUserIdAndTxnId(userId, e.getTxnId()).stream()
+                        .filter(x -> x.getDirection() == LoanEntry.Direction.LET_GO).toList();
+                loanEntries.deleteAll(letGos);
+            } else if (e.getDirection() == LoanEntry.Direction.LET_GO && e.getTxnId() != null) {
+                letGos = List.of(e);
             }
             loanEntries.delete(e);
+            // The payment goes back to the category it had before the let-go filed it as a gift, unless
+            // the user has chosen another since. A let-go from before V290 kept nothing to go back to.
+            for (LoanEntry g : letGos) {
+                transactionService.restoreCategoryChoice(userId, g.getTxnId(), g.categoryBeforeLetGo(), g.getLetGoCategoryId());
+            }
         });
     }
 
@@ -271,11 +281,18 @@ public class PeopleService {
             if (open.signum() <= 0) break;
             // Already let go (in part, the rest having come back): that payment is closed.
             if (alreadyGone.containsKey(debit.getId())) continue;
+            // A lent payment since edited into money in is no loan any more (PeopleLedger.entryAmount).
+            if (!PeopleLedger.isBill(debit)) continue;
             BigDecimal stillOut = debit.getAmount();
             BigDecimal gone = stillOut.min(open);
             if (gone.signum() <= 0) continue;
-            loanEntries.save(new LoanEntry(userId, req.personKey(), debit.getId(), LoanEntry.Direction.LET_GO, gone));
-            transactionService.updateCategory(userId, debit.getId(), GIFTS_CATEGORY, TransactionDto.CategoryScope.ONLY_THIS);
+            // What the payment was filed under before it becomes a gift, for an undo to put back.
+            Transaction.CategoryChoice before = Transaction.CategoryChoice.of(debit);
+            TransactionDto gift = transactionService.updateCategory(userId, debit.getId(), GIFTS_CATEGORY,
+                    TransactionDto.CategoryScope.ONLY_THIS);
+            LoanEntry letGo = new LoanEntry(userId, req.personKey(), debit.getId(), LoanEntry.Direction.LET_GO, gone);
+            letGo.keepCategoryBeforeLetGo(before, gift.categoryId());
+            loanEntries.save(letGo);
             open = open.subtract(gone);
         }
         if (open.signum() > 0) {

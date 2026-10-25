@@ -534,4 +534,26 @@ public class Transaction extends BaseEntity {
     public void setExternalTxnId(String externalTxnId) { this.externalTxnId = externalTxnId; }
     public String getTransactionFingerprint() { return transactionFingerprint; }
     public void setTransactionFingerprint(String transactionFingerprint) { this.transactionFingerprint = transactionFingerprint; }
+
+    /**
+     * Everything a category choice sets on a row (TransactionService.markChosen): which category, who
+     * set it, and the engine's decision behind it. Kept by a LET_GO entry so undoing the let-go puts
+     * the payment back exactly as it was (V290).
+     */
+    public record CategoryChoice(UUID categoryId, boolean manuallySet, boolean needsReview,
+                                 DecisionSource decisionSource, UUID decisionRuleId, Integer decisionConfidence) {
+        public static CategoryChoice of(Transaction t) {
+            return new CategoryChoice(t.getCategoryId(), t.isCategoryManuallySet(), t.isNeedsCategoryReview(),
+                    t.getDecisionSource(), t.getDecisionRuleId(), t.getDecisionConfidence());
+        }
+
+        public void applyTo(Transaction t) {
+            t.setCategoryId(categoryId);
+            t.setCategoryManuallySet(manuallySet);
+            t.setNeedsCategoryReview(needsReview);
+            t.setDecisionSource(decisionSource);
+            t.setDecisionRuleId(decisionRuleId);
+            t.setDecisionConfidence(decisionConfidence);
+        }
+    }
 }

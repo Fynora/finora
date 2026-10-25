@@ -40,6 +40,7 @@ class PeopleAndRecurringBreaksIT extends AbstractIntegrationTest {
     @Autowired private TestRestTemplate restTemplate;
     @Autowired private UserRepository userRepository;
     @Autowired private TransactionRepository transactionRepository;
+    @Autowired private com.finora.repository.CategoryRepository categoryRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -94,6 +95,11 @@ class PeopleAndRecurringBreaksIT extends AbstractIntegrationTest {
         return send(HttpMethod.POST, "/api/v1/people/entries", "{\"txnId\":\"" + credit + "\",\"direction\":\"PAID_BACK\"}", user);
     }
 
+    private String categoryOf(UUID txnId) {
+        UUID id = transactionRepository.findById(txnId).orElseThrow().getCategoryId();
+        return id == null ? null : categoryRepository.findById(id).orElseThrow().getName();
+    }
+
     private JsonNode people(User user) throws Exception {
         return ok(send(HttpMethod.GET, "/api/v1/people", null, user));
     }
@@ -134,6 +140,21 @@ class PeopleAndRecurringBreaksIT extends AbstractIntegrationTest {
         assertThat(report(user, "2026-08").get("expense").decimalValue()).isEqualByComparingTo("0");
         assertThat(report(user, "2026-10").get("income").decimalValue()).isEqualByComparingTo("0");
         assertThat(people(user)).isEmpty();
+    }
+
+    @Test
+    void undoingALetGo_putsThePaymentBackInItsCategory() throws Exception {
+        User user = createUser();
+        UUID acc = account(user);
+        UUID lent = txn(user, acc, "2026-08-03", "700", "EXPENSE", "UPI/DR/600000000005/loan/HDFC/neha.r@okhdfc", "Shopping");
+        UUID entry = UUID.fromString(ok(send(HttpMethod.POST, "/api/v1/people/entries",
+                "{\"txnId\":\"" + lent + "\",\"direction\":\"LENT\"}", user)).get("id").asText());
+        ok(send(HttpMethod.POST, "/api/v1/people/settle", "{\"personKey\":\"vpa:neha.r\",\"how\":\"LET_GO\"}", user));
+        assertThat(categoryOf(lent)).isEqualTo("Gifts & Donations");
+
+        ok(send(HttpMethod.DELETE, "/api/v1/people/entries/" + entry, null, user));
+
+        assertThat(categoryOf(lent)).isEqualTo("Shopping");
     }
 
     @Test

@@ -67,10 +67,14 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
     }
 
     private UUID account(User user, String name) {
+        return account(user, name, Account.Type.SAVINGS);
+    }
+
+    private UUID account(User user, String name, Account.Type type) {
         Account account = new Account();
         account.setUserId(user.getId());
         account.setName(name);
-        account.setAccountType(Account.Type.SAVINGS);
+        account.setAccountType(type);
         account.setBalance(BigDecimal.ZERO);
         return accountRepository.save(account).getId();
     }
@@ -91,10 +95,14 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
 
     /** A nudge an earlier month's run queued, as that run would have written it. */
     private void earlierNudge(User user, String yearMonth, LocalDate sentOn) {
+        earlierNudge(user, yearMonth, sentOn, "STATEMENT_MONTH_START_FIRST");
+    }
+
+    private void earlierNudge(User user, String yearMonth, LocalDate sentOn, String type) {
         jdbc.update("INSERT INTO notifications (id, user_id, notification_key, type, category, channel, priority, "
                         + "title, message, next_attempt_at, created_at) VALUES (gen_random_uuid(), ?, ?, "
-                        + "'STATEMENT_MONTH_START_FIRST', 'REMINDERS', 'PUSH', 'NORMAL', 't', 'm', now(), ?)",
-                user.getId(), "STATEMENT_MONTH_START_" + user.getId() + "_" + yearMonth + ":PUSH",
+                        + "?, 'REMINDERS', 'PUSH', 'NORMAL', 't', 'm', now(), ?)",
+                user.getId(), "STATEMENT_MONTH_START_" + user.getId() + "_" + yearMonth + ":PUSH", type,
                 Timestamp.from(sentOn.atTime(10, 30).atZone(IST).toInstant()));
     }
 
@@ -273,14 +281,19 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
         User optedOut = userWithPhone();
         jdbc.update("INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
                 + "VALUES (gen_random_uuid(), ?, 'REMINDERS', 'PUSH', false)", optedOut.getId());
-        User financialOff = userWithPhone();
-        jdbc.update("INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
-                + "VALUES (gen_random_uuid(), ?, 'FINANCIAL', 'PUSH', false)", financialOff.getId());
+        // Sid (2026-10-25): an unset reminders switch follows "Push notifications"; one the user set
+        // themselves wins.
+        User pushOff = userWithPhone();
+        preference(pushOff, "FINANCIAL", false);
+        User pushOffRemindersOn = userWithPhone();
+        preference(pushOffRemindersOn, "FINANCIAL", false);
+        preference(pushOffRemindersOn, "REMINDERS", true);
 
         nudge.runDue(MAY_3_1030);
 
         assertThat(nudgesOf(optedOut)).isEmpty();
-        assertThat(nudgesOf(financialOff)).hasSize(1);
+        assertThat(nudgesOf(pushOff)).isEmpty();
+        assertThat(nudgesOf(pushOffRemindersOn)).hasSize(1);
     }
 
     @Test
@@ -456,5 +469,78 @@ class StatementMonthStartNudgeIT extends AbstractIntegrationTest {
         statement(manual, account(manual, "Synthetic Savings"), MAY_3.minusDays(40));
 
         assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, may)).doesNotContain(linked.getId()).contains(manual.getId());
+    }
+
+    // ---- Sid's decisions, 2026-10-25 ----
+
+    private void preference(User user, String category, boolean enabled) {
+        jdbc.update("INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
+                + "VALUES (gen_random_uuid(), ?, ?, 'PUSH', ?)", user.getId(), category, enabled);
+    }
+
+    /** Reminders follow "Push notifications" until the user sets them: someone who said "no push"
+     *  is not a candidate; one who also switched reminders on is. */
+    @Test
+    void aUserWhoTurnedOffPushNotificationsIsNotACandidateUnlessTheyWantReminders() {
+        java.time.YearMonth may = java.time.YearMonth.of(2031, 5);
+        User noPush = userWithPhone();
+        preference(noPush, "FINANCIAL", false);
+        User noPushStale = userWithPhone();
+        statement(noPushStale, account(noPushStale, "Synthetic Savings"), MAY_3.minusDays(40));
+        preference(noPushStale, "FINANCIAL", false);
+        User remindersOnly = userWithPhone();
+        preference(remindersOnly, "FINANCIAL", false);
+        preference(remindersOnly, "REMINDERS", true);
+
+        assertThat(nudge.noDataDue(MAY_3_1030, may)).doesNotContain(noPush.getId()).contains(remindersOnly.getId());
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, may)).doesNotContain(noPushStale.getId());
+    }
+
+    /** The "new statement" push stops after two months in a row with no answer, like the no-data
+     *  one: an account the user no longer uses would otherwise be asked about every month. */
+    @Test
+    void theNewStatementNudgeStopsAfterTwoUnansweredMonths() {
+        User user = userWithPhone();
+        statement(user, account(user, "Synthetic Savings"), LocalDate.of(2031, 2, 10));
+        earlierNudge(user, "2031-03", LocalDate.of(2031, 3, 20), "STATEMENT_MONTH_START_NEXT");
+        earlierNudge(user, "2031-04", LocalDate.of(2031, 4, 20), "STATEMENT_MONTH_START_NEXT");
+
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, java.time.YearMonth.of(2031, 5))).doesNotContain(user.getId());
+    }
+
+    @Test
+    void theNewStatementNudgeRestartsAfterTheImportScreenIsOpened() {
+        User user = userWithPhone();
+        statement(user, account(user, "Synthetic Savings"), LocalDate.of(2031, 2, 10));
+        earlierNudge(user, "2031-03", LocalDate.of(2031, 3, 20), "STATEMENT_MONTH_START_NEXT");
+        earlierNudge(user, "2031-04", LocalDate.of(2031, 4, 20), "STATEMENT_MONTH_START_NEXT");
+        openedImportScreen(user, LocalDate.of(2031, 4, 25));
+
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, java.time.YearMonth.of(2031, 5))).contains(user.getId());
+    }
+
+    @Test
+    void oneUnansweredNewStatementNudgeDoesNotStopIt() {
+        User user = userWithPhone();
+        statement(user, account(user, "Synthetic Savings"), LocalDate.of(2031, 2, 10));
+        earlierNudge(user, "2031-04", LocalDate.of(2031, 4, 20), "STATEMENT_MONTH_START_NEXT");
+
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, java.time.YearMonth.of(2031, 5))).contains(user.getId());
+    }
+
+    /** Only savings and credit card accounts get a monthly statement from the bank; a wallet or an
+     *  investment account a statement was filed under does not. */
+    @Test
+    void onlySavingsAndCreditCardAccountsCountAsOverdue() {
+        java.time.YearMonth may = java.time.YearMonth.of(2031, 5);
+        User wallet = userWithPhone();
+        statement(wallet, account(wallet, "Synthetic Wallet", Account.Type.WALLET), MAY_3.minusDays(40));
+        User investment = userWithPhone();
+        statement(investment, account(investment, "Synthetic Investment", Account.Type.INVESTMENT), MAY_3.minusDays(40));
+        User card = userWithPhone();
+        statement(card, account(card, "Synthetic Card", Account.Type.CREDIT_CARD), MAY_3.minusDays(40));
+
+        assertThat(nudge.hasDataDue(MAY_3_1030, MAY_3, may))
+                .doesNotContain(wallet.getId(), investment.getId()).contains(card.getId());
     }
 }

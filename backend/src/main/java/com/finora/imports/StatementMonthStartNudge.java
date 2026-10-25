@@ -31,7 +31,8 @@ import java.util.UUID;
  *       ({@code ActivationFacts.hasEverImported}'s rule): on the 3rd of each month from 10:00 India
  *       time, to users who already had an account then; a run missed on the 3rd catches up until the
  *       9th. "Your April statement is out ..." on 3 May.</li>
- *   <li><b>Has data</b> -- some live account whose latest live statement's period ended more than 33
+ *   <li><b>Has data</b> -- some live savings or credit card account (the ones a bank sends a monthly
+ *       statement for) whose latest live statement's period ended more than 33
  *       days ago (today minus the period end is 34 days or more), with nothing newer for it and no
  *       import into it in the last 3 days: any day of the month, from 10:00 India time.</li>
  * </ul>
@@ -41,13 +42,15 @@ import java.util.UUID;
  *   <li>At most one nudge per user per calendar month, across both cases and every account: the two
  *       notification types share one outbox key per user per month, so a rerun -- a restart, or a
  *       second instance -- inserts nothing ({@link StatementStatusNotifier#notifyMonthStart}).</li>
- *   <li>The no-data case stops after two months in a row with no answer: a user who was sent it in
- *       each of the previous two months, and has opened the import screen on no day since the first
- *       of those two, is skipped. Opening the import screen starts it again.</li>
+ *   <li>Each case stops after two months in a row with no answer: a user who was sent that case's
+ *       nudge in each of the previous two months, and has opened the import screen on no day since
+ *       the first of those two, is skipped. Opening the import screen starts it again. For the
+ *       has-data case (Sid, 2026-10-25) this is what stops an account the user no longer uses from
+ *       being asked about every month.</li>
  *   <li>Only USER-scope, ACTIVE accounts with a live device token: the nudge is a push, and a user
  *       with no phone would only collect dead-lettered rows.</li>
  *   <li>A user who switched REMINDERS push off is never a candidate (and the outbox would refuse it
- *       anyway).</li>
+ *       anyway). Unset, it follows their "Push notifications" switch (Sid, 2026-10-25).</li>
  *   <li>Nobody with a statement already on its way: being read, held for our check, or staged and
  *       waiting for them to confirm.</li>
  *   <li>An account a live Account Aggregator link owns never counts as overdue.</li>
@@ -136,7 +139,9 @@ public class StatementMonthStartNudge {
     /**
      * The users every nudge may go to and who have had none this month. Shared by both cases. A user
      * who switched reminders off is left out here, not only by the outbox: nothing is ever queued for
-     * them, so they would stay due on every run and could fill the batch ahead of everyone else.
+     * them, so they would stay due on every run and could fill the batch ahead of everyone else. An
+     * unset reminders switch follows the user's "Push notifications" (FINANCIAL push) choice, the
+     * same value the outbox applies ({@code DatabaseNotificationPreferenceResolver}).
      *
      * <p>Also left out: a user with a statement already on its way. An import job not yet COMPLETED,
      * FAILED or CANCELLED is still being read or is held for our check, where the user was told
@@ -148,9 +153,12 @@ public class StatementMonthStartNudge {
     private static final String ELIGIBLE = """
              u.status = ? AND u.account_scope = ?
              AND EXISTS (SELECT 1 FROM device_tokens d WHERE d.user_id = u.id AND d.revoked_at IS NULL)
-             AND NOT EXISTS (SELECT 1 FROM notification_preferences p
-                              WHERE p.user_id = u.id AND p.category = 'REMINDERS' AND p.channel = 'PUSH'
-                                AND p.enabled = false)
+             AND COALESCE(
+                     (SELECT p.enabled FROM notification_preferences p
+                       WHERE p.user_id = u.id AND p.category = 'REMINDERS' AND p.channel = 'PUSH'),
+                     (SELECT p.enabled FROM notification_preferences p
+                       WHERE p.user_id = u.id AND p.category = 'FINANCIAL' AND p.channel = 'PUSH'),
+                     true)
              AND NOT EXISTS (SELECT 1 FROM notifications n
                               WHERE n.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')
              AND NOT EXISTS (SELECT 1 FROM import_jobs j
@@ -160,41 +168,12 @@ public class StatementMonthStartNudge {
             """;
 
     /**
-     * Accounts overdue for a newer statement. The account's latest import must also be more than
-     * {@link #RECENT_IMPORT_GRACE_DAYS} old: someone who has just imported an old statement is catching
-     * up, and telling them an hour later that "a new statement has probably arrived" would nag.
-     * An account a live Account Aggregator link owns is left out: its data arrives by the link, and
-     * the import screen refuses an upload into it ({@code AccountAggregatorGuard}).
+     * The stop rule, one case at a time (its own type): a user sent this case's nudge in each of the
+     * previous two months, who has opened the import screen on no day since the first of those two,
+     * is skipped. Opening the import screen starts it again. Parameters: type, previous month, type,
+     * the month before that, the India zone id, the month before that.
      */
-    List<UUID> hasDataDue(Instant now, LocalDate today, YearMonth month) {
-        return jdbc.queryForList("SELECT u.id FROM users u WHERE " + ELIGIBLE + """
-                         AND EXISTS (SELECT 1 FROM accounts a
-                                      WHERE a.user_id = u.id AND a.deleted_at IS NULL
-                                        AND a.primary_source <> 'ACCOUNT_AGGREGATOR'
-                                        AND (SELECT MAX(si.statement_period_end) FROM statement_imports si
-                                              WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?
-                                        AND (SELECT MAX(si.imported_at) FROM statement_imports si
-                                              WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?)
-                         ORDER BY u.id LIMIT ?
-                        """, UUID.class,
-                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now),
-                today.minusDays(STALE_AFTER_DAYS),
-                utc(now.minus(Duration.ofDays(RECENT_IMPORT_GRACE_DAYS))), BATCH_SIZE);
-    }
-
-    /**
-     * Users with nothing imported. Only those who already had an account when this month's nudge
-     * became due (the 3rd, 10:00 India time): someone who signs up later in the month waits for the
-     * next one rather than getting it within the hour.
-     */
-    List<UUID> noDataDue(Instant now, YearMonth month) {
-        String first = NotificationType.STATEMENT_MONTH_START_FIRST.name();
-        String previous = month.minusMonths(1).toString();
-        String beforeThat = month.minusMonths(2).toString();
-        Instant dueFrom = month.atDay(FIRST_DAY_OF_MONTH).atTime(SEND_FROM).atZone(UserZone.DEFAULT).toInstant();
-        return jdbc.queryForList("SELECT u.id FROM users u WHERE " + ELIGIBLE + """
-                         AND u.created_at < ?
-                         AND NOT EXISTS (SELECT 1 FROM statement_imports si WHERE si.user_id = u.id)
+    private static final String NOT_STOPPED = """
                          AND NOT (
                              EXISTS (SELECT 1 FROM notifications n1 WHERE n1.type = ?
                                        AND n1.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')
@@ -206,10 +185,60 @@ public class StatementMonthStartNudge {
                                     AND f.funnel_date >= (
                                         SELECT (n3.created_at AT TIME ZONE ?)::date FROM notifications n3
                                          WHERE n3.notification_key = 'STATEMENT_MONTH_START_' || u.id || '_' || ? || ':PUSH')))
-                         ORDER BY u.id LIMIT ?
-                        """, UUID.class,
-                User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now), utc(dueFrom),
-                first, previous, first, beforeThat, UserZone.DEFAULT.getId(), beforeThat, BATCH_SIZE);
+            """;
+
+    private static Object[] notStoppedArgs(NotificationType type, YearMonth month) {
+        String previous = month.minusMonths(1).toString();
+        String beforeThat = month.minusMonths(2).toString();
+        return new Object[] {type.name(), previous, type.name(), beforeThat, UserZone.DEFAULT.getId(), beforeThat};
+    }
+
+    private static Object[] args(Object[] head, Object[] stopRule, Object... tail) {
+        Object[] all = new Object[head.length + stopRule.length + tail.length];
+        System.arraycopy(head, 0, all, 0, head.length);
+        System.arraycopy(stopRule, 0, all, head.length, stopRule.length);
+        System.arraycopy(tail, 0, all, head.length + stopRule.length, tail.length);
+        return all;
+    }
+
+    /**
+     * Savings and credit card accounts overdue for a newer statement; a wallet or investment account
+     * does not get a monthly statement (Sid, 2026-10-25). The account's latest import must also be more than
+     * {@link #RECENT_IMPORT_GRACE_DAYS} old: someone who has just imported an old statement is catching
+     * up, and telling them an hour later that "a new statement has probably arrived" would nag.
+     * An account a live Account Aggregator link owns is left out: its data arrives by the link, and
+     * the import screen refuses an upload into it ({@code AccountAggregatorGuard}).
+     */
+    List<UUID> hasDataDue(Instant now, LocalDate today, YearMonth month) {
+        return jdbc.queryForList("SELECT u.id FROM users u WHERE " + ELIGIBLE + """
+                         AND EXISTS (SELECT 1 FROM accounts a
+                                      WHERE a.user_id = u.id AND a.deleted_at IS NULL
+                                        AND a.account_type IN ('SAVINGS', 'CREDIT_CARD')
+                                        AND a.primary_source <> 'ACCOUNT_AGGREGATOR'
+                                        AND (SELECT MAX(si.statement_period_end) FROM statement_imports si
+                                              WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?
+                                        AND (SELECT MAX(si.imported_at) FROM statement_imports si
+                                              WHERE si.account_id = a.id AND si.deleted_at IS NULL) < ?)
+                        """ + NOT_STOPPED + " ORDER BY u.id LIMIT ?", UUID.class,
+                args(new Object[] {User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now),
+                                today.minusDays(STALE_AFTER_DAYS),
+                                utc(now.minus(Duration.ofDays(RECENT_IMPORT_GRACE_DAYS)))},
+                        notStoppedArgs(NotificationType.STATEMENT_MONTH_START_NEXT, month), BATCH_SIZE));
+    }
+
+    /**
+     * Users with nothing imported. Only those who already had an account when this month's nudge
+     * became due (the 3rd, 10:00 India time): someone who signs up later in the month waits for the
+     * next one rather than getting it within the hour.
+     */
+    List<UUID> noDataDue(Instant now, YearMonth month) {
+        Instant dueFrom = month.atDay(FIRST_DAY_OF_MONTH).atTime(SEND_FROM).atZone(UserZone.DEFAULT).toInstant();
+        return jdbc.queryForList("SELECT u.id FROM users u WHERE " + ELIGIBLE + """
+                         AND u.created_at < ?
+                         AND NOT EXISTS (SELECT 1 FROM statement_imports si WHERE si.user_id = u.id)
+                        """ + NOT_STOPPED + " ORDER BY u.id LIMIT ?", UUID.class,
+                args(new Object[] {User.STATUS_ACTIVE, User.SCOPE_USER, month.toString(), utc(now), utc(dueFrom)},
+                        notStoppedArgs(NotificationType.STATEMENT_MONTH_START_FIRST, month), BATCH_SIZE));
     }
 
     /** java.time for the driver, as the rest of the code passes instants (ProductionCodeHygieneTest). */

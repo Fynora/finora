@@ -243,10 +243,32 @@ class NotificationPreferenceControllerIT extends AbstractIntegrationTest {
         assertThat(resolver.isEnabled(tiredOfReminders.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isTrue();
         assertThat(resolver.isEnabled(tiredOfReminders.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isFalse();
 
-        User tiredOfImportNotices = createUser();
-        put(tiredOfImportNotices, "FINANCIAL", "PUSH", false);
-        assertThat(resolver.isEnabled(tiredOfImportNotices.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
-        assertThat(resolver.isEnabled(tiredOfImportNotices.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isFalse();
+        User wantsRemindersOnly = createUser();
+        put(wantsRemindersOnly, WITH_REMINDERS, "REMINDERS", "PUSH", true);
+        put(wantsRemindersOnly, "FINANCIAL", "PUSH", false);
+        assertThat(resolver.isEnabled(wantsRemindersOnly.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+        assertThat(resolver.isEnabled(wantsRemindersOnly.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isFalse();
+    }
+
+    /** Sid (2026-10-25): until a user sets "Statement reminders" themselves, it follows their "Push
+     *  notifications" switch -- the one switch the 1.0.0 app shows, and the one people who said "no
+     *  push" before reminders existed already turned off. */
+    @Test
+    void remindersFollowPushNotificationsUntilTheUserSetsThem() throws Exception {
+        User user = createUser();
+
+        JsonNode afterPushOff = mapper.readTree(put(user, WITH_REMINDERS, "FINANCIAL", "PUSH", false).getBody()).get("data");
+        assertThat(enabledIn(afterPushOff, "REMINDERS", "PUSH")).isFalse();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isFalse();
+
+        put(user, "FINANCIAL", "PUSH", true);
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+
+        // Once set, their own choice wins whatever push says.
+        put(user, WITH_REMINDERS, "REMINDERS", "PUSH", true);
+        JsonNode afterOwnChoice = mapper.readTree(put(user, WITH_REMINDERS, "FINANCIAL", "PUSH", false).getBody()).get("data");
+        assertThat(enabledIn(afterOwnChoice, "REMINDERS", "PUSH")).isTrue();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
     }
 
     @Test

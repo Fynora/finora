@@ -79,7 +79,7 @@ public class DatabaseNotificationPreferenceResolver implements NotificationPrefe
             }
             return repository.findByUserIdAndCategoryAndChannel(userId, category, channel)
                     .map(NotificationPreference::isEnabled)
-                    .orElseGet(() -> defaultFor(category));
+                    .orElseGet(() -> unsetValue(userId, category, channel));
         } catch (RuntimeException e) {
             log.error("Could not resolve notification preference for user {} category {} channel "
                     + "{}; falling back to the category default", userId, category, channel, e);
@@ -95,6 +95,21 @@ public class DatabaseNotificationPreferenceResolver implements NotificationPrefe
         return userRepository.findById(userId)
                 .map(user -> user.isSuspended() || user.isDeactivated() || user.isPendingDeletion())
                 .orElse(false);
+    }
+
+    /**
+     * The value of a preference the user never set. Sid (2026-10-25): REMINDERS follows the user's
+     * FINANCIAL choice on the same channel until they set REMINDERS themselves -- "Push
+     * notifications" is the one switch the 1.0.0 app shows, and people who turned it off before
+     * reminders existed said "no push". NotificationPreferenceService lists the same value.
+     */
+    private boolean unsetValue(UUID userId, NotificationCategory category, NotificationChannel channel) {
+        if (category == NotificationCategory.REMINDERS) {
+            return repository.findByUserIdAndCategoryAndChannel(userId, NotificationCategory.FINANCIAL, channel)
+                    .map(NotificationPreference::isEnabled)
+                    .orElseGet(() -> defaultFor(category));
+        }
+        return defaultFor(category);
     }
 
     /** MARKETING is opt-in; everything else (FINANCIAL, and REMINDERS since Gate 2b) is opt-out. A

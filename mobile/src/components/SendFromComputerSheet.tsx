@@ -21,8 +21,8 @@ interface Props {
 
 type Phase =
   | { kind: 'issuing' }
-  | { kind: 'failed' }
-  | { kind: 'code'; code: string; state: SendCodeState; importJobId?: string };
+  | { kind: 'failed'; tooMany?: boolean }
+  | { kind: 'code'; code: string; id?: string; state: SendCodeState; importJobId?: string };
 
 /**
  * Gate 2b spec §7: "My statement is on my computer". Asks the server for a one-time code, shows it
@@ -51,8 +51,9 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
   useEffect(() => {
     let cancelled = false;
     sendCodesApi.issue()
-      .then(({ code }) => { if (!cancelled) setPhase({ kind: 'code', code, state: 'WAITING' }); })
-      .catch(() => { if (!cancelled) setPhase({ kind: 'failed' }); });
+      .then(({ code, id }) => { if (!cancelled) setPhase({ kind: 'code', code, id, state: 'WAITING' }); })
+      // 429: the server's cap on codes per user (StatementSendService.MAX_CODES_PER_WINDOW).
+      .catch((e) => { if (!cancelled) setPhase({ kind: 'failed', tooMany: e?.response?.status === 429 }); });
     return () => { cancelled = true; };
   }, [attempt]);
 
@@ -62,13 +63,17 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
   };
 
   const waitingCode = phase.kind === 'code' && phase.state === 'WAITING' ? phase.code : null;
+  const waitingId = phase.kind === 'code' && phase.state === 'WAITING' ? phase.id : undefined;
   useEffect(() => {
     if (!waitingCode) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       sendCodesApi.current()
-        .then(({ state, importJobId }) => {
+        .then(({ state: latest, importJobId, codeId }) => {
           if (cancelled) return;
+          // The status is about a different code (one asked for after this, e.g. by a sheet closed
+          // and reopened mid-request): this code is gone, so say so and offer a new one.
+          const state: SendCodeState = waitingId && codeId && codeId !== waitingId ? 'NONE' : latest;
           if (state === 'WAITING') setTick((t) => t + 1);
           // RECEIVED, or EXPIRED (NONE: a code cancelled elsewhere): polling stops here.
           else setPhase((p) => (p.kind === 'code' && p.code === waitingCode
@@ -78,7 +83,7 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
         .catch(() => { if (!cancelled) setTick((t) => t + 1); });
     }, POLL_MS);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [waitingCode, tick]);
+  }, [waitingCode, waitingId, tick]);
 
   const receivedJobId = phase.kind === 'code' && phase.state === 'RECEIVED' ? phase.importJobId ?? null : null;
   useEffect(() => {
@@ -101,7 +106,9 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
           ) : phase.kind === 'failed' ? (
             <View>
               <Text style={[styles.body, { color: c.dangerInk }]}>
-                Couldn&apos;t get a code. Check your connection and try again.
+                {phase.tooMany
+                  ? "You've asked for a lot of codes. Wait a few minutes, then try again."
+                  : "Couldn't get a code. Check your connection and try again."}
               </Text>
               <Button label="Try again" onPress={newCode} />
             </View>

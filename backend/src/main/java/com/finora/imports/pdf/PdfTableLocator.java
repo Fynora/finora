@@ -445,7 +445,7 @@ public class PdfTableLocator {
                     // "Total 0 1,491.00" (this sub-table's own column-total recap: CRED points
                     // column, then amount column), "1,285.00 DR" (an unrelated right-margin summary
                     // value that happens to interleave at the same page height), and "Purchases &
-                    // Cash Transactions for MR SIDDHARTH TIWARI (Credit Card No. 3561XXXXXXXX8604)"
+                    // Cash Transactions for MR SAMPLE CARDHOLDER (Credit Card No. 5210XXXXXXXX1357)"
                     // (the NEXT sub-table's own identity banner, repeating the cardholder name/
                     // masked card number already printed on the FIRST sub-table's "Payment Details
                     // for..." banner) -- before 5 more real transactions resume. Page 2: the
@@ -457,7 +457,7 @@ public class PdfTableLocator {
                     // glued all of this onto whichever real transaction sat immediately above it --
                     // confirmed via the same row dump: the row bucketed for the page-1 case carried
                     // "UPI SWIGGY INSTAMART <UPI reference> Total 1,491.00 1,285.00 DR Purchases &
-                    // Cash Transactions for MR SIDDHARTH TIWARI (Credit Card No. 3561XXXXXXXX8604)"
+                    // Cash Transactions for MR SAMPLE CARDHOLDER (Credit Card No. 5210XXXXXXXX1357)"
                     // as its Transaction Details value, and the page-2 case carried "UPI ICICI
                     // <UPI reference> Total 2,776.00 2 HOW TO MAKE PAYMENTS TO CHECK AVAILABLE CRED
                     // POINTS".
@@ -482,7 +482,7 @@ public class PdfTableLocator {
                     // real transaction clean" choice every entry in this pattern already makes (see
                     // the "cheque should be payable to" entry's own comment above). Confirmed directly
                     // against the real document via CorpusProbe/PdfPipelineDiagnostic: this document's
-                    // own masked card number ("3561XXXXXXXX8604") happened to also appear once more
+                    // own masked card number ("5210XXXXXXXX1357") happened to also appear once more
                     // inside that page-3 appendix, and losing that specific repeat drops
                     // ProductAttributeExtractor's CARD_NUMBER_FIELD evidence for this document
                     // (still correctly CREDIT_CARD, now 67% VALIDATED -> 61% UNPROVEN with

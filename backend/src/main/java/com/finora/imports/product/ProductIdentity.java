@@ -151,7 +151,7 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
      * 4, an SBI-style "XX14" mask keeps 2.
      *
      * <p>Shapes: a 15- or 16-position mask (digits and mask characters, spaces and hyphens ignored)
-     * is read by position; 4 to 6 bare trailing digits (a "card ending with 7550" sentence capture,
+     * is read by position; 4 to 6 bare trailing digits (a "card ending with 2468" sentence capture,
      * or a bullet-masked "\u2022\u2022\u2022\u20226385" whose bullets stand for the hidden prefix)
      * are the trailing positions; anything else, including a full unmasked number, is 0 -- a full
      * number resolves on its strong key, not on this rule.

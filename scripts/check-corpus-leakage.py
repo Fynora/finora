@@ -150,6 +150,53 @@ def separated_digits(text: str) -> set:
     return out
 
 
+# ---------------------------------------------------------------- masked card numbers
+#
+# A statement never prints a whole card number. It prints the first digits, a mask, and the last
+# four: `BBBBBBXXXXXX1234`, `BBBBBB******1234`, `BBBB XXXX XXXX 1234`. The longest digit run in that
+# is six, so every rule above -- 10+ digit runs, 8+ digit prefixes, 12+ separated digits -- has
+# nothing to match, and a real masked card sat in two tests and a source comment until someone read
+# every token on a line the scanner had flagged for a different value.
+#
+# What identifies the card is the visible digits, not the mask, and the same card is printed with a
+# different mask from one statement to the next (`XXXXXX`, `xxxxxx`, `******`, spaced or not). So
+# both sides are reduced to the same key -- (leading digits, last four) -- and the mask is dropped.
+#
+# The leading digits are the 6-digit BIN, or the first 4 where a statement prints only those (the
+# corpus has both forms). Two keys are the same card when the last four agree and one prefix starts
+# with the other: a fixture that kept the first 4 of a BIN the corpus printed in full still copies
+# the corpus, and so does one that printed 6 where the corpus printed 4.
+#
+# NOT matched, deliberately: a mask with only the last four visible (`XXXXXXXXXXXX1234`, by far the
+# most common form in the corpus) and the 2-digit form (`12xx xxxx xxxx 1234`). Four or six digits
+# of which two only name the card network identify nobody, and matching them would make every
+# invented last-four a coincidence waiting to happen.
+MASKED_CARD = re.compile(
+    r"(?<![0-9])([0-9]{4}(?:[ -]?[0-9]{2})?)"     # first 4, or a 6-digit BIN (maybe split 4 2)
+    r"((?:[ -]?[xX*]){3,11})"                      # the mask, x / X / *, maybe grouped by spaces
+    r"[ -]?([0-9]{4})(?![0-9])")                   # last four
+CARD_LENGTHS = range(13, 20)                       # the lengths a card number actually has
+
+
+def masked_cards(text: str) -> set:
+    """(leading digits, last four) of every masked card number in `text`. Empty set is normal."""
+    out = set()
+    for m in MASKED_CARD.finditer(text):
+        lead = re.sub(r"[ -]", "", m.group(1))
+        mask = re.sub(r"[ -]", "", m.group(2))
+        if len(lead) + len(mask) + 4 not in CARD_LENGTHS:
+            continue
+        if REPEATED_RUN.fullmatch(lead + m.group(3)):
+            continue                                    # 0000XXXXXXXX0000 identifies nobody
+        out.add((lead, m.group(3)))
+    return out
+
+
+def same_card(a: tuple, b: tuple) -> bool:
+    """The same card printed two ways: same last four, and one prefix extends the other."""
+    return a[1] == b[1] and (a[0].startswith(b[0]) or b[0].startswith(a[0]))
+
+
 def _self_test() -> int:
     cases = [
         ("card, spaced",      "CREDIT CARD ACCOUNT  4000 1111 2222 3333", {"4000111122223333"}),
@@ -181,7 +228,45 @@ def _self_test() -> int:
         ok = want <= got and not (not_want & got)
         bad += 0 if ok else 1
         print(f"  {'ok  ' if ok else 'FAIL'} {name:<20} -> {sorted(want & got) if want else '(none wanted)'}")
-    total = len(cases) + len(handle_cases)
+
+    # Masked card numbers: the (leading digits, last four) key each form reduces to.
+    card_cases = [
+        ("card, XXXXXX",       "CARD NO 987650XXXXXX4321",            {("987650", "4321")}),
+        ("card, xxxxxx",       "card 987650xxxxxx4321 used",          {("987650", "4321")}),
+        ("card, ******",       "Card: 987650******4321",              {("987650", "4321")}),
+        ("card, 4-4-4-4 BIN",  "9876 50XX XXXX 4321",                 {("987650", "4321")}),
+        ("card, first 4",      "a/c 9876XXXXXXXX4321",                {("9876", "4321")}),
+        ("card, first 4 sp",   "CARD 9876 XXXX XXXX 4321",            {("9876", "4321")}),
+        ("card, 15 digits",    "AMEX 987650XXXXX4321",                {("987650", "4321")}),
+        ("card, after dash",   "REF-987650XXXXXX4321",                {("987650", "4321")}),
+        ("last four only",     "XXXXXXXXXXXX4321 and ******4321",     set()),
+        ("network digits only", "98xx xxxx xxxx 4321",                set()),
+        ("too short",          "987650xx4321",                        set()),
+        ("inside digit run",   "1987650XXXXXX43219",                  set()),
+        ("arithmetic",         "1234 * 5678 = x",                     set()),
+        ("synthetic zeros",    "0000XXXXXXXX0000",                    set()),
+    ]
+    for name, text, want in card_cases:
+        got = masked_cards(text)
+        ok = got == want
+        bad += 0 if ok else 1
+        print(f"  {'ok  ' if ok else 'FAIL'} {name:<20} -> {sorted(got) if got else '(none)'}")
+
+    # Matching across forms: (corpus key, repository key, same card?).
+    match_cases = [
+        ("same BIN, new mask",  ("987650", "4321"), ("987650", "4321"), True),
+        ("BIN vs first 4",      ("987650", "4321"), ("9876", "4321"),   True),
+        ("first 4 vs BIN",      ("9876", "4321"),   ("987650", "4321"), True),
+        ("other last four",     ("987650", "4321"), ("987650", "4329"), False),
+        ("other BIN",           ("987650", "4321"), ("987651", "4321"), False),
+        ("other first 4",       ("9876", "4321"),   ("9877", "4321"),   False),
+    ]
+    for name, a, b, want in match_cases:
+        ok = same_card(a, b) == want
+        bad += 0 if ok else 1
+        print(f"  {'ok  ' if ok else 'FAIL'} {name:<20} -> {'same' if same_card(a, b) else 'different'}")
+
+    total = len(cases) + len(handle_cases) + len(card_cases) + len(match_cases)
     print(f"\n  {total - bad} passed, {bad} failed")
     return 1 if bad else 0
 
@@ -358,7 +443,8 @@ def main() -> int:
     ap.add_argument("--allow-unreadable", action="store_true",
                     help="warn about statements that could not be read instead of failing (exit 2)")
     ap.add_argument("--self-test", action="store_true",
-                    help="verify separator normalisation and its false-positive guards; no corpus needed")
+                    help="verify separator, handle and masked-card normalisation and their false-positive "
+                         "guards; no corpus needed")
     args = ap.parse_args()
 
     if args.self_test:
@@ -384,8 +470,13 @@ def main() -> int:
             sys.exit(f"REFUSED: {corpus} is inside the repository.")
         texts.append(corpus_text(corpus, passwords, unreadable, notes))
 
-    ns = needles("\n".join(texts))
-    print(f"corpus identifiers + prefixes to match: {len(ns)}", file=sys.stderr)
+    corpus = "\n".join(texts)
+    ns = needles(corpus)
+    # Kept apart from the literal needles: a key is only meaningful next to a mask, and a bare
+    # 10-digit "BIN + last four" in the tree is not a card. See "masked card numbers" above.
+    corpus_cards = masked_cards(corpus)
+    print(f"corpus identifiers + prefixes to match: {len(ns)}; masked cards: {len(corpus_cards)}",
+          file=sys.stderr)
 
     # Patterns go to git grep on STDIN, so the needle list is never written anywhere. An earlier
     # version persisted it to backend/target/corpus-needles.txt: thousands of real customer
@@ -426,6 +517,10 @@ def main() -> int:
             if "@" in line and f"{rel}:{n_}" not in literal and \
                     {v.lower() for v in split_handles(line)} & corpus_handles:
                 hits.append(f"{rel}:{n_}: split corpus handle")
+            # Before the synthetic-ok skip on purpose: a marker on the line is a claim, and a masked
+            # card that matches the corpus has already disproved it.
+            if any(same_card(c, k) for c in masked_cards(line) for k in corpus_cards):
+                hits.append(f"{rel}:{n_}: masked corpus card number")
             if "synthetic-ok" in line:
                 continue
             for d in separated_digits(line) & corpus_digits:
@@ -478,7 +573,8 @@ def main() -> int:
         parts = h.split(":", 2)
         where = ":".join(parts[:2]) if len(parts) >= 2 else h
         kind = parts[2].strip() if len(parts) > 2 and parts[2].strip().startswith(
-            ("separator-split", "split corpus handle")) else "matches a corpus identifier"
+            ("separator-split", "split corpus handle", "masked corpus card")) \
+            else "matches a corpus identifier"
         print(f"  {where}  {kind}", file=sys.stderr)
     print(f"\n{len(hits)} line(s). These are verified occurrences, not pattern guesses.\n"
           "Replace with deterministic synthetic values that preserve what each test asserts.\n"

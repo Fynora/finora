@@ -33,6 +33,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -239,6 +241,12 @@ class StatementSendIT extends AbstractIntegrationTest {
         assertThat(read(blocked).get("errorCode").asText()).isEqualTo("IMPORT_025");
         assertThat(jobsOf(user)).isEmpty();
         assertThat(status(user).get("state").asText()).as("the right code was never even tried").isEqualTo("WAITING");
+        // Sid (25 Oct): the block lasts 15 minutes, not an hour.
+        var keys = redis.keys("ratelimit:send-code-failure:*");
+        assertThat(keys).hasSize(1);
+        assertThat(redis.getExpire(keys.iterator().next())).isBetween(1L, 900L);
+        assertThat(read(blocked).get("message").asText())
+                .isEqualTo("Too many codes didn't work from this network. Try again in 15 minutes.");
     }
 
     @Test
@@ -428,5 +436,140 @@ class StatementSendIT extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_send_codes WHERE user_id = ?",
                 Integer.class, recent.getId())).isEqualTo(1);
         assertThat(status(old).get("state").asText()).isEqualTo("NONE");
+    }
+
+    /** Break test: wrong codes sent all at once. The database step is held until every caller has
+     *  reached it (or 2 s pass), so all fifteen are inside claim() together. Each takes its slot
+     *  before its code is tried, so exactly five reach the database and the rest are refused unread.
+     *  Over HTTP this race is real but rarely lines up (a live burst of 15 tried 8 codes before this
+     *  fix); here it always does. */
+    @Test
+    void aBurstOfSimultaneousWrongCodesTriesOnlyFive() throws Exception {
+        int callers = 15;
+        CountDownLatch inQuery = new CountDownLatch(callers);
+        java.util.concurrent.atomic.AtomicInteger queries = new java.util.concurrent.atomic.AtomicInteger();
+        JdbcTemplate slowJdbc = org.mockito.Mockito.mock(JdbcTemplate.class);
+        org.mockito.Mockito.when(slowJdbc.query(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Object>>any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> {
+                    queries.incrementAndGet();
+                    inQuery.countDown();
+                    inQuery.await(2, java.util.concurrent.TimeUnit.SECONDS);
+                    return List.of();
+                });
+        com.finora.config.RequestMetadata metadata = org.mockito.Mockito.mock(com.finora.config.RequestMetadata.class);
+        org.mockito.Mockito.when(metadata.ip()).thenReturn("burst-" + UUID.randomUUID());
+        StatementSendService service = new StatementSendService(slowJdbc,
+                org.mockito.Mockito.mock(com.finora.imports.jobs.ImportJobService.class),
+                org.mockito.Mockito.mock(com.finora.service.AuditService.class), metadata, redis, 5, 900);
+
+        ExecutorService pool = Executors.newFixedThreadPool(callers);
+        List<java.util.concurrent.Future<String>> answers = new java.util.ArrayList<>();
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            for (int i = 0; i < callers; i++) {
+                answers.add(pool.submit(() -> {
+                    start.await();
+                    try {
+                        service.claim("WRNGZZ");
+                        return "CLAIMED";
+                    } catch (com.finora.exception.ApiException e) {
+                        return e.getCode().code();
+                    }
+                }));
+            }
+            start.countDown();
+            List<String> codes = new java.util.ArrayList<>();
+            for (var answer : answers) codes.add(answer.get(10, java.util.concurrent.TimeUnit.SECONDS));
+
+            assertThat(queries.get()).as("codes actually tried").isEqualTo(5);
+            assertThat(codes).filteredOn("IMPORT_024"::equals).hasSize(5);
+            assertThat(codes).filteredOn("IMPORT_025"::equals).hasSize(10);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** A code that works gives its slot back: four wrong, one right, then one more wrong is still
+     *  tried, and only the sixth attempt is blocked. */
+    @Test
+    void aRightCodeDoesNotCountAgainstTheAddress() {
+        User user = user();
+        String code = issue(user);
+        for (int i = 0; i < 4; i++) {
+            assertThat(sendCsv("WRONG" + i).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        assertThat(sendCsv(code).getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+
+        assertThat(sendCsv("WRONG4").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(sendCsv("WRONG5").getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    /** Break test: one user asking for codes many times at once (a double tap, a sheet closed and
+     *  reopened mid-request). Requests run one at a time per user, so exactly one code is left live,
+     *  and the status names it. 25 users, 8 requests each, all released together, so that without
+     *  the lock two requests' cancel-then-insert steps reliably interleave somewhere. */
+    @Test
+    void simultaneousCodeRequestsLeaveOneLiveCode() throws Exception {
+        List<User> users = new java.util.ArrayList<>();
+        for (int i = 0; i < 25; i++) users.add(user());
+        ExecutorService pool = Executors.newFixedThreadPool(32);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<CompletableFuture<ResponseEntity<String>>> requests = new java.util.ArrayList<>();
+            for (User user : users) {
+                HttpHeaders headers = bearerFor(user);
+                for (int i = 0; i < 8; i++) {
+                    requests.add(CompletableFuture.supplyAsync(() -> {
+                        await(start);
+                        return restTemplate.exchange("/api/v1/imports/send-codes", HttpMethod.POST,
+                                new HttpEntity<>(headers), String.class);
+                    }, pool));
+                }
+            }
+            start.countDown();
+            requests.forEach(r -> assertThat(r.join().getStatusCode()).isEqualTo(HttpStatus.OK));
+        } finally {
+            pool.shutdownNow();
+        }
+
+        for (User user : users) {
+            List<UUID> live = jdbc.queryForList("SELECT id FROM statement_send_codes WHERE user_id = ? "
+                    + "AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()", UUID.class, user.getId());
+            assertThat(live).as("live codes of one user").hasSize(1);
+            assertThat(status(user).get("codeId").asText()).isEqualTo(live.get(0).toString());
+        }
+    }
+
+    /** The phone compares ids: the status names the code the phone was given. */
+    @Test
+    void statusNamesTheIssuedCode() {
+        User user = user();
+        ResponseEntity<String> issued = restTemplate.exchange("/api/v1/imports/send-codes", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+        String id = read(issued).get("data").get("id").asText();
+
+        assertThat(status(user).get("codeId").asText()).isEqualTo(id);
+        issue(user);
+        assertThat(status(user).get("codeId").asText()).as("a newer code replaced it").isNotEqualTo(id);
+    }
+
+    /** Break test: a script asking for codes in a loop. Ten in 10 minutes, then refused. */
+    @Test
+    void codeRequestsAreCappedPerUser() {
+        User user = user();
+        for (int i = 0; i < StatementSendService.MAX_CODES_PER_WINDOW; i++) {
+            issue(user);
+        }
+
+        ResponseEntity<String> refused = restTemplate.exchange("/api/v1/imports/send-codes", HttpMethod.POST,
+                new HttpEntity<>(bearerFor(user)), String.class);
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_send_codes WHERE user_id = ?",
+                Integer.class, user.getId())).isEqualTo(StatementSendService.MAX_CODES_PER_WINDOW);
+        User other = user();
+        issue(other);
     }
 }

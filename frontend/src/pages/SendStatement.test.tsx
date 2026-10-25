@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import SendStatement from './SendStatement';
@@ -45,6 +45,25 @@ describe('SendStatement (Gate 2b spec §7)', () => {
     await fill(user, 'ab3-k7m', file);
 
     expect(send).toHaveBeenCalledWith('AB3K7M', file);
+  });
+
+  it('sends once when the form is submitted twice before it re-renders', async () => {
+    // A double click or double Enter. React re-renders between the two submit events, so the button
+    // is already disabled for the second; a second request would count as a wrong code.
+    let finish: (v: { received: boolean }) => void = () => {};
+    send.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByLabelText('Code from your phone'), 'AB3K7M');
+    await user.upload(screen.getByLabelText(/statement file/i), csv());
+    const form = screen.getByRole('button', { name: 'Send' }).closest('form')!;
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    finish({ received: true });
+    expect(await screen.findByText('Sent. Open Fynora on your phone to review it.')).toBeInTheDocument();
   });
 
   it('showsSentOnSuccess', async () => {

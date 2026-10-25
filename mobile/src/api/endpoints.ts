@@ -727,9 +727,13 @@ export interface ImportJobTimeline {
  */
 export type SendCodeState = 'NONE' | 'WAITING' | 'RECEIVED' | 'EXPIRED';
 export const sendCodesApi = {
-  issue: () => api.post<{ code: string; expiresAt: string }>('/imports/send-codes').then((r) => r.data),
+  // `id` names the code; `codeId` says which code a status is about, so a phone showing one code
+  // never reads another code's status as its own. Optional: an older backend sends neither.
+  issue: () =>
+    api.post<{ id?: string; code: string; expiresAt: string }>('/imports/send-codes').then((r) => r.data),
   current: () =>
-    api.get<{ state: SendCodeState; importJobId: string | null }>('/imports/send-codes/current').then((r) => r.data),
+    api.get<{ state: SendCodeState; importJobId: string | null; codeId?: string | null }>('/imports/send-codes/current')
+      .then((r) => r.data),
 };
 
 export const importJobsApi = {

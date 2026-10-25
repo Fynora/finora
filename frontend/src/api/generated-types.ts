@@ -8132,6 +8132,8 @@ export interface components {
             };
         };
         StatementSendCodeIssued: {
+            /** Format: uuid */
+            id?: string;
             code?: string;
             /** Format: date-time */
             expiresAt?: string;
@@ -10820,6 +10822,8 @@ export interface components {
             state?: string;
             /** Format: uuid */
             importJobId?: string;
+            /** Format: uuid */
+            codeId?: string;
         };
         ApiResponseCoverageMap: {
             success?: boolean;

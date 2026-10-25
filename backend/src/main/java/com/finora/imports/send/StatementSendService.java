@@ -13,6 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -50,9 +51,13 @@ import java.util.UUID;
  * </ul>
  *
  * <h2>Guessing</h2>
- * Five codes that didn't work from one address within an hour block that address until the hour is
- * up, checked BEFORE the next code is tried, so a blocked guesser cannot land a right guess
- * ({@link RateLimiter#isAtLimit}). A wrong, expired, used or cancelled code all get one answer,
+ * Five codes that didn't work from one address within 15 minutes block that address until the oldest
+ * of them is 15 minutes old. Sid (25 Oct): 15 minutes, not the spec's hour, so that if production
+ * resolves many visitors to one address (an open question about the proxy chain), one person's typos
+ * or guesses lock everyone else out for less time. Each attempt takes a slot BEFORE its code is tried,
+ * atomically, and a code that works gives its slot back ({@link RateLimiter#reserve}): a blocked
+ * guesser cannot land a right guess, and a burst of simultaneous guesses cannot slip past the limit
+ * before any of them is recorded. A wrong, expired, used or cancelled code all get one answer,
  * {@link ErrorCode#SEND_CODE_INVALID}, so an answer never tells a guesser which codes exist. The
  * per-address request limit on the endpoint is in RateLimitFilter ({@code send-statement}).
  *
@@ -66,6 +71,8 @@ public class StatementSendService {
     /** No I, L, O, 0 or 1: nothing a person could read as another character. */
     static final String ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     static final int LENGTH = 6;
+    /** Codes one user may ask for in 10 minutes. Generous for a person; a ceiling for a script. */
+    static final int MAX_CODES_PER_WINDOW = 10;
 
     private final JdbcTemplate jdbc;
     private final ImportJobService importJobService;
@@ -77,7 +84,7 @@ public class StatementSendService {
     public StatementSendService(JdbcTemplate jdbc, ImportJobService importJobService, AuditService auditService,
                                 RequestMetadata requestMetadata, StringRedisTemplate redisTemplate,
                                 @Value("${app.rate-limit.send-code-failure.max:5}") int failureMax,
-                                @Value("${app.rate-limit.send-code-failure.window-seconds:3600}") int failureWindow) {
+                                @Value("${app.rate-limit.send-code-failure.window-seconds:900}") int failureWindow) {
         this.jdbc = jdbc;
         this.importJobService = importJobService;
         this.auditService = auditService;
@@ -115,11 +122,24 @@ public class StatementSendService {
      * cannot accept a queued upload (no object storage): the file would have nowhere to go. The same
      * gate as {@link ImportJobService#accept}; the phone shows the option only when the import job
      * availability says queued uploads are on.
+     *
+     * <p>One user's requests run one at a time (an advisory lock on the user, held to the end of
+     * this transaction): two at once would each cancel the other's open codes before either
+     * inserted, and leave the user two live codes. At most {@link #MAX_CODES_PER_WINDOW} codes per
+     * user in 10 minutes, counted from the table, so a script cannot fill it or the audit log.
      */
+    @Transactional
     public SendDto.CodeIssued issue(UUID userId) {
         if (!importJobService.acceptsUploads()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Sending a statement from a computer isn't available right now.");
+        }
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "send-code:" + userId);
+        Integer recent = jdbc.queryForObject("SELECT count(*) FROM statement_send_codes "
+                + "WHERE user_id = ? AND created_at > now() - interval '10 minutes'", Integer.class, userId);
+        if (recent != null && recent >= MAX_CODES_PER_WINDOW) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "You've asked for a lot of codes. Wait a few minutes, then try again.");
         }
         jdbc.update("UPDATE statement_send_codes SET cancelled_at = now() "
                 + "WHERE user_id = ? AND used_at IS NULL AND cancelled_at IS NULL", userId);
@@ -138,7 +158,7 @@ public class StatementSendService {
             if (!expires.isEmpty()) {
                 auditService.record(userId, "STATEMENT_SEND_CODE_ISSUED", "StatementSendCode", id,
                         requestMetadata.addTo(new HashMap<>()));
-                return new SendDto.CodeIssued(code, expires.get(0));
+                return new SendDto.CodeIssued(id, code, expires.get(0));
             }
         }
         throw new IllegalStateException("Could not draw a free send code in 10 attempts");
@@ -160,11 +180,12 @@ public class StatementSendService {
                          WHEN used_at IS NOT NULL THEN 'EXPIRED'
                          WHEN expires_at <= now() THEN 'EXPIRED'
                          ELSE 'WAITING'
-                       END AS state, import_job_id
+                       END AS state, import_job_id, id
                   FROM statement_send_codes WHERE user_id = ?
                  ORDER BY created_at DESC LIMIT 1
-                """, (rs, i) -> new SendDto.CodeStatus(rs.getString("state"), uuid(rs, "import_job_id")), userId);
-        return rows.isEmpty() ? new SendDto.CodeStatus("NONE", null) : rows.get(0);
+                """, (rs, i) -> new SendDto.CodeStatus(rs.getString("state"), uuid(rs, "import_job_id"), uuid(rs, "id")),
+                userId);
+        return rows.isEmpty() ? new SendDto.CodeStatus("NONE", null, null) : rows.get(0);
     }
 
     /**
@@ -177,20 +198,29 @@ public class StatementSendService {
     public Claim claim(String typedCode) {
         String ip = requestMetadata.ip();
         String key = ip == null ? "unknown" : ip;
-        if (failureLimiter.isAtLimit(key)) {
+        String slot = failureLimiter.reserve(key);
+        if (slot == null) {
             throw new ApiException(ErrorCode.SEND_CODE_BLOCKED);
         }
-        String code = normalise(typedCode);
-        List<Claim> claimed = code.length() != LENGTH ? List.of() : jdbc.query("""
-                UPDATE statement_send_codes SET used_at = now()
-                 WHERE code_hash = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()
-                   AND user_id IN (SELECT u.id FROM users u WHERE u.status = ?)
-                RETURNING id, user_id
-                """, (rs, i) -> new Claim(uuid(rs, "id"), uuid(rs, "user_id")), hash(code), User.STATUS_ACTIVE);
+        // Longer than any way of typing a code (the page allows 9 characters): not worth normalising.
+        String code = typedCode != null && typedCode.length() > 32 ? "" : normalise(typedCode);
+        List<Claim> claimed;
+        try {
+            claimed = code.length() != LENGTH ? List.of() : jdbc.query("""
+                    UPDATE statement_send_codes SET used_at = now()
+                     WHERE code_hash = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()
+                       AND user_id IN (SELECT u.id FROM users u WHERE u.status = ?)
+                    RETURNING id, user_id
+                    """, (rs, i) -> new Claim(uuid(rs, "id"), uuid(rs, "user_id")), hash(code), User.STATUS_ACTIVE);
+        } catch (RuntimeException e) {
+            // The server failed, not the code: this attempt does not count against the address.
+            failureLimiter.refund(key, slot);
+            throw e;
+        }
         if (claimed.isEmpty()) {
-            failureLimiter.allow(key);
             throw new ApiException(ErrorCode.SEND_CODE_INVALID);
         }
+        failureLimiter.refund(key, slot);
         return claimed.get(0);
     }
 

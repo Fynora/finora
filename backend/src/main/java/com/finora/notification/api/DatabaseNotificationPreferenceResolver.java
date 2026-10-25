@@ -97,7 +97,9 @@ public class DatabaseNotificationPreferenceResolver implements NotificationPrefe
                 .orElse(false);
     }
 
-    /** MARKETING is opt-in; everything else (FINANCIAL) is opt-out. */
+    /** MARKETING is opt-in; everything else (FINANCIAL, and REMINDERS since Gate 2b) is opt-out. A
+     *  stepped-away account gets no REMINDERS either: the check above covers every non-SECURITY
+     *  category. */
     private boolean defaultFor(NotificationCategory category) {
         return category != NotificationCategory.MARKETING;
     }

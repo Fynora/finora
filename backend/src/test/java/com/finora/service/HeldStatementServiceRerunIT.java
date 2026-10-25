@@ -62,9 +62,11 @@ class HeldStatementServiceRerunIT extends AbstractIntegrationTest {
     @Autowired private com.finora.notification.repository.NotificationRepository notificationRepository;
     @Autowired private com.finora.imports.passwords.StatementPasswordService statementPasswordService;
 
+    // The coffee row is dated the 15th: a day over 12 settles the file's date order, which would
+    // otherwise hold it on its own (CsvDateOrder).
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
             + "01/01/2026,Opening balance,,1000.00\n"
-            + "05/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
+            + "15/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
 
     /** Statement period 2030 is safely in the future relative to any real "today" this suite will
      *  ever run on -- a robust, non-flaky trigger for TrustPredicate's periodIntegrity check. */

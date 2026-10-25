@@ -262,11 +262,12 @@ class CategoryRulesTest {
         assertThat(CategoryRules.suggestCategory("OLA CAB RIDE TO AIRPORT")).isEqualTo("Transport");
     }
 
-    /** Real narration from this project's own bank-statement corpus -- "NWD" (Non-Home-branch
-     *  Withdrawal) was falling through every existing Cash Withdrawal keyword to "Other". */
+    /** Same shape as the one real ATM row in this project's own bank-statement corpus, with every
+     *  value invented -- "NWD" (Non-Home-branch Withdrawal) was falling through every existing Cash
+     *  Withdrawal keyword to "Other". */
     @Test
     void suggestCategory_matchesNwdAsCashWithdrawal() {
-        assertThat(CategoryRules.suggestCategory("NWD-416021XXXXXX5853-14132291-HUZUR")).isEqualTo("Cash Withdrawal");
+        assertThat(CategoryRules.suggestCategory("NWD-400000XXXXXX0001-10000001-SAMPLE PLACE")).isEqualTo("Cash Withdrawal");
     }
 
     @Test

@@ -8,5 +8,11 @@ package com.finora.notification.domain;
 public enum NotificationCategory {
     SECURITY,
     FINANCIAL,
-    MARKETING
+    MARKETING,
+    /**
+     * Gate 2b (spec §6, Sid's decision (b), 16 Oct): nudges such as the month-start statement
+     * reminder. Opt-out like FINANCIAL, with its own switch, so someone tired of reminders does not
+     * also lose "your statement is ready". Push only.
+     */
+    REMINDERS
 }

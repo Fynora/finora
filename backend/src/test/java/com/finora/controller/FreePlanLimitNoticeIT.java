@@ -56,11 +56,12 @@ class FreePlanLimitNoticeIT extends AbstractIntegrationTest {
     @Autowired private ImportService importService;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /** No printed period, like every bank CSV export; transactions from 5 Jan to 5 Mar. */
+    /** No printed period, like every bank CSV export; transactions from 5 Jan to 5 Mar. The 20th
+     *  settles the date order, which would otherwise hold the file on its own (CsvDateOrder). */
     private static final String THREE_MONTH_CSV = """
             Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance
             05/01/2026,UPI-ZORBIC TEAHOUSE-0000000001,120.00,,24880.00
-            10/02/2026,UPI-ZORBIC TEAHOUSE-0000000002,80.00,,24800.00
+            20/02/2026,UPI-ZORBIC TEAHOUSE-0000000002,80.00,,24800.00
             05/03/2026,UPI-ZORBIC TEAHOUSE-0000000003,100.00,,24700.00
             """;
 

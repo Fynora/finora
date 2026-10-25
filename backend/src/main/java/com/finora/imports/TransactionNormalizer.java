@@ -428,7 +428,13 @@ public class TransactionNormalizer {
      * never drift into reporting a reason that doesn't match what actually gated the row).
      */
     public String explainFailure(Map<String, String> row) {
-        return diagnoseFailure(row).explanation();
+        return diagnoseFailure(row, null).explanation();
+    }
+
+    /** {@link #explainFailure(Map)} for a CSV row, judging its date with the file's date order --
+     *  the order {@link #normalize} read it with, so the reason matches what actually gated it. */
+    public String explainFailure(Map<String, String> row, DocumentContext ctx) {
+        return diagnoseFailure(row, csvDateOrderOf(ctx)).explanation();
     }
 
     /**
@@ -446,7 +452,29 @@ public class TransactionNormalizer {
      * exist only here: the PDF locator never asks about an amount before it anchors a row.
      */
     public String failureReasonKey(Map<String, String> row) {
-        return diagnoseFailure(row).reasonKey();
+        return diagnoseFailure(row, null).reasonKey();
+    }
+
+    /** {@link #failureReasonKey(Map)} with the file's date order -- see
+     *  {@link #explainFailure(Map, DocumentContext)}. */
+    public String failureReasonKey(Map<String, String> row, DocumentContext ctx) {
+        return diagnoseFailure(row, csvDateOrderOf(ctx)).reasonKey();
+    }
+
+    /** The order a CSV's dates are read in, or null (read per cell, as the PDF path always has). */
+    private static CsvDateOrder.Order csvDateOrderOf(DocumentContext ctx) {
+        return ctx == null || ctx.csvDateOrder() == null ? null : ctx.csvDateOrder().order();
+    }
+
+    /** The row's date: through the file's order for a CSV that decided one, per cell otherwise. */
+    public static LocalDate dateOf(String dateRaw, DocumentContext ctx) {
+        return CsvParser.parseDate(dateRaw.trim(), csvDateOrderOf(ctx));
+    }
+
+    /** The cell {@link #normalize} reads a row's date from, or null when the row has none. Exposed
+     *  so {@link CsvDateOrder} judges exactly the cells that are later parsed. */
+    public static String dateCellOf(Map<String, String> row) {
+        return CsvParser.firstNonBlank(row, DATE_HINTS);
     }
 
     /** The row has no column recognised as a date. Same key and meaning as the PDF locator's. */
@@ -468,13 +496,13 @@ public class TransactionNormalizer {
      *  the two can never describe the same row differently. */
     private record RowFailure(String explanation, String reasonKey) {}
 
-    private RowFailure diagnoseFailure(Map<String, String> row) {
+    private RowFailure diagnoseFailure(Map<String, String> row, CsvDateOrder.Order order) {
         String dateRaw = CsvParser.firstNonBlank(row, DATE_HINTS);
         if (dateRaw == null) {
             return new RowFailure(UnparseableReasons.NO_DATE_COLUMN,
                     hasColumn(row, DATE_HINTS) ? REASON_DATE_COLUMN_EMPTY : REASON_NO_DATE_COLUMN);
         }
-        if (CsvParser.parseDate(dateRaw.trim()) == null) {
+        if (CsvParser.parseDate(dateRaw.trim(), order) == null) {
             return new RowFailure(UnparseableReasons.dateUnreadable(dateRaw),
                     REASON_DATE_UNPARSEABLE_PREFIX + ValueShape.of(dateRaw.trim()));
         }
@@ -702,7 +730,7 @@ public class TransactionNormalizer {
         if (ctx != null && CsvParser.hasDateTimeComponent(dateRaw)) ctx.record("DATE_TIME_COLUMN");
         if (ctx != null && CsvParser.hasTrailingDrCrMarker(amountRaw)) ctx.record("DR_CR_SUFFIX");
 
-        LocalDate date = CsvParser.parseDate(dateRaw.trim());
+        LocalDate date = dateOf(dateRaw, ctx);
         BigDecimal parsedAmount = CsvParser.parseNumeric(amountRaw);
         if (parsedAmount == null || date == null) return null;
         BigDecimal amount = parsedAmount.abs();

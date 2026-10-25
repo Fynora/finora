@@ -220,8 +220,9 @@ public final class CategoryRules {
         RULES.put("Insurance", List.of("insurance", "lic premium", "policybazaar", "premium payment", "pmjjby", "pmsby"));
         // "nwd" (Non-Home-branch Withdrawal, the standard NPCI/bank narration code for an ATM
         // withdrawal at another bank's machine) added after checking this project's own real
-        // bank-statement corpus -- the only real ATM row in it ("NWD-416021XXXXXX5853-...") was
-        // falling through every keyword above to "Other". Safe as a bare 3-letter keyword despite
+        // bank-statement corpus -- the only real ATM row in it, shaped
+        // "NWD-<masked card>-<terminal>-<place>", was falling through every keyword above to
+        // "Other". Safe as a bare 3-letter keyword despite
         // the "emi"/"ngo" caution below: unlike those two, "nwd" is not a substring of any common
         // English or Indian-banking-narration word, so the word-boundary matching this file already
         // requires (see RULE_PATTERNS below) has nothing plausible to misfire against.

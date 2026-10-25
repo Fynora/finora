@@ -42,9 +42,10 @@ class ImportControllerFailuresIT extends AbstractIntegrationTest {
      *  for its own "the engine cannot read this" case. Wholly invented, not from any real file. */
     private static final String UNREADABLE_CSV = "this file has no header row and no columns at all";
 
+    // Dated the 13th: a day over 12 settles the file's date order (CsvDateOrder).
     private static final String READABLE_CSV = """
             Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance
-            01/07/2026,UPI-ZORBIC TEAHOUSE-0000000001,120.00,,24880.00
+            13/07/2026,UPI-ZORBIC TEAHOUSE-0000000001,120.00,,24880.00
             """;
 
     private User createUser() {

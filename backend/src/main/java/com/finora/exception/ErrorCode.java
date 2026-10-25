@@ -143,6 +143,16 @@ public enum ErrorCode {
     IMPORT_WRONG_FILE_TYPE("IMPORT_022", HttpStatus.UNSUPPORTED_MEDIA_TYPE,
             "This file's contents don't match its name, so Fynora can't read it. "
                     + "Download the statement again from your bank and choose the new copy.", true),
+    // A CSV whose dates contradict each other about their order: one date can only be read
+    // day-first ("13/01/2026") and another only month-first ("01/13/2026"), so no single reading
+    // fits every row (CsvDateOrder). Refused rather than read row by row, which used to give a file
+    // some rows one way and some the other -- Sid's decision of 2026-10-24. userActionRequired=true
+    // because only the user can fix the file: export it again with one date format. Never retried:
+    // the same bytes contradict themselves every time.
+    IMPORT_DATE_ORDER_CONFLICT("IMPORT_023", HttpStatus.UNPROCESSABLE_ENTITY,
+            "The dates in this file are written in two different orders (some day first, some month "
+                    + "first), so we can't tell which date each transaction belongs to. Please export the "
+                    + "statement again and upload that file.", true),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

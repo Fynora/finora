@@ -7,16 +7,26 @@ import { SkeletonGroup } from '../../components/skeletons/Skeletons';
 import { notificationPreferencesApi, type NotificationPreference } from '../../api/endpoints';
 import { spacing, useTheme } from '../../theme';
 
-const CHANNEL_COPY: Record<NotificationPreference['channel'], { label: string; description: string }> = {
-  EMAIL: {
+type PrefKey = `${NotificationPreference['category']}:${NotificationPreference['channel']}`;
+
+const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>> = {
+  'FINANCIAL:EMAIL': {
     label: 'Email',
     description: 'Statement and referral updates by email: a statement is ready, being checked or resolved, and referral rewards.',
   },
-  PUSH: {
+  'FINANCIAL:PUSH': {
     label: 'Push notifications',
     description: 'The same updates as notifications on every phone you use Fynora on.',
   },
+  // Gate 2b (spec §6, Sid's decision (b)): reminders have their own switch, so turning them off
+  // never silences "your statement is ready".
+  'REMINDERS:PUSH': {
+    label: 'Statement reminders',
+    description: 'A push at the start of the month when a new statement has probably arrived.',
+  },
 };
+
+const keyOf = (pref: NotificationPreference): PrefKey => `${pref.category}:${pref.channel}`;
 
 /**
  * Mobile counterpart to web's settings/NotificationsPane -- the switch a FINANCIAL email's "Turn
@@ -52,7 +62,7 @@ export function NotificationPreferencesSection() {
     setSaving(true);
     setSaveError(null);
     try {
-      setPrefs(await notificationPreferencesApi.set(pref.channel, next));
+      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, next));
     } catch {
       setSaveError("Couldn't save that change. Please try again.");
     } finally {
@@ -71,12 +81,12 @@ export function NotificationPreferencesSection() {
         </SkeletonGroup>
       ) : (
         <>
-          {/* A channel this build has no copy for (a newer backend) is skipped, not rendered blank --
+          {/* A preference this build has no copy for (a newer backend) is skipped, not rendered blank --
               matters more here than on web, since an installed app can lag the backend for months. */}
-          {prefs.filter((pref) => pref.channel in CHANNEL_COPY).map((pref) => {
-            const copy = CHANNEL_COPY[pref.channel];
+          {prefs.filter((pref) => PREF_COPY[keyOf(pref)]).map((pref) => {
+            const copy = PREF_COPY[keyOf(pref)]!;
             return (
-              <View key={pref.channel} style={[styles.row, { borderBottomColor: c.border }]}>
+              <View key={keyOf(pref)} style={[styles.row, { borderBottomColor: c.border }]}>
                 <View style={styles.rowMain}>
                   <Text style={[styles.rowTitle, { color: c.ink }]}>{copy.label}</Text>
                   <Text style={[styles.meta, { color: c.mutedInk }]}>{copy.description}</Text>

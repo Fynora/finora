@@ -32,6 +32,9 @@ export const PAYMENT_APP_HISTORY = 'IMPORT_018';
 // A CSV whose Account column names more than one account: a ledger combined from several
 // statements, not one account's statement. Refused for the same reason as PAYMENT_APP_HISTORY.
 export const MULTI_ACCOUNT_FILE = 'IMPORT_020';
+// A CSV whose dates are written day-first in some rows and month-first in others, so no one
+// reading fits the file. Refused; the user exports the statement again.
+export const DATE_ORDER_CONFLICT = 'IMPORT_023';
 // A PDF over the page ceiling. Thrown while the document is read, so a queued job hits it too.
 export const PDF_TOO_LARGE = 'IMPORT_013';
 export const NO_ACTIVITY_IN_PERIOD = 'IMPORT_014';

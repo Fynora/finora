@@ -780,6 +780,9 @@ export interface ActivationReport {
   /** UTM rows first (utmSource set), then every fixed bucket, zeros included. Not range-bound. */
   bySource: { kind: SignupSourceKind; utmSource: string | null; counts: Record<FunnelStep, number>; secondImport: ActivationSecondImport }[];
   secondImport: ActivationSecondImport;
+  /** Gate 2b: month-start nudges queued per IST month (YYYY-MM-01), and imports within 3 days of one.
+   *  Optional: absent from a backend deployed before it. */
+  monthStartNudges?: { month: string; nudgesSent: number; importedWithin3Days: number }[];
 }
 
 export const adminActivationApi = {

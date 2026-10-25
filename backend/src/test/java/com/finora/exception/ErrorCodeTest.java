@@ -94,7 +94,10 @@ class ErrorCodeTest {
                         // IMPORT_EMPTY_FILE and IMPORT_WRONG_FILE_TYPE (Gate 2b, 2026-10-24): the
                         // file itself is unusable, and the fix is the user's: download it again.
                         ErrorCode.IMPORT_EMPTY_FILE,
-                        ErrorCode.IMPORT_WRONG_FILE_TYPE);
+                        ErrorCode.IMPORT_WRONG_FILE_TYPE,
+                        // IMPORT_DATE_ORDER_CONFLICT (2026-10-24): dates written day-first and
+                        // month-first in one file; the fix is the user's, exporting it again.
+                        ErrorCode.IMPORT_DATE_ORDER_CONFLICT);
     }
 
     /** Gate 2b refusal audit, row 8: the busy message named the product's old spelling. */

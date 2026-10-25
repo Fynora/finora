@@ -42,7 +42,25 @@ describe('NotificationPreferencesSection', () => {
     fireEvent(await screen.findByLabelText('Email'), 'valueChange', false);
 
     await waitFor(() => expect(screen.getByLabelText('Email')).toHaveProp('value', false));
-    expect(api.set).toHaveBeenCalledWith('EMAIL', false);
+    expect(api.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false);
+    expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
+  });
+
+  // Gate 2b PR 5 (spec §6): a separate switch for statement reminders, push only.
+  it('togglesStatementReminders', async () => {
+    const withReminders = (reminders: boolean) => [
+      ...both(true, true), { category: 'REMINDERS' as const, channel: 'PUSH' as const, enabled: reminders },
+    ];
+    api.list.mockResolvedValue(withReminders(true));
+    api.set.mockResolvedValue(withReminders(false));
+    renderSection();
+
+    expect(await screen.findByLabelText('Statement reminders')).toHaveProp('value', true);
+    expect(screen.getByText('A push at the start of the month when a new statement has probably arrived.')).toBeTruthy();
+    fireEvent(screen.getByLabelText('Statement reminders'), 'valueChange', false);
+
+    await waitFor(() => expect(screen.getByLabelText('Statement reminders')).toHaveProp('value', false));
+    expect(api.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false);
     expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
   });
 

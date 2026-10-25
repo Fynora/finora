@@ -62,9 +62,10 @@ class ImportStageIdempotencyIT extends AbstractIntegrationTest {
     @Autowired private ImportSessionService importSessionService;
     private final ObjectMapper mapper = new ObjectMapper();
 
+    // Dated the 13th: a day over 12 settles the file's date order (CsvDateOrder).
     private static final String READABLE_CSV = """
             Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance
-            01/07/2026,UPI-ZORBIC TEAHOUSE-0000000001,120.00,,24880.00
+            13/07/2026,UPI-ZORBIC TEAHOUSE-0000000001,120.00,,24880.00
             """;
 
     private User createUser() {
@@ -150,7 +151,7 @@ class ImportStageIdempotencyIT extends AbstractIntegrationTest {
         User user = createUser();
         String otherCsv = """
                 Date,Narration,Withdrawal Amt.,Deposit Amt.,Closing Balance
-                02/07/2026,UPI-DIFFERENT MERCHANT-0000000002,50.00,,24830.00
+                14/07/2026,UPI-DIFFERENT MERCHANT-0000000002,50.00,,24830.00
                 """;
 
         ResponseEntity<String> first = stage(user, READABLE_CSV, "statement.csv");

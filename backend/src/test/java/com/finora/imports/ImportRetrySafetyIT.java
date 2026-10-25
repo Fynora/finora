@@ -143,11 +143,11 @@ class ImportRetrySafetyIT extends AbstractIntegrationTest {
             05/01/2026,Coffee shop,-150.00,850.00,
             """;
 
-    /** Nothing in it trips the trust check. */
+    /** Nothing in it trips the trust check. The 15th settles the date order (CsvDateOrder). */
     private static final String CLEAN_WITH_BALANCE = """
             Date,Description,Amount,Balance
             01/01/2026,Opening balance,,1000.00
-            05/01/2026,Coffee shop,-150.00,850.00
+            15/01/2026,Coffee shop,-150.00,850.00
             """;
 
     /** Starts like a PDF and is not one: IMPORT_CORRUPT_PDF, which is never held. */

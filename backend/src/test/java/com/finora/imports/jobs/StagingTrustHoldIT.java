@@ -81,9 +81,11 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
             + "01/01/2026,Opening balance,,1000.00,01/01/2030 to 31/01/2030\n"
             + "05/01/2026,Coffee shop,-150.00,850.00,\n").getBytes(StandardCharsets.UTF_8);
 
+    // The coffee row is dated the 15th: a day over 12 settles the file's date order, which would
+    // otherwise hold it on its own (CsvDateOrder).
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
             + "01/01/2026,Opening balance,,1000.00\n"
-            + "05/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
+            + "15/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
 
     private static final String PASSWORD = "sample-pass";
 
@@ -214,6 +216,57 @@ class StagingTrustHoldIT extends AbstractIntegrationTest {
         assertThat(progress.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(mapper.readTree(progress.getBody()).get("data").get("status").asText())
                 .isEqualTo("HELD_FOR_TRUST_REVIEW");
+    }
+
+    /** Month-first, with every date fitting both readings: nothing in the file settles the order. */
+    private static final byte[] UNSETTLED_DATE_ORDER_CSV = ("Date,Description,Amount,Balance\n"
+            + "07/01/2026,Rent,-1000.00,9000.00\n"
+            + "07/02/2026,Groceries,-500.00,8500.00\n").getBytes(StandardCharsets.UTF_8);
+
+    /** 13/01 can only be day-first and 01/14 only month-first. */
+    private static final byte[] CONFLICTING_DATE_ORDER_CSV = ("Date,Description,Amount,Balance\n"
+            + "13/01/2026,Rent,-1000.00,9000.00\n"
+            + "01/14/2026,Groceries,-500.00,8500.00\n").getBytes(StandardCharsets.UTF_8);
+
+    /** A dated row whose amount cannot be read: its size is unknown. */
+    private static final byte[] UNREADABLE_AMOUNT_CSV = ("Date,Description,Amount\n"
+            + "13/01/2026,Rent,-1000.00\n"
+            + "14/01/2026,Groceries,Rs 75 only\n").getBytes(StandardCharsets.UTF_8);
+
+    @Test
+    void aCsvWhoseDateOrderIsUnsettledIsHeldForReview() throws Exception {
+        User owner = user();
+        JsonNode staged = stageCsv(owner, UNSETTLED_DATE_ORDER_CSV);
+        UUID sessionId = sessionIdOf(staged);
+
+        assertThat(heldJobIdOf(staged)).isNotNull();
+        ImportJob job = onlyHeldJob(owner, sessionId);
+        assertThat(holdOf(job).getHoldReasonCategories()).contains("COLUMN_AMBIGUITY");
+        assertNotConfirmable(owner, sessionId);
+    }
+
+    @Test
+    void aCsvWhoseDatesProveBothOrdersIsRefused() throws Exception {
+        User owner = user();
+        ResponseEntity<String> response = stage(owner, "/api/v1/import/csv/stage", CONFLICTING_DATE_ORDER_CSV,
+                "statement.csv", null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(response.getBody()).contains(ErrorCode.IMPORT_DATE_ORDER_CONFLICT.code());
+        assertThat(jobsOf(owner)).isEmpty();
+        assertThat(importSessionService.listResumableSessions(owner.getId())).isEmpty();
+    }
+
+    @Test
+    void aCsvWithAnUnreadableAmountIsHeldForReview() throws Exception {
+        User owner = user();
+        JsonNode staged = stageCsv(owner, UNREADABLE_AMOUNT_CSV);
+        UUID sessionId = sessionIdOf(staged);
+
+        ImportJob job = onlyHeldJob(owner, sessionId);
+        assertThat(holdOf(job).getHoldReasonCategories()).contains("DROPPED_TRANSACTION");
+        assertThat(holdOf(job).getTriggerSummary()).contains("A transaction's amount could not be read");
+        assertNotConfirmable(owner, sessionId);
     }
 
     @Test

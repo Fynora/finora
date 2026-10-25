@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.LongAdder;
  * from. This records the distribution; after a week of real traffic the limit can be set from it,
  * with headroom, instead of from a guess.
  *
- * <p><b>Privacy, as {@link ClientIpDiagnostics} does it:</b> no user id is ever stored, logged or
+ * <p><b>Privacy:</b> no user id is ever stored, logged or
  * used as a metric tag. Per-user counts exist only in memory for the minute being counted, are
  * reduced to a number, and are dropped. What leaves this class is a distribution (how many
  * user-minutes had how many requests), the number of active users in a minute, and, for a minute

@@ -4,7 +4,6 @@ import com.finora.entity.Account;
 import com.finora.entity.Transaction;
 import com.finora.repository.TransactionRepository;
 import com.finora.repository.UserRepository;
-import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -36,9 +35,10 @@ import java.util.List;
  *       could.</li>
  * </ul>
  *
- * <p>Nothing here saves the account: the caller holds the managed copy.
+ * <p>Nothing here saves the account: the caller holds the managed copy. Not a bean: {@link
+ * AccountService} is its one owner, and every stated balance (an edit, or the import's
+ * {@link AccountService#stateAmountOwedAtImport}) goes through it.
  */
-@Component
 public class TypedBalance {
 
     private final UserRepository userRepository;

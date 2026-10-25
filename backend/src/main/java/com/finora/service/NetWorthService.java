@@ -134,6 +134,13 @@ public class NetWorthService {
         return com.finora.util.UserZone.of(timezone);
     }
 
+    /** {@code accounts} without the cards whose amount owed is not known (see AmountOwedRule): a
+     *  balance summed from zero is not counted in any total until the user states it. */
+    private List<Account> statedOnly(UUID userId, List<Account> accounts) {
+        java.util.Set<UUID> unknown = amountOwedRule.unknownCardIds(userId, accounts);
+        return unknown.isEmpty() ? accounts : accounts.stream().filter(a -> !unknown.contains(a.getId())).toList();
+    }
+
     /**
      * Net worth as the sum of every account's own contribution, rather than
      * {@code assets.subtract(liabilities)} written out by hand here and in two other services.
@@ -143,13 +150,6 @@ public class NetWorthService {
      * {@link AccountBalanceConvention}). It also stays correct for a credit balance on a card,
      * which the subtraction form only handles by coincidence.
      */
-    /** {@code accounts} without the cards whose amount owed is not known (see AmountOwedRule): a
-     *  balance summed from zero is not counted in any total until the user states it. */
-    private List<Account> statedOnly(UUID userId, List<Account> accounts) {
-        java.util.Set<UUID> unknown = amountOwedRule.unknownCardIds(userId, accounts);
-        return unknown.isEmpty() ? accounts : accounts.stream().filter(a -> !unknown.contains(a.getId())).toList();
-    }
-
     private BigDecimal netWorthOf(List<Account> accounts) {
         return accounts.stream()
                 .map(a -> AccountBalanceConvention.netWorthContribution(a.getAccountType(), a.getBalance()))

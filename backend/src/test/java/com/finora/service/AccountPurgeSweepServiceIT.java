@@ -402,7 +402,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         assertThat(signupAttributionRepository.findById(userId)).isEmpty();
     }
 
-    /** Codes to send a statement from a computer (V292), same anonymize-not-delete trap: the
+    /** Codes to send a statement from a computer (V293), same anonymize-not-delete trap: the
      *  cascade on users never fires because the purge never deletes the user row. */
     @Test
     @Transactional

@@ -10,7 +10,7 @@ import java.util.UUID;
 
 /**
  * One code a user asked for on their phone to send a statement from a computer (Gate 2b spec §7,
- * V292). Read-only here: {@link StatementSendService} writes the rows with single SQL statements, so
+ * V293). Read-only here: {@link StatementSendService} writes the rows with single SQL statements, so
  * claiming a code is one atomic UPDATE rather than a read-then-save.
  */
 @Entity

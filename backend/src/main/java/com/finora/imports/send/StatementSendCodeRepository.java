@@ -11,6 +11,6 @@ public interface StatementSendCodeRepository extends JpaRepository<StatementSend
     Optional<StatementSendCode> findFirstByUserIdOrderByCreatedAtDesc(UUID userId);
 
     /** AccountPurgeSweepService -- hard delete. The purge anonymises the user row rather than
-     *  deleting it, so V292's ON DELETE CASCADE never fires on its own. */
+     *  deleting it, so V293's ON DELETE CASCADE never fires on its own. */
     void deleteByUserId(UUID userId);
 }

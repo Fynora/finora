@@ -7,7 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Deletes send-a-statement codes (V292) a day after they were issued. Every code is dead within
+ * Deletes send-a-statement codes (V293) a day after they were issued. Every code is dead within
  * minutes: used once, cancelled by the next, or expired after 10. Nothing reads one a day later --
  * the phone only ever shows its latest code, and the audit log (STATEMENT_SEND_CODE_ISSUED and
  * _USED) is the lasting record. The same reasoning and margin as EmailLoginOtpRetentionSweepService:

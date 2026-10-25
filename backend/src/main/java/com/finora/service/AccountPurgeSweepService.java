@@ -881,7 +881,7 @@ public class AccountPurgeSweepService {
             // Includes the very DELETION_CONFIRMED session that authorized this deletion.
             passwordChangeSessionRepository.deleteByUserId(userId);
             passwordResetTokenRepository.deleteByUserId(userId);
-            // Gate 2b spec §7 (V292): the codes this user asked for to send a statement from a
+            // Gate 2b spec §7 (V293): the codes this user asked for to send a statement from a
             // computer. Not exported, like reset tokens: a hash nobody can use is not their data.
             statementSendCodeRepository.deleteByUserId(userId);
             accountReactivationTokenRepository.deleteByUserId(userId);

@@ -123,4 +123,11 @@ class AmountOwedRuleTest {
         assertThat(rule.isUnknown(typedCard)).isFalse();
         verifyNoInteractions(repository);
     }
+
+    @Test
+    void theResultAnswersContainsForAnUnsavedAccount() {
+        Account unsaved = new Account();
+        unsaved.setAccountType(Account.Type.SAVINGS);
+        assertThat(rule.unknownCardIds(userId, List.of(unsaved)).contains(unsaved.getId())).isFalse();
+    }
 }

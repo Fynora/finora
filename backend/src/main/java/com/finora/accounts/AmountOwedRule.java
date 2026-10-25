@@ -49,7 +49,9 @@ public class AmountOwedRule {
         for (Account a : accounts) {
             if (nothingStated(a)) candidates.add(a.getId());
         }
-        if (candidates.isEmpty()) return Set.of();
+        // A mutable empty set, not Set.of(): callers ask contains(account.getId()), and Set.of()
+        // throws on a null id (an unsaved account, as in hand-built tests).
+        if (candidates.isEmpty()) return new HashSet<>();
         Map<UUID, Boolean> onlyAdded = new HashMap<>();
         for (StatementImportRepository.ImportMode m : statementImportRepository.findImportModesForUser(userId)) {
             if (!candidates.contains(m.getAccountId())) continue;

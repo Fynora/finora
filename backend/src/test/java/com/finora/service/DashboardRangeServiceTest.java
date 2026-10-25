@@ -52,7 +52,8 @@ class DashboardRangeServiceTest {
         reportService = mock(ReportService.class);
         statementReach = mock(StatementReachService.class);
         service = new DashboardRangeService(accountRepository, transactionRepository, userRepository,
-                netWorthSnapshotRepository, reportService, statementReach);
+                netWorthSnapshotRepository, reportService, statementReach,
+                new com.finora.accounts.AmountOwedRule(org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.class)));
 
         when(userRepository.findById(any())).thenReturn(Optional.empty());
         when(accountRepository.findByUserId(any())).thenReturn(List.of());

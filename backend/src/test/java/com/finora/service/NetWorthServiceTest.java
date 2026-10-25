@@ -57,7 +57,8 @@ class NetWorthServiceTest {
         snapshotRepository = mock(NetWorthSnapshotRepository.class);
         userRepository = mock(UserRepository.class);
         timelineEventService = mock(TimelineEventService.class);
-        service = new NetWorthService(accountRepository, snapshotRepository, userRepository, timelineEventService);
+        service = new NetWorthService(accountRepository, snapshotRepository, userRepository, timelineEventService,
+                new com.finora.accounts.AmountOwedRule(org.mockito.Mockito.mock(com.finora.repository.StatementImportRepository.class)));
 
         when(accountRepository.findByUserId(any())).thenReturn(List.of());
         when(snapshotRepository.findTopByUserIdOrderBySnapshotDateDesc(any())).thenReturn(Optional.empty());

@@ -235,7 +235,15 @@ public record DashboardSummaryDto(
          * them rather than hiding them. Null when every active account's statements reach the end
          * of the month, and always null for a month that is no longer one of the newest two.
          */
-        StatementBehindDto statementBehind
+        StatementBehindDto statementBehind,
+
+        /*
+         * How many credit cards were left out of totalLiabilities, netWorth and the health score
+         * because nothing ever stated what is owed on them (see AmountOwedRule): their balance was
+         * summed from zero off statements with no closing balance. A client says so under the
+         * totals. Zero when none.
+         */
+        int cardsWithUnknownAmountOwed
 ) {
     @Schema(name = "DashboardSummaryCategoryMover")
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}

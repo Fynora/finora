@@ -42,10 +42,13 @@ public class DashboardRangeService {
     private final NetWorthSnapshotRepository netWorthSnapshotRepository;
     private final ReportService reportService;
     private final StatementReachService statementReach;
+    private final com.finora.accounts.AmountOwedRule amountOwedRule;
 
     public DashboardRangeService(AccountRepository accountRepository, TransactionRepository transactionRepository,
                                   UserRepository userRepository, NetWorthSnapshotRepository netWorthSnapshotRepository,
-                                  ReportService reportService, StatementReachService statementReach) {
+                                  ReportService reportService, StatementReachService statementReach,
+                                  com.finora.accounts.AmountOwedRule amountOwedRule) {
+        this.amountOwedRule = amountOwedRule;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
         this.userRepository = userRepository;
@@ -67,6 +70,9 @@ public class DashboardRangeService {
         ZoneId zone = com.finora.util.UserZone.forUser(userRepository, userId);
         List<Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(Account::getId).toList();
+        // Cards whose amount owed nothing ever stated: left out of the live balance below (see
+        // AmountOwedRule), and counted so the client can say so.
+        java.util.Set<UUID> unknownAmountOwed = amountOwedRule.unknownCardIds(userId, accounts);
         // A row dated in the future anchors nothing: see ReportableDates.
         LocalDate through = ReportableDates.latestAllowed(LocalDate.now(zone));
         LocalDate earliestTxnDate = liveAccountIds.isEmpty() ? null
@@ -143,7 +149,7 @@ public class DashboardRangeService {
             // range's end is today or later -- the LIVE account balance IS the right answer here,
             // not a missing figure. Only ever a fallback for the CURRENT period; a genuinely
             // historical previousEnd with no snapshot has no live equivalent to fall back to.
-            currentBalance = netWorthOf(accounts);
+            currentBalance = netWorthOf(accounts.stream().filter(a -> !unknownAmountOwed.contains(a.getId())).toList());
             currentBalanceAsOf = today;
             currentBalanceGateReason = null;
         } else {
@@ -184,7 +190,8 @@ public class DashboardRangeService {
                 // Judged over the month the range ends in. A custom range that ends in an old month
                 // is not "so far" -- StatementReachService only looks at the newest two.
                 latestTxnDate == null ? null
-                        : statementReach.behindFor(userId, YearMonth.from(end), YearMonth.from(latestTxnDate)).orElse(null)
+                        : statementReach.behindFor(userId, YearMonth.from(end), YearMonth.from(latestTxnDate)).orElse(null),
+                unknownAmountOwed.size()
         );
     }
 

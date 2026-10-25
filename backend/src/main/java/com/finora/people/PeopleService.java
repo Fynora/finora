@@ -60,6 +60,7 @@ public class PeopleService {
     private final com.finora.repository.UserRepository users;
     private final com.finora.repository.InsightAcknowledgementRepository acknowledgements;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.finora.repository.CategoryRuleRepository categoryRules;
 
     public PeopleService(ShareLinkRepository shareLinks, SplitRuleRepository splitRules, LoanEntryRepository loanEntries,
                          PersonSettingRepository personSettings, PeoplePreferenceRepository preferences,
@@ -67,7 +68,8 @@ public class PeopleService {
                          PeopleLedgerService ledgers, TransactionService transactionService,
                          com.finora.repository.AccountRepository accounts, com.finora.repository.UserRepository users,
                          com.finora.repository.InsightAcknowledgementRepository acknowledgements,
-                         org.springframework.jdbc.core.JdbcTemplate jdbc) {
+                         org.springframework.jdbc.core.JdbcTemplate jdbc,
+                         com.finora.repository.CategoryRuleRepository categoryRules) {
         this.shareLinks = shareLinks;
         this.splitRules = splitRules;
         this.loanEntries = loanEntries;
@@ -81,6 +83,7 @@ public class PeopleService {
         this.users = users;
         this.acknowledgements = acknowledgements;
         this.jdbc = jdbc;
+        this.categoryRules = categoryRules;
     }
 
     /**
@@ -248,7 +251,14 @@ public class PeopleService {
             // The payment goes back to the category it had before the let-go filed it as a gift, unless
             // the user has chosen another since. A let-go from before V290 kept nothing to go back to.
             for (LoanEntry g : letGos) {
-                transactionService.restoreCategoryChoice(userId, g.getTxnId(), g.categoryBeforeLetGo(), g.getLetGoCategoryId());
+                Transaction.CategoryChoice before = g.categoryBeforeLetGo();
+                // The rule that filed it may have been deleted since: decision_rule_id references
+                // category_rules, so putting a deleted rule's id back failed the whole undo (measured).
+                // Without it, as Postgres leaves any row whose rule is deleted (ON DELETE SET NULL).
+                if (before != null && before.decisionRuleId() != null && !categoryRules.existsById(before.decisionRuleId())) {
+                    before = before.withoutRule();
+                }
+                transactionService.restoreCategoryChoice(userId, g.getTxnId(), before, g.getLetGoCategoryId());
             }
         });
     }

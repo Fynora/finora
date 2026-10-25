@@ -547,6 +547,11 @@ public class Transaction extends BaseEntity {
                     t.getDecisionSource(), t.getDecisionRuleId(), t.getDecisionConfidence());
         }
 
+        /** The same choice without its rule: what Postgres leaves on a row whose rule was deleted. */
+        public CategoryChoice withoutRule() {
+            return new CategoryChoice(categoryId, manuallySet, needsReview, decisionSource, null, decisionConfidence);
+        }
+
         public void applyTo(Transaction t) {
             t.setCategoryId(categoryId);
             t.setCategoryManuallySet(manuallySet);

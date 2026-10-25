@@ -240,6 +240,44 @@ class PeopleServiceIT extends AbstractIntegrationTest {
         assertThat(transactionRepository.findById(lent.getId()).orElseThrow().getCategoryId()).isEqualTo(giftId);
     }
 
+    @Autowired private com.finora.repository.CategoryRuleRepository categoryRuleRepository;
+
+    /** A payment filed by one of the user's rules, let go, and the rule deleted before the undo. The
+     *  kept decision names a rule that no longer exists (transactions.decision_rule_id references
+     *  category_rules): the undo must still go through, without the rule. */
+    @Test
+    void undoingALetGo_afterItsRuleWasDeleted_stillGoesBack() {
+        Category shopping = new Category();
+        shopping.setUserId(userId);
+        shopping.setName("Shopping");
+        shopping = categoryRepository.save(shopping);
+        com.finora.entity.CategoryRule rule = new com.finora.entity.CategoryRule();
+        rule.setUserId(userId);
+        rule.setScope(com.finora.entity.CategoryRule.Scope.USER);
+        rule.setField(com.finora.entity.CategoryRule.Field.DESCRIPTION);
+        rule.setOperator(com.finora.entity.CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("loan");
+        rule.setActionType(com.finora.entity.CategoryRule.ActionType.ASSIGN_CATEGORY);
+        rule.setActionValue("Shopping");
+        rule.setPriority(100);
+        rule.setEnabled(true);
+        rule = categoryRuleRepository.save(rule);
+        Transaction lent = txn(Transaction.Type.EXPENSE, 700, "vpa:neha.r", shopping.getId());
+        lent.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+        lent.setDecisionRuleId(rule.getId());
+        lent = transactionRepository.save(lent);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:neha.r", PeopleDtos.SettleHow.LET_GO));
+        categoryRuleRepository.delete(rule);
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        Transaction back = transactionRepository.findById(lent.getId()).orElseThrow();
+        assertThat(categoryName(back.getId())).isEqualTo("Shopping");
+        assertThat(back.getDecisionRuleId()).isNull();
+        assertThat(loanEntryRepository.findByUserIdAndTxnId(userId, lent.getId())).isEmpty();
+    }
+
     /** A payment with no category before the let-go goes back to having none. */
     @Test
     void undoingALetGo_ofAnUncategorisedPayment_clearsTheCategoryAgain() {

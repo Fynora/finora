@@ -122,6 +122,18 @@ describe('App routing — unmatched paths', () => {
   });
 });
 
+describe('App routing — /send is public (Gate 2b spec §7)', () => {
+  it('routeIsPublic: a signed-out visitor on /send stays there and sees the send page, never sign-in', async () => {
+    window.history.pushState({}, '', '/send');
+
+    const { container } = render(<App />);
+
+    await waitFor(() => expect(container.querySelector('h1')?.textContent).toBe('Send a statement to Fynora'));
+    expect(window.location.pathname).toBe('/send');
+    expect(document.head.querySelector('meta[name="robots"]')?.getAttribute('content')).toMatch(/noindex/);
+  });
+});
+
 describe('App routing — /login and /register redirect to /auth', () => {
   beforeEach(() => {
     window.history.pushState({}, '', '/');

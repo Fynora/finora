@@ -306,13 +306,29 @@ class CsvParserTest {
     }
 
     @Test
-    void parseDate_readsTwoDigitYearsAsThisCentury() {
-        // "26" is 2026, never 1926. Java resolves yy against a base of 2000, which is the right
-        // answer for a bank statement and is asserted rather than assumed -- the alternative
-        // reading would file transactions a century before the product existed, and would do it
-        // silently.
+    void parseDate_readsTwoDigitYearsAsTheNearestRecentYear() {
+        // "26" is 2026, never 1926. And "99" is 1999, not 2099: Java's own "yy" base of 2000 used to
+        // read it 73 years ahead, and a CSV row dated "02/07/99" imported that way with every check
+        // passing. A bank statement is a recent document, so a two-digit year is the year in the
+        // 100-year window that ends TWO_DIGIT_YEAR_YEARS_AHEAD years after this one.
         assertThat(CsvParser.parseDate("01/07/26").getYear()).isEqualTo(2026);
-        assertThat(CsvParser.parseDate("01/07/99").getYear()).isEqualTo(2099);
+        assertThat(CsvParser.parseDate("01/07/99").getYear()).isEqualTo(1999);
+        assertThat(CsvParser.parseDate("01 Jul 99").getYear()).isEqualTo(1999);
+        assertThat(CsvParser.parseDate("01-JUL-99").getYear()).isEqualTo(1999);
+        assertThat(CsvParser.parseDate("01-07-99").getYear()).isEqualTo(1999);
+    }
+
+    @Test
+    void parseDate_twoDigitYearWindowEndsTwentyYearsAhead() {
+        int last = java.time.LocalDate.now(java.time.ZoneOffset.UTC).getYear() + CsvParser.TWO_DIGIT_YEAR_YEARS_AHEAD;
+        String lastYy = String.format("%02d", last % 100);
+        String firstYy = String.format("%02d", (last + 1) % 100);
+        // The window's last year, and the year after it, which falls back a century.
+        assertThat(CsvParser.parseDate("01/07/" + lastYy).getYear()).isEqualTo(last);
+        assertThat(CsvParser.parseDate("01/07/" + firstYy).getYear()).isEqualTo(last - 99);
+        // The CSV path reads the numbers itself and must agree with the formatters exactly.
+        assertThat(CsvParser.parseDate("01/07/" + lastYy, CsvDateOrder.Order.DAY_FIRST).getYear()).isEqualTo(last);
+        assertThat(CsvParser.parseDate("01/07/" + firstYy, CsvDateOrder.Order.DAY_FIRST).getYear()).isEqualTo(last - 99);
     }
 
     @Test
@@ -381,9 +397,9 @@ class CsvParserTest {
     @Test
     void parseDate_twoDigitYearsKeepTheirRangeUnderStrictResolution() {
         // STRICT needs an era to resolve "yy"/"yyyy"; the formatters default it to CE. Both ends of
-        // the two-digit range must still land in 2000-2099.
+        // the two-digit range still resolve, inside the window.
         assertThat(CsvParser.parseDate("01/07/00")).isEqualTo(java.time.LocalDate.of(2000, 7, 1));
-        assertThat(CsvParser.parseDate("01/07/99")).isEqualTo(java.time.LocalDate.of(2099, 7, 1));
+        assertThat(CsvParser.parseDate("01/07/99")).isEqualTo(java.time.LocalDate.of(1999, 7, 1));
     }
 
     @Test
@@ -484,5 +500,63 @@ class CsvParserTest {
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
         assertThat(csvParser.readAll(new java.io.ByteArrayInputStream(ok))).hasSize(2);
+    }
+
+    // --- amount shapes (Sid's decision, 2026-10-24) ------------------------------------------------
+
+    @Test
+    void parseNumeric_readsATrailingMinusAsADebit() {
+        assertThat(CsvParser.parseNumeric("500.00-")).isEqualByComparingTo("-500.00");
+        assertThat(CsvParser.parseNumeric("1,250.50-")).isEqualByComparingTo("-1250.50");
+        // Only with a decimal part: "2026-" is a reference cut before a hyphen, not money.
+        assertThat(CsvParser.parseNumeric("2026-")).isNull();
+        // Never on top of another negative sign.
+        assertThat(CsvParser.parseNumeric("-500.00-")).isNull();
+        assertThat(CsvParser.parseNumeric("(500.00-)")).isNull();
+        assertThat(CsvParser.parseNumeric("500.00- Dr")).isNull();
+    }
+
+    @Test
+    void parseNumeric_readsANoBreakSpaceAsASpace() {
+        assertThat(CsvParser.parseNumeric("1\u00A0000.00")).isEqualByComparingTo("1000.00");
+        assertThat(CsvParser.parseNumeric("\u00A0500.00\u00A0")).isEqualByComparingTo("500.00");
+        assertThat(CsvParser.parseNumeric("1\u202F000.00")).isEqualByComparingTo("1000.00");
+        assertThat(CsvParser.parseNumeric("\u20B9\u00A01,000.00")).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void parseNumeric_readsTheUnicodeMinusSignAsAMinus() {
+        assertThat(CsvParser.parseNumeric("\u2212200.00")).isEqualByComparingTo("-200.00");
+        assertThat(CsvParser.parseNumeric("200.00\u2212")).isEqualByComparingTo("-200.00");
+    }
+
+    @Test
+    void parseNumeric_refusesBracketsWithACreditMarker() {
+        // The brackets say money out, the marker says money in: the cell contradicts itself.
+        assertThat(CsvParser.parseNumeric("(500) Cr")).isNull();
+        assertThat(CsvParser.parseNumeric("(500.00)(Cr)")).isNull();
+        // Brackets with a debit marker agree, and still read; the bracketed marker alone still reads.
+        assertThat(CsvParser.parseNumeric("(500) Dr")).isEqualByComparingTo("-500");
+        assertThat(CsvParser.parseNumeric("50000.00(Cr)")).isEqualByComparingTo("50000.00");
+        assertThat(CsvParser.parseNumeric("(1,234.00)")).isEqualByComparingTo("-1234.00");
+    }
+
+    @Test
+    void parseNumeric_refusesADecimalComma() {
+        // It used to read as 1.23456: the comma stripped as a group separator.
+        assertThat(CsvParser.parseNumeric("1.234,56")).isNull();
+        assertThat(CsvParser.parseNumeric("1.234.567,89")).isNull();
+        // Indian grouping, and "Rs." before the digits, are not a decimal comma.
+        assertThat(CsvParser.parseNumeric("1,00,000.00")).isEqualByComparingTo("100000.00");
+        assertThat(CsvParser.parseNumeric("Rs.1,000.00")).isEqualByComparingTo("1000.00");
+        assertThat(CsvParser.parseNumeric("Rs. 1,000.00")).isEqualByComparingTo("1000.00");
+    }
+
+    @Test
+    void parseNumeric_refusesScientificNotation() {
+        assertThat(CsvParser.parseNumeric("1.5E+3")).isNull();
+        assertThat(CsvParser.parseNumeric("1E+15")).isNull();
+        assertThat(CsvParser.parseNumeric("2.5e-2")).isNull();
+        assertThat(CsvParser.parseNumeric("1.23457E+11")).isNull();
     }
 }

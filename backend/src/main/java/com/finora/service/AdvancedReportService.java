@@ -73,9 +73,9 @@ public class AdvancedReportService {
     static final double CATEGORY_CHANGE_MIN_PCT = 20;
     /** ...and moved at least this share of the period's spending (percent). */
     static final double CATEGORY_CHANGE_MIN_SHARE_PCT = 2;
-    /** A purchase is "larger than usual" at this multiple of its category's median... */
+    /** A payment is "larger than usual" at this multiple of its category's median... */
     static final BigDecimal UNUSUAL_MULTIPLE = BigDecimal.valueOf(3);
-    /** ...with at least this many other purchases in the category to take the median over... */
+    /** ...with at least this many other payments in the category to take the median over... */
     static final int UNUSUAL_MIN_SAMPLES = 5;
     /** ...and at least this share of the period's spending (percent), so small spends are never flagged. */
     static final double UNUSUAL_MIN_SHARE_PCT = 5;
@@ -610,7 +610,7 @@ public class AdvancedReportService {
         if (!unusual.isEmpty()) {
             AdvancedUnusualSpend top = unusual.get(0);
             out.add(new AdvancedInsight("UNUSUAL_SPEND", "UNUSUAL_SPEND", "NEUTRAL",
-                    unusual.size() == 1 ? "1 purchase was larger than usual" : unusual.size() + " purchases were larger than usual",
+                    unusual.size() == 1 ? "1 payment was larger than usual" : unusual.size() + " payments were larger than usual",
                     top.label() + " was " + Rupees.format(top.amount()) + ", about " + top.timesTypical().stripTrailingZeros().toPlainString()
                             + " times the usual " + Rupees.format(top.typicalAmount()) + " for " + top.category() + ".",
                     new AdvancedDrill(period.start().atDay(1), period.end().atEndOfMonth(), top.category(), null)));

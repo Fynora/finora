@@ -67,6 +67,10 @@ const TYPE_ROUTE: Record<string, PushRoute> = {
   STATEMENT_REFRESH_AVAILABLE: 'Statements',
   // A statement correction support applied for the user: their corrected transactions are there.
   STATEMENT_CORRECTED_BY_SUPPORT: 'Statements',
+  // Gate 2b: the month-start nudge asks for a statement, so it opens the import screen. A 1.0.0 build
+  // has no entry for these and opens the app without routing, which the spec accepts.
+  STATEMENT_MONTH_START_FIRST: 'Import',
+  STATEMENT_MONTH_START_NEXT: 'Import',
 };
 
 function routeFor(message: RemoteMessage): PushRoute | null {

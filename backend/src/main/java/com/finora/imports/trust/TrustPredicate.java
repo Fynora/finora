@@ -30,7 +30,11 @@ import java.util.Set;
  *       are excluded: a wrong amount is a different defect from a missing row.</li>
  *   <li><b>A confirmed dropped transaction.</b> Only {@code PRE_HEADER_ACTIVITY_CANDIDATE}, the
  *       one dropped-row reason verified against real documents to mean a genuinely lost
- *       transaction rather than a merely unexplained row.</li>
+ *       transaction rather than a merely unexplained row. Also a CSV row with a date and an
+ *       amount that could not be read (Sid's decision, 2026-10-24): a transaction of unknown size,
+ *       so the statement's amounts are not confirmed. In a PDF only when that row left the
+ *       opening or closing balance not established and nothing printed filled it (Sid,
+ *       2026-10-25): a PDF's unread row can be a summary line rather than a transaction.</li>
  *   <li><b>Statement period integrity.</b> A period that ends before it starts, sits in the
  *       future, or spans more than {@value #MAX_PERIOD_DAYS} days did not come out of the
  *       document correctly.</li>
@@ -44,7 +48,12 @@ import java.util.Set;
  *   <li><b>Column ambiguity.</b> A cell the document itself did not settle -- two amounts in one
  *       column, or both a credit and a debit column claiming the same row. Real, evidenced to
  *       silently misread a genuine deposit as an expense; rare on the real corpus this was
- *       measured against before shipping (see the PR that added this).</li>
+ *       measured against before shipping (see the PR that added this). Also a CSV whose dates
+ *       did not settle whether they are day-first or month-first, on each row the two readings
+ *       would date differently ({@code ColumnAmbiguityValidator.DATE_ORDER_NOT_SETTLED}, Sid's
+ *       decision of 2026-10-24). Measured before it shipped, by scanning the text of every
+ *       statement in the real corpus: each one with numeric dates prints a day over 12, so none
+ *       would leave the order unsettled.</li>
  *   <li><b>Header-reconstruction uncertainty.</b> The parser had to guess-rebuild a header row it
  *       was not confident about -- a shaky header means the column-to-value mapping for the whole
  *       table is uncertain, not just one cell.</li>
@@ -194,6 +203,10 @@ public final class TrustPredicate {
                         reasons.add(r);
                         categories.add(Category.DROPPED_TRANSACTION);
                     });
+                    unreadableAmount(finding).ifPresent(r -> {
+                        reasons.add(r);
+                        categories.add(Category.DROPPED_TRANSACTION);
+                    });
                     balanceChainBroken(finding).ifPresent(r -> {
                         reasons.add(r);
                         categories.add(Category.BALANCE_CHAIN_DISCREPANCY);
@@ -252,6 +265,20 @@ public final class TrustPredicate {
             return Optional.of("A transaction was likely dropped before the header row");
         }
         return Optional.empty();
+    }
+
+    /**
+     * A row with a date and an amount that could not be read: a transaction of unknown size, left
+     * out of the rows. Sid's decision (2026-10-24, CSV; 2026-10-25, PDF): this holds, under the
+     * dropped-transaction category, because the statement's amounts are not confirmed while it is
+     * out. Which rows count differs by file type -- see
+     * {@link RowAccountingValidator#withUnreadableAmounts}.
+     */
+    private static Optional<String> unreadableAmount(ImportDto.VerificationFinding finding) {
+        if (!RowAccountingValidator.RULE.equals(finding.rule()) || finding.details() == null) return Optional.empty();
+        Object count = finding.details().get(RowAccountingValidator.UNREADABLE_AMOUNT_ROW_COUNT);
+        if (!(count instanceof Number n) || n.intValue() <= 0) return Optional.empty();
+        return Optional.of("A transaction's amount could not be read");
     }
 
     /** Only {@code FAILED}, never {@code WARNING} -- see the class doc for why a single

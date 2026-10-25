@@ -80,9 +80,11 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
 
     /** Nothing in it trips the trust predicate -- the same document HeldStatementServiceRerunIT
      *  uses for a statement that clears. */
+    // The coffee row is dated the 15th: a day over 12 settles the file's date order, which would
+    // otherwise hold it on its own (CsvDateOrder).
     private static final byte[] CLEAN_CSV = ("Date,Description,Amount,Balance\n"
             + "01/01/2026,Opening balance,,1000.00\n"
-            + "05/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
+            + "15/01/2026,Coffee shop,-150.00,850.00\n").getBytes(StandardCharsets.UTF_8);
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static final byte[] FUTURE_PERIOD_CSV = ("Date,Description,Amount,Balance,Statement Period\n"
@@ -154,6 +156,28 @@ class HeldStatementReuploadIT extends AbstractIntegrationTest {
                 .extracting(ImportSession::getId).contains(sessionId);
         assertThat(importSessionService.claimForConfirmation(owner.getId(), sessionId).getStatus())
                 .isEqualTo(ImportSession.STATUS_CONFIRMED);
+    }
+
+    /** Gate 2b (spec §5.3): what the review screen reads to say "Approved." first. */
+    private boolean approvedAfterReviewOf(User owner, UUID sessionId) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(
+                com.finora.testsupport.TestSessions.accessTokenFor(jwtService, refreshTokens, owner));
+        ResponseEntity<String> review = restTemplate.exchange(
+                "/api/v1/import/sessions/" + sessionId, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+        assertThat(review.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(review.getBody()).get("data").get("approvedAfterReview").asBoolean();
+    }
+
+    @Test
+    void theReviewSaysApprovedOnlyOnceTheReviewerApproves() throws Exception {
+        User owner = user();
+        ImportJob held = heldUpload(owner);
+        assertThat(approvedAfterReviewOf(owner, held.getImportSessionId())).as("still held").isFalse();
+
+        heldStatementService.approve(user().getId(), heldIdOf(held), null, null);
+
+        assertThat(approvedAfterReviewOf(owner, held.getImportSessionId())).as("approved").isTrue();
     }
 
     @Test

@@ -643,6 +643,8 @@ export const importApi = {
         staging: StagingResult;
         previousImport?: PreviousImport | null;
         freePlanLimit?: FreePlanLimitNotice | null;
+        // Gate 2b: true when a reviewer released this session after an accuracy hold.
+        approvedAfterReview?: boolean;
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
@@ -717,6 +719,22 @@ export interface ImportJobTimeline {
   resolutionMessage?: string | null;
   stages: ImportTimelineStage[];
 }
+
+/**
+ * Gate 2b spec §7: send a statement from a computer. The phone asks for a code (valid 10 minutes,
+ * once; a new one cancels the old) and watches for the file to arrive. The computer side is the
+ * public web page app.fynora.net/send.
+ */
+export type SendCodeState = 'NONE' | 'WAITING' | 'RECEIVED' | 'EXPIRED';
+export const sendCodesApi = {
+  // `id` names the code; `codeId` says which code a status is about, so a phone showing one code
+  // never reads another code's status as its own. Optional: an older backend sends neither.
+  issue: () =>
+    api.post<{ id?: string; code: string; expiresAt: string }>('/imports/send-codes').then((r) => r.data),
+  current: () =>
+    api.get<{ state: SendCodeState; importJobId: string | null; codeId?: string | null }>('/imports/send-codes/current')
+      .then((r) => r.data),
+};
 
 export const importJobsApi = {
   // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
@@ -2193,18 +2211,23 @@ export const billingApi = {
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
 };
 
-/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+/** GET/PUT /notification-preferences -- FINANCIAL on EMAIL/PUSH and REMINDERS on PUSH are exposed (see the backend's
  *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */
 export interface NotificationPreference {
-  category: 'FINANCIAL';
+  // REMINDERS (Gate 2b): the month-start statement reminder, PUSH only.
+  category: 'FINANCIAL' | 'REMINDERS';
   channel: 'EMAIL' | 'PUSH';
   enabled: boolean;
 }
 
+// The server lists REMINDERS only when asked (the 1.0.0 app draws one switch per channel, so it must
+// never see a second PUSH row). This build draws the reminders switch, so it always asks.
+const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS' } };
+
 export const notificationPreferencesApi = {
-  list: () => api.get<NotificationPreference[]>('/notification-preferences').then((r) => r.data),
-  set: (channel: NotificationPreference['channel'], enabled: boolean) =>
-    api.put<NotificationPreference[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+  list: () => api.get<NotificationPreference[]>('/notification-preferences', PREFERENCE_CATEGORIES).then((r) => r.data),
+  set: (category: NotificationPreference['category'], channel: NotificationPreference['channel'], enabled: boolean) =>
+    api.put<NotificationPreference[]>('/notification-preferences', { category, channel, enabled }, PREFERENCE_CATEGORIES)
       .then((r) => r.data),
 };
 

@@ -92,6 +92,19 @@ describe('CategoriesPanel', () => {
     expect(screen.getByTestId('category-other')).toHaveTextContent('8%');
   });
 
+  // A category can be money sent to people (Personal Transfer), which is not a purchase, so every
+  // row counts payments.
+  it('counts payments, never purchases, since a category can be money sent to people', () => {
+    const base = fixtureReport();
+    wrap(<CategoriesPanel report={fixtureReport({ categories: { ...base.categories, rows: [
+      { ...base.categories.rows[0], name: 'Personal Transfer', transactionCount: 1 },
+      { ...base.categories.rows[1], name: 'Food & Dining', transactionCount: 5 },
+    ] } })} />);
+    expect(screen.getByTestId('category-Personal Transfer')).toHaveTextContent(/(^|\D)1 payment(?!s)/);
+    expect(screen.getByTestId('category-Food & Dining')).toHaveTextContent('5 payments');
+    expect(screen.getByTestId('category-rows')).not.toHaveTextContent(/purchase/i);
+  });
+
   it('writes a share under one percent as "<1%", never "0%"', () => {
     const base = fixtureReport();
     wrap(<CategoriesPanel report={fixtureReport({ categories: { ...base.categories, rows: [{ ...base.categories.rows[0], sharePct: 0.4 }] } })} />);
@@ -119,6 +132,19 @@ describe('MerchantsPanel', () => {
     wrap(<MerchantsPanel report={fixtureReport()} />);
     expect(screen.getByTestId('merchant-coverage')).toHaveTextContent('62% of your spending is tied to a named merchant');
     expect(screen.getByTestId('merchant-coverage')).toHaveTextContent('take 45% of all your spending');
+  });
+
+  // A friend can rank here under their own name, and money sent to a person is not a purchase, so
+  // every row counts payments.
+  it('counts payments, never purchases, since a row can be a person', () => {
+    const base = fixtureReport();
+    wrap(<MerchantsPanel report={fixtureReport({ merchants: { ...base.merchants, rows: [
+      { ...base.merchants.rows[0], merchantId: 'm1', name: 'Sample Person', transactionCount: 1, logoDomain: null },
+      { ...base.merchants.rows[1], merchantId: 'm2', name: 'Swiggy', transactionCount: 30 },
+    ] } })} />);
+    expect(screen.getByTestId('merchant-Sample Person')).toHaveTextContent(/(^|\D)1 payment(?!s)/);
+    expect(screen.getByTestId('merchant-Swiggy')).toHaveTextContent('30 payments');
+    expect(screen.getByTestId('merchant-rows')).not.toHaveTextContent(/purchase/i);
   });
 
   it('has an empty state when no spending names a merchant', () => {
@@ -170,6 +196,9 @@ describe('UnusualSpends', () => {
     expect(screen.getByTestId('unusual-spends')).toHaveTextContent('about 9.6 times the usual ₹4,000');
     expect(screen.getByRole('link', { name: 'Open' })).toHaveAttribute('href', '/app/transactions?from=2026-08-17&to=2026-08-17&category=Travel');
     expect(screen.getByText(/not a sign that anything is wrong/)).toBeInTheDocument();
+    // Any expense can be flagged, money sent to a friend included, so the rule says payments.
+    expect(screen.getByText(/A payment shows here when it is at least three times the middle amount of your other payments in the same category/)).toBeInTheDocument();
+    expect(screen.queryByText(/purchase/i)).not.toBeInTheDocument();
   });
 });
 

@@ -105,16 +105,53 @@ public class RateLimiter {
      *  cannot be reached the answer comes from {@link #allowLocally} instead, so an outage
      *  degrades the limiter to per-instance rather than switching it off. */
     public boolean allow(String key) {
+        return reserve(key) != null;
+    }
+
+    /**
+     * Takes one slot in {@code key}'s window, atomically, and returns its id, or null when the window
+     * is already full. For a limiter that counts only failures (the send-a-statement code check):
+     * take a slot BEFORE trying the code and {@link #refund} it if the code works. A check that
+     * counted first and recorded later would let a burst of simultaneous wrong codes all pass the
+     * check before any of them was recorded. Same Redis fallback as {@link #allow}.
+     */
+    public String reserve(String key) {
         String redisKey = "ratelimit:" + limiterName + ":" + key;
+        String member = UUID.randomUUID().toString();
         try {
             Long result = redisTemplate.execute(ALLOW_SCRIPT, List.of(redisKey),
-                    String.valueOf(windowSeconds), String.valueOf(maxRequests), UUID.randomUUID().toString());
-            return result != null && result == 1L;
+                    String.valueOf(windowSeconds), String.valueOf(maxRequests), member);
+            return result != null && result == 1L ? member : null;
         } catch (DataAccessException e) {
             failureLog.warn("Redis unreachable for rate limiter '{}' -- counting in process until it is back: {}",
                     limiterName, e.toString());
-            return allowLocally(key);
+            return allowLocally(key) ? LOCAL_SLOT : null;
         }
+    }
+
+    /** Gives back a slot taken by {@link #reserve}, so it no longer counts. */
+    public void refund(String key, String slot) {
+        if (slot == null) return;
+        if (LOCAL_SLOT.equals(slot)) {
+            refundLocally(key);
+            return;
+        }
+        try {
+            redisTemplate.opsForZSet().remove("ratelimit:" + limiterName + ":" + key, slot);
+        } catch (DataAccessException e) {
+            failureLog.warn("Redis unreachable for rate limiter '{}' -- a refund was dropped: {}",
+                    limiterName, e.toString());
+        }
+    }
+
+    /** {@link #reserve}'s answer while Redis is unreachable: the slot lives in this process's window. */
+    static final String LOCAL_SLOT = "local";
+
+    void refundLocally(String key) {
+        fallbackWindows.computeIfPresent(key, (k, window) -> {
+            if (window[1] > 0) window[1]--;
+            return window;
+        });
     }
 
     /** Fixed window, same size and limit as the Redis script, on this instance's own clock. */
@@ -123,13 +160,19 @@ public class RateLimiter {
         if (fallbackWindows.size() > MAX_FALLBACK_KEYS) {
             fallbackWindows.clear();
         }
-        long[] window = fallbackWindows.compute(key, (k, current) -> {
+        // Like the Redis script, a refused request is not recorded: the count never passes the
+        // limit, so a refund always frees a slot.
+        boolean[] allowed = new boolean[1];
+        fallbackWindows.compute(key, (k, current) -> {
             if (current == null || nowSeconds - current[0] >= windowSeconds) {
-                return new long[]{nowSeconds, 1};
+                current = new long[]{nowSeconds, 0};
             }
-            current[1]++;
+            if (current[1] < maxRequests) {
+                current[1]++;
+                allowed[0] = true;
+            }
             return current;
         });
-        return window[1] <= maxRequests;
+        return allowed[0];
     }
 }

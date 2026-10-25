@@ -50,7 +50,7 @@ export function MerchantsPanel({ report, limit, onViewAll }: { report: AdvancedR
                     <div className="h-full rounded-full bg-primary" style={{ width: `${(m.amount / largest) * 100}%` }} />
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-3">
-                    <span className="text-2xs text-muted">{m.transactionCount} {m.transactionCount === 1 ? 'purchase' : 'purchases'}</span>
+                    <span className="text-2xs text-muted">{m.transactionCount} {m.transactionCount === 1 ? 'payment' : 'payments'}</span>
                     <span className="flex items-center gap-2">
                       <ChangeLine previousAmount={m.previousAmount} changeAmount={m.changeAmount} changePct={m.changePct} />
                       {!limit && <Sparkline values={m.monthly} />}

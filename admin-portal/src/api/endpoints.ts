@@ -780,6 +780,9 @@ export interface ActivationReport {
   /** UTM rows first (utmSource set), then every fixed bucket, zeros included. Not range-bound. */
   bySource: { kind: SignupSourceKind; utmSource: string | null; counts: Record<FunnelStep, number>; secondImport: ActivationSecondImport }[];
   secondImport: ActivationSecondImport;
+  /** Gate 2b: month-start nudges queued per IST month (YYYY-MM-01), and imports within 3 days of one.
+   *  Optional: absent from a backend deployed before it. */
+  monthStartNudges?: { month: string; nudgesSent: number; importedWithin3Days: number }[];
 }
 
 export const adminActivationApi = {
@@ -929,7 +932,8 @@ export const adminLayoutRegistryApi = {
   /** Rename, set the bank, or both. */
   updateProfile: (profileId: string, changes: { name?: string; bankId?: string }) =>
     api.patch<void>(`/admin/imports/layout-registry/profiles/${encodeURIComponent(profileId)}`, changes),
-  /** Banks users chose for layouts whose bank was unknown. Counts only. */
+  /** For layouts whose bank was unknown at staging: the bank each created account ended up with.
+   *  Counts only. Not a user choice until the import review asks for a bank. */
   bankChoices: () =>
     api.get<BankChoiceCount[]>('/admin/imports/layout-registry/bank-choices').then((r) => r.data),
   /** New imported accounts per week by where their bank came from, newest first. */

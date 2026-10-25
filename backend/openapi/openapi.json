@@ -343,6 +343,25 @@
                     "notification-preference-controller"
                 ],
                 "operationId": "list",
+                "parameters": [
+                    {
+                        "name": "categories",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "SECURITY",
+                                    "FINANCIAL",
+                                    "MARKETING",
+                                    "REMINDERS"
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -361,6 +380,25 @@
                     "notification-preference-controller"
                 ],
                 "operationId": "update_2",
+                "parameters": [
+                    {
+                        "name": "categories",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "SECURITY",
+                                    "FINANCIAL",
+                                    "MARKETING",
+                                    "REMINDERS"
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -2859,6 +2897,54 @@
                 }
             }
         },
+        "/api/v1/send": {
+            "post": {
+                "tags": [
+                    "public-send-controller"
+                ],
+                "operationId": "send",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendReceived"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/referrals/redeem": {
             "post": {
                 "tags": [
@@ -3821,6 +3907,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseInflowKindDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/imports/send-codes": {
+            "post": {
+                "tags": [
+                    "send-code-controller"
+                ],
+                "operationId": "issue",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendCodeIssued"
                                 }
                             }
                         }
@@ -10148,6 +10254,26 @@
                 }
             }
         },
+        "/api/v1/imports/send-codes/current": {
+            "get": {
+                "tags": [
+                    "send-code-controller"
+                ],
+                "operationId": "current_1",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendCodeStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/imports/capability-coverage": {
             "get": {
                 "tags": [
@@ -14084,6 +14210,7 @@
                 "properties": {
                     "lowBalanceThreshold": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.0
                     },
                     "theme": {
@@ -14194,7 +14321,9 @@
                         "type": "string"
                     },
                     "categoryName": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
                     },
                     "notes": {
                         "type": "string",
@@ -14546,7 +14675,8 @@
                         "enum": [
                             "SECURITY",
                             "FINANCIAL",
-                            "MARKETING"
+                            "MARKETING",
+                            "REMINDERS"
                         ]
                     },
                     "channel": {
@@ -14606,7 +14736,8 @@
                         "enum": [
                             "SECURITY",
                             "FINANCIAL",
-                            "MARKETING"
+                            "MARKETING",
+                            "REMINDERS"
                         ]
                     },
                     "channel": {
@@ -14632,6 +14763,7 @@
                     },
                     "monthlyLimit": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -14928,10 +15060,14 @@
                         "type": "string"
                     },
                     "balance": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "creditLimit": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "dueDate": {
                         "type": "string",
@@ -14968,20 +15104,28 @@
                         "minLength": 0
                     },
                     "principalAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "interestRate": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 9999.99,
+                        "minimum": -9999.99
                     },
                     "maturityDate": {
                         "type": "string",
                         "format": "date"
                     },
                     "maturityAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "installmentAmount": {
-                        "type": "number"
+                        "type": "number",
+                        "maximum": 999999999999.99,
+                        "minimum": -999999999999.99
                     },
                     "installmentsPaid": {
                         "type": "integer",
@@ -16715,7 +16859,9 @@
                         "format": "uuid"
                     },
                     "categoryName": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
                     },
                     "date": {
                         "type": "string",
@@ -18134,6 +18280,42 @@
                     }
                 }
             },
+            "ApiResponseStatementSendReceived": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendReceived"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendReceived": {
+                "type": "object",
+                "properties": {
+                    "received": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "RedeemMilestoneRequest": {
                 "type": "object",
                 "properties": {
@@ -18163,6 +18345,7 @@
                 "properties": {
                     "merchant": {
                         "type": "string",
+                        "maxLength": 255,
                         "minLength": 1
                     }
                 },
@@ -18175,6 +18358,7 @@
                 "properties": {
                     "merchant": {
                         "type": "string",
+                        "maxLength": 255,
                         "minLength": 1
                     }
                 },
@@ -18188,12 +18372,12 @@
                     "merchant": {
                         "type": "string",
                         "maxLength": 255,
-                        "minLength": 0
+                        "minLength": 1
                     },
                     "category": {
                         "type": "string",
-                        "maxLength": 100,
-                        "minLength": 0
+                        "maxLength": 80,
+                        "minLength": 1
                     }
                 },
                 "required": [
@@ -18332,6 +18516,7 @@
                     },
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -18435,6 +18620,7 @@
                     },
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -18998,6 +19184,50 @@
                     }
                 }
             },
+            "ApiResponseStatementSendCodeIssued": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendCodeIssued"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendCodeIssued": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
             "ApiResponsePdfStagingSessionResponse": {
                 "type": "object",
                 "properties": {
@@ -19422,6 +19652,9 @@
                     },
                     "freePlanLimit": {
                         "$ref": "#/components/schemas/FreePlanLimitNotice"
+                    },
+                    "approvedAfterReview": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -19430,14 +19663,18 @@
                 "properties": {
                     "name": {
                         "type": "string",
-                        "minLength": 1
+                        "maxLength": 120,
+                        "minLength": 1,
+                        "pattern": "[^\\x00-\\x1F\\x7F]*"
                     },
                     "targetAmount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     },
                     "currentAmount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.0
                     },
                     "targetDate": {
@@ -19505,6 +19742,7 @@
                 "properties": {
                     "amount": {
                         "type": "number",
+                        "maximum": 999999999999.99,
                         "minimum": 0.01
                     }
                 },
@@ -26057,6 +26295,50 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseStatementSendCodeStatus": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendCodeStatus"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendCodeStatus": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string"
+                    },
+                    "importJobId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "codeId": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 }
             },
@@ -33503,6 +33785,23 @@
                     }
                 }
             },
+            "ActivationNudgeMonth": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "nudgesSent": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "importedWithin3Days": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ActivationReportDto": {
                 "type": "object",
                 "properties": {
@@ -33558,6 +33857,12 @@
                     },
                     "secondImport": {
                         "$ref": "#/components/schemas/ActivationSecondImport"
+                    },
+                    "monthStartNudges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationNudgeMonth"
+                        }
                     }
                 }
             },

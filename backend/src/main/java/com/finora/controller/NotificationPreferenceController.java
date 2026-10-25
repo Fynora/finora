@@ -9,10 +9,12 @@ import com.finora.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -38,15 +40,28 @@ public class NotificationPreferenceController {
             @NotNull NotificationChannel channel, @NotNull Boolean enabled) {
     }
 
+    /**
+     * @param categories which categories to list; FINANCIAL alone when absent. Gate 2b: clients that
+     *     draw the REMINDERS switch ask for {@code FINANCIAL,REMINDERS}; older ones ask for nothing and
+     *     see exactly what they always saw (NotificationPreferenceService#list(UUID, Set)).
+     */
     @GetMapping
-    public ApiResponse<List<PreferenceView>> list() {
-        return ApiResponse.ok(service.list(currentUser.id()));
+    public ApiResponse<List<PreferenceView>> list(
+            @RequestParam(value = "categories", required = false) List<NotificationCategory> categories) {
+        return ApiResponse.ok(service.list(currentUser.id(), listed(categories)));
     }
 
     @PutMapping
     public ApiResponse<List<PreferenceView>> update(
-            @Valid @RequestBody UpdatePreferenceRequest request) {
+            @Valid @RequestBody UpdatePreferenceRequest request,
+            @RequestParam(value = "categories", required = false) List<NotificationCategory> categories) {
         return ApiResponse.ok(service.set(currentUser.id(), request.category(), request.channel(),
-                request.enabled()), "Notification preference saved");
+                request.enabled(), listed(categories)), "Notification preference saved");
+    }
+
+    private static Set<NotificationCategory> listed(List<NotificationCategory> categories) {
+        return categories == null || categories.isEmpty()
+                ? Set.of(NotificationCategory.FINANCIAL)
+                : Set.copyOf(categories);
     }
 }

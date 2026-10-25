@@ -88,7 +88,8 @@ class AuthServiceRegisterTest {
                 // unstubbed mock's isEnabled() returns false by default.
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
-                mock(com.finora.service.SignupAttributionService.class)
+                mock(com.finora.service.SignupAttributionService.class),
+                mock(com.finora.service.AccountRequestThrottle.class)
         );
     }
 

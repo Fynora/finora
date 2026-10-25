@@ -5,8 +5,8 @@ import { fmt, shortDate } from '../reportSections/reportFormat';
 import { ledgerHref } from './advancedFormat';
 
 /**
- * Purchases that were much larger than is usual for their category, by a rule written on the card:
- * at least three times the median of that category's other purchases. It says "larger than usual",
+ * Payments that were much larger than is usual for their category, by a rule written on the card:
+ * at least three times the median of that category's other payments. It says "larger than usual",
  * never "wrong": a big one-off is often exactly what the money was for. Left out when there are none.
  */
 export function UnusualSpends({ items }: { items: AdvancedUnusualSpend[] }) {
@@ -35,7 +35,7 @@ export function UnusualSpends({ items }: { items: AdvancedUnusualSpend[] }) {
         ))}
       </ul>
       <p className="mt-3 text-xs text-muted">
-        A purchase shows here when it is at least three times the middle amount of your other purchases in the same category, and a meaningful part of the period's spending. It is a prompt to look, not a sign that anything is wrong.
+        A payment shows here when it is at least three times the middle amount of your other payments in the same category, and a meaningful part of the period's spending. It is a prompt to look, not a sign that anything is wrong.
       </p>
     </FinoraCard>
   );

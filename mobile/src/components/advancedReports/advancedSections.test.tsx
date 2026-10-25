@@ -98,6 +98,19 @@ describe('CategoryList', () => {
     expect(screen.queryByLabelText('Sort by change')).toBeNull();
   });
 
+  // A category can be money sent to people (Personal Transfer), which is not a purchase, so every
+  // row counts payments.
+  it('counts payments, never purchases, since a category can be money sent to people', () => {
+    const base = fixtureReport();
+    wrap(<CategoryList report={fixtureReport({ categories: { ...base.categories, rows: [
+      { ...base.categories.rows[0], name: 'Personal Transfer', transactionCount: 1 },
+      { ...base.categories.rows[1], name: 'Food & Dining', transactionCount: 5 },
+    ] } })} onOpen={open} />);
+    expect(screen.getByText('1 payment')).toBeTruthy();
+    expect(screen.getByText('5 payments')).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
+  });
+
   it('writes a share under one percent as "<1%"', () => {
     const base = fixtureReport();
     wrap(<CategoryList report={fixtureReport({ categories: { ...base.categories, rows: [{ ...base.categories.rows[0], sharePct: 0.4 }] } })} onOpen={open} />);
@@ -117,6 +130,19 @@ describe('MerchantList', () => {
     wrap(<MerchantList report={fixtureReport({ merchants: { ...base.merchants, rows: [], merchantCount: 0 } })} onOpen={open} />);
     expect(screen.getByText(/No merchant spending yet/)).toBeTruthy();
     expect(screen.queryByTestId('merchant-coverage')).toBeNull();
+  });
+
+  // A friend can rank here under their own name, and money sent to a person is not a purchase, so
+  // every row counts payments.
+  it('counts payments, never purchases, since a row can be a person', () => {
+    const base = fixtureReport();
+    wrap(<MerchantList report={fixtureReport({ merchants: { ...base.merchants, rows: [
+      { ...base.merchants.rows[0], merchantId: 'm1', name: 'Sample Person', transactionCount: 1, logoDomain: null },
+      { ...base.merchants.rows[1], merchantId: 'm2', name: 'Swiggy', transactionCount: 30 },
+    ] } })} onOpen={open} />);
+    expect(screen.getByText('1 payment')).toBeTruthy();
+    expect(screen.getByText('30 payments')).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
   });
 
   // A friend or a small vendor can rank here under their own name (every payment gets a merchant
@@ -172,6 +198,9 @@ describe('UnusualList', () => {
     wrap(<UnusualList items={[{ transactionId: 't1', date: '2026-08-17', label: 'IndiGo', category: 'Travel', amount: 38400, typicalAmount: 4000, timesTypical: 9.6, sampleSize: 6 }]} onOpen={open} />);
     expect(screen.getByText(/about 9.6 times the usual ₹4,000/)).toBeTruthy();
     expect(screen.getByText(/not a sign that anything is wrong/)).toBeTruthy();
+    // Any expense can be flagged, money sent to a friend included, so the rule says payments.
+    expect(screen.getByText(/A payment shows here when it is at least three times the middle amount of your other payments in the same category/)).toBeTruthy();
+    expect(screen.queryByText(/purchase/i)).toBeNull();
 
     fireEvent.press(screen.getByLabelText(/IndiGo, ₹38,400/));
 

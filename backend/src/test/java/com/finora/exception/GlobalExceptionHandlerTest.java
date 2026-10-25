@@ -205,10 +205,37 @@ class GlobalExceptionHandlerTest {
         Environment environment = mock(Environment.class);
         GlobalExceptionHandler handler = new GlobalExceptionHandler(environment, mock(RefreshTokenCookie.class));
 
-        var response = handler.handleMalformedRequestBody();
+        var response = handler.handleMalformedRequestBody(new org.springframework.http.converter.HttpMessageNotReadableException(
+                "truncated", new org.springframework.mock.http.MockHttpInputMessage(new byte[0])));
 
         assertThat(response.getStatusCode().value()).isEqualTo(400);
         assertThat(response.getBody().errorCode()).isEqualTo("MALFORMED_REQUEST_BODY");
+    }
+
+    /**
+     * SQLSTATE class 22 ("data exception": numeric overflow, text too long, U+0000, date out of
+     * range) is a value the column cannot hold, so "refresh and try again" can never help. A
+     * unique-key race (class 23) keeps its 409.
+     */
+    @Test
+    void handleDataIntegrityViolation_aValueTheColumnCannotHold_is400_aUniqueKeyRaceStays409() {
+        Environment environment = mock(Environment.class);
+        GlobalExceptionHandler handler = new GlobalExceptionHandler(environment, mock(RefreshTokenCookie.class));
+        var request = new org.springframework.mock.web.MockHttpServletRequest("POST", "/api/v1/accounts");
+
+        for (String state : new String[]{"22003", "22001", "22021", "22008", "22P03"}) {
+            var ex = new org.springframework.dao.DataIntegrityViolationException("could not execute",
+                    new RuntimeException("wrapper", new java.sql.SQLException("value refused", state)));
+            var response = handler.handleDataIntegrityViolation(ex, request);
+            assertThat(response.getStatusCode().value()).as(state).isEqualTo(400);
+            assertThat(response.getBody().errorCode()).as(state).isEqualTo("VAL_002");
+        }
+
+        var race = new org.springframework.dao.DataIntegrityViolationException("duplicate",
+                new java.sql.SQLException("duplicate key", "23505"));
+        assertThat(handler.handleDataIntegrityViolation(race, request).getStatusCode().value()).isEqualTo(409);
+        var noState = new org.springframework.dao.DataIntegrityViolationException("no cause");
+        assertThat(handler.handleDataIntegrityViolation(noState, request).getStatusCode().value()).isEqualTo(409);
     }
 
     // ---------------------------------------------------------------- userActionRequired (§1, Sprint 4 item 22)

@@ -53,7 +53,7 @@ export function CategoryList({
         return (
           <RankedRow
             key={r.name} testID={`category-${r.name}`} label={r.name} amount={r.amount} share={r.sharePct} bar={largest}
-            detail={`${r.transactionCount} ${r.transactionCount === 1 ? 'purchase' : 'purchases'}`}
+            detail={`${r.transactionCount} ${r.transactionCount === 1 ? 'payment' : 'payments'}`}
             change={<ChangeText previousAmount={r.previousAmount} changeAmount={r.changeAmount} changePct={r.changePct} />}
             accessibilityLabel={`${r.name}: ${fmtCurrency(r.amount)}, ${shareText(r.sharePct)} of spending${change ? `, ${change}` : ''}`}
             onPress={span ? () => onOpen({ ...span, label: r.name, ...(r.name !== 'Uncategorized' ? { categoryName: r.name } : {}) }) : undefined}

@@ -1,6 +1,7 @@
 package com.finora.imports;
 
 import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -70,20 +71,15 @@ public final class StatementUpload {
      */
     public static void requireReadable(MultipartFile file, Format expected) {
         if (file == null || file.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST,
-                    "No file was uploaded, or the file is empty.");
+            throw new ApiException(ErrorCode.IMPORT_EMPTY_FILE);
         }
 
+        // One code and one message for both mismatches: which endpoint was reached is not something
+        // the user chose (both apps pick it from the file name), so "upload it as a PDF instead"
+        // was advice nobody could follow without renaming the file.
         boolean looksLikePdf = startsWithPdfMagic(file);
-        if (expected == Format.PDF && !looksLikePdf) {
-            throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                    "This endpoint reads PDF statements, and this file is not a PDF. "
-                            + "If it is a CSV or spreadsheet export, upload it as a CSV instead.");
-        }
-        if (expected == Format.CSV && looksLikePdf) {
-            throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                    "This file is a PDF, and this endpoint reads CSV statements. "
-                            + "Upload it as a PDF statement instead.");
+        if ((expected == Format.PDF) != looksLikePdf) {
+            throw new ApiException(ErrorCode.IMPORT_WRONG_FILE_TYPE);
         }
     }
 

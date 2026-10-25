@@ -48,6 +48,15 @@ public class StatementValidator {
         LocalDate dueDate;
         boolean creditCardSignals;
         final List<BalanceObservation> balanceObservations = new ArrayList<>();
+        /** The order this file's numeric dates are read in (CsvDateOrder), so the due date and the
+         *  printed period are read the same way as the transactions. Null reads per cell. */
+        CsvDateOrder.Order dateOrder;
+        /** Rows with a date whose amount could not be read -- see scanRowWithUnreadableAmount. */
+        final List<BalanceSequenceResolver.UnreadAmountRow> unreadableAmountRows = new ArrayList<>();
+
+        public void readDatesAs(CsvDateOrder.Order order) {
+            this.dateOrder = order;
+        }
     }
 
     /** One row's running-balance observation, kept alongside its transaction date and signed
@@ -68,6 +77,23 @@ public class StatementValidator {
      * on that same row are otherwise unremarkable, so this runs on every row regardless of
      * whether it parsed as a transaction (parsedRow is null when it didn't).
      */
+    /**
+     * {@link #scanRow} for a row whose date was read but whose amount was not.
+     *
+     * <p>Its running balance is real, but what moved it is unknown, so it is kept out of the
+     * balance observations the opening and closing balances are derived from. It used to go in
+     * with the balance itself standing in as the amount (the normaliser's fallback), so a first
+     * row reading "abc" with a balance of 9,700.00 gave an opening balance of 19,400.00 -- the
+     * balance minus a debit of itself. Only its date and balance are kept, so
+     * {@link #buildDetectedAccountInfo} can tell when it sits at either end of the statement.
+     */
+    public void scanRowWithUnreadableAmount(Map<String, String> row, LocalDate date, AccountSignalAccumulator acc) {
+        String balanceRaw = CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance");
+        BigDecimal balance = TransactionNormalizer.withBalanceDirection(row, CsvParser.parseNumeric(balanceRaw));
+        acc.unreadableAmountRows.add(new BalanceSequenceResolver.UnreadAmountRow(date, balance));
+        scanRow(row, null, acc);
+    }
+
     public void scanRow(Map<String, String> row, StagedRow parsedRow, AccountSignalAccumulator acc) {
         if (parsedRow != null) {
             String balanceRaw = CsvParser.firstNonBlank(row, "balance", "running balance", "closing balance");
@@ -100,7 +126,7 @@ public class StatementValidator {
         }
         if (acc.dueDate == null) {
             String dueRaw = CsvParser.firstNonBlank(row, "due date", "payment due date");
-            if (dueRaw != null) acc.dueDate = CsvParser.parseDate(dueRaw.trim());
+            if (dueRaw != null) acc.dueDate = CsvParser.parseDate(dueRaw.trim(), acc.dateOrder);
         }
         // "reward point header" and "billingamountsign" are columns of ICICI Bank's credit-card CSV
         // export, which prints no card number or dues. Without them that export was suggested as a
@@ -167,7 +193,7 @@ public class StatementValidator {
         // until now purely because nothing had re-checked it once the PDF path changed. This is
         // exactly what was printed, or genuinely null when nothing was, never a guess reconstructed
         // from the rows -- the same precedence as the PDF path, not just the same intent.
-        LocalDate[] printedPeriod = printedStatementPeriod(allRows, headerIdx);
+        LocalDate[] printedPeriod = printedStatementPeriod(allRows, headerIdx, acc == null ? null : acc.dateOrder);
         LocalDate statementStart = printedPeriod[0];
         LocalDate statementEnd = printedPeriod[1];
 
@@ -183,8 +209,11 @@ public class StatementValidator {
         // returns no opening/closing balance at all -- rather than a guess -- when a day's ordering
         // genuinely cannot be determined.
         BalanceSequenceResolver.Resolution resolution = BalanceSequenceResolver.resolve(acc.balanceObservations);
-        BigDecimal openingBalance = resolution.openingBalance();
-        BigDecimal closingBalance = resolution.closingBalance();
+        // Around any row whose amount could not be read -- see BalanceSequenceResolver.edgesAround.
+        BalanceSequenceResolver.Edges edges = BalanceSequenceResolver.edgesAround(
+                resolution, acc.balanceObservations, acc.unreadableAmountRows);
+        BigDecimal openingBalance = edges.opening();
+        BigDecimal closingBalance = edges.closing();
 
         List<String> bankTextHints = collectBankTextHints(allRows, headerIdx);
         BankRegistry.BankInfo bank = BankRegistry.detect(filename, bankTextHints);
@@ -257,7 +286,7 @@ public class StatementValidator {
      * {@link CsvParser#parseDate} so this understands exactly the formats the rest of the CSV
      * pipeline does, rather than growing a second, quietly different date vocabulary.
      */
-    private LocalDate[] printedStatementPeriod(List<String[]> allRows, int headerIdx) {
+    private LocalDate[] printedStatementPeriod(List<String[]> allRows, int headerIdx, CsvDateOrder.Order order) {
         LocalDate[] none = new LocalDate[]{null, null};
         if (allRows == null || headerIdx < 0 || headerIdx >= allRows.size()) return none;
 
@@ -279,8 +308,8 @@ public class StatementValidator {
 
             String[] parts = value.trim().split("(?i)\\s+to\\s+|\\s+-\\s+|\\s+–\\s+");
             if (parts.length < 2) return none;
-            LocalDate start = CsvParser.parseDate(parts[0].trim());
-            LocalDate end = CsvParser.parseDate(parts[1].trim());
+            LocalDate start = CsvParser.parseDate(parts[0].trim(), order);
+            LocalDate end = CsvParser.parseDate(parts[1].trim(), order);
             // Both or neither: half a period is worse than none, because the missing half would
             // silently fall back to a transaction date and produce a range that never appeared on
             // the statement at all.

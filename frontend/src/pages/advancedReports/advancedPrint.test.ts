@@ -86,6 +86,15 @@ describe('advancedPrintBody: what it qualifies', () => {
   });
 });
 
+describe('advancedPrintBody: who you paid most', () => {
+  // A friend can rank among the merchants, and money sent to a person is not a purchase.
+  it('heads the merchant count "Payments", never "Purchases"', () => {
+    const html = body();
+    expect(html).toContain('Payments</th>');
+    expect(html).not.toMatch(/purchases<\/th>/i);
+  });
+});
+
 describe('advancedPrintBody: the charts', () => {
   it('draws money in and out for every month of the period', () => {
     const html = body();
@@ -181,8 +190,8 @@ describe('advancedPrintBody: the sections', () => {
   it('explains how its figures are made, by the rules the server applies', () => {
     const html = body();
     expect(html).toContain('About this report');
-    expect(html).toContain('at least three times the typical purchase in its category');
-    expect(html).toContain('at least five other purchases');
+    expect(html).toContain('A payment is marked larger than usual when it is at least three times the typical payment in its category');
+    expect(html).toContain('at least five other payments');
     expect(html).toContain('at least 5% of the period');
     expect(html).toContain('Transfers to your own investments are not counted');
   });

@@ -188,13 +188,24 @@ function useProfileBanks(): BankDto[] {
   return (banksQ.data ?? []).filter((b) => b.id !== 'OTHER');
 }
 
-/** "Users chose: HDFC Bank 2 · Other bank 1" for one layout, or nothing when no one chose. */
-function UsersChose({ fingerprint, choices }: { fingerprint: string; choices: BankChoiceCount[] }) {
+/**
+ * "Accounts created as: HDFC Bank 2 · Other bank 1" for one layout whose bank was unknown, or
+ * nothing when no import of it created an account.
+ *
+ * Each count is the bank the created account ended up with, not something the user picked: the
+ * web and mobile import reviews do not ask for a bank yet, they send back whatever staging
+ * detected. So "Other bank" here means nobody named the bank, and must not be read as a user
+ * saying their bank is missing from a list.
+ */
+function CreatedAccountBanks({ fingerprint, choices }: { fingerprint: string; choices: BankChoiceCount[] }) {
   const mine = choices.filter((c) => c.fingerprint === fingerprint);
   if (mine.length === 0) return null;
   return (
-    <p className="mt-1 text-[11px] text-muted">
-      {`Users chose: ${mine.map((c) => `${c.bankName} ${c.count}`).join(' · ')}`}
+    <p
+      className="mt-1 text-[11px] text-muted"
+      title="The bank each account imported from this layout ended up with. The import review does not ask for a bank yet, so this is not a choice: Other bank means no one named it."
+    >
+      {`Accounts created as: ${mine.map((c) => `${c.bankName} ${c.count}`).join(' · ')}`}
     </p>
   );
 }
@@ -289,7 +300,7 @@ export function ReviewQueuePanel() {
                   <td className="p-3 font-mono text-xs text-ink whitespace-nowrap">{entry.fingerprint}</td>
                   <td className="p-3">
                     <ReasonChips reasons={entry.reviewReasons} sources={entry.reviewReasonSources ?? {}} />
-                    <UsersChose fingerprint={entry.fingerprint} choices={choicesQ.data ?? []} />
+                    <CreatedAccountBanks fingerprint={entry.fingerprint} choices={choicesQ.data ?? []} />
                   </td>
                   <td className="p-3 text-xs text-muted">{formatWhen(entry.reviewFlaggedAt)}</td>
                   <td className="p-3 font-mono text-xs text-muted">{entry.reviewAnalysisReference ?? '—'}</td>

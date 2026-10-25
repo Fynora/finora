@@ -121,18 +121,62 @@ public class ImportVerifier {
                                                    List<java.util.Map<String, String>> locatedRows,
                                                    List<UnparseableRow> unparseableRows,
                                                    int[] displayedPositionOfLocatedRow) {
+        return verifyCsv(rows, openingBalance, closingBalance, locatedRows, unparseableRows,
+                displayedPositionOfLocatedRow, null, 0);
+    }
+
+    /**
+     * {@link #verifyCsv(List, BigDecimal, BigDecimal, List, List, int[])} with the file's date
+     * order: when nothing in the file settled it, every row whose date the other order would read
+     * differently is reported by the column-ambiguity rule, which holds the file for review.
+     *
+     * @param dateOrder the file's {@link CsvDateOrder} decision, or null when none was made
+     * @param unreadableAmountRows dated rows whose amount could not be read -- see
+     *                             {@link RowAccountingValidator#withUnreadableAmounts}
+     */
+    public ImportDto.VerificationReport verifyCsv(List<StagedRow> rows, BigDecimal openingBalance,
+                                                   BigDecimal closingBalance,
+                                                   List<java.util.Map<String, String>> locatedRows,
+                                                   List<UnparseableRow> unparseableRows,
+                                                   int[] displayedPositionOfLocatedRow,
+                                                   CsvDateOrder.Decision dateOrder,
+                                                   int unreadableAmountRows) {
         ImportDto.VerificationReport report = verify(rows, openingBalance, closingBalance);
-        ImportDto.VerificationFinding ambiguity =
-                columnAmbiguityValidator.check(locatedRows, unparseableRows, displayedPositionOfLocatedRow);
+        ImportDto.VerificationFinding ambiguity = columnAmbiguityValidator.check(
+                locatedRows, unparseableRows, displayedPositionOfLocatedRow, dateOrder);
         // No dropped candidates: a CSV row is either a data row under the header (located) or blank.
-        ImportDto.VerificationFinding rowAccounting = rowAccountingValidator.check(rows, unparseableRows,
-                List.of(), locatedRows == null ? 0 : locatedRows.size());
+        ImportDto.VerificationFinding rowAccounting = RowAccountingValidator.withUnreadableAmounts(
+                rowAccountingValidator.check(rows, unparseableRows, List.of(), locatedRows == null ? 0 : locatedRows.size()),
+                unreadableAmountRows);
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
         for (ImportDto.VerificationFinding finding : report.findings()) {
             if (ColumnAmbiguityValidator.RULE.equals(finding.rule())) findings.add(ambiguity);
             else if (RowAccountingValidator.RULE.equals(finding.rule())) findings.add(rowAccounting);
             else findings.add(finding);
         }
+        return reassembled(report, findings);
+    }
+
+    /**
+     * {@code report} with its row-accounting finding carrying rows whose amount could not be read
+     * -- see {@link RowAccountingValidator#withUnreadableAmounts}, whose warning the trust gate holds
+     * on. The PDF path calls this only when such a row left the opening or closing balance not
+     * established and the statement printed none to fill it; see the call in
+     * {@code PdfPreviewGenerator}. The status is re-derived, as {@link #verifyCsv} does.
+     */
+    public static ImportDto.VerificationReport withUnreadableAmounts(ImportDto.VerificationReport report,
+                                                                     int unreadableAmountRows) {
+        if (report == null || unreadableAmountRows <= 0) return report;
+        List<ImportDto.VerificationFinding> findings = new ArrayList<>();
+        for (ImportDto.VerificationFinding finding : report.findings()) {
+            findings.add(RowAccountingValidator.RULE.equals(finding.rule())
+                    ? RowAccountingValidator.withUnreadableAmounts(finding, unreadableAmountRows) : finding);
+        }
+        return reassembled(report, findings);
+    }
+
+    private static ImportDto.VerificationReport reassembled(ImportDto.VerificationReport report,
+                                                            List<ImportDto.VerificationFinding> findings) {
         List<ImportDto.VerificationFinding> assembled = List.copyOf(findings);
         TextSource textSource = report.textSource() == null ? null : TextSource.valueOf(report.textSource());
         return new ImportDto.VerificationReport(assembled, report.headerReconstructionUncertain(),

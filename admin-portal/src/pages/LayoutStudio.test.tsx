@@ -221,7 +221,7 @@ describe('LayoutStudio', () => {
     });
 
     it('describes every refusal the backend records, and an unknown one by its code', () => {
-      for (const code of ['HTTP_400', 'HTTP_415', 'UPLOAD_TOO_LARGE', 'UPLOAD_MALWARE_DETECTED', 'UPLOAD_SCANNER_UNAVAILABLE',
+      for (const code of ['IMPORT_EMPTY_FILE', 'IMPORT_WRONG_FILE_TYPE', 'HTTP_400', 'HTTP_415', 'UPLOAD_TOO_LARGE', 'UPLOAD_MALWARE_DETECTED', 'UPLOAD_SCANNER_UNAVAILABLE',
         'IMPORT_SYSTEM_BUSY', 'IMPORT_PDF_PASSWORD_REQUIRED', 'IMPORT_PDF_PASSWORD_INVALID']) {
         const term = describeRefusal(code);
         expect(term.label).toBe('Refused');

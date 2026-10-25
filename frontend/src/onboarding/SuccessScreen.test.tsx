@@ -7,7 +7,7 @@ describe('SuccessScreen', () => {
   it('shows all 6 checklist items unchecked', () => {
     render(<MemoryRouter><SuccessScreen onDone={vi.fn()} /></MemoryRouter>);
     expect(screen.getByText(/Complete your profile/)).toBeInTheDocument();
-    expect(screen.getByText(/Import first statement/)).toBeInTheDocument();
+    expect(screen.getByText(/Start with one statement/)).toBeInTheDocument();
     expect(screen.getByText(/Review transactions/)).toBeInTheDocument();
     expect(screen.getByText(/Create a budget/)).toBeInTheDocument();
     expect(screen.getByText(/Create a goal/)).toBeInTheDocument();

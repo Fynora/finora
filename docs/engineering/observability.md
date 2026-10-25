@@ -938,27 +938,76 @@ this should take.
 ## 14. Client IP diagnostics (temporary)
 
 `ClientIpDiagnostics` (`com.finora.observability`), fed by `ClientIpDiagnosticsFilter` for every
-request. It exists to answer one question with evidence: does `ClientIpResolver`
-(`trusted-proxy-hops: 1`, last `X-Forwarded-For` entry) give rate limiting, audit metadata and
-refresh-token sessions the visitor's real IP, now that Cloudflare sits in front of Railway, or the
-address of a Cloudflare edge? If it is an edge, unrelated users share one rate-limit bucket.
-Railway's own HTTP log records the real visitor IP for traffic through Cloudflare, but that does
-not show what reaches the app.
+request. It exists to answer one question with evidence: does `ClientIpResolver` give rate
+limiting, audit metadata and refresh-token sessions the visitor's real IP, or the address of a
+proxy in front of the app? If it is a proxy, unrelated users share one rate-limit bucket.
 
 **No IP is stored, logged or tagged.** Each request becomes bounded labels only:
 
 | Metric | Type | Tags | Meaning |
 |---|---|---|---|
-| `finora.client_ip.resolution` | counter | `host` (`api`/`other`), `hops` (`0`,`1`,`2`,`3+`), `resolved_cloudflare` (`true`/`false`), `cf_connecting_ip` (`match`/`differs`/`absent`), `first_hop` (`match`/`differs`/`absent`) | How the client IP was resolved for one request. |
+| `finora.client_ip.resolution` | counter | `host` (`api`/`other`), `hops` (`0`,`1`,`2`,`3+`), `resolved_cloudflare` (`true`/`false`), `cf_connecting_ip` (`match`/`differs`/`absent`), `first_hop` (`match`/`differs`/`absent`), `resolved_documentation_range` (`true`/`false`) | How the client IP was resolved for one request. |
 
 The same counts are logged as one line every 15 minutes ("Client IP diagnostics (last interval,
 labels only)"), so the answer can be read from the Railway log as well as Grafana.
 
-**Reading it:** mostly `resolved_cloudflare=true` on `host=api` means the resolver picks a Cloudflare
-edge and needs fixing (separate PR, with tests for single, multiple, missing and malformed hops).
-Mostly `resolved_cloudflare=false` with `cf_connecting_ip=match` means it already picks the visitor.
-Anything else is inconclusive, and the per-IP limits are then treated as not yet trusted for abuse
-protection.
+**First answer (2026-10-25).** With the old `trusted-proxy-hops: 1`, every `host=api` request read
+`hops=2, resolved_cloudflare=false, cf_connecting_ip=differs, first_hop=differs`. Test requests
+from one machine showed that the picked address was not the caller's own (`differs` against a
+`CF-Connecting-IP` set to the caller's real address on a request that skipped Cloudflare), and that
+Railway's edge replaces any `X-Forwarded-For` the caller sends (still two entries). So the last entry
+is a Railway infrastructure hop and every visitor behind it shared one bucket. The resolver now
+takes the entry before that hop (`trusted-proxy-hops: 2`), and reads `CF-Connecting-IP` only when
+that entry is a Cloudflare edge.
+
+**Reading it after the fix deploys:** ordinary `host=api` traffic should read
+`cf_connecting_ip=match`. Test requests carrying forged RFC 5737 values (192.0.2.0/24,
+198.51.100.0/24, 203.0.113.0/24) in `X-Forwarded-For` or `CF-Connecting-IP`, sent both through
+Cloudflare and straight to Railway, must never read `resolved_documentation_range=true`; a `true`
+means a forged value became the rate-limit key. A test request that skips Cloudflare and sets
+`CF-Connecting-IP` to the caller's own real address should read `cf_connecting_ip=match`.
 
 Switch off with `CLIENT_IP_DIAGNOSTICS_ENABLED=false`. Remove the class, the filter and this section
-once the question is answered.
+once the fix is confirmed in production.
+
+
+## 15. Per-user request load (temporary)
+
+`UserRequestLoad` (`com.finora.observability`), fed by `UserRequestLoadInterceptor` for every API
+request made by a signed-in account. It exists to answer one question with evidence: how many
+requests does one real user make in a minute? Every request limit in the app is keyed by IP, and
+signed-in endpoints have no limit at all. A per-user limit would close that, but a limit set
+without data can lock real people out (one dashboard load, or a mobile sync, is a burst). Railway's
+request log is about half an hour long and names no user, so nothing could size one.
+
+**It limits nobody.** It counts and publishes; no request is slowed, refused or changed.
+
+**No user is stored, logged or tagged.** Per-user counts exist only in memory for the minute being
+counted and are reduced to a number and dropped when the minute ends. The same promise the
+activity-day table makes: no per-person timeline. A minute holds at most 50,000 users; the rest are
+counted in `finora.user_load.dropped`, which should stay at zero.
+
+| Metric | Type | Tags | Meaning |
+|---|---|---|---|
+| `finora.user_load.requests_per_minute` | histogram | `portal` (`user`/`admin`/`other`) | One observation per active user per minute: how many requests they made. Buckets at 5, 10, 20, 30, 60, 120, 300, 600, 1200; `_max` is the busiest user-minute. |
+| `finora.user_load.active_users` | summary | `portal` | Distinct signed-in users that made a request in a minute. |
+| `finora.user_load.dropped` | counter | none | Users not counted because a minute already held 50,000. |
+
+The same numbers are logged as counts every 15 minutes ("User request load (last interval, counts
+only, nobody identified)": user-minutes, requests, the busiest user-minute, and how many
+user-minutes were over 30, 60, 120, 300 and 600). One further line is logged when a user-minute
+reaches 600 requests, naming only the route template of the request that crossed it.
+
+**Reading it:** after about a week, the fraction of user-minutes at or below each bucket says what a
+limit could be without touching a real person. Set it well above the highest bucket real users
+reach, and look at the heavy-minute log lines first: a route that appears there is a bug or abuse,
+not a reason to raise the limit. Admin traffic is bursty by design and is tagged separately so it
+does not blur the customer numbers. Counts are per instance, which is all of production today (one
+replica); with more than one, a user's requests split across instances and each sees a fraction.
+
+**Accuracy:** a request arriving at the instant a minute is published can be missed. That loses a
+request, not a user, which a measurement can afford and a limit could not.
+
+Switch off with `USER_LOAD_DIAGNOSTICS_ENABLED=false`. Remove the two classes, their registration in
+`WebMvcConfig` and this section once a limit has been chosen, or keep only the metrics if they prove
+useful.

@@ -500,7 +500,7 @@ public class PdfMetadataExtractor {
     private static final Pattern APOSTROPHE_YEAR = Pattern.compile("(?<=[A-Za-z]\\s)['‘’](?=\\d{2}\\b)");
     private static final int UNLABELLED_DATE_RANGE_SEARCH_WINDOW = 8;
 
-    // UNLABELLED_MASKED_CARD_NUMBER: "48xx xxxx xxxx 6048" -- both real HSBC credit-card statements
+    // UNLABELLED_MASKED_CARD_NUMBER: "41xx xxxx xxxx 2097" -- both real HSBC credit-card statements
     // print the card number twice on a "State: ..." line with no label. The shape is card-specific
     // (two leading digits, twelve mask characters, four trailing digits, grouped in fours) and is
     // read only when no labelled number was found.
@@ -665,7 +665,7 @@ public class PdfMetadataExtractor {
     // statement whose credit limit did have decimals) silently matched nothing on this file.
     // Widened to require EITHER a decimal suffix OR proper comma-grouped thousands formatting
     // (not just "requires digits", which would then wrongly match the digit-prefix of a masked
-    // card number like "653047******7550" -- that value has no comma at all, so it still can't
+    // card number like "460012******2468" -- that value has no comma at all, so it still can't
     // match this pattern; a genuine amount in this locale always has at least one comma group
     // once it's large enough to need one).
     private static final Pattern AMOUNT_LIKE = Pattern.compile("\\b\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d{2})?\\b|\\b[\\d,]+\\.\\d{2}\\b");

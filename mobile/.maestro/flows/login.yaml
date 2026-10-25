@@ -8,7 +8,9 @@
 # through AuthEntry, matching what `clearState: true` below actually produces.
 appId: com.fynora.android
 env:
-  TEST_EMAIL: maestro-test@finora.test
+  # A passed value wins, the seeded account is the default: the workflow's retry signs in as a
+  # second, brand-new account (see .github/workflows/maestro-nightly.yml, attempt 2).
+  TEST_EMAIL: ${TEST_EMAIL || "maestro-test@finora.test"}
   TEST_PASSWORD: MaestroSeedPass2026
 ---
 - launchApp:

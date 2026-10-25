@@ -228,8 +228,29 @@ public class GlobalExceptionHandler {
                                                                           HttpServletRequest request) {
         log.warn("Data integrity violation on {} {}", LogSanitizer.sanitize(request.getMethod()),
                 LogSanitizer.sanitize(request.getRequestURI()), ex);
+        // Postgres SQLSTATE class 22 is "data exception": a value the column cannot hold -- a number
+        // past NUMERIC(14,2), text past its VARCHAR length, a U+0000 Postgres cannot store, a date
+        // out of range. Spring files these under the same exception as a unique-key race, so they
+        // came back as this 409's "refresh and try again", which can never work for them. Measured
+        // across accounts, budgets, transactions and the ledger's date filter (a 409 on a GET).
+        if (isDataException(ex)) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(ErrorCode.VALUE_NOT_STORABLE.defaultMessage(), ErrorCode.VALUE_NOT_STORABLE.code()));
+        }
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ApiResponse.error("That conflicts with a record that already exists — refresh and try again.", "CONFLICT"));
+    }
+
+    /** True when the database refused a value rather than a combination of rows (SQLSTATE 22xxx). */
+    static boolean isDataException(Throwable ex) {
+        // Bounded: a cause chain can in principle loop, and this runs on an error path.
+        Throwable t = ex;
+        for (int depth = 0; t != null && depth < 20; depth++, t = t.getCause()) {
+            if (t instanceof java.sql.SQLException sql && sql.getSQLState() != null) {
+                return sql.getSQLState().startsWith("22");
+            }
+        }
+        return false;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -255,7 +276,17 @@ public class GlobalExceptionHandler {
      * back raw request body content, which for this API may be customer financial data.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiResponse<Void>> handleMalformedRequestBody() {
+    public ResponseEntity<ApiResponse<Void>> handleMalformedRequestBody(HttpMessageNotReadableException ex) {
+        // A number or date past RequestInputBoundsConfig's bounds is well-formed JSON, so it gets a
+        // message naming the field and what is wrong with it -- never the value itself.
+        if (ex.getCause() instanceof com.finora.config.RequestInputBoundsConfig.RequestValueOutOfBoundsException bounds) {
+            String field = bounds.getPath().stream()
+                    .map(ref -> ref.getFieldName() != null ? ref.getFieldName() : "[" + ref.getIndex() + "]")
+                    .reduce((a, b) -> b.startsWith("[") ? a + b : a + "." + b)
+                    .orElse("value");
+            return ResponseEntity.badRequest().body(ApiResponse.error(
+                    field + ": " + bounds.getOriginalMessage(), "VALIDATION_ERROR"));
+        }
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error("The request body is missing or malformed.", "MALFORMED_REQUEST_BODY"));
     }

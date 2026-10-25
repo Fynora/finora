@@ -47,6 +47,8 @@ public enum ErrorCode {
     PEOPLE_NOTHING_OWED("TXN_010", HttpStatus.UNPROCESSABLE_ENTITY, "Nothing is owed here."),
     PEOPLE_BILL_HAS_NO_CATEGORY("TXN_011", HttpStatus.UNPROCESSABLE_ENTITY,
             "Give this bill a category first, so Fynora knows which bills to link every month."),
+    PEOPLE_MORE_THAN_LEFT("TXN_012", HttpStatus.UNPROCESSABLE_ENTITY,
+            "That's more than is left of this payment after the bills it's linked to."),
 
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),
@@ -58,7 +60,7 @@ public enum ErrorCode {
     // now throws this the instant every permit is taken, rather than after a rare 20s timeout, so
     // it fires on ordinary bursts routinely, not on genuine server trouble.
     IMPORT_SYSTEM_BUSY("IMPORT_006", HttpStatus.SERVICE_UNAVAILABLE,
-            "Finora is processing a lot of statement imports right now. Please try again in a moment.",
+            "Fynora is reading a lot of statements right now. Try again in a moment.",
             RetryPolicy.FAIL_FAST, false, true),
     // Deliberately separate from IMPORT_001 even though both mean "you got nothing". They fail at
     // different stages and need different follow-up: 001 means the document's layout defeated
@@ -131,6 +133,36 @@ public enum ErrorCode {
     IMPORT_MULTI_ACCOUNT_FILE("IMPORT_020", HttpStatus.UNPROCESSABLE_ENTITY,
             "This file lists transactions from more than one account, so it cannot be imported into a "
                     + "single account. Please upload each bank or card statement on its own.", true),
+    // Gate 2b refusal audit (docs/research/gate2/refusal-audit.md, rows 2 to 4). Both used to be
+    // codeless (BAD_REQUEST / UNSUPPORTED_MEDIA_TYPE), so neither app could tell them from any other
+    // bad request, and the 415 told people which "endpoint" they had reached. Their own codes let
+    // both apps show the same words, and the messages carry a reason and one next action for
+    // clients older than that copy. userActionRequired=true: the fix is the user's, a fresh download.
+    IMPORT_EMPTY_FILE("IMPORT_021", HttpStatus.BAD_REQUEST,
+            "This file is empty. Download the statement again from your bank and choose the new copy.", true),
+    IMPORT_WRONG_FILE_TYPE("IMPORT_022", HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+            "This file's contents don't match its name, so Fynora can't read it. "
+                    + "Download the statement again from your bank and choose the new copy.", true),
+    // A CSV whose dates contradict each other about their order: one date can only be read
+    // day-first ("13/01/2026") and another only month-first ("01/13/2026"), so no single reading
+    // fits every row (CsvDateOrder). Refused rather than read row by row, which used to give a file
+    // some rows one way and some the other -- Sid's decision of 2026-10-24. userActionRequired=true
+    // because only the user can fix the file: export it again with one date format. Never retried:
+    // the same bytes contradict themselves every time.
+    IMPORT_DATE_ORDER_CONFLICT("IMPORT_023", HttpStatus.UNPROCESSABLE_ENTITY,
+            "The dates in this file are written in two different orders (some day first, some month "
+                    + "first), so we can't tell which date each transaction belongs to. Please export the "
+                    + "statement again and upload that file.", true),
+    // Gate 2b spec §7: send a statement from your computer (StatementSendService). One message for a
+    // wrong, expired, used or cancelled code, on purpose: telling them apart would tell a guesser
+    // which codes exist. Copy new in the plan, shown to Sid in the PR.
+    SEND_CODE_INVALID("IMPORT_024", HttpStatus.BAD_REQUEST,
+            "That code didn't work. Check it on your phone, or ask for a new one.", true),
+    // Five codes that didn't work from one network address within 15 minutes block it until the
+    // oldest is 15 minutes old, whatever code comes next (spec §7 said an hour; Sid, 25 Oct: 15
+    // minutes, see StatementSendService). Copy new, shown to Sid in the PR.
+    SEND_CODE_BLOCKED("IMPORT_025", HttpStatus.TOO_MANY_REQUESTS,
+            "Too many codes didn't work from this network. Try again in 15 minutes."),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action
@@ -226,6 +258,11 @@ public enum ErrorCode {
     // The message is supplied at the throw site because it names the limit.
     INVESTMENT_HOLDING_LIMIT_REACHED("ACC_002", HttpStatus.UNPROCESSABLE_ENTITY,
             "You have reached the limit of investment holdings."),
+    // Account.setBalance: accounts.balance is NUMERIC(14,2). Thirteen code paths move a balance
+    // (manual transactions, imports, statement refresh, reconciliation); a valid transaction into a
+    // near-full account used to fail in the database as a 409 "refresh and try again".
+    ACCOUNT_BALANCE_TOO_LARGE("ACC_003", HttpStatus.BAD_REQUEST,
+            "This would take the account balance past 999,999,999,999.99 either side of zero, the most an account can hold."),
 
     // Auth / security
     //
@@ -334,6 +371,14 @@ public enum ErrorCode {
     // can see the shared-cookie mix-up in logs rather than a generic expiry.
     AUTH_REFRESH_PORTAL_MISMATCH("AUTH_016", HttpStatus.UNAUTHORIZED,
             "This session belongs to a different portal. Please sign in again."),
+    // The per-account ceiling on password-reset emails (AccountRequestThrottle). Answered with a
+    // 429 and a message that says what happened, not with the generic "if an account exists" text:
+    // every client prints a fixed "a reset link has been sent" on a 2xx, so a silent refusal would
+    // tell an owner a link was sent when none was. The refusal depends only on how many times the
+    // typed address was asked for, and unknown addresses are counted the same way, so it reveals
+    // nothing about whether an account exists. The thrower supplies the message with the wait in it.
+    AUTH_RESET_REQUEST_LIMIT("AUTH_017", HttpStatus.TOO_MANY_REQUESTS,
+            "Too many reset emails have been requested for this address. Try again later."),
 
     // Uploads (com.finora.uploads.UploadScanGate, audit F-18). Every upload endpoint shares these,
     // so a client can tell "your file was refused" from "the platform could not check it" by code
@@ -383,8 +428,18 @@ public enum ErrorCode {
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),
 
+    // Goals. Each contribution can be within the request limit and the running total still pass
+    // what the goals table can hold (NUMERIC(14,2)); see GoalService.addContribution.
+    GOAL_AMOUNT_TOO_LARGE("GOAL_001", HttpStatus.BAD_REQUEST,
+            "This contribution would take the goal past 999,999,999,999.99, the largest amount a goal can hold."),
+
     // Generic fallbacks — used by GlobalExceptionHandler when no more specific code applies
     VALIDATION_ERROR("VAL_001", HttpStatus.BAD_REQUEST, "Validation failed"),
+    // GlobalExceptionHandler.handleDataIntegrityViolation, for SQLSTATE class 22 (a value the column
+    // cannot hold). Deliberately generic: the database does not say which field, and the value may
+    // be customer data, so neither is echoed.
+    VALUE_NOT_STORABLE("VAL_002", HttpStatus.BAD_REQUEST,
+            "Something in this request can't be saved: a number too large, text too long, or a date out of range. Check what you entered and try again."),
     NOT_FOUND("GEN_001", HttpStatus.NOT_FOUND, "No such endpoint"),
     INTERNAL_ERROR("GEN_002", HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error");
 

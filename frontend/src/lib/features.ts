@@ -24,3 +24,14 @@
  * decides whether the screens are drawn.
  */
 export const GMAIL_SYNC_UI_ENABLED = import.meta.env.VITE_GMAIL_SYNC_UI_ENABLED === 'true';
+
+/**
+ * Bank Sync (Account Aggregator) is NOT offered yet. While this is false, Settings > Bank Sync still
+ * lists any links a person already has (so they can see and disconnect them), but the connect button
+ * reads "Coming soon" and does nothing. Nothing behind it was removed.
+ *
+ * Off unless `VITE_BANK_SYNC_CONNECT_ENABLED` is exactly "true" at BUILD time, the same convention as
+ * GMAIL_SYNC_UI_ENABLED above. The mobile app has its own constant of the same name in
+ * mobile/src/lib/features.ts; open both together.
+ */
+export const BANK_SYNC_CONNECT_ENABLED = import.meta.env.VITE_BANK_SYNC_CONNECT_ENABLED === 'true';

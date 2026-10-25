@@ -646,6 +646,8 @@ export const importApi = {
         staging: StagingResult;
         previousImport?: PreviousImport | null;
         freePlanLimit?: FreePlanLimitNotice | null;
+        // Gate 2b: true when a reviewer released this session after an accuracy hold.
+        approvedAfterReview?: boolean;
       }>(`/import/sessions/${id}`)
       .then((r) => r.data),
   discardSession: (id: string) => api.delete(`/import/sessions/${id}`),
@@ -741,6 +743,22 @@ export interface ImportJobTimeline {
    *  fix a reading problem. Optional because an older backend does not send it -- absent means none. */
   openedForFixOn?: string[];
 }
+
+/**
+ * Gate 2b spec §7: app.fynora.net/send, the public page that sends one file with a code from the
+ * user's phone. On rawApi so no Authorization header is ever attached, and without cookies: the page
+ * is public and must not carry a signed-in session from this browser to the server.
+ */
+export const sendStatementApi = {
+  send: (code: string, file: File) => {
+    const form = new FormData();
+    form.append('code', code);
+    form.append('file', file);
+    return rawApi
+      .post<ApiEnvelope<{ received: boolean }>>('/send', form, { withCredentials: false })
+      .then((r) => r.data.data);
+  },
+};
 
 export const importJobsApi = {
   // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
@@ -2161,18 +2179,23 @@ export const accountAggregatorApi = {
   disconnect: (linkId: string) => api.post(`/integrations/setu/links/${linkId}/disconnect`),
 };
 
-/** GET/PUT /notification-preferences -- only FINANCIAL on EMAIL/PUSH is exposed (see the backend's
+/** GET/PUT /notification-preferences -- FINANCIAL on EMAIL/PUSH and REMINDERS on PUSH are exposed (see the backend's
  *  NotificationPreferenceService for why SECURITY and MARKETING are not). */
 export interface NotificationPreferenceDto {
-  category: 'FINANCIAL';
+  // REMINDERS (Gate 2b): the month-start statement reminder, PUSH only.
+  category: 'FINANCIAL' | 'REMINDERS';
   channel: 'EMAIL' | 'PUSH';
   enabled: boolean;
 }
 
+// The server lists REMINDERS only when asked (the 1.0.0 app draws one switch per channel, so it must
+// never see a second PUSH row). This build draws the reminders switch, so it always asks.
+const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS' } };
+
 export const notificationPreferencesApi = {
-  list: () => api.get<NotificationPreferenceDto[]>('/notification-preferences').then((r) => r.data),
-  set: (channel: NotificationPreferenceDto['channel'], enabled: boolean) =>
-    api.put<NotificationPreferenceDto[]>('/notification-preferences', { category: 'FINANCIAL', channel, enabled })
+  list: () => api.get<NotificationPreferenceDto[]>('/notification-preferences', PREFERENCE_CATEGORIES).then((r) => r.data),
+  set: (category: NotificationPreferenceDto['category'], channel: NotificationPreferenceDto['channel'], enabled: boolean) =>
+    api.put<NotificationPreferenceDto[]>('/notification-preferences', { category, channel, enabled }, PREFERENCE_CATEGORIES)
       .then((r) => r.data),
 };
 

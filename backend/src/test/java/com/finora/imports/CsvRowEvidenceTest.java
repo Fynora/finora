@@ -95,21 +95,25 @@ class CsvRowEvidenceTest {
         assertNoCellContent(histogram);
 
         ImportDto.VerificationFinding rowAccounting = finding(response, RowAccountingValidator.RULE);
-        assertThat(rowAccounting.outcome()).isEqualTo("VERIFIED");
+        // "Rs 75 only" is a dated row whose amount could not be read: a warning, and a hold (Sid,
+        // 2026-10-24). The other three set-aside rows have no readable date and do not count.
+        assertThat(rowAccounting.outcome()).isEqualTo("WARNING");
         assertThat(rowAccounting.details())
                 .containsEntry("stagedTransactionCount", 3)
                 // The blank line is formatting, not a row: located counts the 7 non-blank lines.
                 .containsEntry("locatedRowCount", 7)
                 .containsEntry("unparseableRowCount", 4)
-                .containsEntry("droppedTransactionCandidateCount", 0);
+                .containsEntry("droppedTransactionCandidateCount", 0)
+                .containsEntry(RowAccountingValidator.UNREADABLE_AMOUNT_ROW_COUNT, 1);
         // The same located rows the column-ambiguity rule already checked.
         assertThat(finding(response, ColumnAmbiguityValidator.RULE).details()).containsEntry("rowsChecked", 7);
     }
 
     @Test
     void theNewCountsMoveNoStatusAndNoHold() throws Exception {
+        // Dated the 13th so the file proves its date order: an unsettled order holds on its own.
         String csv = CARD_HEADER
-                + "01/09/2026,1,SYNTHETIC SHOP ONE,2,,100.00,100.00\n"
+                + "13/09/2026,1,SYNTHETIC SHOP ONE,2,,100.00,100.00\n"
                 + "Total,,,,,,\n";
 
         ImportDto.StagingResponse response = generate(csv).response();
@@ -118,6 +122,41 @@ class CsvRowEvidenceTest {
                 .containsEntry("unparseableRowCount", 1);
         assertThat(response.verification().reliabilityStatus()).isEqualTo(ImportReliabilityStatus.CLEAN);
         assertThat(TrustPredicate.evaluate(List.of(response.verification()), null, LocalDate.of(2026, 10, 22))
+                .hold()).isFalse();
+    }
+
+    @Test
+    void aDatedRowWhoseAmountCannotBeReadHoldsTheFile() throws Exception {
+        // No balance column, so nothing used to hold this: the row was listed as unreadable and the
+        // rest imported, a transaction short.
+        String csv = "Date,Description,Amount\n"
+                + "13/07/2026,SYNTHETIC SHOP,100.00\n"
+                + "14/07/2026,SYNTHETIC CAFE,Rs 75 only\n";
+
+        ImportDto.StagingResponse response = generate(csv).response();
+
+        assertThat(response.rows()).hasSize(1);
+        ImportDto.VerificationFinding rowAccounting = finding(response, RowAccountingValidator.RULE);
+        assertThat(rowAccounting.outcome()).isEqualTo("WARNING");
+        assertThat(rowAccounting.details()).containsEntry(RowAccountingValidator.UNREADABLE_AMOUNT_ROW_COUNT, 1);
+        var decision = TrustPredicate.evaluate(List.of(response.verification()), null, LocalDate.of(2026, 10, 24));
+        assertThat(decision.hold()).isTrue();
+        assertThat(decision.reasons()).containsExactly("A transaction's amount could not be read");
+        assertThat(decision.categories()).containsExactly(TrustPredicate.Category.DROPPED_TRANSACTION);
+    }
+
+    @Test
+    void aRowWithNoDateIsNotAnUnreadableAmount() throws Exception {
+        // A total line or a wrapped narration has no date: not a transaction, and not held for.
+        String csv = "Date,Description,Amount\n"
+                + "13/07/2026,SYNTHETIC SHOP,100.00\n"
+                + "Total,,see above\n";
+
+        ImportDto.StagingResponse response = generate(csv).response();
+
+        assertThat(finding(response, RowAccountingValidator.RULE).details())
+                .doesNotContainKey(RowAccountingValidator.UNREADABLE_AMOUNT_ROW_COUNT);
+        assertThat(TrustPredicate.evaluate(List.of(response.verification()), null, LocalDate.of(2026, 10, 24))
                 .hold()).isFalse();
     }
 

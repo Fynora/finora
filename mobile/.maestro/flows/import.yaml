@@ -12,7 +12,7 @@
 # CI seeds a fresh database per run rather than re-running this against a long-lived one.
 appId: com.fynora.android
 env:
-  TEST_EMAIL: maestro-test@finora.test
+  TEST_EMAIL: ${TEST_EMAIL || "maestro-test@finora.test"}
   TEST_PASSWORD: MaestroSeedPass2026
 ---
 - launchApp:
@@ -89,10 +89,18 @@ env:
 # ListFooterComponent, past the transaction rows above it, and this emulator's 320x640 screen is
 # too short to reach it without scrolling -- confirmed via a real run's UI-hierarchy dump, which
 # had no "Import N transactions" text mounted at all at the pre-scroll position.
+#
+# centerElement: scrollUntilVisible stops the moment the button's bounds are on screen, which can
+# still be underneath the tab bar -- the tab bar overlays the list (ImportScreen pads its lists
+# for it), and its centre is the "+" button. On 2026-10-25 the nightly's tap on this button, on
+# both attempts, ended on the "+" quick-add sheet ("Import Statement", "Add Transaction", "Add
+# Goal"), per the saved UI hierarchy, and the backend never received a confirm. Centring the
+# button first puts it well clear of the bar.
 - scrollUntilVisible:
     element:
       text: "Import [1-9]\\d* transactions?"
     direction: DOWN
+    centerElement: true
 - assertVisible:
     text: "Import [1-9]\\d* transactions?"
 - tapOn:

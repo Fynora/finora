@@ -511,6 +511,27 @@ class AdvancedReportServiceTest {
         assertThat(dto.insights()).extracting(AdvancedReportDto.AdvancedInsight::kind).contains("UNUSUAL_SPEND");
     }
 
+    // Any expense can be flagged, including money sent to a friend, which is not a purchase.
+    @Test
+    void aLargerThanUsualPaymentToAPersonIsCalledAPaymentNotAPurchase() {
+        steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));
+        for (int i = 0; i < 6; i++) spend("2026-0" + (3 + i) + "-15", "1000", "Personal Transfer");
+        spend("2026-09-20", "9000", "Personal Transfer");
+
+        AdvancedReportDto one = build(AdvancedRange.LAST_3_MONTHS);
+
+        assertThat(one.unusualSpends()).extracting(AdvancedReportDto.AdvancedUnusualSpend::category)
+                .containsExactly("Personal Transfer");
+        assertThat(unusualHeadline(one)).isEqualTo("1 payment was larger than usual");
+
+        spend("2026-09-22", "9000", "Personal Transfer");
+        assertThat(unusualHeadline(build(AdvancedRange.LAST_3_MONTHS))).isEqualTo("2 payments were larger than usual");
+    }
+
+    private static String unusualHeadline(AdvancedReportDto dto) {
+        return dto.insights().stream().filter(i -> i.kind().equals("UNUSUAL_SPEND")).findFirst().orElseThrow().headline();
+    }
+
     @Test
     void aPurchaseAtThreeTimesTheUsualIsFlaggedAndOneJustUnderIsNot() {
         steadyMonths(YearMonth.of(2025, 1), YearMonth.of(2026, 9));

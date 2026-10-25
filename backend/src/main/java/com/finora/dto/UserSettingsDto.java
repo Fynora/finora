@@ -46,7 +46,11 @@ public record UserSettingsDto(
     @Schema(name = "UserSettingsUpdateRequest")
     public record UpdateRequest(
             @jakarta.validation.constraints.DecimalMin(value = "0.0", message = "Low balance threshold can't be negative")
-            @jakarta.validation.constraints.Digits(integer = 12, fraction = 2, message = "Low balance threshold must be a money amount")
+            // Not @Digits: it counts the scale as written, so it refused 100.500, and its one message
+            // ("must be a money amount") did not say whether the value was too large or too precise.
+            @jakarta.validation.constraints.DecimalMax(value = com.finora.validation.MoneyLimits.MAX_AMOUNT_TEXT,
+                    message = "Low balance threshold" + com.finora.validation.MoneyLimits.TOO_LARGE)
+            @com.finora.validation.WholePaise(message = "Low balance threshold" + com.finora.validation.MoneyLimits.FINER_THAN_PAISA)
             BigDecimal lowBalanceThreshold,
             @jakarta.validation.constraints.Size(max = 20, message = "Theme is not a valid option")
             String theme,

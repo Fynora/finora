@@ -2398,7 +2398,7 @@ public class ReconciliationService {
 
     /**
      * The real last four digits of a masked account number, however the source bank formats the
-     * mask -- "652925XXXXXX3123", "5241XXXXXXXX5001", "XXXX1234" all reduce correctly by simply
+     * mask -- "470023XXXXXX2580", "5320XXXXXXXX4071", "XXXX1234" all reduce correctly by simply
      * discarding every non-digit character and keeping the last four: a masking character is
      * never a digit, and every masked format this project has actually seen (PdfMetadataExtractor)
      * ends in the genuine trailing digits, never in mask characters. Null if there aren't at least

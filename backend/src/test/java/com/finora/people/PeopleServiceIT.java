@@ -154,6 +154,143 @@ class PeopleServiceIT extends AbstractIntegrationTest {
         assertThat(people.people(userId)).isEmpty();
     }
 
+    @Autowired private com.finora.repository.LoanEntryRepository loanEntryRepository;
+    @Autowired private com.finora.transactions.TransactionService transactionService;
+
+    /** A lent payment filed under Shopping by the engine, lent and then let go. */
+    private Transaction letGoOfAShoppingLoan() {
+        Category shopping = new Category();
+        shopping.setUserId(userId);
+        shopping.setName("Shopping");
+        shopping = categoryRepository.save(shopping);
+        Transaction lent = txn(Transaction.Type.EXPENSE, 700, "vpa:neha.r", shopping.getId());
+        lent.setDecisionSource(Transaction.DecisionSource.KEYWORD_MATCH);
+        lent.setDecisionConfidence(80);
+        lent.setNeedsCategoryReview(true);
+        lent = transactionRepository.save(lent);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:neha.r", PeopleDtos.SettleHow.LET_GO));
+        assertThat(categoryName(lent.getId())).isEqualTo("Gifts & Donations");
+        return lent;
+    }
+
+    private String categoryName(UUID txnId) {
+        UUID id = transactionRepository.findById(txnId).orElseThrow().getCategoryId();
+        return id == null ? null : categoryRepository.findById(id).orElseThrow().getName();
+    }
+
+    private UUID entryId(UUID txnId, LoanEntry.Direction direction) {
+        return loanEntryRepository.findByUserIdAndTxnId(userId, txnId).stream()
+                .filter(e -> e.getDirection() == direction).findFirst().orElseThrow().getId();
+    }
+
+    /** Undoing a let-go by removing the loan. Measured before the fix: the payment stayed under Gifts
+     *  & Donations, filed by hand. It goes back exactly as the engine had it. */
+    @Test
+    void removingALetGoLoan_putsThePaymentBackInItsCategory() {
+        Transaction lent = letGoOfAShoppingLoan();
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        Transaction back = transactionRepository.findById(lent.getId()).orElseThrow();
+        assertThat(categoryName(back.getId())).isEqualTo("Shopping");
+        assertThat(back.isCategoryManuallySet()).isFalse();
+        assertThat(back.getDecisionSource()).isEqualTo(Transaction.DecisionSource.KEYWORD_MATCH);
+        assertThat(back.getDecisionConfidence()).isEqualTo(80);
+        assertThat(back.isNeedsCategoryReview()).isTrue();
+        assertThat(loanEntryRepository.findByUserIdAndTxnId(userId, lent.getId())).isEmpty();
+    }
+
+    /** Removing only the let-go: the loan is open again, and the payment back where it was. */
+    @Test
+    void removingTheLetGoItself_putsThePaymentBackAndReopensTheLoan() {
+        Transaction lent = letGoOfAShoppingLoan();
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LET_GO));
+
+        assertThat(categoryName(lent.getId())).isEqualTo("Shopping");
+        assertThat(people.people(userId)).singleElement()
+                .satisfies(p -> assertThat(p.owedToUser()).isEqualByComparingTo("700"));
+    }
+
+    /** A category the user chose after the let-go is theirs: the undo leaves it. */
+    @Test
+    void undoingALetGo_keepsACategoryTheUserChoseSince() {
+        Transaction lent = letGoOfAShoppingLoan();
+        transactionService.updateCategory(userId, lent.getId(), "Rent");
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        assertThat(categoryName(lent.getId())).isEqualTo("Rent");
+    }
+
+    /** The kept category deleted since: nothing to go back to, so the payment stays a gift. */
+    @Test
+    void undoingALetGo_leavesTheGiftWhenTheOldCategoryIsGone() {
+        Transaction lent = letGoOfAShoppingLoan();
+        Category shopping = categoryRepository.findByUserId(userId).stream()
+                .filter(c -> c.getName().equals("Shopping")).findFirst().orElseThrow();
+        UUID giftId = transactionRepository.findById(lent.getId()).orElseThrow().getCategoryId();
+        // Moving the row off it first, the way deleting a category in the app does, would also change
+        // the row; this keeps the row a gift and only takes the old category away.
+        categoryRepository.delete(shopping);
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        assertThat(transactionRepository.findById(lent.getId()).orElseThrow().getCategoryId()).isEqualTo(giftId);
+    }
+
+    @Autowired private com.finora.repository.CategoryRuleRepository categoryRuleRepository;
+
+    /** A payment filed by one of the user's rules, let go, and the rule deleted before the undo. The
+     *  kept decision names a rule that no longer exists (transactions.decision_rule_id references
+     *  category_rules): the undo must still go through, without the rule. */
+    @Test
+    void undoingALetGo_afterItsRuleWasDeleted_stillGoesBack() {
+        Category shopping = new Category();
+        shopping.setUserId(userId);
+        shopping.setName("Shopping");
+        shopping = categoryRepository.save(shopping);
+        com.finora.entity.CategoryRule rule = new com.finora.entity.CategoryRule();
+        rule.setUserId(userId);
+        rule.setScope(com.finora.entity.CategoryRule.Scope.USER);
+        rule.setField(com.finora.entity.CategoryRule.Field.DESCRIPTION);
+        rule.setOperator(com.finora.entity.CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("loan");
+        rule.setActionType(com.finora.entity.CategoryRule.ActionType.ASSIGN_CATEGORY);
+        rule.setActionValue("Shopping");
+        rule.setPriority(100);
+        rule.setEnabled(true);
+        rule = categoryRuleRepository.save(rule);
+        Transaction lent = txn(Transaction.Type.EXPENSE, 700, "vpa:neha.r", shopping.getId());
+        lent.setDecisionSource(Transaction.DecisionSource.USER_RULE);
+        lent.setDecisionRuleId(rule.getId());
+        lent = transactionRepository.save(lent);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:neha.r", PeopleDtos.SettleHow.LET_GO));
+        categoryRuleRepository.delete(rule);
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        Transaction back = transactionRepository.findById(lent.getId()).orElseThrow();
+        assertThat(categoryName(back.getId())).isEqualTo("Shopping");
+        assertThat(back.getDecisionRuleId()).isNull();
+        assertThat(loanEntryRepository.findByUserIdAndTxnId(userId, lent.getId())).isEmpty();
+    }
+
+    /** A payment with no category before the let-go goes back to having none. */
+    @Test
+    void undoingALetGo_ofAnUncategorisedPayment_clearsTheCategoryAgain() {
+        Transaction lent = txn(Transaction.Type.EXPENSE, 400, "vpa:kiran.p", null);
+        people.addEntry(userId, new PeopleDtos.EntryRequest(lent.getId(), LoanEntry.Direction.LENT));
+        people.settle(userId, new PeopleDtos.SettleRequest("vpa:kiran.p", PeopleDtos.SettleHow.LET_GO));
+        assertThat(categoryName(lent.getId())).isEqualTo("Gifts & Donations");
+
+        people.deleteEntry(userId, entryId(lent.getId(), LoanEntry.Direction.LENT));
+
+        assertThat(transactionRepository.findById(lent.getId()).orElseThrow().getCategoryId()).isNull();
+    }
+
     @Test
     void settlingWhenNothingIsOwedIsRefused() {
         assertThatThrownBy(() -> people.settle(userId, new PeopleDtos.SettleRequest("vpa:friend.k", PeopleDtos.SettleHow.CASH)))
@@ -286,7 +423,7 @@ class PeopleServiceIT extends AbstractIntegrationTest {
         people.link(userId, new PeopleDtos.LinkShareRequest(credit.getId(), bill.getId(), null));
         assertThatThrownBy(() -> people.addEntry(userId,
                 new PeopleDtos.EntryRequest(credit.getId(), LoanEntry.Direction.PAID_BACK, new BigDecimal("600"))))
-                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_NOTHING_LEFT));
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(ErrorCode.PEOPLE_MORE_THAN_LEFT));
     }
 
     @Test

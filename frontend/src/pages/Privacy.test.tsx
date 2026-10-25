@@ -80,6 +80,29 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/classified as an individual, or not classified, are not recorded/i);
   });
 
+  // Gate 2b (spec §5.1, Sid's decision (a), 16 Oct). Each clause traced to code:
+  //   - 90 days: StatementStorageSweepService, app.statement-storage.sweep.retention-days (90; unset
+  //     in production, so the default applies), counted from statement_imports.deleted_at.
+  //   - a failed import's file: a FAILED import_jobs row protects its object until the account is
+  //     purged (the sweep's "Accepted trade-off"); dismissing it from the list keeps the row.
+  //   - the exception: a PDF whose password was typed but not kept is staged synchronously
+  //     (Import.tsx / ImportScreen.tsx: queued only when there is no password or it is kept), and a
+  //     synchronous failure stores no file. Wording chosen by Sid, 2026-10-25.
+  //   - account deletion: AccountPurgeSweepService reclaims the user's objects at purge.
+  it('says how long a deleted statement\'s file stays in storage', () => {
+    expect(policyText().replace(/\s+/g, ' ')).toContain(
+      'When you delete a statement, its original file stays in our storage for 90 days and is then deleted. '
+        + 'If an import could not be completed, we keep its file so it can be retried without uploading it '
+        + 'again, until you delete your account. The one exception is a password-protected PDF whose password '
+        + 'you chose not to save: if its import fails, the file is not kept. When you delete your Fynora '
+        + 'account, your statement files are deleted with it.');
+  });
+
+  it('gives Uploaded Statements an anchor the import screens link to', () => {
+    policyText();
+    expect(document.getElementById('uploaded-statements')?.textContent).toMatch(/^Uploaded Statements/);
+  });
+
   it('discloses the retention that applies and the entries that have no scheduled deletion', () => {
     const t = policyText();
     expect(t).toMatch(/180 days after the most recent entry/i);

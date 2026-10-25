@@ -3,6 +3,10 @@ package com.finora.accounts;
 import io.swagger.v3.oas.annotations.media.Schema;
 import com.finora.entity.Account;
 import com.finora.util.BankRegistry;
+import com.finora.validation.MoneyLimits;
+import com.finora.validation.WholePaise;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -177,9 +181,20 @@ public record AccountDto(
     // reject it" gap against its own column width. accountType is deliberately NOT annotated here
     // -- AccountService already hand-validates it with a clean 400 via parseAccountType(), and
     // that's a closed, known enum, not a free-text length concern.
+    //
+    // The amounts had the same gap against NUMERIC(14,2) (interest rate: NUMERIC(6,2)): a balance
+    // or credit limit past 999,999,999,999.99 failed in the database as a 409 "refresh and try
+    // again", and a third decimal place was rounded by the column, so the response disagreed with
+    // what was stored. Measured on a local backend; see MoneyLimits.
     @Schema(name = "AccountCreateRequest")
-    public record CreateRequest(@NotBlank @Size(max = 120) String name, String accountType, BigDecimal balance,
-                                 BigDecimal creditLimit, LocalDate dueDate,
+    public record CreateRequest(@NotBlank @Size(max = 120) String name, String accountType,
+                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Balance" + MoneyLimits.TOO_NEGATIVE)
+                                 @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Balance" + MoneyLimits.TOO_LARGE)
+                                 @WholePaise(message = "Balance" + MoneyLimits.FINER_THAN_PAISA) BigDecimal balance,
+                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Credit limit" + MoneyLimits.TOO_NEGATIVE)
+                                 @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Credit limit" + MoneyLimits.TOO_LARGE)
+                                 @WholePaise(message = "Credit limit" + MoneyLimits.FINER_THAN_PAISA) BigDecimal creditLimit,
+                                 LocalDate dueDate,
                                  @Size(max = 40) String investmentKind,
                                  @Size(max = 255) String accountHolderName,
                                  @Size(max = 64) String accountNumberMasked,
@@ -192,8 +207,19 @@ public record AccountDto(
                                  // page) uses the 10-arg overload below and gets null for all seven
                                  // -- correct, since a hand-created account has none of these until
                                  // a statement is imported into it.
-                                 BigDecimal principalAmount, BigDecimal interestRate, LocalDate maturityDate,
-                                 BigDecimal maturityAmount, BigDecimal installmentAmount,
+                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Principal amount" + MoneyLimits.TOO_NEGATIVE)
+                                 @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Principal amount" + MoneyLimits.TOO_LARGE)
+                                 @WholePaise(message = "Principal amount" + MoneyLimits.FINER_THAN_PAISA) BigDecimal principalAmount,
+                                 @DecimalMin(value = "-" + MoneyLimits.MAX_INTEREST_RATE_TEXT, message = "Interest rate can be at most 9,999.99 below zero")
+                                 @DecimalMax(value = MoneyLimits.MAX_INTEREST_RATE_TEXT, message = "Interest rate can be at most 9,999.99")
+                                 @WholePaise(message = "Interest rate" + MoneyLimits.FINER_THAN_PAISA) BigDecimal interestRate,
+                                 LocalDate maturityDate,
+                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Maturity amount" + MoneyLimits.TOO_NEGATIVE)
+                                 @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Maturity amount" + MoneyLimits.TOO_LARGE)
+                                 @WholePaise(message = "Maturity amount" + MoneyLimits.FINER_THAN_PAISA) BigDecimal maturityAmount,
+                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Instalment amount" + MoneyLimits.TOO_NEGATIVE)
+                                 @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Instalment amount" + MoneyLimits.TOO_LARGE)
+                                 @WholePaise(message = "Instalment amount" + MoneyLimits.FINER_THAN_PAISA) BigDecimal installmentAmount,
                                  Integer installmentsPaid, Integer installmentsTotal) {
 
         public CreateRequest(String name, String accountType, BigDecimal balance, BigDecimal creditLimit,

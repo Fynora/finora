@@ -88,6 +88,11 @@ describe('advancedCsvRows', () => {
     expect(cell(rows, 'Spending by payment method')).toBeUndefined();
   });
 
+  // A friend can rank among the merchants, and money sent to a person is not a purchase.
+  it('heads the merchant count "Payments", never "Purchases"', () => {
+    expect(cell(advancedCsvRows(fixtureReport()), 'Merchant')).toEqual(['Merchant', 'Amount', 'Share (%)', 'Payments', 'Earlier period', 'Change']);
+  });
+
   it('writes the unusual purchases and the insights when there are some', () => {
     const base = fixtureReport();
     const rows = advancedCsvRows(fixtureReport({

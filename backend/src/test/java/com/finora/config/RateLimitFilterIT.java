@@ -50,20 +50,17 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
      * comment asking whoever changed it to keep both copies in sync.
      */
     private RateLimitFilter newFilter(boolean trustProxyHeaders) {
+        return newFilter(trustProxyHeaders, 2);
+    }
+
+    private RateLimitFilter newFilter(boolean trustProxyHeaders, int trustedProxyHops) {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         ClientIpResolver clientIpResolver = new ClientIpResolver();
         ReflectionTestUtils.setField(clientIpResolver, "trustProxyHeaders", trustProxyHeaders);
-        // Bug 24 (docs/quality/bug-reports/BUG_REVIEW_REPORT.md) added this field with a
-        // @Value("...:1") default -- which only applies when Spring actually constructs the bean.
-        // This helper calls `new ClientIpResolver()` directly, bypassing Spring entirely, so
-        // without setting it explicitly the field silently sits at Java's own int default (0),
-        // not the intended 1 -- exactly the kind of default-that-only-applies-via-injection trap
-        // this codebase has hit before with Environment mocks. 0 trusted hops makes every
-        // X-Forwarded-For lookup resolve out of bounds and fall back to getRemoteAddr(), which
-        // broke resolvesToForwardedForsLastEntry_whenProxyHeadersAreTrusted below by collapsing
-        // both of that test's distinct clients onto the same shared IP.
-        ReflectionTestUtils.setField(clientIpResolver, "trustedProxyHops", 1);
+        // Set explicitly: this helper builds the resolver without Spring, so no @Value default
+        // applies. 2 is Railway's production shape (see ClientIpResolver).
+        ReflectionTestUtils.setField(clientIpResolver, "trustedProxyHops", trustedProxyHops);
         resetSharedAuthCeiling();
         return new RateLimitFilter(objectMapper, clientIpResolver, testCorsConfigurationSource(), redisTemplate);
     }
@@ -90,11 +87,16 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
     }
 
     private HttpServletRequest requestFor(String path, String remoteAddr, String forwardedFor) {
+        return requestFor(path, remoteAddr, forwardedFor, null);
+    }
+
+    private HttpServletRequest requestFor(String path, String remoteAddr, String forwardedFor, String cfConnectingIp) {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getRequestURI()).thenReturn(path);
         when(request.getContextPath()).thenReturn("");
         when(request.getRemoteAddr()).thenReturn(remoteAddr);
         when(request.getHeader("X-Forwarded-For")).thenReturn(forwardedFor);
+        when(request.getHeader("CF-Connecting-IP")).thenReturn(cfConnectingIp);
         return request;
     }
 
@@ -134,19 +136,21 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         assertThat(response.getStatus()).isNotEqualTo(429);
     }
 
+    /** Railway's infrastructure hop: the last X-Forwarded-For entry on every production request
+     *  (measured 2026-10-25, see ClientIpResolver). RFC 6598 shared space, not a real address. */
+    private static final String RAILWAY_HOP = "100.64.12.34";
+    /** Inside Cloudflare's published 162.158.0.0/15. */
+    private static final String CLOUDFLARE_EDGE = "162.158.1.1";
+
     @Test
-    void resolvesToForwardedForsLastEntry_whenProxyHeadersAreTrusted() throws Exception {
+    void resolvesToTheEntryBeforeRailwaysHop_whenProxyHeadersAreTrusted() throws Exception {
         RateLimitFilter filter = newFilter(true);
 
-        // Every request "arrives from" the same proxy IP (getRemoteAddr()), the way it actually
-        // would behind Railway's edge proxy -- a reverse proxy APPENDS the IP it observed to
-        // whatever X-Forwarded-For it received from upstream, so with exactly one trusted proxy
-        // in front of this app, the LAST entry is the one that proxy itself appended (trustworthy)
-        // and everything before it is whatever the original request already carried (not). Each
-        // request here carries a DIFFERENT real client IP as the LAST entry -- these must be
-        // rate-limited independently by it, not collapsed onto the shared proxy IP.
-        HttpServletRequest clientA = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.1");
-        HttpServletRequest clientB = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.2");
+        // Every request arrives from the same proxy (getRemoteAddr()) and ends with the same
+        // Railway hop, the way production does. The entry before that hop is each visitor's own
+        // address, and the two visitors must be rate-limited independently by it.
+        HttpServletRequest clientA = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.201, " + RAILWAY_HOP);
+        HttpServletRequest clientB = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.202, " + RAILWAY_HOP);
 
         assertThat(tripsRateLimitAfterManyRequests(filter, clientA)).isTrue();
 
@@ -157,25 +161,42 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
     }
 
     /**
-     * Bug fix regression test: this used to take the FIRST X-Forwarded-For entry, on the
-     * (backwards) theory that "the first entry is the original client." A request that includes
-     * its own X-Forwarded-For header arrives here as "&lt;whatever the client sent&gt;, &lt;real
-     * address the trusted proxy actually appended&gt;" -- taking the first entry let an attacker
-     * bypass every rate limiter in this class by sending a fresh, different spoofed value on
-     * every single request, since each one landed in its own bucket. Only the LAST entry (the
-     * trusted proxy's own hop) may ever be trusted.
+     * The production bug, kept as a regression marker: with one trusted hop, Railway's two-entry
+     * header resolves to Railway's own hop, so a visitor who never sent a request is refused
+     * because somebody else behind the same hop used up the bucket.
      */
     @Test
-    void bugFix_ignoresAClientSuppliedLeadingHop_andUsesOnlyTheProxyAppendedLastEntry() throws Exception {
+    void oneTrustedHop_onRailwaysTwoEntryHeader_putsDifferentVisitorsInOneBucket() throws Exception {
+        RateLimitFilter filter = newFilter(true, 1);
+
+        HttpServletRequest clientA = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.203, " + RAILWAY_HOP);
+        HttpServletRequest clientB = requestFor("/api/v1/auth/login", "10.0.0.1", "203.0.113.204, " + RAILWAY_HOP);
+
+        assertThat(tripsRateLimitAfterManyRequests(filter, clientA)).isTrue();
+
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(clientB, response, chain);
+        assertThat(response.getStatus()).isEqualTo(429);
+    }
+
+    /**
+     * Bug fix regression test: this used to take the FIRST X-Forwarded-For entry, on the
+     * (backwards) theory that "the first entry is the original client." On a proxy that appends,
+     * a request that includes its own X-Forwarded-For header arrives here as "&lt;whatever the
+     * client sent&gt;, &lt;address the trusted proxy saw&gt;, &lt;proxy hop&gt;" -- taking the
+     * first entry let an attacker bypass every rate limiter in this class by sending a fresh,
+     * different spoofed value on every request. Only the entry the trusted proxy wrote counts.
+     */
+    @Test
+    void bugFix_ignoresAClientSuppliedLeadingHop_andUsesOnlyTheProxyWrittenEntry() throws Exception {
         RateLimitFilter filter = newFilter(true);
         FilterChain chain = mock(FilterChain.class);
 
         boolean tripped = false;
         for (int i = 0; i < 15; i++) {
-            // A different spoofed leading hop on every request, but the SAME real address (the
-            // one the trusted proxy actually appended) every time.
             HttpServletRequest request = requestFor("/api/v1/auth/login", "10.0.0.1",
-                    "spoofed-" + i + ".attacker.example, 198.51.100.9");
+                    "spoofed-" + i + ".attacker.example, 198.51.100.9, " + RAILWAY_HOP);
             MockHttpServletResponse response = new MockHttpServletResponse();
             filter.doFilterInternal(request, response, chain);
             if (response.getStatus() == 429) tripped = true;
@@ -184,6 +205,68 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
         assertThat(tripped)
                 .as("a fresh spoofed leading X-Forwarded-For hop on every request must not bypass the limiter")
                 .isTrue();
+    }
+
+    /**
+     * Spoofing test: the origin can be reached without going through Cloudflare, so a caller can
+     * send any CF-Connecting-IP it likes. A fresh forged value on every request must not give it
+     * a fresh bucket: its proxy-reported address is not a Cloudflare edge, so the header is ignored.
+     */
+    @Test
+    void spoof_forgedCfConnectingIpFromACallerThatSkippedCloudflare_doesNotBypassTheLimiter() throws Exception {
+        RateLimitFilter filter = newFilter(true);
+        FilterChain chain = mock(FilterChain.class);
+
+        boolean tripped = false;
+        for (int i = 0; i < 20; i++) {
+            HttpServletRequest request = requestFor("/api/v1/auth/login", "10.0.0.1",
+                    "198.51.100.21, " + RAILWAY_HOP, "192.0.2." + (100 + i));
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(request, response, chain);
+            if (response.getStatus() == 429) tripped = true;
+        }
+
+        assertThat(tripped)
+                .as("a fresh forged CF-Connecting-IP on every request must not bypass the limiter")
+                .isTrue();
+    }
+
+    /** Same attack with a Cloudflare-looking address placed in front of the proxy-written entry,
+     *  to try to unlock CF-Connecting-IP: entries the caller added are never read. */
+    @Test
+    void spoof_forgedCloudflareEntryInFrontOfTheProxyWrittenOne_doesNotBypassTheLimiter() throws Exception {
+        RateLimitFilter filter = newFilter(true);
+        FilterChain chain = mock(FilterChain.class);
+
+        boolean tripped = false;
+        for (int i = 0; i < 20; i++) {
+            HttpServletRequest request = requestFor("/api/v1/auth/login", "10.0.0.1",
+                    CLOUDFLARE_EDGE + ", 198.51.100.22, " + RAILWAY_HOP, "192.0.2." + (130 + i));
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilterInternal(request, response, chain);
+            if (response.getStatus() == 429) tripped = true;
+        }
+
+        assertThat(tripped).isTrue();
+    }
+
+    /** Visitors that really came through Cloudflare share Cloudflare's edge addresses, so they are
+     *  told apart by CF-Connecting-IP: one visitor using up their bucket must not refuse another
+     *  arriving through the same edge. */
+    @Test
+    void cloudflareVisitorsBehindOneEdge_areLimitedIndependentlyByCfConnectingIp() throws Exception {
+        RateLimitFilter filter = newFilter(true);
+        String edgeChain = CLOUDFLARE_EDGE + ", " + RAILWAY_HOP;
+
+        HttpServletRequest visitorA = requestFor("/api/v1/auth/login", "10.0.0.1", edgeChain, "203.0.113.231");
+        HttpServletRequest visitorB = requestFor("/api/v1/auth/login", "10.0.0.1", edgeChain, "203.0.113.232");
+
+        assertThat(tripsRateLimitAfterManyRequests(filter, visitorA)).isTrue();
+
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilterInternal(visitorB, response, chain);
+        assertThat(response.getStatus()).isNotEqualTo(429);
     }
 
     @Test
@@ -539,6 +622,8 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 Map.entry("app.rate-limit.identify.window-seconds", DEFAULT_IDENTIFY_WINDOW),
                 Map.entry("app.rate-limit.import-stage.max", DEFAULT_IMPORT_STAGE_MAX),
                 Map.entry("app.rate-limit.import-stage.window-seconds", DEFAULT_IMPORT_STAGE_WINDOW),
+                Map.entry("app.rate-limit.send-statement.max", DEFAULT_SEND_STATEMENT_MAX),
+                Map.entry("app.rate-limit.send-statement.window-seconds", DEFAULT_SEND_STATEMENT_WINDOW),
                 Map.entry("app.rate-limit.statement-refresh.max", DEFAULT_STATEMENT_REFRESH_MAX),
                 Map.entry("app.rate-limit.statement-refresh.window-seconds", DEFAULT_STATEMENT_REFRESH_WINDOW),
                 Map.entry("app.rate-limit.password-change.max", DEFAULT_PASSWORD_CHANGE_MAX),
@@ -734,7 +819,7 @@ class RateLimitFilterIT extends AbstractIntegrationTest {
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60, high, 60,
                 high, 60, high, 60, high, 60, high, 60, high, 60,
-                globalMax, 60);
+                globalMax, 60, high, 60);
     }
 
     @Test

@@ -16,6 +16,9 @@ import {
   importFailureMessage,
   isStatementRefusal,
   isUnreadStatementLayout,
+  PDF_PASSWORD_HINT,
+  SERVER_FAILURE_MESSAGE,
+  UNSUPPORTED_FILE_MESSAGE,
   UNREAD_LAYOUT_MESSAGE,
   UNREAD_LAYOUT_REVIEW_CONSENT,
   UNREAD_LAYOUT_REVIEW_MESSAGE,
@@ -26,6 +29,7 @@ import { BankLogo } from '../components/BankLogo';
 import { PasswordInput } from '../components/PasswordInput';
 import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
+import StatementHandlingPanel from '../components/StatementHandlingPanel';
 import { flaggedRows, ROW_FLAG_LABEL, type FlaggedRows } from '../components/verificationFlags';
 import { matchExistingAccount } from '../lib/accountMatch';
 import { isLikelyMatch } from '../lib/holderNameMatcher';
@@ -287,6 +291,9 @@ export default function Import() {
   const [verification, setVerification] = useState<VerificationReport | null>(null);
   // F-33: an earlier import of these exact bytes, shown as a notice on the review step. Never a gate.
   const [previousImport, setPreviousImport] = useState<PreviousImport | null>(null);
+  // Gate 2b (spec §5.3): the session a reviewer released after an accuracy hold. The review step
+  // then says it was approved, as well as that nothing is saved until the user confirms.
+  const [approvedAfterReview, setApprovedAfterReview] = useState(false);
   // The Free one-month limit this statement will be refused under at Import, told up front so the
   // person doesn't review every row first (FreePlanLimitNotice). It IS a gate, unlike the notice
   // above: the Import button waits on it, because the backend would refuse. `limitOverridden` is
@@ -481,7 +488,7 @@ export default function Import() {
     const isPdf = lowerName.endsWith('.pdf');
     const isCsv = lowerName.endsWith('.csv');
     if (!isPdf && !isCsv) {
-      showError('Please upload a .csv or .pdf bank/credit card statement.');
+      showError(UNSUPPORTED_FILE_MESSAGE);
       return;
     }
     if (isPdf) {
@@ -558,6 +565,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(sessionId);
       setSessionId(session.sessionId);
+      setApprovedAfterReview(session.approvedAfterReview === true);
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -600,6 +608,7 @@ export default function Import() {
     try {
       const session = await importApi.getSession(id);
       setSessionId(session.sessionId);
+      setApprovedAfterReview(session.approvedAfterReview === true);
       setPreviousImport(session.previousImport ?? null);
       setFreePlanLimit(session.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -751,6 +760,7 @@ export default function Import() {
         return;
       }
       setSessionId(res.sessionId);
+      setApprovedAfterReview(false);
       setPreviousImport(res.previousImport ?? null);
       setFreePlanLimit(res.freePlanLimit ?? null);
       setLimitOverridden(false);
@@ -822,7 +832,13 @@ export default function Import() {
         // backend-side -- see GlobalExceptionHandler), not a second frontend-maintained copy of
         // which codes qualify, so the banner's color can never drift from the backend's own answer.
         showError(contractMessage, !!e.response?.data?.userActionRequired);
-        setAskMoment('REFUSED');
+        // Busy, a rate limit and the virus check have copy now too, and none of them judged the
+        // statement, so the question is asked only for a refusal.
+        if (isStatementRefusal(code)) setAskMoment('REFUSED');
+      } else if (!e.response.data?.message && e.response.status >= 500) {
+        // A server failure with no words of its own (a proxy's 502): the file was never read, so
+        // "could not parse" would send the user to check a file that is fine.
+        showError(SERVER_FAILURE_MESSAGE);
       } else {
         showError(e.response?.data?.message ?? (isPdf ? 'Could not parse this PDF.' : 'Could not parse this CSV.'));
         // A refusal only when the server refused the statement, never a crash, a rate limit or sign-in.
@@ -1027,6 +1043,7 @@ export default function Import() {
 
   function startOver() {
     setStep('upload');
+    setApprovedAfterReview(false);
     setPreviousImport(null);
     setFreePlanLimit(null);
     setLimitOverridden(false);
@@ -1264,7 +1281,7 @@ export default function Import() {
                     ? "That password didn't open this statement — check it and try again."
                     : passwordState === 'required'
                       ? 'This statement is password protected. Enter the password your bank uses for it.'
-                      : 'Many banks protect statements with a password — often a mix of your name, PAN, date of birth or account number. Check the email the statement came in.'}
+                      : PDF_PASSWORD_HINT}
                 </p>
               </div>
 
@@ -1331,6 +1348,9 @@ export default function Import() {
               />
             </form>
           )}
+          {/* Gate 2b (spec §5.2): the password form takes the picker's place, and the panel's
+              password line matters most here. Never both: showUploadPicker excludes pendingPdf. */}
+          {!jobId && pendingPdf && <StatementHandlingPanel />}
 
           {showUploadPicker && !!unfinishedSessions?.length && (
             <div className="bg-card rounded-xl2 shadow-card border border-border overflow-hidden">
@@ -1401,6 +1421,20 @@ export default function Import() {
           {/* Dropzone beside the connected-accounts panel and trust cards, matching the mockup's
               layout -- was a standalone full-width block below this row; moved here, unchanged
               internally, per direct feedback that the two belong side by side. */}
+          {showUploadPicker && !uploading && (
+            // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+            <div className="space-y-1">
+              <p data-testid="first-ask" className="text-sm text-ink">
+                <strong>Start with one statement:</strong> last month, from the account you use most.
+              </p>
+              {/* Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named. */}
+              <p data-testid="first-ask-card" className="text-sm text-muted">
+                No bank statement to hand? A credit card statement works too.
+              </p>
+            </div>
+          )}
+          {/* Gate 2b (spec §5.2): what happens to the statement, closed, right above the picker. */}
+          {showUploadPicker && <StatementHandlingPanel />}
           {showUploadPicker && (
             <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_0.85fr] gap-4">
               <div
@@ -1651,6 +1685,9 @@ export default function Import() {
 
         {step === 'review' && (
           <motion.div key="review" className="space-y-4" {...stepMotionProps}>
+          <p data-testid="review-promise" role="status" className="text-sm text-ink">
+            {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
+          </p>
           {freePlanLimit && !reimportState && (
             <FreePlanLimitBanner
               notice={freePlanLimit}

@@ -166,6 +166,119 @@ class NotificationPreferenceControllerIT extends AbstractIntegrationTest {
         assertThat(preferenceRepository.findByUserId(user.getId())).isEmpty();
     }
 
+    // ---- Gate 2b PR 5 (spec §6, Sid's decision (b)): a REMINDERS category with its own push switch ----
+
+    private static final String WITH_REMINDERS = "/api/v1/notification-preferences?categories=FINANCIAL,REMINDERS";
+
+    private ResponseEntity<String> get(User user, String url) {
+        return restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+    }
+
+    private ResponseEntity<String> put(User user, String url, String category, String channel, boolean enabled) {
+        String body = """
+                {"category": "%s", "channel": "%s", "enabled": %s}
+                """.formatted(category, channel, enabled);
+        return restTemplate.exchange(url, HttpMethod.PUT, new HttpEntity<>(body, bearerFor(user)), String.class);
+    }
+
+    private static Boolean enabledIn(JsonNode data, String category, String channel) {
+        for (JsonNode pref : data) {
+            if (pref.get("category").asText().equals(category) && pref.get("channel").asText().equals(channel)) {
+                return pref.get("enabled").asBoolean();
+            }
+        }
+        return null;
+    }
+
+    @Test
+    void listsRemindersPushEnabledByDefault() throws Exception {
+        User user = createUser();
+
+        JsonNode data = mapper.readTree(get(user, WITH_REMINDERS).getBody()).get("data");
+
+        assertThat(data).hasSize(3);
+        assertThat(enabledIn(data, "REMINDERS", "PUSH")).isTrue();
+        assertThat(enabledIn(data, "REMINDERS", "EMAIL")).isNull();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+    }
+
+    /** The 1.0.0 app and any web tab opened before the deploy draw one switch per channel and send
+     *  every change as FINANCIAL; a REMINDERS row in their list would be a second "Push" switch that
+     *  toggles the wrong thing. They never ask for REMINDERS, so they never see it. */
+    @Test
+    void theDefaultListStaysFinancialOnlyForOlderApps() throws Exception {
+        User user = createUser();
+        put(user, WITH_REMINDERS, "REMINDERS", "PUSH", false);
+
+        JsonNode listed = mapper.readTree(get(user, "/api/v1/notification-preferences").getBody()).get("data");
+        JsonNode afterPut = mapper.readTree(put(user, "FINANCIAL", "EMAIL", false).getBody()).get("data");
+
+        assertThat(listed).hasSize(2).allSatisfy(p -> assertThat(p.get("category").asText()).isEqualTo("FINANCIAL"));
+        assertThat(afterPut).hasSize(2).allSatisfy(p -> assertThat(p.get("category").asText()).isEqualTo("FINANCIAL"));
+    }
+
+    @Test
+    void setsRemindersPush() throws Exception {
+        User user = createUser();
+
+        ResponseEntity<String> response = put(user, WITH_REMINDERS, "REMINDERS", "PUSH", false);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(enabledIn(mapper.readTree(response.getBody()).get("data"), "REMINDERS", "PUSH")).isFalse();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isFalse();
+    }
+
+    @Test
+    void refusesRemindersEmail() {
+        User user = createUser();
+
+        assertThat(put(user, WITH_REMINDERS, "REMINDERS", "EMAIL", false).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(preferenceRepository.findByUserId(user.getId())).isEmpty();
+    }
+
+    @Test
+    void remindersSwitchOnlyAffectsReminders() {
+        User tiredOfReminders = createUser();
+        put(tiredOfReminders, WITH_REMINDERS, "REMINDERS", "PUSH", false);
+        assertThat(resolver.isEnabled(tiredOfReminders.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isTrue();
+        assertThat(resolver.isEnabled(tiredOfReminders.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isFalse();
+
+        User wantsRemindersOnly = createUser();
+        put(wantsRemindersOnly, WITH_REMINDERS, "REMINDERS", "PUSH", true);
+        put(wantsRemindersOnly, "FINANCIAL", "PUSH", false);
+        assertThat(resolver.isEnabled(wantsRemindersOnly.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+        assertThat(resolver.isEnabled(wantsRemindersOnly.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isFalse();
+    }
+
+    /** Sid (2026-10-25): until a user sets "Statement reminders" themselves, it follows their "Push
+     *  notifications" switch -- the one switch the 1.0.0 app shows, and the one people who said "no
+     *  push" before reminders existed already turned off. */
+    @Test
+    void remindersFollowPushNotificationsUntilTheUserSetsThem() throws Exception {
+        User user = createUser();
+
+        JsonNode afterPushOff = mapper.readTree(put(user, WITH_REMINDERS, "FINANCIAL", "PUSH", false).getBody()).get("data");
+        assertThat(enabledIn(afterPushOff, "REMINDERS", "PUSH")).isFalse();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isFalse();
+
+        put(user, "FINANCIAL", "PUSH", true);
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+
+        // Once set, their own choice wins whatever push says.
+        put(user, WITH_REMINDERS, "REMINDERS", "PUSH", true);
+        JsonNode afterOwnChoice = mapper.readTree(put(user, WITH_REMINDERS, "FINANCIAL", "PUSH", false).getBody()).get("data");
+        assertThat(enabledIn(afterOwnChoice, "REMINDERS", "PUSH")).isTrue();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.REMINDERS, NotificationChannel.PUSH)).isTrue();
+    }
+
+    @Test
+    void anUnknownCategoryInTheListParameterIsABadRequest() {
+        User user = createUser();
+
+        assertThat(get(user, "/api/v1/notification-preferences?categories=FINANCIAL,NOPE").getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     @Test
     void anonymousCaller_isRejected() {
         HttpHeaders headers = new HttpHeaders();

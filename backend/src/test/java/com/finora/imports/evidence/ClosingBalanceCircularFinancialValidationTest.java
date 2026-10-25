@@ -167,10 +167,11 @@ class ClosingBalanceCircularFinancialValidationTest {
     }
 
     /**
-     * The complete set of {@code statementTotalsOutcome=FAILED} documents in C-9 §2.2's measured
-     * corpus -- all four remaining ones (see
-     * {@link #singularDepositWithdrawalColumnsSample_nowResolvesAmbiguous_ratherThanGuessing} for the
-     * fifth), all recorded {@code suspectedCause=OPENING_BALANCE}, all previously recorded
+     * The {@code statementTotalsOutcome=FAILED} documents in C-9 §2.2's measured corpus that still
+     * fail -- three of the five (see
+     * {@link #singularDepositWithdrawalColumnsSample_nowResolvesAmbiguous_ratherThanGuessing} and
+     * {@link #mergedAmountSingleRun_hasNoOpeningOrClosingToFailOn_andIsHeldForItsUnreadAmounts} for
+     * the other two), all recorded {@code suspectedCause=OPENING_BALANCE}, all previously recorded
      * {@code financialValidationStatus=SUPPORTED}.
      */
     static java.util.stream.Stream<Arguments> c9FailedCorpus() {
@@ -180,9 +181,36 @@ class ClosingBalanceCircularFinancialValidationTest {
                 Arguments.of("buildReverseChronologicalRunningBalanceSample",
                         (FixtureBytes) PdfFixtureBuilder::buildReverseChronologicalRunningBalanceSample),
                 Arguments.of("buildSingleTrailingBalanceDiscrepancySample",
-                        (FixtureBytes) PdfFixtureBuilder::buildSingleTrailingBalanceDiscrepancySample),
-                Arguments.of("merged-amount-single-run",
-                        (FixtureBytes) () -> pass2("merged-amount-single-run")));
+                        (FixtureBytes) PdfFixtureBuilder::buildSingleTrailingBalanceDiscrepancySample));
+    }
+
+    /**
+     * The fifth C-9 document. Its totals FAILED only because its first row -- a salary credit whose
+     * Deposits cell reads "0.00 96,142.00", one run -- had its balance read as its amount, which
+     * doubled the opening balance; and its closing balance was the second row's, though a third row
+     * (amounts and balance merged into one cell) came after it. A row whose amount could not be read
+     * no longer feeds the balances, so neither end is established and there is nothing for the totals
+     * to fail on. It is held instead, for the unread amounts (Sid, 2026-10-25), and the closing
+     * balance is still never SUPPORTED.
+     */
+    @Test
+    void mergedAmountSingleRun_hasNoOpeningOrClosingToFailOn_andIsHeldForItsUnreadAmounts() throws Exception {
+        ImportDto.StagedAccountSection section = stageSection(pass2("merged-amount-single-run"));
+        assertThat(section.detectedAccount().openingBalance()).isNull();
+        assertThat(section.detectedAccount().closingBalance()).isNull();
+
+        // No closing balance was detected, so the claim assessed is the one a reviewer would
+        // confirm: the fixture's true final balance.
+        Observed observed = observe(section, new BigDecimal("95686.00"));
+        assertThat(observed.statementTotals().outcome()).isEqualTo("NOT_APPLICABLE");
+        assertThat(observed.closingBalanceDimension().status()).isNotEqualTo(EvidenceStatus.SUPPORTED);
+
+        ImportDto.VerificationFinding rowAccounting = section.verification().findings().stream()
+                .filter(f -> RowAccountingValidator.RULE.equals(f.rule())).findFirst().orElseThrow();
+        assertThat(rowAccounting.outcome()).isEqualTo("WARNING");
+        assertThat(rowAccounting.details()).containsEntry(RowAccountingValidator.UNREADABLE_AMOUNT_ROW_COUNT, 2);
+        assertThat(com.finora.imports.trust.TrustPredicate.evaluate(List.of(section.verification()), List.of(),
+                LocalDate.of(2026, 10, 25)).hold()).isTrue();
     }
 
     @ParameterizedTest(name = "{0}")

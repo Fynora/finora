@@ -204,4 +204,60 @@ class RateLimiterIT extends AbstractIntegrationTest {
         Thread.sleep(1_100);
         assertThat(limiter.allowLocally("client-a")).isTrue();
     }
+
+    /** reserve takes a slot like allow does; refund gives it back so it no longer counts. */
+    @Test
+    void reserve_takesASlotAndRefundGivesItBack() {
+        RateLimiter limiter = new RateLimiter(2, 60, "test-reserve-" + System.nanoTime(), redisTemplate);
+
+        String first = limiter.reserve("client-a");
+        String second = limiter.reserve("client-a");
+        assertThat(first).isNotNull();
+        assertThat(second).isNotNull();
+        assertThat(limiter.reserve("client-a")).as("the window is full").isNull();
+
+        limiter.refund("client-a", first);
+
+        assertThat(limiter.reserve("client-a")).as("the refunded slot is free again").isNotNull();
+        assertThat(limiter.reserve("client-a")).isNull();
+    }
+
+    /** With Redis down, reserve and refund work on the in-process window instead. */
+    @Test
+    void reserve_andRefund_workInProcessWhileRedisIsUnreachable() {
+        RateLimiter limiter = new RateLimiter(1, 60, "test-reserve-fallback-" + System.nanoTime(), redisTemplate);
+        REDIS_PROXY.setConnectionCut(true);
+        try {
+            String slot = limiter.reserve("client-a");
+            assertThat(slot).isEqualTo(RateLimiter.LOCAL_SLOT);
+            assertThat(limiter.reserve("client-a")).isNull();
+
+            limiter.refund("client-a", slot);
+
+            assertThat(limiter.reserve("client-a")).isEqualTo(RateLimiter.LOCAL_SLOT);
+        } finally {
+            REDIS_PROXY.setConnectionCut(false);
+        }
+    }
+
+    /** Simultaneous reserves never hand out more slots than the limit. */
+    @Test
+    void reserve_underConcurrentLoad_handsOutExactlyMaxSlots() throws InterruptedException {
+        RateLimiter limiter = new RateLimiter(5, 60, "test-reserve-concurrent-" + System.nanoTime(), redisTemplate);
+        ExecutorService pool = Executors.newFixedThreadPool(20);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger granted = new AtomicInteger();
+        for (int i = 0; i < 40; i++) {
+            pool.submit(() -> {
+                start.await();
+                if (limiter.reserve("client-a") != null) granted.incrementAndGet();
+                return null;
+            });
+        }
+        start.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(granted.get()).isEqualTo(5);
+    }
 }

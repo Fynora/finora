@@ -123,4 +123,37 @@ public class RowAccountingValidator {
                 + "transactions -- only that they were never explained, and require review.");
         return new ImportDto.VerificationFinding(RULE, "WARNING", details);
     }
+
+    /** Detail key: dated rows whose amount could not be read and which leave the statement's amounts
+     *  unconfirmed -- see {@link #withUnreadableAmounts}. Present only when there are some. */
+    public static final String UNREADABLE_AMOUNT_ROW_COUNT = "unreadableAmountRowCount";
+
+    /**
+     * Adds dated rows whose amount could not be read, as a warning.
+     *
+     * <p>Such a row is a transaction -- it has a date and a value in an amount column -- whose size
+     * is unknown, so none of the statement's totals can be confirmed while it is out. Sid's rule
+     * (2026-10-11, applied here 2026-10-24): a statement imports only once its amounts are
+     * confirmed, so the trust gate holds the file on this ({@code TrustPredicate}). It used to be
+     * held only by accident, and not always: the unread row's balance was read as its amount, which
+     * made the totals fail -- with a wrong opening balance shown to the reviewer -- and a file with
+     * no balance column was not held at all.
+     *
+     * <p>Kept apart from {@link #check}. A CSV passes every such row: it has one table. A PDF
+     * passes them only when one left the opening or closing balance not established and the
+     * statement printed none to fill it (Sid, 2026-10-25), because there an unparseable row may
+     * belong to a schedule table that is no ledger (see the comment in {@link #check}), or be a
+     * summary line under the table: measured on the real corpus, the only two such rows were both
+     * a statement's own closing-balance line, and holding on any row would have held both.
+     */
+    public static ImportDto.VerificationFinding withUnreadableAmounts(ImportDto.VerificationFinding finding,
+                                                                      int unreadableAmountRows) {
+        if (unreadableAmountRows <= 0 || finding == null) return finding;
+        Map<String, Object> details = new LinkedHashMap<>(finding.details() == null ? Map.of() : finding.details());
+        details.put(UNREADABLE_AMOUNT_ROW_COUNT, unreadableAmountRows);
+        details.put("explanation", (unreadableAmountRows == 1 ? "One row has" : unreadableAmountRows + " rows have")
+                + " a date and an amount that could not be read, so the statement's amounts cannot be "
+                + "confirmed until " + (unreadableAmountRows == 1 ? "it is" : "they are") + " checked.");
+        return new ImportDto.VerificationFinding(RULE, "WARNING", details);
+    }
 }

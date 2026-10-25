@@ -92,6 +92,21 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
            """)
     List<StatementMetadata> findMetadataByUserIdOrderByImportedAtDesc(@Param("userId") UUID userId);
 
+    /** How each of a user's live statements moved its account's balance -- all
+     *  {@code AmountOwedRule} needs to tell a card summed from zero apart from one a statement or
+     *  the user stated. Two columns, one query per user. */
+    interface ImportMode {
+        UUID getAccountId();
+        StatementImport.BalanceApplicationMode getBalanceApplicationMode();
+    }
+
+    @Query("""
+           SELECT s.accountId AS accountId, s.balanceApplicationMode AS balanceApplicationMode
+             FROM StatementImport s
+            WHERE s.userId = :userId
+           """)
+    List<ImportMode> findImportModesForUser(@Param("userId") UUID userId);
+
     /** The original-document hashes of this user's live statements -- the same rows
      *  {@link #findMetadataByUserIdOrderByImportedAtDesc} returns, so "already exported under
      *  statements/" in {@code DataExportService} means exactly that. A legacy row confirmed before

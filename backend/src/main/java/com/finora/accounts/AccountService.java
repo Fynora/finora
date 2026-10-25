@@ -71,7 +71,12 @@ public class AccountService {
         this.aaLinks = aaLinks;
         this.aaStaleness = aaStaleness;
         this.userRepository = userRepository;
+        this.amountOwedRule = new AmountOwedRule(statementImportRepository);
     }
+
+    /** Stateless over the repository this service already holds, so built here rather than
+     *  widening the constructor every caller and test passes. */
+    private final AmountOwedRule amountOwedRule;
 
     @Transactional(readOnly = true)
     public List<AccountDto> listForUser(UUID userId) {
@@ -110,6 +115,9 @@ public class AccountService {
                                 com.finora.integrations.setu.AccountAggregatorLink::getAccountId,
                                 java.util.function.Function.identity()));
 
+        // One query at most -- and none when no card could qualify.
+        java.util.Set<UUID> unknownAmountOwed = amountOwedRule.unknownCardIds(userId, accounts);
+
         return accounts.stream()
                 .map(a -> {
                     StatementMetadata latestImport = latestImportByAccount.get(a.getId());
@@ -122,7 +130,8 @@ public class AccountService {
                             latestImport == null ? null : latestImport.getStatementPeriodEnd(),
                             statementsCountByAccount.getOrDefault(a.getId(), 0),
                             transactionsCountByAccount.getOrDefault(a.getId(), 0L),
-                            aaSyncStale);
+                            aaSyncStale,
+                            !unknownAmountOwed.contains(a.getId()));
                 })
                 .toList();
     }
@@ -331,7 +340,10 @@ public class AccountService {
         // edit. Accepted because nothing consumes update()'s response for that signal -- the
         // account picker (Import.tsx) always re-fetches via listForUser, which resolves this
         // accurately. See AccountDto.aaSyncStale's own doc comment.
-        return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
+        // amountOwedKnown is resolved: the "Add it" sheet reads this response, and a rename of a
+        // card with no known amount owed must not report it known.
+        return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()),
+                null, null, null, 0, 0L, false, !amountOwedRule.isUnknown(saved));
     }
 
     /** Bug fix: same atomicity gap as {@link #create} between the account (soft-)delete and the

@@ -32,7 +32,9 @@ import java.util.Set;
  *       one dropped-row reason verified against real documents to mean a genuinely lost
  *       transaction rather than a merely unexplained row. Also a CSV row with a date and an
  *       amount that could not be read (Sid's decision, 2026-10-24): a transaction of unknown size,
- *       so the statement's amounts are not confirmed.</li>
+ *       so the statement's amounts are not confirmed. In a PDF only when that row left the
+ *       opening or closing balance not established and nothing printed filled it (Sid,
+ *       2026-10-25): a PDF's unread row can be a summary line rather than a transaction.</li>
  *   <li><b>Statement period integrity.</b> A period that ends before it starts, sits in the
  *       future, or spans more than {@value #MAX_PERIOD_DAYS} days did not come out of the
  *       document correctly.</li>
@@ -266,9 +268,10 @@ public final class TrustPredicate {
     }
 
     /**
-     * A CSV row with a date and an amount that could not be read: a transaction of unknown size,
-     * left out of the rows. Sid's decision (2026-10-24): this holds, under the dropped-transaction
-     * category, because the statement's amounts are not confirmed while it is out. See
+     * A row with a date and an amount that could not be read: a transaction of unknown size, left
+     * out of the rows. Sid's decision (2026-10-24, CSV; 2026-10-25, PDF): this holds, under the
+     * dropped-transaction category, because the statement's amounts are not confirmed while it is
+     * out. Which rows count differs by file type -- see
      * {@link RowAccountingValidator#withUnreadableAmounts}.
      */
     private static Optional<String> unreadableAmount(ImportDto.VerificationFinding finding) {

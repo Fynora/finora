@@ -665,7 +665,7 @@ public class PdfMetadataExtractor {
     // statement whose credit limit did have decimals) silently matched nothing on this file.
     // Widened to require EITHER a decimal suffix OR proper comma-grouped thousands formatting
     // (not just "requires digits", which would then wrongly match the digit-prefix of a masked
-    // card number like "653047******7550" -- that value has no comma at all, so it still can't
+    // card number like "460012******2468" -- that value has no comma at all, so it still can't
     // match this pattern; a genuine amount in this locale always has at least one comma group
     // once it's large enough to need one).
     private static final Pattern AMOUNT_LIKE = Pattern.compile("\\b\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d{2})?\\b|\\b[\\d,]+\\.\\d{2}\\b");

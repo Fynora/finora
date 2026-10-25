@@ -29,7 +29,7 @@ class CreditLimitGridExtractorTest {
                 run("Available Credit Limit", 265.0f, 336.0f, 253.0f),
                 run("Available Cash Limit", 379.0f, 445.0f, 253.0f),
                 run("For hassle free payments register for", 486.0f, 572.0f, 257.0f),
-                run("653047******7550", 51.0f, 115.0f, 266.5f),
+                run("460012******2468", 51.0f, 115.0f, 266.5f),
                 run("219,000.00", 173.0f, 209.0f, 266.5f),
                 run("191,334.84", 282.5f, 318.5f, 266.5f));
 

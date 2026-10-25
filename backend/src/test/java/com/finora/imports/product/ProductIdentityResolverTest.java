@@ -350,11 +350,11 @@ class ProductIdentityResolverTest {
 
     @Test
     void aCardReimportedNextMonth_isMatchedOnItsMask_andAudited() {
-        Account existing = account("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        Account existing = account("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468");
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
 
         var found = resolver.resolve(userId,
-                ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550"));
+                ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468"));
 
         assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.MATCHED);
         assertThat(found.account()).isSameAs(existing);

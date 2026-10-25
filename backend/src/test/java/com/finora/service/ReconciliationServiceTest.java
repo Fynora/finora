@@ -4403,10 +4403,11 @@ class ReconciliationServiceTest {
 
     // --- Last-4 disambiguation (roadmap Part 4's "issuer-name + last-4-digit matching"),
     // verified feasible against this project's own real bank-statement corpus: an ICICI
-    // savings-side payment narration ("BIL/INFT/.../CC BillPay-5001/Self") embedded the exact
-    // real last-4 ("5241XXXXXXXX5001") of the card it settled. Not every bank's narration carries
-    // this, so it's a positive-evidence override on top of the due-date tiebreak above, never a
-    // requirement -- these tests cover both the override and the unaffected fallback. ---
+    // savings-side payment narration ("BIL/INFT/.../CC BillPay-4071/Self") embedded the exact
+    // last-4 of the card it settled (digits here are invented: "5320XXXXXXXX4071"). Not every
+    // bank's narration carries this, so it's a positive-evidence override on top of the due-date
+    // tiebreak above, never a requirement -- these tests cover both the override and the
+    // unaffected fallback. ---
 
     @Test
     void reconcileForUser_prefersTheLast4Match_overTheCloserByDateCandidate() {
@@ -4421,11 +4422,11 @@ class ReconciliationServiceTest {
                 ccStatement(UUID.randomUUID(), earlierCardAccount, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 10));
         com.finora.entity.StatementImport laterStatement =
                 ccStatement(UUID.randomUUID(), laterCardAccount, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 20));
-        maskCardAccount(earlierCardAccount, "5241XXXXXXXX5001");
-        maskCardAccount(laterCardAccount, "652925XXXXXX3123");
+        maskCardAccount(earlierCardAccount, "5320XXXXXXXX4071");
+        maskCardAccount(laterCardAccount, "470023XXXXXX2580");
         // Dated closest to the LATER statement's due date -- would win the plain tiebreak.
         Transaction payment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 19),
-                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "BIL/INFT/FH21799066/CC BillPay-5001/Self",
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "BIL/INFT/FH10000027/CC BillPay-4071/Self",
                 Instant.parse("2026-07-19T10:00:00Z"));
         Transaction earlierCharge = txn(UUID.randomUUID(), earlierCardAccount, LocalDate.of(2026, 6, 20),
                 new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "AMAZON", Instant.parse("2026-06-20T10:00:00Z"));
@@ -4468,12 +4469,12 @@ class ReconciliationServiceTest {
         // otherCardAccount has no statement of its own in this run, but is still a known live
         // card (e.g. its own statement just hasn't been imported yet this run) -- ccStatement()
         // only registers accounts it's called for, so register this one directly.
-        maskCardAccount(thisCardAccount, "652925XXXXXX3123");
+        maskCardAccount(thisCardAccount, "470023XXXXXX2580");
         com.finora.entity.StatementImport otherStatement =
                 ccStatement(UUID.randomUUID(), otherCardAccount, new BigDecimal("9999.00"), LocalDate.of(2026, 1, 1));
-        maskCardAccount(otherCardAccount, "5241XXXXXXXX5001");
+        maskCardAccount(otherCardAccount, "5320XXXXXXXX4071");
         Transaction wrongCardPayment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 15),
-                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "BIL/INFT/FH21799066/CC BillPay-5001/Self",
+                new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "BIL/INFT/FH10000027/CC BillPay-4071/Self",
                 Instant.parse("2026-07-15T10:00:00Z"));
         Transaction unidentifiedPayment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 10),
                 new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT",
@@ -4512,8 +4513,8 @@ class ReconciliationServiceTest {
                 ccStatement(UUID.randomUUID(), laterCardAccount, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 20));
         com.finora.entity.StatementImport earlierStatement =
                 ccStatement(UUID.randomUUID(), earlierCardAccount, new BigDecimal("2500.00"), LocalDate.of(2026, 7, 10));
-        maskCardAccount(earlierCardAccount, "652925XXXXXX3123");
-        maskCardAccount(laterCardAccount, "5241XXXXXXXX5001");
+        maskCardAccount(earlierCardAccount, "470023XXXXXX2580");
+        maskCardAccount(laterCardAccount, "5320XXXXXXXX4071");
         Transaction payment = txn(UUID.randomUUID(), savingsAccountId, LocalDate.of(2026, 7, 12),
                 new BigDecimal("2500.00"), Transaction.Type.EXPENSE, "CREDIT CARD PAYMENT",
                 Instant.parse("2026-07-12T10:00:00Z"));

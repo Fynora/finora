@@ -12,7 +12,7 @@
 # CI seeds a fresh database per run rather than re-running this against a long-lived one.
 appId: com.fynora.android
 env:
-  TEST_EMAIL: maestro-test@finora.test
+  TEST_EMAIL: ${TEST_EMAIL || "maestro-test@finora.test"}
   TEST_PASSWORD: MaestroSeedPass2026
 ---
 - launchApp:

@@ -1304,9 +1304,12 @@ export function ImportScreen() {
         {sendFromComputerOpen && (
           <SendFromComputerSheet
             onClose={() => setSendFromComputerOpen(false)}
-            onReceived={() => {
+            onReceived={(importJobId) => {
               setSendFromComputerOpen(false);
-              // The Statements screen's "Recent imports" card shows the new job.
+              setError(null);
+              setAskMoment(null);
+              // Followed exactly like a file picked here: the progress card, then the review.
+              setJobId(importJobId);
               void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
             }}
           />

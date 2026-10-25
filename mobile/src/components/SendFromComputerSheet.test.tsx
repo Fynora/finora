@@ -58,13 +58,15 @@ describe('SendFromComputerSheet (Gate 2b spec §7)', () => {
 
     api.current.mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-1' });
     await advance(POLL_MS);
-    expect(screen.getByText("Received. It's in Recent Imports.")).toBeOnTheScreen();
+    expect(screen.getByText('Received.')).toBeOnTheScreen();
 
     await advance(POLL_MS * 3);
     expect(api.current).toHaveBeenCalledTimes(2);
 
     await advance(RECEIVED_DWELL_MS);
     expect(onReceived).toHaveBeenCalledTimes(1);
+    // The job, so the import screen can follow it to the review (Sid, 2026-10-25).
+    expect(onReceived).toHaveBeenCalledWith('job-1');
   });
 
   it('stopsPollingWhenClosed', async () => {

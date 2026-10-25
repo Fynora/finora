@@ -14,15 +14,22 @@ export const RECEIVED_DWELL_MS = 2000;
 
 interface Props {
   onClose: () => void;
-  /** The file arrived: the parent closes the sheet and refreshes Recent Imports. */
-  onReceived: () => void;
+  /** The file arrived as this import job: the parent closes the sheet and follows the job to its
+   *  review, as it does for a file picked on the phone (Sid, 2026-10-25). */
+  onReceived: (importJobId: string) => void;
 }
 
-type Phase = { kind: 'issuing' } | { kind: 'failed' } | { kind: 'code'; code: string; state: SendCodeState };
+type Phase =
+  | { kind: 'issuing' }
+  | { kind: 'failed' }
+  | { kind: 'code'; code: string; state: SendCodeState; importJobId?: string };
 
 /**
  * Gate 2b spec §7: "My statement is on my computer". Asks the server for a one-time code, shows it
- * with the address to type it into, and watches until the file arrives or the code runs out. The code
+ * with the address to type it into, and watches until the file arrives or the code runs out. On
+ * arrival it says "Received." and hands the import job back, so the import screen follows it to the
+ * review exactly as for a file picked on the phone (Sid, 2026-10-25: a file that reads fine never
+ * appears in Recent imports, so the plan's "It's in Recent Imports." pointed to the wrong place). The code
  * lets a computer add one file and see nothing; nothing is saved until the user reviews it here.
  *
  * Polls only while mounted, and stops at RECEIVED or EXPIRED. One timeout per check, scheduled only
@@ -60,11 +67,12 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
     let cancelled = false;
     const timer = setTimeout(() => {
       sendCodesApi.current()
-        .then(({ state }) => {
+        .then(({ state, importJobId }) => {
           if (cancelled) return;
           if (state === 'WAITING') setTick((t) => t + 1);
           // RECEIVED, or EXPIRED (NONE: a code cancelled elsewhere): polling stops here.
-          else setPhase((p) => (p.kind === 'code' && p.code === waitingCode ? { ...p, state } : p));
+          else setPhase((p) => (p.kind === 'code' && p.code === waitingCode
+            ? { ...p, state, importJobId: importJobId ?? undefined } : p));
         })
         // A failed check is not an answer: ask again on the next tick.
         .catch(() => { if (!cancelled) setTick((t) => t + 1); });
@@ -72,12 +80,12 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [waitingCode, tick]);
 
-  const received = phase.kind === 'code' && phase.state === 'RECEIVED';
+  const receivedJobId = phase.kind === 'code' && phase.state === 'RECEIVED' ? phase.importJobId ?? null : null;
   useEffect(() => {
-    if (!received) return;
-    const timer = setTimeout(() => onReceivedRef.current(), RECEIVED_DWELL_MS);
+    if (!receivedJobId) return;
+    const timer = setTimeout(() => onReceivedRef.current(receivedJobId), RECEIVED_DWELL_MS);
     return () => clearTimeout(timer);
-  }, [received]);
+  }, [receivedJobId]);
 
   const status = phase.kind === 'code' ? phase.state : null;
 
@@ -109,7 +117,7 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
               </Text>
               {status === 'RECEIVED' ? (
                 <Text style={[styles.status, { color: c.successInk }]} accessibilityLiveRegion="polite">
-                  Received. It&apos;s in Recent Imports.
+                  Received.
                 </Text>
               ) : status === 'EXPIRED' || status === 'NONE' ? (
                 <View>

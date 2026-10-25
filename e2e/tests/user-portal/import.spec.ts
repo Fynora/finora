@@ -97,15 +97,20 @@ test.describe('Phase 1 — statement upload', () => {
     });
 
   /** Already handled well: the guard reads the magic bytes rather than trusting the extension, and
-   *  the message tells the user what to do instead. Asserted so it stays that way. */
+   *  the message tells the user what to do instead. Asserted so it stays that way.
+   *
+   *  The wording is the one from #2342 (IMPORT_022): it no longer says which endpoint was reached or
+   *  suggests uploading as a CSV, because both apps pick the endpoint from the file name and the user
+   *  never chose it. It says what is wrong and the one thing to do. The words asserted here are the
+   *  web app's own copy (frontend/src/api/importFailureMessages.ts), not the server's. */
   test('a file that is not a PDF despite its name says so, and says what to do',
     async ({ userPage, allowConsoleErrors }) => {
       allowConsoleErrors('a rejected upload logs its 415 to the console, which is correct');
       await userPage.goto('/app/import');
       await uploadStatement(userPage, 'renamed.pdf', 'application/pdf', notAPdf());
 
-      await expect(userPage.getByText(/this file is not a PDF/i)).toBeVisible({ timeout: 30_000 });
-      await expect(userPage.getByText(/upload it as a CSV instead/i)).toBeVisible();
+      await expect(userPage.getByText(/contents don.t match its name/i)).toBeVisible({ timeout: 30_000 });
+      await expect(userPage.getByText(/download the statement again/i)).toBeVisible();
     });
 
   /**

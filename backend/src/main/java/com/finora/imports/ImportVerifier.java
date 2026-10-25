@@ -154,6 +154,29 @@ public class ImportVerifier {
             else if (RowAccountingValidator.RULE.equals(finding.rule())) findings.add(rowAccounting);
             else findings.add(finding);
         }
+        return reassembled(report, findings);
+    }
+
+    /**
+     * {@code report} with its row-accounting finding carrying rows whose amount could not be read
+     * -- see {@link RowAccountingValidator#withUnreadableAmounts}, whose warning the trust gate holds
+     * on. The PDF path calls this only when such a row left the opening or closing balance not
+     * established and the statement printed none to fill it; see the call in
+     * {@code PdfPreviewGenerator}. The status is re-derived, as {@link #verifyCsv} does.
+     */
+    public static ImportDto.VerificationReport withUnreadableAmounts(ImportDto.VerificationReport report,
+                                                                     int unreadableAmountRows) {
+        if (report == null || unreadableAmountRows <= 0) return report;
+        List<ImportDto.VerificationFinding> findings = new ArrayList<>();
+        for (ImportDto.VerificationFinding finding : report.findings()) {
+            findings.add(RowAccountingValidator.RULE.equals(finding.rule())
+                    ? RowAccountingValidator.withUnreadableAmounts(finding, unreadableAmountRows) : finding);
+        }
+        return reassembled(report, findings);
+    }
+
+    private static ImportDto.VerificationReport reassembled(ImportDto.VerificationReport report,
+                                                            List<ImportDto.VerificationFinding> findings) {
         List<ImportDto.VerificationFinding> assembled = List.copyOf(findings);
         TextSource textSource = report.textSource() == null ? null : TextSource.valueOf(report.textSource());
         return new ImportDto.VerificationReport(assembled, report.headerReconstructionUncertain(),

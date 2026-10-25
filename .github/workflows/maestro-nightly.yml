@@ -333,18 +333,24 @@ jobs:
       # beyond the adb-install race it already retries internally) and still fails the job below,
       # just a few minutes later than a single-attempt job would have.
       #
-      # One real exception, not just a theoretical one: if attempt 1 got far enough into
-      # flows/import.yaml to stage (or confirm) the fixture CSV before failing on something
-      # unrelated, attempt 2 restages the same file against the same seeded account/database
-      # (neither is reset between attempts -- only the emulator/AVD is torn down and recreated) and
-      # hits that flow's own duplicate-detection path, per its header comment. That path is already
-      # asserted on (the "Import [1-9]\d* transactions?" regex), so this still fails the job
-      # correctly rather than producing a false pass -- it just means attempt 2's failure can look
-      # like a duplicate-import issue instead of whatever actually broke attempt 1. Check attempt
-      # 1's own uploaded artifacts first when debugging a double failure, not just attempt 2's.
-      # Resetting the account/database between attempts would avoid this, but isn't worth the extra
-      # complexity for a nightly/non-required check where both attempts' artifacts get uploaded
-      # either way.
+      # Attempt 2 signs in as a SECOND account, seeded just before it. Attempt 1 can fail after it
+      # has already changed the first account: it answered the one-time spending question,
+      # finished onboarding and staged (or confirmed) the fixture CSV. flows/login.yaml expects an
+      # account that has done none of that, so a retry on the same account failed at its first
+      # assertion whatever had gone wrong the first time. That is what turned a single emulator
+      # display failure during attempt 1 (black screen, no request ever reached the backend) into
+      # a double failure and a red nightly on 2026-10-25. A fresh account makes the retry a real
+      # second attempt at the same flows. Only the emulator/AVD is torn down between attempts; the
+      # backend and database keep running, so the account has to be new rather than reset.
+      - name: Seed a fresh Maestro test account for the retry
+        if: steps.maestro-attempt-1.outcome == 'failure'
+        env:
+          MAESTRO_API_ORIGIN: http://localhost:18090
+          MAESTRO_DB_URL: postgresql://finora:finora@localhost:5435/finora
+          MAESTRO_TEST_EMAIL: maestro-retry@finora.test
+          MAESTRO_TEST_PHONE: '+919876500002'
+        run: ./mobile/.maestro/seed-test-user.sh
+
       - name: Run the Login / Dashboard / Import flows (attempt 2 -- retry after possible emulator-boot flake)
         id: maestro-attempt-2
         if: steps.maestro-attempt-1.outcome == 'failure'
@@ -357,6 +363,9 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
           script: ./mobile/.maestro/run-flows.sh
+        env:
+          # The account seeded by the step above; run-flows.sh hands it to the flows.
+          MAESTRO_TEST_EMAIL: maestro-retry@finora.test
 
       # The two attempts above never fail the job themselves (continue-on-error) so this is the one
       # place that decides pass/fail, from both outcomes together. If attempt 1 succeeded, attempt

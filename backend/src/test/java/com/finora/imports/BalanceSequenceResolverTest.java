@@ -463,4 +463,100 @@ class BalanceSequenceResolverTest {
         assertThat(resolution.openingBalance()).isEqualByComparingTo("1000.00");
         assertThat(resolution.closingBalance()).isEqualByComparingTo("600.00");
     }
+
+    // ================================================================
+    // edgesAround -- rows whose amount could not be read
+    // ================================================================
+
+    private static BalanceSequenceResolver.UnreadAmountRow unread(String date, String balanceAfter) {
+        return new BalanceSequenceResolver.UnreadAmountRow(date == null ? null : LocalDate.parse(date),
+                balanceAfter == null ? null : new BigDecimal(balanceAfter));
+    }
+
+    private static BalanceSequenceResolver.Edges edges(List<Obs> readable,
+                                                       List<BalanceSequenceResolver.UnreadAmountRow> unread) {
+        return BalanceSequenceResolver.edgesAround(BalanceSequenceResolver.resolve(readable), readable, unread);
+    }
+
+    @Test
+    void edgesAround_withNoUnreadRows_isTheResolutionItself() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00"), obs("2026-07-02", "-200.00", "9700.00")),
+                List.of());
+        assertThat(e.opening()).isEqualByComparingTo("10000.00");
+        assertThat(e.closing()).isEqualByComparingTo("9700.00");
+        assertThat(e.openingLeftOpenByUnread()).isFalse();
+        assertThat(e.closingLeftOpenByUnread()).isFalse();
+    }
+
+    @Test
+    void edgesAround_anUnreadRowOnTheFirstDayLeavesTheOpeningOpen_butNotTheClosing() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00"), obs("2026-07-02", "-200.00", "9700.00")),
+                List.of(unread("2026-07-01", "9800.00")));
+        assertThat(e.opening()).isNull();
+        assertThat(e.openingLeftOpenByUnread()).isTrue();
+        assertThat(e.closing()).isEqualByComparingTo("9700.00");
+        assertThat(e.closingLeftOpenByUnread()).isFalse();
+    }
+
+    @Test
+    void edgesAround_aPrintedOpeningBalanceRowSettlesTheOpening() {
+        Obs opening = new Obs(LocalDate.parse("2026-07-01"), BigDecimal.ZERO, new BigDecimal("10000.00"),
+                "OPENING BALANCE");
+        var e = edges(List.of(opening, obs("2026-07-02", "-200.00", "9800.00")),
+                List.of(unread("2026-07-01", "9900.00")));
+        assertThat(e.opening()).isEqualByComparingTo("10000.00");
+        assertThat(e.openingLeftOpenByUnread()).isFalse();
+    }
+
+    @Test
+    void edgesAround_anUnreadRowAfterEveryReadableOneGivesTheClosing_byItsOwnBalance() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00")), List.of(unread("2026-07-03", "9500.00")));
+        assertThat(e.opening()).isEqualByComparingTo("10000.00");
+        assertThat(e.closing()).isEqualByComparingTo("9500.00");
+        assertThat(e.closingLeftOpenByUnread()).isFalse();
+    }
+
+    @Test
+    void edgesAround_anUnreadLastRowWithNoBalanceLeavesTheClosingOpen() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00")), List.of(unread("2026-07-03", null)));
+        assertThat(e.closing()).isNull();
+        assertThat(e.closingLeftOpenByUnread()).isTrue();
+    }
+
+    @Test
+    void edgesAround_anUnreadRowOnTheLastReadableDayLeavesTheClosingOpen() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00"), obs("2026-07-02", "-200.00", "9700.00")),
+                List.of(unread("2026-07-02", "9600.00")));
+        assertThat(e.closing()).isNull();
+        assertThat(e.closingLeftOpenByUnread()).isTrue();
+    }
+
+    @Test
+    void edgesAround_anUndatedUnreadRowMayBeEitherEnd() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00"), obs("2026-07-02", "-200.00", "9700.00")),
+                List.of(unread(null, "9600.00")));
+        assertThat(e.opening()).isNull();
+        assertThat(e.closing()).isNull();
+        assertThat(e.openingLeftOpenByUnread()).isTrue();
+        assertThat(e.closingLeftOpenByUnread()).isTrue();
+    }
+
+    @Test
+    void edgesAround_anUnreadRowInTheMiddleLeavesBothEnds() {
+        var e = edges(List.of(obs("2026-07-01", "-100.00", "9900.00"), obs("2026-07-03", "-200.00", "9500.00")),
+                List.of(unread("2026-07-02", "9700.00")));
+        assertThat(e.opening()).isEqualByComparingTo("10000.00");
+        assertThat(e.closing()).isEqualByComparingTo("9500.00");
+        assertThat(e.openingLeftOpenByUnread()).isFalse();
+        assertThat(e.closingLeftOpenByUnread()).isFalse();
+    }
+
+    @Test
+    void edgesAround_withNoRunningBalanceToGiveEitherEnd_anUnreadRowLeavesNothingOpen() {
+        var e = edges(List.of(), List.of(unread("2026-07-02", null)));
+        assertThat(e.opening()).isNull();
+        assertThat(e.closing()).isNull();
+        assertThat(e.openingLeftOpenByUnread()).isFalse();
+        assertThat(e.closingLeftOpenByUnread()).isFalse();
+    }
 }

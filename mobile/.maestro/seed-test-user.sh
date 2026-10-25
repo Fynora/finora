@@ -22,7 +22,7 @@ PASSWORD="${MAESTRO_TEST_PASSWORD:-MaestroSeedPass2026}"
 FULL_NAME="Maestro Test"
 # 987 prefix matches e2e/fixtures/accounts.ts's syntheticPhone() -- keeps this recognisable as a
 # fixture to scripts/check-fixture-hygiene.sh's same convention, and to a human reading the DB.
-PHONE="+919876500001"
+PHONE="${MAESTRO_TEST_PHONE:-+919876500001}"
 
 echo "Seeding Maestro test account: ${EMAIL}"
 

@@ -43,7 +43,8 @@ public class AuthDtos {
      *        simply never reads it -- support-assisted signup has no organic acquisition to track. */
     public record RegisterRequest(
             @Email @NotBlank String email,
-            @NotBlank @Size(min = 8, max = 72, message = PASSWORD_SIZE_MESSAGE) String password,
+            @NotBlank @Size(min = 8, max = 72, message = PASSWORD_SIZE_MESSAGE)
+            @com.finora.validation.PasswordFitsHash String password,
             @NotBlank @Pattern(regexp = FULL_NAME_REGEXP, message = FULL_NAME_MESSAGE) String fullName,
             @NotBlank @Pattern(regexp = PHONE_REGEXP, message = PHONE_MESSAGE)
             String phoneNumber,
@@ -234,7 +235,8 @@ public class AuthDtos {
     public record ResetPasswordRequest(
             @NotBlank String token,
             @NotBlank String firebaseIdToken,
-            @NotBlank @Size(min = 8, max = 72, message = PASSWORD_SIZE_MESSAGE) String newPassword
+            @NotBlank @Size(min = 8, max = 72, message = PASSWORD_SIZE_MESSAGE)
+            @com.finora.validation.PasswordFitsHash String newPassword
     ) {}
 
     public record ResetPasswordResponse(String message) {}

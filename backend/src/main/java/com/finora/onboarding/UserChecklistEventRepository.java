@@ -12,6 +12,14 @@ public interface UserChecklistEventRepository extends JpaRepository<UserChecklis
     List<UserChecklistEvent> findByUserId(UUID userId);
     boolean existsByUserIdAndItemKey(UUID userId, String itemKey);
 
+    /** Records the item as done, unless it already is. ON CONFLICT on UNIQUE(user_id, item_key)
+     *  (V162): an exists-check then a save let two taps at once both pass the check, and the
+     *  loser's insert failed as a 409 "refresh and try again". The database settles the race now. */
+    @Modifying
+    @Query(value = "INSERT INTO user_checklist_events (user_id, item_key) VALUES (:userId, :itemKey) "
+            + "ON CONFLICT (user_id, item_key) DO NOTHING", nativeQuery = true)
+    int insertIfAbsent(@Param("userId") UUID userId, @Param("itemKey") String itemKey);
+
     /** AccountPurgeSweepService -- {@code user_id} carries a plain FK to {@code users(id)} with no
      *  {@code ON DELETE CASCADE}, and this flow anonymizes the {@code users} row rather than
      *  deleting it, so nothing else ever removes this table's rows for a purged user. */

@@ -64,7 +64,8 @@ public class PasswordChangeDtos {
     @Schema(name = "PasswordChangeCompleteRequest")
     public record CompleteRequest(
             @NotBlank String sessionId,
-            @NotBlank @Size(min = 8, max = 72, message = AuthDtos.PASSWORD_SIZE_MESSAGE) String newPassword,
+            @NotBlank @Size(min = 8, max = 72, message = AuthDtos.PASSWORD_SIZE_MESSAGE)
+            @com.finora.validation.PasswordFitsHash String newPassword,
             boolean signOutOtherDevices,
             String currentRefreshToken
     ) {}

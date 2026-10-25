@@ -367,11 +367,11 @@ class ProductIdentityResolverTest {
 
     @Test
     void aCardWhoseMaskKeepsTwoDigits_staysProbable_andIsNotAudited() {
-        Account existing = account("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        Account existing = account("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX37");
         when(accountRepository.findByUserId(userId)).thenReturn(List.of(existing));
 
         var found = resolver.resolve(userId,
-                ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14"));
+                ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX37"));
 
         assertThat(found.resolution()).isEqualTo(ProductIdentityResolver.Resolution.PROBABLE);
         verifyNoInteractions(auditService);

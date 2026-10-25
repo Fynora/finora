@@ -500,7 +500,7 @@ public class PdfMetadataExtractor {
     private static final Pattern APOSTROPHE_YEAR = Pattern.compile("(?<=[A-Za-z]\\s)['‘’](?=\\d{2}\\b)");
     private static final int UNLABELLED_DATE_RANGE_SEARCH_WINDOW = 8;
 
-    // UNLABELLED_MASKED_CARD_NUMBER: "48xx xxxx xxxx 6048" -- both real HSBC credit-card statements
+    // UNLABELLED_MASKED_CARD_NUMBER: "41xx xxxx xxxx 2097" -- both real HSBC credit-card statements
     // print the card number twice on a "State: ..." line with no label. The shape is card-specific
     // (two leading digits, twelve mask characters, four trailing digits, grouped in fours) and is
     // read only when no labelled number was found.

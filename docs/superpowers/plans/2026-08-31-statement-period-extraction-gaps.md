@@ -445,7 +445,7 @@ state their range as plain prose with no parentheses at all.
 @Test
 void extract_recognizesAStatementPeriod_statedAsProseWithNoParentheses() {
     var metadata = extractor.extract(List.of(
-            "Statement for A/c XXXXXXXXX1455 for the period 02-Jul-2026 to 01-Aug-2026"));
+            "Statement for A/c XXXXXXXXX8162 for the period 02-Jul-2026 to 01-Aug-2026"));
 
     assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 2));
     assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 8, 1));

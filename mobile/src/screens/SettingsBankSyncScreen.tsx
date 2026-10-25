@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/Button';
 import { accountAggregatorApi, type AccountAggregatorLinkDto } from '../api/endpoints';
 import { toUserMessage } from '../lib/apiError';
+import { BANK_SYNC_CONNECT_ENABLED } from '../lib/features';
 import { hapticError, hapticSuccess } from '../lib/haptics';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { isSafeExternalUrl } from '../lib/safeUrl';
@@ -139,7 +140,11 @@ export function SettingsBankSyncScreen() {
             ))
           )}
           {actionError ? <Text style={[styles.hint, { color: c.dangerInk }]}>{actionError}</Text> : null}
-          <Button label="Connect a Bank Account" onPress={() => void handleConnect()} loading={connecting} />
+          {BANK_SYNC_CONNECT_ENABLED ? (
+            <Button label="Connect a Bank Account" onPress={() => void handleConnect()} loading={connecting} />
+          ) : (
+            <Button label="Coming soon" onPress={() => {}} disabled />
+          )}
         </View>
       )}
     </ScrollView>

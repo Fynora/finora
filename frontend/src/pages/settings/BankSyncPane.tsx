@@ -5,6 +5,7 @@ import { Skeleton } from '../../design-system/Skeleton';
 import { Button } from '../../design-system/Button';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
+import { BANK_SYNC_CONNECT_ENABLED } from '../../lib/features';
 
 const AA_FI_TYPE_LABELS: Record<string, string> = {
   DEPOSIT: 'Bank Account',
@@ -168,9 +169,15 @@ export function BankSyncPane() {
               ))}
             </div>
           )}
-          <Button size="sm" loading={aaConnecting} onClick={handleAaConnect}>
-            Connect a Bank Account
-          </Button>
+          {BANK_SYNC_CONNECT_ENABLED ? (
+            <Button size="sm" loading={aaConnecting} onClick={handleAaConnect}>
+              Connect a Bank Account
+            </Button>
+          ) : (
+            <Button size="sm" disabled>
+              Coming soon
+            </Button>
+          )}
           {aaActionError && <p className="text-xs text-danger mt-2">{aaActionError}</p>}
         </div>
       )}

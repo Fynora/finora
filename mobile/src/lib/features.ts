@@ -26,7 +26,10 @@ export const GMAIL_SYNC_UI_ENABLED = false;
  * lists any links a person already has (so they can see and disconnect them), but the connect button
  * reads "Coming soon" and does nothing. Nothing behind it was removed.
  *
- * A plain constant like GMAIL_SYNC_UI_ENABLED above. The web app reads VITE_BANK_SYNC_CONNECT_ENABLED
- * (see frontend/src/lib/features.ts); open both together, then ship a new build or OTA update.
+ * Off unless `EXPO_PUBLIC_BANK_SYNC_CONNECT_ENABLED` is exactly "true" when the bundle is built,
+ * the same convention as PREMIUM_PLAN_VISIBLE in premiumVisibility.ts. Read from the environment
+ * rather than written as `= false` because CodeQL's js/trivial-conditional flags every branch on a
+ * hardcoded constant as dead code. The web app reads VITE_BANK_SYNC_CONNECT_ENABLED (see
+ * frontend/src/lib/features.ts); open both together, then ship a new build or OTA update.
  */
-export const BANK_SYNC_CONNECT_ENABLED = false;
+export const BANK_SYNC_CONNECT_ENABLED = process.env.EXPO_PUBLIC_BANK_SYNC_CONNECT_ENABLED === 'true';

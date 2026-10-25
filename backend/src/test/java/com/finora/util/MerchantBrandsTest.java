@@ -55,7 +55,7 @@ class MerchantBrandsTest {
             // A short brand inside a longer word is not that brand.
             "account transfer credit ref", "googly",
             // Bank text with identifiers: nothing in it names a brand.
-            "UPI/DR/600000000002/SAMPLE SHOP/YESB", "31700ppf000000000624", "nwd 416021xxxxxx5853",
+            "UPI/DR/600000000002/SAMPLE SHOP/YESB", "10000ppf100000000001", "nwd 400000xxxxxx0001",
             // Another business that only starts with a brand's letters must not wear its logo: a shop
             // paid through a Paytm QR is not Paytm, and Indigo Paints is not the airline.
             "amazonia restaurant", "paytmqr100000000001", "indigo paints", "airtelxyz traders",

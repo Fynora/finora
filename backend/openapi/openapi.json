@@ -19215,6 +19215,10 @@
             "StatementSendCodeIssued": {
                 "type": "object",
                 "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
                     "code": {
                         "type": "string"
                     },
@@ -26329,6 +26333,10 @@
                         "type": "string"
                     },
                     "importJobId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "codeId": {
                         "type": "string",
                         "format": "uuid"
                     }

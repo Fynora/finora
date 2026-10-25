@@ -76,7 +76,7 @@ class PasswordChangeFlowIT extends AbstractIntegrationTest {
         // sixth test in the class got 429 out of setup and never reached its own assertion. This
         // only began to bite once the *IT classes actually started running (see pom.xml) and the
         // whole suite began sharing one application instance.
-        headers.set("X-Forwarded-For", clientIp);
+        headers.set("X-Forwarded-For", clientIp + ", 100.64.0.1"); // Railway shape: client, then Railway's own hop
         String registerBody = """
                 {"email": "%s", "password": "%s", "fullName": "Password Change Test", "phoneNumber": "%s"}
                 """.formatted(email, CURRENT_PASSWORD, phoneNumber);
@@ -102,7 +102,7 @@ class PasswordChangeFlowIT extends AbstractIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
-        headers.set("X-Forwarded-For", clientIp);
+        headers.set("X-Forwarded-For", clientIp + ", 100.64.0.1"); // Railway shape: client, then Railway's own hop
         return headers;
     }
 

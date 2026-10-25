@@ -100,6 +100,44 @@ describe('SendFromComputerSheet (Gate 2b spec §7)', () => {
     expect(screen.getByText('Waiting for your file…')).toBeOnTheScreen();
   });
 
+  it('treatsAStatusAboutAnotherCodeAsThisCodeGone', async () => {
+    // A sheet closed and reopened mid-request: the code asked for later replaced this one.
+    api.issue.mockResolvedValue({ id: 'code-b', code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' });
+    api.current.mockResolvedValue({ state: 'WAITING', importJobId: null, codeId: 'code-a' });
+    renderSheet();
+    await settle();
+
+    await advance(POLL_MS);
+
+    expect(screen.getByText('This code has expired.')).toBeOnTheScreen();
+    expect(screen.getByText('Get a new code')).toBeOnTheScreen();
+    await advance(POLL_MS * 3);
+    expect(api.current).toHaveBeenCalledTimes(1);
+  });
+
+  it('keepsWaitingWhileTheStatusIsAboutThisCode', async () => {
+    api.issue.mockResolvedValue({ id: 'code-b', code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' });
+    api.current.mockResolvedValue({ state: 'WAITING', importJobId: null, codeId: 'code-b' });
+    renderSheet();
+    await settle();
+
+    await advance(POLL_MS);
+
+    expect(screen.getByText('Waiting for your file…')).toBeOnTheScreen();
+    api.current.mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-9', codeId: 'code-b' });
+    await advance(POLL_MS);
+    expect(screen.getByText('Received.')).toBeOnTheScreen();
+  });
+
+  it('says to wait when the server refuses more codes', async () => {
+    api.issue.mockRejectedValue(Object.assign(new Error('Too Many Requests'), { response: { status: 429 } }));
+    renderSheet();
+    await settle();
+
+    expect(screen.getByText("You've asked for a lot of codes. Wait a few minutes, then try again.")).toBeOnTheScreen();
+    expect(screen.queryByText("Couldn't get a code. Check your connection and try again.")).not.toBeOnTheScreen();
+  });
+
   it('says so when a code cannot be issued, and offers to try again', async () => {
     api.issue.mockRejectedValue(new Error('Network Error'));
     renderSheet();

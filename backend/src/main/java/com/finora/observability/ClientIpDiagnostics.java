@@ -16,14 +16,18 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.regex.Pattern;
 
 /**
  * Temporary evidence-gathering for one question: does {@link ClientIpResolver} hand rate limiting,
  * audit metadata and refresh-token sessions the visitor's real IP, or the address of a proxy in
- * front of the app (for example a Cloudflare edge)? If it is a proxy, unrelated users share one
- * rate-limit bucket. Railway's own HTTP log records the real visitor IP for traffic that came
- * through Cloudflare, but that does not show what reaches the app in {@code X-Forwarded-For}.
+ * front of the app? If it is a proxy, unrelated users share one rate-limit bucket.
+ *
+ * <p>The first reading (2026-10-25) answered it for the old one-hop setting: every request carried
+ * two X-Forwarded-For entries and the resolver picked the second, a Railway infrastructure hop.
+ * The resolver now reads the entry before that hop, and CF-Connecting-IP only when that entry is a
+ * Cloudflare edge. This class stays until that is confirmed in production: after the fix deploys,
+ * ordinary traffic should read {@code cf_connecting_ip=match}, and test requests carrying forged
+ * RFC 5737 values must never read {@code resolved_documentation_range=true}.
  *
  * <p><b>Privacy:</b> no IP address is ever stored, logged or used as a metric tag. Each request is
  * reduced to a few bounded labels:
@@ -36,7 +40,10 @@ import java.util.regex.Pattern;
  *   <li>{@code cf_connecting_ip}: whether the resolver's pick equals the {@code CF-Connecting-IP}
  *       header ({@code match}/{@code differs}/{@code absent});</li>
  *   <li>{@code first_hop}: whether the resolver's pick equals the first {@code X-Forwarded-For}
- *       entry ({@code match}/{@code differs}/{@code absent}).</li>
+ *       entry ({@code match}/{@code differs}/{@code absent});</li>
+ *   <li>{@code resolved_documentation_range}: whether the resolver's pick is an RFC 5737
+ *       documentation address ({@code true}/{@code false}). No visitor has one, so {@code true}
+ *       means a forged value got through.</li>
  * </ul>
  * Counted as the {@code finora.client_ip.resolution} counter and summarised in one log line every
  * 15 minutes, so the answer can be read from either Grafana or the Railway log.
@@ -51,21 +58,13 @@ public class ClientIpDiagnostics {
 
     static final String API_HOST = "api.fynora.net";
 
-    /** Cloudflare's published ranges, https://www.cloudflare.com/ips-v4 and /ips-v6
-     *  (fetched 2026-10-23). Only used to label a request; nothing is allowed or blocked by it. */
-    static final List<String> CLOUDFLARE_RANGES = List.of(
-            "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
-            "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
-            "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
-            "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
-            "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
-            "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32");
-
-    /** Digits, hex letters, dots and colons only: an IPv4 or IPv6 literal, never a hostname. */
-    private static final Pattern IP_LITERAL = Pattern.compile("[0-9A-Fa-f:.]{2,45}");
-
-    private static final List<IpAddressMatcher> CLOUDFLARE_MATCHERS =
-            CLOUDFLARE_RANGES.stream().map(IpAddressMatcher::new).toList();
+    /** RFC 5737 documentation ranges. No real visitor has one of these, so a resolved address
+     *  inside them can only be a value a test request forged (192.0.2.0/24, 198.51.100.0/24,
+     *  203.0.113.0/24). Lets a forged-header probe against production show, by label alone,
+     *  whether a forged value got through. */
+    private static final List<IpAddressMatcher> DOCUMENTATION_RANGES = List.of(
+            new IpAddressMatcher("192.0.2.0/24"), new IpAddressMatcher("198.51.100.0/24"),
+            new IpAddressMatcher("203.0.113.0/24"));
 
     private final ClientIpResolver clientIpResolver;
     private final MeterRegistry registry;
@@ -87,6 +86,7 @@ public class ClientIpDiagnostics {
                     .tag("resolved_cloudflare", labels.resolvedCloudflare())
                     .tag("cf_connecting_ip", labels.cfConnectingIp())
                     .tag("first_hop", labels.firstHop())
+                    .tag("resolved_documentation_range", labels.resolvedDocumentationRange())
                     .register(registry)
                     .increment();
             sinceLastSummary.computeIfAbsent(labels.key(), k -> new LongAdder()).increment();
@@ -106,7 +106,8 @@ public class ClientIpDiagnostics {
                 hops.length >= 3 ? "3+" : Integer.toString(hops.length),
                 Boolean.toString(isCloudflare(resolved)),
                 compare(resolved, cfConnectingIp),
-                compare(resolved, hops.length == 0 ? null : hops[0]));
+                compare(resolved, hops.length == 0 ? null : hops[0]),
+                Boolean.toString(isDocumentationRange(resolved)));
     }
 
     /** Logs the counts gathered since the previous summary, then starts again. Labels only. */
@@ -138,17 +139,17 @@ public class ClientIpDiagnostics {
     }
 
     static boolean isCloudflare(String ip) {
-        if (ip == null || ip.isBlank()) return false;
+        return ClientIpResolver.isCloudflare(ip);
+    }
+
+    static boolean isDocumentationRange(String ip) {
+        if (ip == null) return false;
         String candidate = ip.trim();
-        // Only IP literals reach the matcher: anything else (a hostname, "unknown") could make it
-        // attempt a DNS lookup, which a per-request diagnostic must never do.
-        if (!IP_LITERAL.matcher(candidate).matches()) return false;
-        for (IpAddressMatcher matcher : CLOUDFLARE_MATCHERS) {
-            try {
-                if (matcher.matches(candidate)) return true;
-            } catch (IllegalArgumentException e) {
-                return false; // not an IP address at all
-            }
+        // IPv4 literals only (the ranges are IPv4), checked strictly first so the matcher never
+        // sees a string it could try to look up as a hostname.
+        if (candidate.indexOf(':') >= 0 || !ClientIpResolver.isIpLiteral(candidate)) return false;
+        for (IpAddressMatcher matcher : DOCUMENTATION_RANGES) {
+            if (matcher.matches(candidate)) return true;
         }
         return false;
     }
@@ -158,10 +159,12 @@ public class ClientIpDiagnostics {
         return other.trim().equals(resolved == null ? null : resolved.trim()) ? "match" : "differs";
     }
 
-    record Labels(String host, String hops, String resolvedCloudflare, String cfConnectingIp, String firstHop) {
+    record Labels(String host, String hops, String resolvedCloudflare, String cfConnectingIp, String firstHop,
+                  String resolvedDocumentationRange) {
         String key() {
             return "host=" + host + ",hops=" + hops + ",resolved_cloudflare=" + resolvedCloudflare
-                    + ",cf_connecting_ip=" + cfConnectingIp + ",first_hop=" + firstHop;
+                    + ",cf_connecting_ip=" + cfConnectingIp + ",first_hop=" + firstHop
+                    + ",resolved_documentation_range=" + resolvedDocumentationRange;
         }
     }
 }

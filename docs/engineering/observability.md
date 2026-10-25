@@ -935,40 +935,24 @@ If a production Grafana later gains alerting, a "no navigation events for 24h" r
 this should take.
 
 
-## 14. Client IP diagnostics (temporary)
+## 14. Client IP resolution (diagnostics removed)
 
-`ClientIpDiagnostics` (`com.finora.observability`), fed by `ClientIpDiagnosticsFilter` for every
-request. It exists to answer one question with evidence: does `ClientIpResolver` give rate
-limiting, audit metadata and refresh-token sessions the visitor's real IP, or the address of a
-proxy in front of the app? If it is a proxy, unrelated users share one rate-limit bucket.
+`ClientIpDiagnostics` and its filter were temporary and have been removed. They counted, by labels
+only (no IP was ever stored or logged), how `ClientIpResolver` picked each request's address. What
+they established, kept here so nobody has to measure it again:
 
-**No IP is stored, logged or tagged.** Each request becomes bounded labels only:
+- On Railway, every request reaches the app with two `X-Forwarded-For` entries. Railway's edge
+  writes the first and replaces any header the caller sent; the second is a Railway hop. The old
+  `trusted-proxy-hops: 1` therefore keyed every rate limit on that hop (2026-10-25).
+- Through Cloudflare, Railway's first entry is the Cloudflare edge, not the visitor. Off Cloudflare
+  (the origin is reachable directly), it is the caller's own address and cannot be forged.
+- With #2366 (`trusted-proxy-hops: 2`, plus `CF-Connecting-IP` read only when that entry is a
+  Cloudflare edge), production read, on 2026-10-25: ordinary traffic resolved to
+  `CF-Connecting-IP`; test requests with forged RFC 5737 values in `X-Forwarded-For` and
+  `CF-Connecting-IP`, both through Cloudflare and straight to Railway, never became the resolved
+  address; a direct request's resolved address was the caller's own.
 
-| Metric | Type | Tags | Meaning |
-|---|---|---|---|
-| `finora.client_ip.resolution` | counter | `host` (`api`/`other`), `hops` (`0`,`1`,`2`,`3+`), `resolved_cloudflare` (`true`/`false`), `cf_connecting_ip` (`match`/`differs`/`absent`), `first_hop` (`match`/`differs`/`absent`), `resolved_documentation_range` (`true`/`false`) | How the client IP was resolved for one request. |
-
-The same counts are logged as one line every 15 minutes ("Client IP diagnostics (last interval,
-labels only)"), so the answer can be read from the Railway log as well as Grafana.
-
-**First answer (2026-10-25).** With the old `trusted-proxy-hops: 1`, every `host=api` request read
-`hops=2, resolved_cloudflare=false, cf_connecting_ip=differs, first_hop=differs`. Test requests
-from one machine showed that the picked address was not the caller's own (`differs` against a
-`CF-Connecting-IP` set to the caller's real address on a request that skipped Cloudflare), and that
-Railway's edge replaces any `X-Forwarded-For` the caller sends (still two entries). So the last entry
-is a Railway infrastructure hop and every visitor behind it shared one bucket. The resolver now
-takes the entry before that hop (`trusted-proxy-hops: 2`), and reads `CF-Connecting-IP` only when
-that entry is a Cloudflare edge.
-
-**Reading it after the fix deploys:** ordinary `host=api` traffic should read
-`cf_connecting_ip=match`. Test requests carrying forged RFC 5737 values (192.0.2.0/24,
-198.51.100.0/24, 203.0.113.0/24) in `X-Forwarded-For` or `CF-Connecting-IP`, sent both through
-Cloudflare and straight to Railway, must never read `resolved_documentation_range=true`; a `true`
-means a forged value became the rate-limit key. A test request that skips Cloudflare and sets
-`CF-Connecting-IP` to the caller's own real address should read `cf_connecting_ip=match`.
-
-Switch off with `CLIENT_IP_DIAGNOSTICS_ENABLED=false`. Remove the class, the filter and this section
-once the fix is confirmed in production.
+If Railway or Cloudflare changes how these headers arrive, re-measure before changing the resolver.
 
 
 ## 15. Per-user request load (temporary)

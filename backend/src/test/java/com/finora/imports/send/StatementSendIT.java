@@ -65,6 +65,8 @@ class StatementSendIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private StringRedisTemplate redis;
+    @Autowired private StatementSendService sendService;
+    @Autowired private org.springframework.transaction.PlatformTransactionManager txManager;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -547,6 +549,61 @@ class StatementSendIT extends AbstractIntegrationTest {
                     Integer.class, user.getId(), live.get(0), live.get(0));
             assertThat(notOlder).as("codes stamped at or after the live one").isZero();
             assertThat(status(user).get("codeId").asText()).isEqualTo(live.get(0).toString());
+        }
+    }
+
+    /**
+     * Requests take turns on the user's lock, but a request's transaction can start before an
+     * earlier one has finished. Postgres's now() is the moment a transaction started, so a code
+     * stamped with it by the request that waited came out OLDER than the code it had just
+     * cancelled, and the status (newest first) named the cancelled code: the phone saw NONE right
+     * after asking for a code. Seen on main's CI as a failure of the test above.
+     */
+    @Test
+    void aRequestThatWaitedForTheLockIssuesTheCodeTheStatusNames() throws Exception {
+        User user = user();
+        CountDownLatch lateStarted = new CountDownLatch(1);
+        CountDownLatch otherIssued = new CountDownLatch(1);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<UUID> late = pool.submit(() -> inRequest(() ->
+                    new org.springframework.transaction.support.TransactionTemplate(txManager).execute(tx -> {
+                        // The transaction's first statement fixes its now().
+                        jdbc.queryForObject("SELECT now()", java.sql.Timestamp.class);
+                        lateStarted.countDown();
+                        await(otherIssued);
+                        return sendService.issue(user.getId()).id();
+                    })));
+            await(lateStarted);
+            UUID earlier = inRequest(() -> sendService.issue(user.getId()).id());
+            otherIssued.countDown();
+            UUID lateId = late.get(30, java.util.concurrent.TimeUnit.SECONDS);
+
+            List<UUID> live = jdbc.queryForList("SELECT id FROM statement_send_codes WHERE user_id = ? "
+                    + "AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()", UUID.class, user.getId());
+            assertThat(live).containsExactly(lateId);
+            assertThat(lateId).isNotEqualTo(earlier);
+            java.sql.Timestamp lateAt = jdbc.queryForObject(
+                    "SELECT created_at FROM statement_send_codes WHERE id = ?", java.sql.Timestamp.class, lateId);
+            java.sql.Timestamp earlierAt = jdbc.queryForObject(
+                    "SELECT created_at FROM statement_send_codes WHERE id = ?", java.sql.Timestamp.class, earlier);
+            assertThat(lateAt).as("the code issued last is stamped last").isAfter(earlierAt);
+            assertThat(status(user).get("codeId").asText()).isEqualTo(lateId.toString());
+            assertThat(status(user).get("state").asText()).isEqualTo("WAITING");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Runs {@code work} with a request bound to the thread, as the service expects. */
+    private static <T> T inRequest(java.util.function.Supplier<T> work) {
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(
+                        new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            return work.get();
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
         }
     }
 

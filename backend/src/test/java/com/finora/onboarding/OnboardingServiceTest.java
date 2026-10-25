@@ -58,8 +58,11 @@ class OnboardingServiceTest {
     void setFinancialFocusReplacesTheExistingSet() {
         service.setFinancialFocus(userId, List.of("TRACK_SPENDING", "REDUCE_DEBT"));
 
-        verify(focusRepository).deleteByUserId(userId);
-        verify(focusRepository, times(2)).save(any(UserFinancialFocus.class));
+        // Answers no longer chosen go; each chosen one goes in unless already there.
+        verify(focusRepository).deleteByUserIdExcept(userId, java.util.Set.of("TRACK_SPENDING", "REDUCE_DEBT"));
+        verify(focusRepository).insertIfAbsent(userId, "TRACK_SPENDING");
+        verify(focusRepository).insertIfAbsent(userId, "REDUCE_DEBT");
+        verify(focusRepository, never()).save(any());
     }
 
     @Test
@@ -67,7 +70,7 @@ class OnboardingServiceTest {
         service.setFinancialFocus(userId, List.of());
 
         verify(focusRepository).deleteByUserId(userId);
-        verify(focusRepository, never()).save(any());
+        verify(focusRepository, never()).insertIfAbsent(any(), any());
     }
 
     // Bug fix: a null focusKeys (an omitted field in the request body) used to run straight into
@@ -88,7 +91,18 @@ class OnboardingServiceTest {
     void setFinancialFocusDeduplicatesRepeatedKeysInOneRequest() {
         service.setFinancialFocus(userId, List.of("TRACK_SPENDING", "TRACK_SPENDING", "REDUCE_DEBT"));
 
-        verify(focusRepository, times(2)).save(any(UserFinancialFocus.class));
+        verify(focusRepository, times(1)).insertIfAbsent(userId, "TRACK_SPENDING");
+        verify(focusRepository, times(1)).insertIfAbsent(userId, "REDUCE_DEBT");
+    }
+
+    /** "track_spending " used to pass the check and be stored as typed, next to TRACK_SPENDING. */
+    @Test
+    void setFinancialFocusStoresEachKeyByItsName_soAnotherSpellingIsTheSameAnswer() {
+        service.setFinancialFocus(userId, List.of("TRACK_SPENDING", "track_spending ", " Reduce_Debt"));
+
+        verify(focusRepository, times(1)).insertIfAbsent(userId, "TRACK_SPENDING");
+        verify(focusRepository, times(1)).insertIfAbsent(userId, "REDUCE_DEBT");
+        verify(focusRepository, never()).insertIfAbsent(userId, "track_spending ");
     }
 
     @Test
@@ -279,12 +293,12 @@ class OnboardingServiceTest {
 
     @Test
     void completeChecklistItemIsIdempotent() {
-        when(checklistEventRepository.existsByUserIdAndItemKey(userId, "VIEW_INSIGHTS"))
-                .thenReturn(false).thenReturn(true);
-
         service.completeChecklistItem(userId, "VIEW_INSIGHTS");
         service.completeChecklistItem(userId, "VIEW_INSIGHTS");
 
-        verify(checklistEventRepository, times(1)).save(any(UserChecklistEvent.class));
+        // Idempotent in the database now (ON CONFLICT DO NOTHING), so a second tap -- or two at
+        // once -- writes nothing and fails nothing; SignInAndOnboardingBreaksIT runs the race.
+        verify(checklistEventRepository, times(2)).insertIfAbsent(userId, "VIEW_INSIGHTS");
+        verify(checklistEventRepository, never()).save(any(UserChecklistEvent.class));
     }
 }

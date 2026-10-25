@@ -558,14 +558,7 @@ app:
     # Cloudflare edge.
     trusted-proxy-hops: ${TRUSTED_PROXY_HOPS:2}
 
-  # Temporary: labels how each request's client IP was resolved (hop count, whether the chosen IP
-  # is a Cloudflare edge, whether it matches CF-Connecting-IP / the first X-Forwarded-For entry,
-  # whether it is a forged RFC 5737 test value). No IP is stored or logged. Kept until the
-  # two-hop resolver is confirmed in production; see ClientIpDiagnostics, then remove.
   diagnostics:
-    client-ip:
-      enabled: ${CLIENT_IP_DIAGNOSTICS_ENABLED:true}
-      summary-interval-ms: ${CLIENT_IP_DIAGNOSTICS_SUMMARY_INTERVAL_MS:900000}
     # Counts how many requests one signed-in user makes in a minute, to size a per-user request
     # limit from data. No user is stored, logged or used as a metric tag, and nobody is limited.
     # See UserRequestLoad; remove once the limit has been chosen.

@@ -62,9 +62,10 @@ import java.util.UUID;
  * per-address request limit on the endpoint is in RateLimitFilter ({@code send-statement}).
  *
  * <h2>Times</h2>
- * Every time comparison runs in the database, so issuing, claiming and the phone's status all read
- * one clock. Codes are stamped with {@code clock_timestamp()} (see {@link #issue}), so their order is
- * the order they were issued in.
+ * Every time comparison runs in the database ({@code now()}), so issuing, claiming and the phone's
+ * status all read one clock. A new code is stamped with {@code clock_timestamp()} instead -- the
+ * time after the user's lock, not when the transaction began -- so codes sort in the order they
+ * were issued (see {@link #issue}).
  */
 @Service
 public class StatementSendService {
@@ -142,11 +143,8 @@ public class StatementSendService {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
                     "You've asked for a lot of codes. Wait a few minutes, then try again.");
         }
-        // clock_timestamp(), not now(): now() is when this transaction STARTED, before it waited for
-        // the lock, so two requests could stamp in a different order than they ran, or tie (seen in
-        // simultaneousCodeRequestsLeaveOneLiveCode: the live code and the code it cancelled had the
-        // same created_at, and the status named the cancelled one). Read after the lock, the clock
-        // orders codes the way they were issued.
+        // Cancelled at the clock after the lock too (see the insert below), so a code's
+        // cancelled_at is never before the created_at of the code that replaced it.
         jdbc.update("UPDATE statement_send_codes SET cancelled_at = clock_timestamp() "
                 + "WHERE user_id = ? AND used_at IS NULL AND cancelled_at IS NULL", userId);
         for (int attempt = 0; attempt < 10; attempt++) {
@@ -154,6 +152,11 @@ public class StatementSendService {
             UUID id = UUID.randomUUID();
             // ON CONFLICT rather than catching the unique violation: a failed INSERT would abort a
             // caller's transaction. A collision with another live code just draws again.
+            // clock_timestamp(), not now(): now() is when this transaction started, which can be
+            // before an earlier request holding the lock finished. Stamped with it, the code issued
+            // last came out older than the code it had just cancelled, and current() (newest
+            // first) named the cancelled one -- seen as a failure of simultaneousCodeRequests-
+            // LeaveOneLiveCode on main. The clock after the lock orders codes as they were issued.
             List<Instant> expires = jdbc.query("""
                     INSERT INTO statement_send_codes (id, user_id, code_hash, created_at, expires_at)
                     VALUES (?, ?, ?, clock_timestamp(), clock_timestamp() + interval '10 minutes')

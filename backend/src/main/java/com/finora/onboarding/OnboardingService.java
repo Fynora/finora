@@ -81,19 +81,26 @@ public class OnboardingService {
         if (focusKeys == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "focusKeys is required");
         }
+        // Stored by the enum's NAME, not as sent. EnumParsing accepts any case and surrounding
+        // spaces, and the raw value used to be saved: "track_spending " passed the check and was
+        // stored next to TRACK_SPENDING -- the same answer twice, one of them in a form the app's
+        // chips do not recognise. completeChecklistItem below already canonicalised for the same
+        // reason. Deduplicated after canonicalising, which is the only order that catches that pair.
+        Set<String> distinctKeys = new LinkedHashSet<>();
         for (String key : focusKeys) {
-            EnumParsing.parse(FinancialFocus.class, key, "focusKey");
+            distinctKeys.add(EnumParsing.parse(FinancialFocus.class, key, "focusKey").name());
         }
-        focusRepository.deleteByUserId(userId);
-        // Deduplicated (not just validated) before inserting: user_financial_focus has a
-        // UNIQUE(user_id, focus_key) constraint (V162), so the same key appearing twice in one
-        // request would otherwise hit that constraint mid-transaction and surface as a generic 409
-        // "conflicts with an existing record" -- misleading for what's actually just a redundant
-        // selection, not a real conflict. The frontend's own toggle-based multi-select can't
-        // produce this today, but the API itself shouldn't depend on that.
-        Set<String> distinctKeys = new LinkedHashSet<>(focusKeys);
+        // Answers no longer chosen are deleted, and each chosen one is inserted unless already
+        // there. A delete-everything-then-insert let two saves at once collide on
+        // UNIQUE(user_id, focus_key) (V162): 6 of 10 failed as a 409 in a live test. An empty set
+        // has nothing to keep, and NOT IN () is not valid SQL, so it deletes everything instead.
+        if (distinctKeys.isEmpty()) {
+            focusRepository.deleteByUserId(userId);
+        } else {
+            focusRepository.deleteByUserIdExcept(userId, distinctKeys);
+        }
         for (String key : distinctKeys) {
-            focusRepository.save(new UserFinancialFocus(userId, key));
+            focusRepository.insertIfAbsent(userId, key);
         }
         return getStatus(userId);
     }
@@ -160,8 +167,8 @@ public class OnboardingService {
         // name -- storing the raw input would silently break that match for any caller that
         // doesn't send exact-uppercase.
         String canonicalKey = key.name();
-        if (!checklistEventRepository.existsByUserIdAndItemKey(userId, canonicalKey)) {
-            checklistEventRepository.save(new UserChecklistEvent(userId, canonicalKey));
-        }
+        // Insert-if-absent rather than check-then-save: two taps at once both passed the check,
+        // and the second insert failed as a 409 (see insertIfAbsent).
+        checklistEventRepository.insertIfAbsent(userId, canonicalKey);
     }
 }

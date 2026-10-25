@@ -159,7 +159,8 @@ public class ActivationFunnelService {
                 deletionReasons(),
                 trackingStart(),
                 bySource(users),
-                secondImport(users.values()));
+                secondImport(users.values()),
+                monthStartNudges());
     }
 
     /** Days from the first distinct file to the second, or null with fewer than two. */
@@ -342,6 +343,31 @@ public class ActivationFunnelService {
         counts.forEach((step, labels) -> labels.forEach((label, count) ->
                 out.add(new ActivationReportDto.StepLabelCount(step, label, count))));
         return out;
+    }
+
+    /**
+     * Gate 2b spec §6: nudges per month and imports within 3 days of one. Counted users only, the
+     * same population as the funnel (FACTS_SQL's WHERE). Deleted statements count, as GOT_DATA_IN
+     * counts them: the import happened.
+     */
+    private List<ActivationReportDto.NudgeMonth> monthStartNudges() {
+        return jdbc.query("""
+                SELECT date_trunc('month', n.created_at AT TIME ZONE ?)::date AS month,
+                       count(*) AS sent,
+                       count(*) FILTER (WHERE EXISTS (
+                           SELECT 1 FROM statement_imports si
+                            WHERE si.user_id = n.user_id
+                              AND si.imported_at >= n.created_at
+                              AND si.imported_at < n.created_at + interval '3 days')) AS imported
+                  FROM notifications n
+                  JOIN users u ON u.id = n.user_id
+                 WHERE n.type IN ('STATEMENT_MONTH_START_FIRST', 'STATEMENT_MONTH_START_NEXT')
+                   AND u.account_scope = 'USER'
+                   AND u.internal_account = false
+                   AND u.status NOT IN ('PENDING_DELETION', 'DELETED')
+                 GROUP BY 1 ORDER BY 1
+                """, (rs, i) -> new ActivationReportDto.NudgeMonth(rs.getObject("month", LocalDate.class),
+                        rs.getLong("sent"), rs.getLong("imported")), reportingDay.zone().getId());
     }
 
     private List<ActivationReportDto.DeletionReasonCount> deletionReasons() {

@@ -50,6 +50,7 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
       { kind: 'UNKNOWN_BEFORE_TRACKING', utmSource: null, counts: zero({ GOT_DATA_IN: 1 }), secondImport: { users: 1, medianDays: 1, cameBackLaterDay: 1 } },
     ],
     secondImport: { users: 3, medianDays: 2, cameBackLaterDay: 2 },
+    monthStartNudges: [{ month: '2026-11-01', nudgesSent: 5, importedWithin3Days: 2 }],
     ...over,
   };
 }
@@ -227,5 +228,23 @@ describe('Activation', () => {
     renderPage();
 
     expect(await screen.findByText('The activation report could not be loaded.')).toBeInTheDocument();
+  });
+
+  // Gate 2b PR 5 (spec §6): month-start nudges sent, and imports within 3 days of one.
+  it('shows month-start nudges per month', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report());
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Month-start nudges by month' });
+    expect(within(table).getByText('Nov 2026')).toBeInTheDocument();
+    expect(within(table).getByText('5')).toBeInTheDocument();
+    expect(within(table).getByText('2')).toBeInTheDocument();
+  });
+
+  it('says when no month-start nudge has been sent', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ monthStartNudges: [] }));
+    renderPage();
+
+    expect(await screen.findByText('No month-start nudges sent yet.')).toBeInTheDocument();
   });
 });

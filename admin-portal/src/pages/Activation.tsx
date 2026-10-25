@@ -213,6 +213,32 @@ function DeletionReasons({ reasons }: { reasons: ActivationReport['deletionReaso
   );
 }
 
+/** Gate 2b spec §6: month-start nudges queued per month, and how many of those nudged imported a
+ *  statement within 3 days after it. Not range-bound, like the deletion reasons. */
+function MonthStartNudges({ months }: { months: NonNullable<ActivationReport['monthStartNudges']> }) {
+  if (months.length === 0) return <p className="p-4 text-sm text-muted">No month-start nudges sent yet.</p>;
+  return (
+    <table aria-label="Month-start nudges by month" className="w-full">
+      <thead>
+        <tr>
+          <th className={th}>Month</th>
+          <th className={th}>Nudges sent</th>
+          <th className={th}>Imported within 3 days</th>
+        </tr>
+      </thead>
+      <tbody>
+        {months.map((m) => (
+          <tr key={m.month}>
+            <td className={td}>{formatIsoMonth(m.month)}</td>
+            <td className={`${td} tabular-nums`}>{m.nudgesSent}</td>
+            <td className={`${td} tabular-nums`}>{m.importedWithin3Days}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function ActivationContent() {
   const [range, setRange] = useState(defaultRange);
   const { data: fetched, isLoading, isError } = useQuery({
@@ -308,6 +334,10 @@ function ActivationContent() {
 
           <Section title="Deletion reasons by month">
             <DeletionReasons reasons={data.deletionReasons} />
+          </Section>
+
+          <Section title="Month-start nudges">
+            <MonthStartNudges months={data.monthStartNudges ?? []} />
           </Section>
         </>
       )}

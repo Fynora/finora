@@ -138,6 +138,26 @@ class NotificationClaimOrderIT extends AbstractIntegrationTest {
         assertThat(oldest).isAfter(yearAgo.plus(Duration.ofDays(1)));
     }
 
+    /** Gate 2b: the month-start nudges are queued for every eligible user at 10:00 on the 3rd, a batch
+     *  by design, like a campaign; it must not page anyone, and it must not hide a stuck row. */
+    @Test
+    @Transactional
+    void aMonthStartNudgeBacklogDoesNotCountTowardsTheOldestPendingNotification() {
+        UUID userId = user();
+        Instant yearAgo = Instant.now().minus(Duration.ofDays(365));
+        for (String type : new String[] {"STATEMENT_MONTH_START_FIRST", "STATEMENT_MONTH_START_NEXT"}) {
+            repository.insertIfAbsent(userId, "ORDER_OLDEST_NUDGE_" + UUID.randomUUID(), type,
+                    "REMINDERS", "PUSH", "LOW", "t", "m", null, yearAgo);
+        }
+        Instant aMinuteAgo = Instant.now().minus(Duration.ofMinutes(1));
+        repository.insertIfAbsent(userId, "ORDER_OLDEST_NORMAL_" + UUID.randomUUID(), "PASSWORD_CHANGED",
+                "SECURITY", "PUSH", "HIGH", "t", "m", null, aMinuteAgo);
+
+        Instant oldest = repository.findOldestPendingAt().orElseThrow();
+
+        assertThat(oldest).isAfter(yearAgo.plus(Duration.ofDays(1)));
+    }
+
     @Test
     @Transactional
     void aRowNotYetDueIsNeverClaimedWhateverItsPriority() {

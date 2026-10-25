@@ -6435,7 +6435,7 @@ export interface components {
         };
         UpdatePreferenceRequest: {
             /** @enum {string} */
-            category: "SECURITY" | "FINANCIAL" | "MARKETING";
+            category: "SECURITY" | "FINANCIAL" | "MARKETING" | "REMINDERS";
             /** @enum {string} */
             channel: "EMAIL" | "SMS" | "PUSH";
             enabled: boolean;
@@ -6454,7 +6454,7 @@ export interface components {
         };
         PreferenceView: {
             /** @enum {string} */
-            category?: "SECURITY" | "FINANCIAL" | "MARKETING";
+            category?: "SECURITY" | "FINANCIAL" | "MARKETING" | "REMINDERS";
             /** @enum {string} */
             channel?: "EMAIL" | "SMS" | "PUSH";
             enabled?: boolean;
@@ -13695,6 +13695,14 @@ export interface components {
             /** Format: int64 */
             count?: number;
         };
+        ActivationNudgeMonth: {
+            /** Format: date */
+            month?: string;
+            /** Format: int64 */
+            nudgesSent?: number;
+            /** Format: int64 */
+            importedWithin3Days?: number;
+        };
         ActivationReportDto: {
             /** Format: date */
             funnelGoLive?: string;
@@ -13708,6 +13716,7 @@ export interface components {
             sourceTrackingStart?: string;
             bySource?: components["schemas"]["ActivationSourceRow"][];
             secondImport?: components["schemas"]["ActivationSecondImport"];
+            monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
         };
         ActivationSecondImport: {
             /** Format: int64 */
@@ -14133,7 +14142,9 @@ export interface operations {
     };
     list: {
         parameters: {
-            query?: never;
+            query?: {
+                categories?: ("SECURITY" | "FINANCIAL" | "MARKETING" | "REMINDERS")[];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14153,7 +14164,9 @@ export interface operations {
     };
     update_2: {
         parameters: {
-            query?: never;
+            query?: {
+                categories?: ("SECURITY" | "FINANCIAL" | "MARKETING" | "REMINDERS")[];
+            };
             header?: never;
             path?: never;
             cookie?: never;

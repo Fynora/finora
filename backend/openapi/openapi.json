@@ -343,6 +343,25 @@
                     "notification-preference-controller"
                 ],
                 "operationId": "list",
+                "parameters": [
+                    {
+                        "name": "categories",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "SECURITY",
+                                    "FINANCIAL",
+                                    "MARKETING",
+                                    "REMINDERS"
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -361,6 +380,25 @@
                     "notification-preference-controller"
                 ],
                 "operationId": "update_2",
+                "parameters": [
+                    {
+                        "name": "categories",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": [
+                                    "SECURITY",
+                                    "FINANCIAL",
+                                    "MARKETING",
+                                    "REMINDERS"
+                                ]
+                            }
+                        }
+                    }
+                ],
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -14549,7 +14587,8 @@
                         "enum": [
                             "SECURITY",
                             "FINANCIAL",
-                            "MARKETING"
+                            "MARKETING",
+                            "REMINDERS"
                         ]
                     },
                     "channel": {
@@ -14609,7 +14648,8 @@
                         "enum": [
                             "SECURITY",
                             "FINANCIAL",
-                            "MARKETING"
+                            "MARKETING",
+                            "REMINDERS"
                         ]
                     },
                     "channel": {
@@ -33531,6 +33571,23 @@
                     }
                 }
             },
+            "ActivationNudgeMonth": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "nudgesSent": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "importedWithin3Days": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ActivationReportDto": {
                 "type": "object",
                 "properties": {
@@ -33586,6 +33643,12 @@
                     },
                     "secondImport": {
                         "$ref": "#/components/schemas/ActivationSecondImport"
+                    },
+                    "monthStartNudges": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationNudgeMonth"
+                        }
                     }
                 }
             },

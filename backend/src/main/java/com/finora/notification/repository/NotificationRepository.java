@@ -92,13 +92,19 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
      * hours old by design; counting it would page someone for every normal send, and train them to
      * ignore the alert that is meant to say a user's own notification is stuck. They are sent at the
      * lowest priority, behind everything this gauge exists to protect.
+     *
+     * <p>The month-start statement nudges ({@code STATEMENT_MONTH_START_FIRST} and {@code _NEXT}) are
+     * excluded for the same reason: {@code StatementMonthStartNudge} queues one for every eligible user
+     * at 10:00 on the 3rd, at the lowest priority.
      */
     @Query("""
            SELECT MIN(n.nextAttemptAt) FROM Notification n
             WHERE n.status IN (com.finora.notification.domain.NotificationStatus.CREATED,
                                com.finora.notification.domain.NotificationStatus.QUEUED,
                                com.finora.notification.domain.NotificationStatus.RETRYING)
-              AND n.type <> com.finora.notification.domain.NotificationType.CUSTOM_PUSH
+              AND n.type NOT IN (com.finora.notification.domain.NotificationType.CUSTOM_PUSH,
+                                 com.finora.notification.domain.NotificationType.STATEMENT_MONTH_START_FIRST,
+                                 com.finora.notification.domain.NotificationType.STATEMENT_MONTH_START_NEXT)
            """)
     Optional<Instant> findOldestPendingAt();
 

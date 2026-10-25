@@ -30,8 +30,17 @@ public record ActivationReportDto(
         /** Counted users per source, at their furthest step, with the second-import measure. */
         List<SourceRow> bySource,
         /** The second-import measure over every counted user. */
-        SecondImport secondImport
+        SecondImport secondImport,
+        /** Gate 2b spec §6: month-start nudges queued per month (IST), oldest first. */
+        List<NudgeMonth> monthStartNudges
 ) {
+    /**
+     * Month-start nudges queued in one IST month, to counted users only (USER scope, not internal,
+     * not deleted), and how many of those nudged imported a statement within 3 days after it.
+     */
+    @Schema(name = "ActivationNudgeMonth")
+    public record NudgeMonth(LocalDate month, long nudgesSent, long importedWithin3Days) {}
+
     /** Signups in one IST week (Monday start), counted at their furthest step; every step present. */
     @Schema(name = "ActivationWeekRow")
     public record WeekRow(LocalDate weekStart, Map<FunnelStep, Long> counts) {}

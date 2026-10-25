@@ -71,5 +71,13 @@ public enum NotificationType {
     // SupportTicketDuplicateService. EMAIL only, fixed copy seeded in V288 with two params, both
     // ticket numbers ({{ticketNumber}}, {{referenceNumber}}); never the ticket's subject or
     // description. Keyed "SUPPORT_TICKET_DUPLICATE_" + ticket id, so a ticket is only ever told once.
-    SUPPORT_TICKET_DUPLICATE
+    SUPPORT_TICKET_DUPLICATE,
+    // Gate 2b spec §6: the month-start statement nudge (StatementMonthStartNudge), category
+    // REMINDERS, PUSH only. Two types because a template is one row per (type, channel) and the two
+    // cases have different copy (V289). FIRST: no statement imported yet, {{month}} is last month's
+    // name. NEXT: an account's latest statement ended more than 33 days ago; no params. Both share
+    // one key per user per month, "STATEMENT_MONTH_START_" + user id + "_" + YearMonth, so a user
+    // gets at most one of either in a month. Never a bank, account or amount: it shows on lock screens.
+    STATEMENT_MONTH_START_FIRST,
+    STATEMENT_MONTH_START_NEXT
 }

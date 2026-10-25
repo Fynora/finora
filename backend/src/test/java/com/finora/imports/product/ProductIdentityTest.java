@@ -198,7 +198,7 @@ class ProductIdentityTest {
 
     @Test
     void everyMaskCharacterShapeIsRefused() {
-        for (String shape : new String[]{"XXXX1234", "xxxx1234", "****1234", "\u2022\u2022\u2022\u20221234", "6530 47** **** 7550"}) {
+        for (String shape : new String[]{"XXXX1234", "xxxx1234", "****1234", "\u2022\u2022\u2022\u20221234", "4600 12** **** 2468"}) {
             assertThat(ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, shape, shape).strongKey())
                     .as(shape).isNull();
         }
@@ -209,12 +209,12 @@ class ProductIdentityTest {
     @Test
     void theMaskCensusCountsOnlyCustomerDiscriminatingDigits() {
         // 16 positions: 1-6 BIN, 7-15 account, 16 check. Only account and check positions count.
-        assertThat(ProductIdentity.MaskCensus.of("653047******7550").dEff()).as("BIN + last four").isEqualTo(4);
-        assertThat(ProductIdentity.MaskCensus.of("3561XXXXXXXX8604").dEff()).as("shorter BIN + last four").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("460012******2468").dEff()).as("BIN + last four").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("5210XXXXXXXX1357").dEff()).as("shorter BIN + last four").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("XXXX XXXX XXXX XX14").dEff()).as("two trailing digits").isEqualTo(2);
         assertThat(ProductIdentity.MaskCensus.of("48xx xxxx xxxx 6048").dEff()).as("lower-case mask, spaced").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("\u2022\u2022\u2022\u20226385").dEff()).as("bullet mask, last four only").isEqualTo(4);
-        assertThat(ProductIdentity.MaskCensus.of("7550").dEff()).as("a bare last-four sentence capture").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("2468").dEff()).as("a bare last-four sentence capture").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("12").dEff()).isEqualTo(0);
         assertThat(ProductIdentity.MaskCensus.of(null).dEff()).isEqualTo(0);
         assertThat(ProductIdentity.MaskCensus.of("50000000001234").dEff()).as("a full number is not a mask").isEqualTo(0);
@@ -222,8 +222,8 @@ class ProductIdentityTest {
 
     @Test
     void twoStatementsOfTheSameCard_matchExactOnTheMaskAlone() {
-        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
-        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468");
+        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468");
 
         assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.EXACT);
         assertThat(first.cardMaskMatch(second)).as("the rule names how many digits decided it").isEqualTo(4);
@@ -231,10 +231,10 @@ class ProductIdentityTest {
 
     @Test
     void theSameCardMaskedWithMoreOrLessOfItsBinVisible_stillMatches() {
-        // A sentence capture ("card ending with 7550") against a BIN-plus-last-four mask of the same
+        // A sentence capture ("card ending with 2468") against a BIN-plus-last-four mask of the same
         // card: mask verbosity is cosmetic, the four discriminating digits are the same.
-        var bareLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "7550");
-        var binAndLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
+        var bareLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "2468");
+        var binAndLastFour = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468");
 
         assertThat(bareLastFour.matches(binAndLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
         assertThat(binAndLastFour.matches(bareLastFour)).isEqualTo(ProductIdentity.Match.EXACT);
@@ -259,8 +259,8 @@ class ProductIdentityTest {
 
     @Test
     void differentLastFourAtTheSameIssuer_isNotAMatch() {
-        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7550");
-        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "653047******7551");
+        var first = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2468");
+        var second = ProductIdentity.of("AXIS", FinancialProductType.CREDIT_CARD, null, "460012******2469");
 
         assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.NONE);
     }
@@ -273,7 +273,7 @@ class ProductIdentityTest {
         var alsoSavings = ProductIdentity.of("HDFC", FinancialProductType.SAVINGS, null, "XXXXXXXXXX1234");
         assertThat(savings.matches(alsoSavings)).isEqualTo(ProductIdentity.Match.PROBABLE);
 
-        var card = ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "653047******1234");
+        var card = ProductIdentity.of("HDFC", FinancialProductType.CREDIT_CARD, null, "460012******1234");
         assertThat(card.matches(savings)).isEqualTo(ProductIdentity.Match.NONE);
     }
 

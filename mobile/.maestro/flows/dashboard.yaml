@@ -5,7 +5,7 @@
 # mobile/src/screens/DashboardScreen.tsx directly rather than assumed.
 appId: com.fynora.android
 env:
-  TEST_EMAIL: maestro-test@finora.test
+  TEST_EMAIL: ${TEST_EMAIL || "maestro-test@finora.test"}
   TEST_PASSWORD: MaestroSeedPass2026
 ---
 - launchApp:

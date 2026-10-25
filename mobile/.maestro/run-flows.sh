@@ -30,7 +30,18 @@ if [ "$install_ok" != true ]; then
   exit 1
 fi
 
+# The flows sign in as the account seed-test-user.sh creates by default. The workflow's retry
+# attempt seeds a SECOND, brand-new account and names it here: the first attempt may already have
+# answered the one-time spending question, finished onboarding and staged the fixture on the
+# default account, and login.yaml expects an account that has done none of that, so a retry on the
+# same account fails at login whatever went wrong the first time. Left unset, the flows use their
+# own default and nothing changes.
+account_args=()
+if [ -n "${MAESTRO_TEST_EMAIL:-}" ]; then
+  account_args=(-e "TEST_EMAIL=${MAESTRO_TEST_EMAIL}")
+fi
+
 adb push mobile/.maestro/fixtures/maestro-statement.csv /sdcard/Download/maestro-statement.csv
-maestro test mobile/.maestro/flows/login.yaml
-maestro test mobile/.maestro/flows/dashboard.yaml
-maestro test mobile/.maestro/flows/import.yaml
+maestro test ${account_args[@]+"${account_args[@]}"} mobile/.maestro/flows/login.yaml
+maestro test ${account_args[@]+"${account_args[@]}"} mobile/.maestro/flows/dashboard.yaml
+maestro test ${account_args[@]+"${account_args[@]}"} mobile/.maestro/flows/import.yaml

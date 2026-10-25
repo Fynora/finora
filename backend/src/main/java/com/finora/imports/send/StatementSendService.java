@@ -62,8 +62,9 @@ import java.util.UUID;
  * per-address request limit on the endpoint is in RateLimitFilter ({@code send-statement}).
  *
  * <h2>Times</h2>
- * Every time comparison runs in the database ({@code now()}), so issuing, claiming and the phone's
- * status all read one clock.
+ * Every time comparison runs in the database, so issuing, claiming and the phone's status all read
+ * one clock. Codes are stamped with {@code clock_timestamp()} (see {@link #issue}), so their order is
+ * the order they were issued in.
  */
 @Service
 public class StatementSendService {
@@ -141,7 +142,12 @@ public class StatementSendService {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
                     "You've asked for a lot of codes. Wait a few minutes, then try again.");
         }
-        jdbc.update("UPDATE statement_send_codes SET cancelled_at = now() "
+        // clock_timestamp(), not now(): now() is when this transaction STARTED, before it waited for
+        // the lock, so two requests could stamp in a different order than they ran, or tie (seen in
+        // simultaneousCodeRequestsLeaveOneLiveCode: the live code and the code it cancelled had the
+        // same created_at, and the status named the cancelled one). Read after the lock, the clock
+        // orders codes the way they were issued.
+        jdbc.update("UPDATE statement_send_codes SET cancelled_at = clock_timestamp() "
                 + "WHERE user_id = ? AND used_at IS NULL AND cancelled_at IS NULL", userId);
         for (int attempt = 0; attempt < 10; attempt++) {
             String code = newCode(random);
@@ -150,7 +156,7 @@ public class StatementSendService {
             // caller's transaction. A collision with another live code just draws again.
             List<Instant> expires = jdbc.query("""
                     INSERT INTO statement_send_codes (id, user_id, code_hash, created_at, expires_at)
-                    VALUES (?, ?, ?, now(), now() + interval '10 minutes')
+                    VALUES (?, ?, ?, clock_timestamp(), clock_timestamp() + interval '10 minutes')
                     ON CONFLICT (code_hash) WHERE used_at IS NULL AND cancelled_at IS NULL DO NOTHING
                     RETURNING expires_at
                     """, (rs, i) -> rs.getObject("expires_at", OffsetDateTime.class).toInstant(),
@@ -182,7 +188,7 @@ public class StatementSendService {
                          ELSE 'WAITING'
                        END AS state, import_job_id, id
                   FROM statement_send_codes WHERE user_id = ?
-                 ORDER BY created_at DESC LIMIT 1
+                 ORDER BY created_at DESC, (cancelled_at IS NULL) DESC LIMIT 1
                 """, (rs, i) -> new SendDto.CodeStatus(rs.getString("state"), uuid(rs, "import_job_id"), uuid(rs, "id")),
                 userId);
         return rows.isEmpty() ? new SendDto.CodeStatus("NONE", null, null) : rows.get(0);

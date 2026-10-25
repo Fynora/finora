@@ -230,7 +230,7 @@ class AccountDeletionReasonIT extends AbstractIntegrationTest {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-Forwarded-For", ip);
+        headers.set("X-Forwarded-For", ip + ", 100.64.0.1"); // Railway shape: client, then Railway's own hop
         ResponseEntity<String> registered = restTemplate.postForEntity("/api/v1/auth/register", new HttpEntity<>("""
                 {"email": "%s", "password": "%s", "fullName": "Deletion Reason Test", "phoneNumber": "%s"}
                 """.formatted(email, PASSWORD, phone), headers), String.class);
@@ -275,7 +275,7 @@ class AccountDeletionReasonIT extends AbstractIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
-        headers.set("X-Forwarded-For", ip);
+        headers.set("X-Forwarded-For", ip + ", 100.64.0.1"); // Railway shape: client, then Railway's own hop
         return headers;
     }
 

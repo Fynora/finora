@@ -51,6 +51,11 @@ jest.mock('../../api/endpoints', () => ({
     cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
+  // Gate 2b spec §7: the "My statement is on my computer" sheet.
+  sendCodesApi: {
+    issue: jest.fn().mockResolvedValue({ code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' }),
+    current: jest.fn().mockResolvedValue({ state: 'WAITING', importJobId: null }),
+  },
   activationApi: {
     funnelEvent: jest.fn().mockResolvedValue(undefined),
     answer: jest.fn().mockResolvedValue(undefined),
@@ -1402,6 +1407,34 @@ function treeAsyncAvailable() {
  * convention as "upload completion dwell" above: ImportProgressCard's own poll schedule starts at
  * 100ms, so a 3000ms waitFor timeout comfortably covers a few real polls settling.
  */
+// Gate 2b spec §7: send a statement from a computer, offered only where queued uploads are on --
+// the file from the computer has nowhere else to go.
+describe('ImportScreen — send from a computer', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('offersSendFromComputerWhenQueuedUploadsAreOn, and opens the code sheet', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('My statement is on my computer'));
+
+    expect(await screen.findByText('AB3K7M')).toBeOnTheScreen();
+  });
+
+  it('does not offer it where queued uploads are off', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+    render(tree());
+
+    await screen.findByText('Choose a file');
+    expect(screen.queryByText('My statement is on my computer')).toBeNull();
+  });
+});
+
 describe('ImportScreen — async import job (Phase 4)', () => {
   beforeEach(() => {
     mockRouteParams = undefined;

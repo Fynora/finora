@@ -48,6 +48,8 @@
 /forgot-password/ /spa-shell 200
 /reset-password /spa-shell 200
 /reset-password/ /spa-shell 200
+/send /spa-shell 200
+/send/ /spa-shell 200
 /verify-email /spa-shell 200
 /verify-email/ /spa-shell 200
 /verify-phone /spa-shell 200

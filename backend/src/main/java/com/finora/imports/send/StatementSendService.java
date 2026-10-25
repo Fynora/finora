@@ -63,7 +63,9 @@ import java.util.UUID;
  *
  * <h2>Times</h2>
  * Every time comparison runs in the database ({@code now()}), so issuing, claiming and the phone's
- * status all read one clock.
+ * status all read one clock. A new code is stamped with {@code clock_timestamp()} instead -- the
+ * time after the user's lock, not when the transaction began -- so codes sort in the order they
+ * were issued (see {@link #issue}).
  */
 @Service
 public class StatementSendService {
@@ -148,9 +150,14 @@ public class StatementSendService {
             UUID id = UUID.randomUUID();
             // ON CONFLICT rather than catching the unique violation: a failed INSERT would abort a
             // caller's transaction. A collision with another live code just draws again.
+            // clock_timestamp(), not now(): now() is when this transaction started, which can be
+            // before an earlier request holding the lock finished. Stamped with it, the code issued
+            // last came out older than the code it had just cancelled, and current() (newest
+            // first) named the cancelled one -- seen as a failure of simultaneousCodeRequests-
+            // LeaveOneLiveCode on main. The clock after the lock orders codes as they were issued.
             List<Instant> expires = jdbc.query("""
                     INSERT INTO statement_send_codes (id, user_id, code_hash, created_at, expires_at)
-                    VALUES (?, ?, ?, now(), now() + interval '10 minutes')
+                    VALUES (?, ?, ?, clock_timestamp(), clock_timestamp() + interval '10 minutes')
                     ON CONFLICT (code_hash) WHERE used_at IS NULL AND cancelled_at IS NULL DO NOTHING
                     RETURNING expires_at
                     """, (rs, i) -> rs.getObject("expires_at", OffsetDateTime.class).toInstant(),

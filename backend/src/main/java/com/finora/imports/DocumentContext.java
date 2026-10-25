@@ -245,6 +245,20 @@ public class DocumentContext {
         return paymentAppHistory;
     }
 
+    // How a CSV's numeric dates are ordered, decided once from the whole date column before any
+    // row is read (CsvDateOrder). Null for every other document: TransactionNormalizer then reads
+    // dates exactly as it always has, which is what the PDF path depends on.
+    private CsvDateOrder.Decision csvDateOrder;
+
+    public void recordCsvDateOrder(CsvDateOrder.Decision decision) {
+        this.csvDateOrder = decision;
+    }
+
+    /** The CSV's date order, or null when this document is not a CSV that decided one. */
+    public CsvDateOrder.Decision csvDateOrder() {
+        return csvDateOrder;
+    }
+
     // Another claim the document makes about its own content: which located rows it printed under
     // its own "International Transactions" heading (a real HDFC credit-card statement splits its
     // ledger into "Domestic Transactions" and "International Transactions"). Held by identity, not

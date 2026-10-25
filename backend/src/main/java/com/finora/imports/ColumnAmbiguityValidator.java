@@ -54,6 +54,10 @@ public class ColumnAmbiguityValidator {
             List.of("withdrawal", "withdrawals", "debit", "debits", "withdrawal amount", "debit amount",
                     "dr amount", "withdrawal amt", "debit amt");
 
+    /** A date that reads as two different days, day-first or month-first, in a file whose other
+     *  dates did not say which -- see {@link #check(List, List, int[], CsvDateOrder.Decision)}. */
+    public static final String DATE_ORDER_NOT_SETTLED = "DATE_ORDER_NOT_SETTLED";
+
     /** A located row that did not become one of the rows the client is shown. */
     public static final int NOT_SHOWN = -1;
 
@@ -125,6 +129,26 @@ public class ColumnAmbiguityValidator {
     public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows,
                                                List<ImportDto.UnparseableRow> unparseableRows,
                                                int[] displayedPositionOf) {
+        return check(rawRows, unparseableRows, displayedPositionOf, null);
+    }
+
+    /**
+     * Also reports a CSV's dates when the file did not settle their order.
+     *
+     * <p>{@link CsvDateOrder} reads such a file day-first, because no real statement measured puts
+     * the month first. That is still a reading the document did not confirm, and on a row like
+     * {@code 07/01/2026} the two readings are six months apart: a month-first file read that way
+     * staged with every date wrong and every check passing. So each row whose date the other order
+     * would read differently is reported here as {@link #DATE_ORDER_NOT_SETTLED}, and like every
+     * other ambiguity this rule finds, it holds the file for review (Sid's decision, 2026-10-24).
+     * A row such as {@code 05/05/2026}, which reads the same either way, is not reported.
+     *
+     * @param dateOrder the file's date-order decision, or null (PDF, or a caller with none)
+     */
+    public ImportDto.VerificationFinding check(List<Map<String, String>> rawRows,
+                                               List<ImportDto.UnparseableRow> unparseableRows,
+                                               int[] displayedPositionOf,
+                                               CsvDateOrder.Decision dateOrder) {
         requireOnePositionPerRow(rawRows, displayedPositionOf);
         Map<String, Object> details = new LinkedHashMap<>();
         // By value: two rows with identical cells always normalise the same way, so if one was set
@@ -157,12 +181,20 @@ public class ColumnAmbiguityValidator {
             // never a transaction. Found by running this against a real statement that parses
             // perfectly and watching it report a warning anyway. Mirrors TransactionNormalizer's
             // own gate: no date, no transaction.
-            if (!looksLikeATransaction(row)) continue;
+            if (!looksLikeATransaction(row, dateOrder == null ? null : dateOrder.order())) continue;
             // Only rows something was read from: see the unparseableRows parameter above.
             if (setAside.contains(row)) continue;
 
             Integer shownAt = displayedPositionOf == null ? Integer.valueOf(i)
                     : displayedPositionOf[i] == NOT_SHOWN ? null : Integer.valueOf(displayedPositionOf[i]);
+
+            if (dateOrder != null) {
+                String dateCell = TransactionNormalizer.dateCellOf(row);
+                if (dateOrder.leavesUnsettled(dateCell)) {
+                    found.add(new Ambiguity(shownAt, DATE_ORDER_NOT_SETTLED, dateColumnOf(row, dateCell),
+                            dateCell.trim()));
+                }
+            }
             String creditColumn = null, debitColumn = null;
             BigDecimal credit = null, debit = null;
 
@@ -302,9 +334,19 @@ public class ColumnAmbiguityValidator {
     /** Checked by value rather than by column name: a summary block's text lands in whichever
      *  column its x position happens to fall under, so trusting the column heading here would be
      *  trusting the very bucketing that is under suspicion. */
-    private static boolean looksLikeATransaction(Map<String, String> row) {
+    private static boolean looksLikeATransaction(Map<String, String> row, CsvDateOrder.Order order) {
+        // A CSV's dates are read in its own order, so a shape only that reading accepts (an
+        // unpadded "1/7/2026") is still a date here.
         return row.values().stream()
-                .anyMatch(v -> v != null && CsvParser.parseDate(v.trim()) != null);
+                .anyMatch(v -> v != null && CsvParser.parseDate(v.trim(), order) != null);
+    }
+
+    /** The header the date cell sits under, as the file printed it. */
+    private static String dateColumnOf(Map<String, String> row, String dateCell) {
+        for (Map.Entry<String, String> e : row.entrySet()) {
+            if (e.getValue() == dateCell) return e.getKey();
+        }
+        return "Date";
     }
 
     private static int countAmounts(String value) {

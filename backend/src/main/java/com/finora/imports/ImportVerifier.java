@@ -121,12 +121,33 @@ public class ImportVerifier {
                                                    List<java.util.Map<String, String>> locatedRows,
                                                    List<UnparseableRow> unparseableRows,
                                                    int[] displayedPositionOfLocatedRow) {
+        return verifyCsv(rows, openingBalance, closingBalance, locatedRows, unparseableRows,
+                displayedPositionOfLocatedRow, null, 0);
+    }
+
+    /**
+     * {@link #verifyCsv(List, BigDecimal, BigDecimal, List, List, int[])} with the file's date
+     * order: when nothing in the file settled it, every row whose date the other order would read
+     * differently is reported by the column-ambiguity rule, which holds the file for review.
+     *
+     * @param dateOrder the file's {@link CsvDateOrder} decision, or null when none was made
+     * @param unreadableAmountRows dated rows whose amount could not be read -- see
+     *                             {@link RowAccountingValidator#withUnreadableAmounts}
+     */
+    public ImportDto.VerificationReport verifyCsv(List<StagedRow> rows, BigDecimal openingBalance,
+                                                   BigDecimal closingBalance,
+                                                   List<java.util.Map<String, String>> locatedRows,
+                                                   List<UnparseableRow> unparseableRows,
+                                                   int[] displayedPositionOfLocatedRow,
+                                                   CsvDateOrder.Decision dateOrder,
+                                                   int unreadableAmountRows) {
         ImportDto.VerificationReport report = verify(rows, openingBalance, closingBalance);
-        ImportDto.VerificationFinding ambiguity =
-                columnAmbiguityValidator.check(locatedRows, unparseableRows, displayedPositionOfLocatedRow);
+        ImportDto.VerificationFinding ambiguity = columnAmbiguityValidator.check(
+                locatedRows, unparseableRows, displayedPositionOfLocatedRow, dateOrder);
         // No dropped candidates: a CSV row is either a data row under the header (located) or blank.
-        ImportDto.VerificationFinding rowAccounting = rowAccountingValidator.check(rows, unparseableRows,
-                List.of(), locatedRows == null ? 0 : locatedRows.size());
+        ImportDto.VerificationFinding rowAccounting = RowAccountingValidator.withUnreadableAmounts(
+                rowAccountingValidator.check(rows, unparseableRows, List.of(), locatedRows == null ? 0 : locatedRows.size()),
+                unreadableAmountRows);
         List<ImportDto.VerificationFinding> findings = new ArrayList<>();
         for (ImportDto.VerificationFinding finding : report.findings()) {
             if (ColumnAmbiguityValidator.RULE.equals(finding.rule())) findings.add(ambiguity);

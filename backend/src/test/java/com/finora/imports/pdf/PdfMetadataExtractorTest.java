@@ -503,7 +503,7 @@ class PdfMetadataExtractorTest {
     @Test
     void extract_recognizesAStatementPeriod_fromAParenthesizedHyphenatedRangeInASentence() {
         var metadata = extractor.extract(
-                List.of("Statement for your credit card ending with 6385 (19 Mar - 18 Apr 2026)")); // synthetic-ok
+                List.of("Statement for your credit card ending with 7319 (19 Mar - 18 Apr 2026)")); // synthetic-ok
 
         assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 3, 19));
         assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 4, 18));
@@ -518,7 +518,7 @@ class PdfMetadataExtractorTest {
     @Test
     void extract_infersThePrecedingYear_whenAHyphenatedRangeCrossesAYearBoundary() {
         var metadata = extractor.extract(
-                List.of("Statement for your credit card ending with 6385 (19 Dec - 18 Jan 2026)")); // synthetic-ok
+                List.of("Statement for your credit card ending with 7319 (19 Dec - 18 Jan 2026)")); // synthetic-ok
 
         assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2025, 12, 19));
         assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 1, 18));
@@ -636,7 +636,7 @@ class PdfMetadataExtractorTest {
     @Test
     void extract_recognizesAStatementPeriod_statedAsProseWithNoParentheses() {
         var metadata = extractor.extract(List.of(
-                "Statement for A/c XXXXXXXXX1455 for the period 02-Jul-2026 to 01-Aug-2026"));
+                "Statement for A/c XXXXXXXXX8162 for the period 02-Jul-2026 to 01-Aug-2026"));
 
         assertThat(metadata.statementPeriodStart()).isEqualTo(java.time.LocalDate.of(2026, 7, 2));
         assertThat(metadata.statementPeriodEnd()).isEqualTo(java.time.LocalDate.of(2026, 8, 1));
@@ -1945,8 +1945,8 @@ class PdfMetadataExtractorTest {
     void extract_readsAnUnlabelledMaskedCardNumber_asPrintedOnAStateLine() {
         var metadata = extractor.extract(List.of(
                 "MR SAMPLE HOLDER",
-                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048 48xx xxxx xxxx 6048"));
-        assertThat(metadata.accountNumberMasked()).isEqualTo("48xx xxxx xxxx 6048");
+                "State: 27 - SAMPLESTATE 41xx xxxx xxxx 2097 41xx xxxx xxxx 2097"));
+        assertThat(metadata.accountNumberMasked()).isEqualTo("41xx xxxx xxxx 2097");
         assertThat(metadata.accountNumberFullForHashingOnly()).isNull();
     }
 
@@ -1954,7 +1954,7 @@ class PdfMetadataExtractorTest {
     void extract_aLabelledNumber_stillWinsOverAnUnlabelledMaskedToken() {
         var metadata = extractor.extract(List.of(
                 "Account Number: 000123456789", // synthetic-ok: reuses this file's existing placeholder
-                "State: 27 - SAMPLESTATE 48xx xxxx xxxx 6048"));
+                "State: 27 - SAMPLESTATE 41xx xxxx xxxx 2097"));
         assertThat(metadata.accountNumberMasked()).endsWith("6789");
     }
 

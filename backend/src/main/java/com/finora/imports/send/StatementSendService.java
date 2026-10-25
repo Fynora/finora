@@ -2,6 +2,7 @@ package com.finora.imports.send;
 
 import com.finora.config.RateLimiter;
 import com.finora.config.RequestMetadata;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.StatementUpload;
@@ -143,13 +144,20 @@ public class StatementSendService {
         throw new IllegalStateException("Could not draw a free send code in 10 attempts");
     }
 
-    /** The phone's view of its latest code. */
+    /**
+     * The phone's view of its latest code. A code claimed by an upload that has not become a job yet
+     * is WAITING while that upload is plausibly still running (5 minutes from the claim, past the
+     * code's own expiry if need be: a slow upload or a waking malware scanner must not make the phone
+     * give up on a file that is arriving), and EXPIRED after: the upload died between the claim and
+     * the job (the computer dropped, the server restarted), and the phone must not wait for good.
+     */
     public SendDto.CodeStatus current(UUID userId) {
         List<SendDto.CodeStatus> rows = jdbc.query("""
                 SELECT CASE
                          WHEN cancelled_at IS NOT NULL THEN 'NONE'
                          WHEN used_at IS NOT NULL AND import_job_id IS NOT NULL THEN 'RECEIVED'
-                         WHEN used_at IS NOT NULL THEN 'WAITING'
+                         WHEN used_at IS NOT NULL AND used_at > now() - interval '5 minutes' THEN 'WAITING'
+                         WHEN used_at IS NOT NULL THEN 'EXPIRED'
                          WHEN expires_at <= now() THEN 'EXPIRED'
                          ELSE 'WAITING'
                        END AS state, import_job_id
@@ -161,7 +169,10 @@ public class StatementSendService {
 
     /**
      * Claims a code for one upload, atomically: of two uploads with one code, exactly one gets it.
-     * A code that doesn't work counts against the caller's address.
+     * A code that doesn't work counts against the caller's address. Only an ACTIVE account's code
+     * works: this path checks no session, so it checks the account itself, and a code issued just
+     * before a suspension, deactivation or deletion request adds nothing (the same answer as any
+     * other code that doesn't work).
      */
     public Claim claim(String typedCode) {
         String ip = requestMetadata.ip();
@@ -173,8 +184,9 @@ public class StatementSendService {
         List<Claim> claimed = code.length() != LENGTH ? List.of() : jdbc.query("""
                 UPDATE statement_send_codes SET used_at = now()
                  WHERE code_hash = ? AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()
+                   AND user_id IN (SELECT u.id FROM users u WHERE u.status = ?)
                 RETURNING id, user_id
-                """, (rs, i) -> new Claim(uuid(rs, "id"), uuid(rs, "user_id")), hash(code));
+                """, (rs, i) -> new Claim(uuid(rs, "id"), uuid(rs, "user_id")), hash(code), User.STATUS_ACTIVE);
         if (claimed.isEmpty()) {
             failureLimiter.allow(key);
             throw new ApiException(ErrorCode.SEND_CODE_INVALID);

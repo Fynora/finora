@@ -362,4 +362,71 @@ class StatementSendIT extends AbstractIntegrationTest {
         assertThat(issue.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(current.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+
+    // ---- Found in review ----
+
+    /** An upload that claimed the code and never finished (the computer dropped mid-upload, or the
+     *  server restarted) must not leave the phone on "Waiting for your file…" for good. A claim
+     *  older than five minutes with no job is over. */
+    @Test
+    void aClaimThatNeverFinishedEndsAsExpired() {
+        User user = user();
+        issue(user);
+        jdbc.update("UPDATE statement_send_codes SET used_at = now() - interval '6 minutes' WHERE user_id = ?",
+                user.getId());
+
+        assertThat(status(user).get("state").asText()).isEqualTo("EXPIRED");
+    }
+
+    /** A claim still uploading is still waiting, even just past the code's 10 minutes (a slow upload
+     *  or a waking malware scanner): the phone must not give up on a file that is arriving. */
+    @Test
+    void aClaimStillUploadingIsWaitingEvenPastExpiry() {
+        User user = user();
+        issue(user);
+        jdbc.update("UPDATE statement_send_codes SET used_at = now() - interval '30 seconds', "
+                + "expires_at = now() - interval '5 seconds' WHERE user_id = ?", user.getId());
+
+        assertThat(status(user).get("state").asText()).isEqualTo("WAITING");
+    }
+
+    /** The public path checks no session, so it checks the account: a code issued just before the
+     *  account was suspended, deactivated or set for deletion adds nothing. */
+    @Test
+    void aCodeOfAnAccountNoLongerActiveDoesNotWork() {
+        for (String status : List.of(User.STATUS_SUSPENDED, User.STATUS_DEACTIVATED, User.STATUS_PENDING_DELETION)) {
+            User user = user();
+            String code = issue(user);
+            jdbc.update("UPDATE users SET status = ? WHERE id = ?", status, user.getId());
+
+            ResponseEntity<String> response = sendCsv(code);
+
+            assertThat(response.getStatusCode()).as(status).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(read(response).get("errorCode").asText()).as(status).isEqualTo("IMPORT_024");
+            assertThat(jobsOf(user)).as(status).isEmpty();
+            clearSendLimiters();
+        }
+    }
+
+    @Autowired private StatementSendCodeRetentionSweep retentionSweep;
+
+    /** Codes are dead within minutes; after a day nothing reads them (the audit log is the lasting
+     *  record), so the daily sweep deletes them, like email sign-in codes. A newer one stays. */
+    @Test
+    void codesOlderThanADayAreSweptAndNewerOnesStay() {
+        User old = user();
+        issue(old);
+        jdbc.update("UPDATE statement_send_codes SET created_at = now() - interval '25 hours', "
+                + "expires_at = now() - interval '24 hours 50 minutes' WHERE user_id = ?", old.getId());
+        User recent = user();
+        issue(recent);
+
+        retentionSweep.sweep();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_send_codes WHERE user_id = ?",
+                Integer.class, old.getId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_send_codes WHERE user_id = ?",
+                Integer.class, recent.getId())).isEqualTo(1);
+        assertThat(status(old).get("state").asText()).isEqualTo("NONE");
+    }
 }

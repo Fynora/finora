@@ -236,6 +236,11 @@ public enum ErrorCode {
     // The message is supplied at the throw site because it names the limit.
     INVESTMENT_HOLDING_LIMIT_REACHED("ACC_002", HttpStatus.UNPROCESSABLE_ENTITY,
             "You have reached the limit of investment holdings."),
+    // Account.setBalance: accounts.balance is NUMERIC(14,2). Thirteen code paths move a balance
+    // (manual transactions, imports, statement refresh, reconciliation); a valid transaction into a
+    // near-full account used to fail in the database as a 409 "refresh and try again".
+    ACCOUNT_BALANCE_TOO_LARGE("ACC_003", HttpStatus.BAD_REQUEST,
+            "This would take the account balance past 999,999,999,999.99 either side of zero, the most an account can hold."),
 
     // Auth / security
     //
@@ -408,6 +413,11 @@ public enum ErrorCode {
 
     // Generic fallbacks — used by GlobalExceptionHandler when no more specific code applies
     VALIDATION_ERROR("VAL_001", HttpStatus.BAD_REQUEST, "Validation failed"),
+    // GlobalExceptionHandler.handleDataIntegrityViolation, for SQLSTATE class 22 (a value the column
+    // cannot hold). Deliberately generic: the database does not say which field, and the value may
+    // be customer data, so neither is echoed.
+    VALUE_NOT_STORABLE("VAL_002", HttpStatus.BAD_REQUEST,
+            "Something in this request can't be saved: a number too large, text too long, or a date out of range. Check what you entered and try again."),
     NOT_FOUND("GEN_001", HttpStatus.NOT_FOUND, "No such endpoint"),
     INTERNAL_ERROR("GEN_002", HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error");
 

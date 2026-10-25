@@ -125,6 +125,12 @@ public class TransactionService {
     // next page existed (see PagedResponse's own doc comment; the admin Users directory hit this
     // exact gap first and got a real fix, this endpoint didn't). Now returns the same envelope.
     public PagedResponse<TransactionDto> search(UUID userId, TransactionDto.FilterRequest f) {
+        // The Postgres driver (42.7.11, measured) sends a BigDecimal of 1E+131072 or more as 0, so
+        // amountMin=1e999999999 came back as an unfiltered list, and throws on 1E-999999999 (a 500).
+        // Checked here because a query parameter cannot be refused by a Converter -- see
+        // RequestInputBoundsConfig.
+        requireFilterAmountWithinBounds("amountMin", f.amountMin());
+        requireFilterAmountWithinBounds("amountMax", f.amountMax());
         // BH-009: sortDir went into Sort.Direction.fromString unvalidated, so ?sortDir=bogus threw
         // IllegalArgumentException and 500'd -- in the same method whose own comment two blocks
         // down explains that page and size are clamped precisely so a malformed param stops doing
@@ -595,6 +601,18 @@ public class TransactionService {
         if (amount.compareTo(MAX_TRANSACTION_AMOUNT) > 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "Amount can't exceed " + MAX_TRANSACTION_AMOUNT + " for a single transaction");
+        }
+        // NUMERIC(14,2) rounded a third decimal place, so 0.015 was answered as 0.015 and stored as
+        // 0.02 -- and the balance moved by the rounded figure, not the one in the response.
+        if (!com.finora.validation.MoneyLimits.hasWholePaise(amount)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Amount can have at most 2 decimal places");
+        }
+    }
+
+    private static void requireFilterAmountWithinBounds(String parameter, BigDecimal value) {
+        if (!com.finora.validation.MoneyLimits.withinRequestBounds(value)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Parameter '" + parameter + "' is too large, or has too many decimal places, to store.");
         }
     }
 

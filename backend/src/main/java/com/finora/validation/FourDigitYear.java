@@ -1,4 +1,4 @@
-package com.finora.goals;
+package com.finora.validation;
 
 import jakarta.validation.Constraint;
 import jakarta.validation.ConstraintValidator;

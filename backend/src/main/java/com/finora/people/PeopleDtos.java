@@ -1,6 +1,9 @@
 package com.finora.people;
 
 import com.finora.entity.LoanEntry;
+import com.finora.validation.MoneyLimits;
+import com.finora.validation.WholePaise;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,7 +21,9 @@ public final class PeopleDtos {
     private PeopleDtos() {}
 
     /** {@code amount} null: as much as fits (what is left of the credit and of the bill). */
-    public record LinkShareRequest(@NotNull UUID creditId, @NotNull UUID billId, @DecimalMin("0.01") BigDecimal amount) {}
+    public record LinkShareRequest(@NotNull UUID creditId, @NotNull UUID billId, @DecimalMin("0.01")
+            @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Share amount" + MoneyLimits.TOO_LARGE)
+            @WholePaise(message = "Share amount" + MoneyLimits.FINER_THAN_PAISA) BigDecimal amount) {}
 
     public record ShareDto(UUID creditId, UUID billId, String label, LocalDate date, BigDecimal amount, boolean fromRule) {}
 
@@ -26,7 +31,9 @@ public final class PeopleDtos {
      *  payment's full amount, replacing any share links on it. Set: only that much -- the part of a
      *  credit left over after the bills it is linked to, which keeps its share links. */
     public record EntryRequest(@NotNull UUID txnId, @NotNull LoanEntry.Direction direction,
-                               @DecimalMin("0.01") BigDecimal amount) {
+                               @DecimalMin("0.01")
+                               @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Amount" + MoneyLimits.TOO_LARGE)
+                               @WholePaise(message = "Amount" + MoneyLimits.FINER_THAN_PAISA) BigDecimal amount) {
         public EntryRequest(UUID txnId, LoanEntry.Direction direction) {
             this(txnId, direction, null);
         }

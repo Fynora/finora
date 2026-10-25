@@ -189,6 +189,9 @@ public class AccountService {
     public AccountDto create(UUID userId, AccountDto.CreateRequest req, UUID actingAdminId, boolean enforceFreeAccountLimit) {
         boolean selfService = actingAdminId.equals(userId);
         Account.Type accountType = parseAccountType(req.accountType());
+        // Before the counts below: creations by one user take turns, so each sees the others'.
+        // A count-then-insert let six at once each find room -- six accounts on a plan allowed two.
+        if (selfService) userRepository.lockById(userId);
         if (selfService && accountType == Account.Type.INVESTMENT) {
             if (accountRepository.countByUserIdAndAccountType(userId, Account.Type.INVESTMENT) >= MAX_INVESTMENT_HOLDINGS) {
                 throw new ApiException(ErrorCode.INVESTMENT_HOLDING_LIMIT_REACHED,
@@ -216,9 +219,9 @@ public class AccountService {
         a.setDueDate(req.dueDate());
         a.setInvestmentKind(req.investmentKind());
         a.setAccountHolderName(req.accountHolderName());
-        a.setAccountNumberMasked(req.accountNumberMasked());
+        a.setAccountNumberMasked(maskTypedAccountNumber(req.accountNumberMasked()));
         a.setBranchName(req.branchName());
-        a.setIfscCode(req.ifscCode());
+        a.setIfscCode(normalizeIfsc(req.ifscCode()));
         a.setPrincipalAmount(req.principalAmount());
         a.setInterestRate(req.interestRate());
         a.setMaturityDate(req.maturityDate());
@@ -269,6 +272,32 @@ public class AccountService {
      * app's default zone (India), which put the cut-off a day off for a user elsewhere typing near
      * midnight.
      */
+    /** Only the last four digits of a typed account number are kept, as {@code ••••1234}: the form
+     *  every import stores ({@code CsvParser.maskAccountNumber}). {@code accountNumberMasked} is
+     *  documented never to hold a full number, and a full one typed on the Accounts page used to be
+     *  stored as typed. A value with four digits or fewer -- a bank's own {@code XXXXXX4587}, or a
+     *  bare last four -- is kept as given; blank clears it. */
+    static String maskTypedAccountNumber(String typed) {
+        if (typed == null || typed.isBlank()) return null;
+        String trimmed = typed.trim();
+        long digits = trimmed.chars().filter(Character::isDigit).count();
+        return digits > 4 ? com.finora.imports.CsvParser.maskAccountNumber(trimmed) : trimmed;
+    }
+
+    private static final java.util.regex.Pattern IFSC = java.util.regex.Pattern.compile("^[A-Z]{4}0[A-Z0-9]{6}$");
+
+    /** An IFSC is four letters, a zero, then six letters or digits (RBI's format), stored in
+     *  capitals. Any text used to be stored, lower case included; blank clears it. */
+    static String normalizeIfsc(String typed) {
+        if (typed == null || typed.isBlank()) return null;
+        String ifsc = typed.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!IFSC.matcher(ifsc).matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Enter a valid IFSC: 4 letters, a zero, then 6 letters or numbers (for example HDFC0XXXXXX).");
+        }
+        return ifsc;
+    }
+
     private void markBalanceTyped(Account account) {
         account.setBalanceTypedAt(java.time.Instant.now());
         java.time.ZoneId zone = com.finora.util.UserZone.forUser(userRepository, account.getUserId());
@@ -293,6 +322,16 @@ public class AccountService {
     @Transactional
     public AccountDto update(UUID userId, UUID accountId, AccountDto.CreateRequest req, UUID actingAdminId) {
         Account a = getOwned(userId, accountId);
+        // The type is fixed once the account exists. It used to be ignored without a word -- an
+        // edit to CREDIT_CARD answered "Account updated" and stayed SAVINGS. Changing it is not
+        // offered: the balance and every row on the account mean the opposite on a card
+        // (AccountBalanceConvention), and an investment holding, which the free plan does not
+        // count, would become an account it does. The same type, sent by every rename, saves.
+        if (req.accountType() != null && !req.accountType().isBlank()
+                && parseAccountType(req.accountType()) != a.getAccountType()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "An account's type can't be changed. Add a new account of the type you want, then delete this one.");
+        }
         var previousBalance = a.getBalance();
         a.setName(req.name());
         // Only overwrite when the request actually carries a value. This matters beyond just
@@ -316,9 +355,9 @@ public class AccountService {
         if (req.creditLimit() != null) a.setCreditLimit(req.creditLimit());
         if (req.dueDate() != null) a.setDueDate(req.dueDate());
         if (req.accountHolderName() != null) a.setAccountHolderName(req.accountHolderName());
-        if (req.accountNumberMasked() != null) a.setAccountNumberMasked(req.accountNumberMasked());
+        if (req.accountNumberMasked() != null) a.setAccountNumberMasked(maskTypedAccountNumber(req.accountNumberMasked()));
         if (req.branchName() != null) a.setBranchName(req.branchName());
-        if (req.ifscCode() != null) a.setIfscCode(req.ifscCode());
+        if (req.ifscCode() != null) a.setIfscCode(normalizeIfsc(req.ifscCode()));
         if (req.bankId() != null) a.setBankId(bankManagementService.resolve(req.bankId()).id());
         a.setUpdatedAt(java.time.Instant.now());
         Account saved = accountRepository.save(a);

@@ -1,5 +1,7 @@
 package com.finora.service;
 
+import com.finora.exception.ApiException;
+import org.springframework.http.HttpStatus;
 import com.finora.dto.DashboardRangeSummaryDto;
 import com.finora.dto.DashboardRangeType;
 import com.finora.entity.Account;
@@ -80,11 +82,18 @@ public class DashboardRangeService {
         LocalDate prevEnd;
 
         if (rangeType == DashboardRangeType.CUSTOM) {
+            // ApiExceptions, with words for the person choosing the range: an IllegalArgumentException
+            // reaches the user as "One of the request's parameters is not valid" (the handler never
+            // shows its text), and a range reaching back before year 1 failed in the database as
+            // "a number too large, text too long, or a date out of range".
             if (customStart == null || customEnd == null) {
-                throw new IllegalArgumentException("startDate and endDate are required for a CUSTOM range");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Choose both a start and an end date for a custom range.");
             }
             if (customStart.isAfter(customEnd)) {
-                throw new IllegalArgumentException("startDate must not be after endDate");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "That range starts after its end. Swap the two dates.");
+            }
+            if (customStart.getYear() < 1 || customEnd.getYear() > 9999) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "Choose dates between the years 1 and 9999.");
             }
             start = customStart;
             end = customEnd;
@@ -96,6 +105,11 @@ public class DashboardRangeService {
             long dayCount = ChronoUnit.DAYS.between(start, end) + 1;
             prevEnd = start.minusDays(1);
             prevStart = prevEnd.minusDays(dayCount - 1);
+            // The period before is the same length again, so it must start no earlier than year 1.
+            if (prevStart.getYear() < 1) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "That range is too long to compare with the period before it. Choose a shorter one.");
+            }
         } else {
             // Anchor = the newest month with data, mirroring ReportingPeriod's reporting-month
             // philosophy for the single-month KPIs: an empty "last 6 months ending today" is a

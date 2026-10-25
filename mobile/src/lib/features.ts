@@ -20,3 +20,13 @@
  * that reports the feature unavailable); this only decides whether the screens are drawn.
  */
 export const GMAIL_SYNC_UI_ENABLED = false;
+
+/**
+ * Bank Sync (Account Aggregator) is NOT offered yet. While this is false, the Bank Sync screen still
+ * lists any links a person already has (so they can see and disconnect them), but the connect button
+ * reads "Coming soon" and does nothing. Nothing behind it was removed.
+ *
+ * A plain constant like GMAIL_SYNC_UI_ENABLED above. The web app reads VITE_BANK_SYNC_CONNECT_ENABLED
+ * (see frontend/src/lib/features.ts); open both together, then ship a new build or OTA update.
+ */
+export const BANK_SYNC_CONNECT_ENABLED = false;

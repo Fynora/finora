@@ -10,6 +10,15 @@ import { expectHaptics } from '../test/haptics';
 jest.mock('../api/endpoints', () => ({
   accountAggregatorApi: { list: jest.fn(), initiate: jest.fn(), disconnect: jest.fn() },
 }));
+// Bank Sync is not offered yet (lib/features.ts). The screen reads the flag at render time, so a
+// getter on a mutable holder covers both states. Tests that exercise the connect flow itself turn
+// it on; the `mock` prefix is what lets jest's hoisting allow this variable inside the factory.
+const mockFeatures = { bankSyncConnectEnabled: true };
+jest.mock('../lib/features', () => ({
+  get BANK_SYNC_CONNECT_ENABLED() { return mockFeatures.bankSyncConnectEnabled; },
+}));
+beforeEach(() => { mockFeatures.bankSyncConnectEnabled = true; });
+
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({ useNavigation: () => ({ navigate: mockNavigate }) }));
 
@@ -37,6 +46,29 @@ test('empty state offers Connect a Bank Account', async () => {
   renderScreen();
   expect(await screen.findByText('No bank accounts linked yet.')).toBeTruthy();
   expect(screen.getByText('Connect a Bank Account')).toBeTruthy();
+});
+
+test('while Bank Sync is closed the button reads Coming soon, is disabled, and starts nothing', async () => {
+  mockFeatures.bankSyncConnectEnabled = false;
+  (accountAggregatorApi.list as jest.Mock).mockResolvedValue([]);
+  (accountAggregatorApi.initiate as jest.Mock).mockClear();
+  renderScreen();
+  expect(await screen.findByText('No bank accounts linked yet.')).toBeTruthy();
+  expect(screen.queryByText('Connect a Bank Account')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Coming soon' })).toBeDisabled();
+  fireEvent.press(screen.getByText('Coming soon'));
+  expect(accountAggregatorApi.initiate).not.toHaveBeenCalled();
+});
+
+test('while Bank Sync is closed an existing link can still be disconnected', async () => {
+  mockFeatures.bankSyncConnectEnabled = false;
+  (accountAggregatorApi.list as jest.Mock).mockResolvedValue([
+    { id: 'l1', fiType: 'DEPOSIT', status: 'ACTIVE', consentExpiresAt: null, lastSyncedAt: null, lastSyncStatus: null, statusChangedAt: '2026-08-01T00:00:00Z' },
+  ]);
+  renderScreen();
+  await screen.findByText('Bank Account · ACTIVE');
+  fireEvent.press(screen.getByText('Disconnect'));
+  expect(screen.getByText('Confirm Disconnect')).toBeTruthy();
 });
 
 test('a load failure shows an error, not the empty-state copy', async () => {

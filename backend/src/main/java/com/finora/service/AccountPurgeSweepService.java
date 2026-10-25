@@ -251,6 +251,7 @@ public class AccountPurgeSweepService {
     private final PasswordHistoryRepository passwordHistoryRepository;
     private final PasswordChangeSessionRepository passwordChangeSessionRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository;
     private final AccountReactivationTokenRepository accountReactivationTokenRepository;
     private final EmailVerificationTokenRepository emailVerificationTokenRepository;
     private final EmailLoginOtpRepository emailLoginOtpRepository;
@@ -373,8 +374,10 @@ public class AccountPurgeSweepService {
                                      TransactionTemplate transactionTemplate,
                                      AuditLogRepository auditLogRepository,
                                      EmailProvider emailProvider,
-                                     HeldItemAdminAlertService adminAlerts) {
+                                     HeldItemAdminAlertService adminAlerts,
+                                     com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository) {
         this.adminAlerts = adminAlerts;
+        this.statementSendCodeRepository = statementSendCodeRepository;
         this.userRepository = userRepository;
         this.gmailConnectionService = gmailConnectionService;
         this.gmailConnectionRepository = gmailConnectionRepository;
@@ -878,6 +881,9 @@ public class AccountPurgeSweepService {
             // Includes the very DELETION_CONFIRMED session that authorized this deletion.
             passwordChangeSessionRepository.deleteByUserId(userId);
             passwordResetTokenRepository.deleteByUserId(userId);
+            // Gate 2b spec §7 (V291): the codes this user asked for to send a statement from a
+            // computer. Not exported, like reset tokens: a hash nobody can use is not their data.
+            statementSendCodeRepository.deleteByUserId(userId);
             accountReactivationTokenRepository.deleteByUserId(userId);
             emailVerificationTokenRepository.deleteByUserId(userId);
             emailLoginOtpRepository.deleteByUserId(userId);

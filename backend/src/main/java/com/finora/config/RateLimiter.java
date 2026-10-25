@@ -83,6 +83,20 @@ public class RateLimiter {
             return 1
             """, Long.class);
 
+    /** {@link #isAtLimit}: the same trim and count as {@link #ALLOW_SCRIPT}, recording nothing. */
+    private static final DefaultRedisScript<Long> AT_LIMIT_SCRIPT = new DefaultRedisScript<>("""
+            local key = KEYS[1]
+            local windowSeconds = tonumber(ARGV[1])
+            local maxRequests = tonumber(ARGV[2])
+            local time = redis.call('TIME')
+            local now = tonumber(time[1]) * 1000000 + tonumber(time[2])
+            redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowSeconds * 1000000)
+            if redis.call('ZCARD', key) >= maxRequests then
+              return 1
+            end
+            return 0
+            """, Long.class);
+
     private final int maxRequests;
     private final long windowSeconds;
     private final String limiterName;
@@ -115,6 +129,32 @@ public class RateLimiter {
                     limiterName, e.toString());
             return allowLocally(key);
         }
+    }
+
+    /**
+     * True if {@code key} has already used up its window, without counting this call. For a limiter
+     * that counts only failures (the send-a-statement code check): it must refuse a caller who has
+     * already failed too often BEFORE trying their next code, or a blocked caller could keep guessing
+     * and a right guess would still get through. Record a failure with {@link #allow}. Same Redis
+     * fallback as {@link #allow}.
+     */
+    public boolean isAtLimit(String key) {
+        String redisKey = "ratelimit:" + limiterName + ":" + key;
+        try {
+            Long result = redisTemplate.execute(AT_LIMIT_SCRIPT, List.of(redisKey),
+                    String.valueOf(windowSeconds), String.valueOf(maxRequests));
+            return result != null && result == 1L;
+        } catch (DataAccessException e) {
+            failureLog.warn("Redis unreachable for rate limiter '{}' -- counting in process until it is back: {}",
+                    limiterName, e.toString());
+            return isAtLimitLocally(key);
+        }
+    }
+
+    boolean isAtLimitLocally(String key) {
+        long nowSeconds = System.currentTimeMillis() / 1000;
+        long[] window = fallbackWindows.get(key);
+        return window != null && nowSeconds - window[0] < windowSeconds && window[1] >= maxRequests;
     }
 
     /** Fixed window, same size and limit as the Redis script, on this instance's own clock. */

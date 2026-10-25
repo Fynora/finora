@@ -2897,6 +2897,54 @@
                 }
             }
         },
+        "/api/v1/send": {
+            "post": {
+                "tags": [
+                    "public-send-controller"
+                ],
+                "operationId": "send",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendReceived"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/referrals/redeem": {
             "post": {
                 "tags": [
@@ -3859,6 +3907,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseInflowKindDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/imports/send-codes": {
+            "post": {
+                "tags": [
+                    "send-code-controller"
+                ],
+                "operationId": "issue",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendCodeIssued"
                                 }
                             }
                         }
@@ -10179,6 +10247,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseLookAtDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/imports/send-codes/current": {
+            "get": {
+                "tags": [
+                    "send-code-controller"
+                ],
+                "operationId": "current_1",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseStatementSendCodeStatus"
                                 }
                             }
                         }
@@ -18192,6 +18280,42 @@
                     }
                 }
             },
+            "ApiResponseStatementSendReceived": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendReceived"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendReceived": {
+                "type": "object",
+                "properties": {
+                    "received": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "RedeemMilestoneRequest": {
                 "type": "object",
                 "properties": {
@@ -19055,6 +19179,46 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseStatementSendCodeIssued": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendCodeIssued"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendCodeIssued": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "expiresAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },
@@ -26125,6 +26289,46 @@
                     "details": {
                         "type": "object",
                         "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseStatementSendCodeStatus": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatementSendCodeStatus"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatementSendCodeStatus": {
+                "type": "object",
+                "properties": {
+                    "state": {
+                        "type": "string"
+                    },
+                    "importJobId": {
+                        "type": "string",
+                        "format": "uuid"
                     }
                 }
             },

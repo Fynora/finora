@@ -315,6 +315,13 @@ class StatementCoverageAnalyzerTest {
         assertThat(report.coveragePercentage()).isNull();
     }
 
+    @Test
+    @DisplayName("no statements at all reads as NO_STATEMENTS, not COMPLETE -- nothing is known")
+    void noStatements_isNotComplete() {
+        assertThat(analyze(List.of()).coverageStatus()).isEqualTo("NO_STATEMENTS");
+        assertThat(analyze(null).coverageStatus()).isEqualTo("NO_STATEMENTS");
+    }
+
 
     // --- coverageStatus (§0.24: booleans authoritative, enum a display convenience) ----------
 

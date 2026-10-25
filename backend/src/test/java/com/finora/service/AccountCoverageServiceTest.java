@@ -120,7 +120,8 @@ class AccountCoverageServiceTest {
         var dto = service.forAccountAsAdmin(accountId);
 
         assertThat(dto.accountId()).isEqualTo(accountId);
-        assertThat(dto.coverageStatus()).isEqualTo("COMPLETE");
+        // No statements: unknown coverage, not complete.
+        assertThat(dto.coverageStatus()).isEqualTo("NO_STATEMENTS");
     }
 
     @Test

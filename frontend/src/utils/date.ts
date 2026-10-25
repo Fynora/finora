@@ -101,6 +101,17 @@ export function toLocalDateString(d: Date): string {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
+/**
+ * The latest date a transaction can be given: tomorrow. The backend refuses anything later
+ * (TXN_013, ReportableDates), because one row typed with the wrong year took over every money
+ * screen; this is the same limit on the picker, so the date input does not offer it in the first
+ * place. The server's own check, in the user's saved timezone, is the one that decides.
+ */
+export function latestTransactionDate(now: Date = new Date()): string {
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return toLocalDateString(tomorrow);
+}
+
 export function formatDateDDMMMYYYY(value: string | null | undefined): string {
   if (!value) return '';
 

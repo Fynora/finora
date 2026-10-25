@@ -205,11 +205,11 @@ class ReportServiceTest {
 
     @Test
     void availableMonths_scopesDateFetch_toExactlyTheLiveAccountIds() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of());
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any(), any())).thenReturn(List.of());
 
         reportService.availableMonths(userId);
 
-        verify(transactionRepository).findDistinctTransactionDates(userId, List.of(liveAccount.getId()));
+        verify(transactionRepository).findDistinctTransactionDates(eq(userId), eq(List.of(liveAccount.getId())), any());
     }
 
     @Test
@@ -217,7 +217,7 @@ class ReportServiceTest {
         when(accountRepository.findByUserId(userId)).thenReturn(List.of());
 
         assertThat(reportService.availableMonths(userId)).isEmpty();
-        verify(transactionRepository, never()).findDistinctTransactionDates(any(), any());
+        verify(transactionRepository, never()).findDistinctTransactionDates(any(), any(), any());
     }
 
     /**
@@ -230,7 +230,7 @@ class ReportServiceTest {
      */
     @Test
     void availableMonths_collapsesDatesToDistinctSortedMonths() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of(
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any(), any())).thenReturn(List.of(
                 LocalDate.of(2026, 6, 30),
                 LocalDate.of(2026, 5, 4),
                 LocalDate.of(2026, 6, 11),   // same month as the first
@@ -242,7 +242,7 @@ class ReportServiceTest {
 
     @Test
     void availableMonths_isEmptyForAUserWithNoTransactions() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of());
+        when(transactionRepository.findDistinctTransactionDates(eq(userId), any(), any())).thenReturn(List.of());
 
         assertThat(reportService.availableMonths(userId)).isEmpty();
     }
@@ -252,11 +252,10 @@ class ReportServiceTest {
     // query, so it inherits their refund-netting and deleted-account-safety for free.
 
     @Test
-    void incomeTrend_returnsIncomePerMonth_forTheLastSixAvailableMonths_oldestFirst() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of(
-                LocalDate.of(2026, 1, 15), LocalDate.of(2026, 2, 15), LocalDate.of(2026, 3, 15),
-                LocalDate.of(2026, 4, 15), LocalDate.of(2026, 5, 15), LocalDate.of(2026, 6, 15),
-                LocalDate.of(2026, 7, 15)));
+    void incomeTrend_returnsIncomePerMonth_forTheLastSixMonthsOfHistory_oldestFirst() {
+        // The same window as trend(): history runs January to July.
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 1, 15));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 7, 15));
 
         Transaction june = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
         june.setTxnDate(LocalDate.of(2026, 6, 10));
@@ -284,8 +283,8 @@ class ReportServiceTest {
 
     @Test
     void incomeTrend_withFewerThanSixMonthsOfHistory_returnsAllOfThem_noZeroPadding() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any())).thenReturn(List.of(
-                LocalDate.of(2026, 6, 15), LocalDate.of(2026, 7, 15)));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 6, 15));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 7, 15));
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(any(), any(), any(), any()))
                 .thenReturn(List.of());
 
@@ -297,8 +296,8 @@ class ReportServiceTest {
 
     @Test
     void incomeTrend_excludesRefundStatusIncome_sameAsForMonth() {
-        when(transactionRepository.findDistinctTransactionDates(eq(userId), any()))
-                .thenReturn(List.of(LocalDate.of(2026, 7, 15)));
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 7, 15));
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(LocalDate.of(2026, 7, 15));
 
         Transaction salary = txn(new BigDecimal("50000.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.OK);
         Transaction refund = txn(new BigDecimal("999.00"), Transaction.Type.INCOME, Transaction.ReconciliationStatus.REFUND);
@@ -854,8 +853,8 @@ class ReportServiceTest {
     }
 
     private void stubHistory(LocalDate earliest, LocalDate latest) {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(earliest);
-        when(transactionRepository.findLatestTxnDate(eq(userId), any())).thenReturn(latest);
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(earliest);
+        when(transactionRepository.findLatestTxnDate(eq(userId), any(), any())).thenReturn(latest);
     }
 
     /** History Jun 1 - Sep 30, July (prior) with 3 transactions, August (selected) with 2. */
@@ -1177,9 +1176,9 @@ class ReportServiceTest {
         reportService.trend(userId, null, 3);
 
         verify(transactionRepository, org.mockito.Mockito.atLeastOnce())
-                .findEarliestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
+                .findEarliestTxnDate(eq(userId), eq(List.of(liveAccount.getId())), any());
         verify(transactionRepository, org.mockito.Mockito.atLeastOnce())
-                .findLatestTxnDate(eq(userId), eq(List.of(liveAccount.getId())));
+                .findLatestTxnDate(eq(userId), eq(List.of(liveAccount.getId())), any());
     }
 
     // --- an account whose latest statement stops short of the month ---

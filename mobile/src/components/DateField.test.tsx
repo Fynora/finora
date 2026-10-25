@@ -69,3 +69,19 @@ describe('DateField on Android while the app locks', () => {
     expect(() => view.rerender(tree(true))).not.toThrow();
   });
 });
+
+// A transaction's date stops at tomorrow, which is all the backend accepts (TXN_013).
+describe('DateField maximumDate', () => {
+  it('is passed to the Android picker', () => {
+    const latest = new Date(2026, 9, 26);
+    render(
+      <ThemeProvider>
+        <AppCoveredProvider value={false}>
+          <DateField label="Date" value="2026-10-25" onChange={jest.fn()} maximumDate={latest} />
+        </AppCoveredProvider>
+      </ThemeProvider>,
+    );
+    fireEvent.press(screen.getByRole('button', { name: /Date: .*Change/ }));
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ maximumDate: latest }));
+  });
+});

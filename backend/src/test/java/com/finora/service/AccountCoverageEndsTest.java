@@ -57,7 +57,7 @@ class AccountCoverageEndsTest {
                 new AccountAggregatorLinkStalenessService(24), transactions, mock(UserRepository.class));
         when(statements.findLatestPeriodEndsByAccount(any(), any())).thenReturn(List.of());
         when(links.findByAccountIdInAndStatus(any(), any())).thenReturn(List.of());
-        when(transactions.findLatestTxnDatesByAccount(any(), any())).thenReturn(List.of());
+        when(transactions.findLatestTxnDatesByAccount(any(), any(), any())).thenReturn(List.of());
     }
 
     private Account account(Account.PrimarySource source) {
@@ -86,7 +86,7 @@ class AccountCoverageEndsTest {
         LatestTxnDate row = mock(LatestTxnDate.class);
         when(row.getAccountId()).thenReturn(account.getId());
         when(row.getLatestDate()).thenReturn(date);
-        when(transactions.findLatestTxnDatesByAccount(any(), any())).thenReturn(List.of(row));
+        when(transactions.findLatestTxnDatesByAccount(any(), any(), any())).thenReturn(List.of(row));
     }
 
     private void statementEnds(Account account, LocalDate end) {
@@ -113,7 +113,7 @@ class AccountCoverageEndsTest {
         newestTransaction(wallet, LocalDate.of(2026, 9, 1));
 
         assertThat(service.latestCoverageEnds(userId)).isEmpty();
-        verify(transactions, never()).findLatestTxnDatesByAccount(any(), any());
+        verify(transactions, never()).findLatestTxnDatesByAccount(any(), any(), any());
     }
 
     @Test

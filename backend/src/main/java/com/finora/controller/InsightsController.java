@@ -39,7 +39,10 @@ public class InsightsController {
 
     @GetMapping
     public ApiResponse<InsightsDto> insights(@RequestParam(required = false) String month) {
-        return ApiResponse.ok(insightsService.build(currentUser.id(), month));
+        // Parsed here so a month that cannot exist is a 400 (see MonthParam), and passed on in the
+        // canonical form the service compares months in.
+        String requested = month == null || month.isBlank() ? null : com.finora.util.MonthParam.parse(month).toString();
+        return ApiResponse.ok(insightsService.build(currentUser.id(), requested));
     }
 
     /** The rows this user marked "Got it" (V277); the app hides them. */

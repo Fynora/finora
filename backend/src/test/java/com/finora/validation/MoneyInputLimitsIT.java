@@ -151,8 +151,10 @@ class MoneyInputLimitsIT extends AbstractIntegrationTest {
     void aValidIncomeIntoANearFullAccount_isA400WithItsOwnCode_andChangesNothing() throws Exception {
         User user = createUser();
         UUID accountId = createAccount(user, "999999999999.00");
-        // After the day the balance was typed, so it moves the balance (BalanceCoverage).
-        String later = LocalDate.now().plusDays(30).toString();
+        // After the day the typed balance is known through (yesterday, in the user's zone), so it
+        // moves the balance (BalanceCoverage) -- and not after tomorrow, which entry refuses
+        // (TXN_013, ReportableDates): today.
+        String later = LocalDate.now(com.finora.util.UserZone.of(user.getTimezone())).toString();
 
         ResponseEntity<String> response = send(HttpMethod.POST, "/api/v1/transactions",
                 txn(accountId, "5.00", later, "Pay", "INCOME"), user);

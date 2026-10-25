@@ -402,7 +402,7 @@ public class AnalyticsService {
     private AnalyticsDto.MultiYearReport multiYearScalarReport(UUID userId, RangeFetcher fetcher) {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         LocalDate earliest = liveAccountIds.isEmpty() ? null
-                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds, reportRows.latestDate(userId));
         if (earliest == null) {
             return new AnalyticsDto.MultiYearReport(List.of(), new AnalyticsDto.ThisYearSoFar(null, List.of()));
         }
@@ -496,7 +496,7 @@ public class AnalyticsService {
     public AnalyticsDto.MultiYearLifestyleReport multiYearLifestyleInflation(UUID userId) {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         LocalDate earliest = liveAccountIds.isEmpty() ? null
-                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds, reportRows.latestDate(userId));
         if (earliest == null) {
             return new AnalyticsDto.MultiYearLifestyleReport(List.of(),
                     new AnalyticsDto.ThisYearSoFarLifestyle(null, List.of()));
@@ -555,7 +555,7 @@ public class AnalyticsService {
     public AnalyticsDto.MultiYearCategoryReport multiYearCategories(UUID userId) {
         List<UUID> liveAccountIds = liveAccountIds(userId);
         LocalDate earliest = liveAccountIds.isEmpty() ? null
-                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds, reportRows.latestDate(userId));
         if (earliest == null) {
             return new AnalyticsDto.MultiYearCategoryReport(List.of(), new AnalyticsDto.ThisYearSoFarCategories(null, List.of()));
         }
@@ -629,7 +629,7 @@ public class AnalyticsService {
     private List<AnalyticsDto.CategoryYearBreakdown> toBreakdownList(Map<UUID, BigDecimal> totals,
                                                                        Map<UUID, String> categoryNames) {
         // A category whose unlinked refunds exceed its purchases in the period spent nothing there.
-        return RefundNetting.withoutNegativeSpend(totals).entrySet().stream()
+        return RefundNetting.withSpendLeft(totals).entrySet().stream()
                 .map(e -> new AnalyticsDto.CategoryYearBreakdown(e.getKey(),
                         categoryNames.getOrDefault(e.getKey(), "Uncategorized"), e.getValue()))
                 .sorted(Comparator.comparing(AnalyticsDto.CategoryYearBreakdown::totalSpend).reversed())

@@ -395,8 +395,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  is. Used to detect a previous-period comparison window that reaches back before the
      *  account's own history began -- JPQL (not native), so Transaction's own soft-delete
      *  {@code @SQLRestriction} still applies automatically. */
-    @Query("SELECT MIN(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds")
-    LocalDate findEarliestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds);
+    @Query("SELECT MIN(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds AND t.txnDate <= :through")
+    LocalDate findEarliestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                  @Param("through") LocalDate through);
 
     /** Which of these accounts have at least one transaction in {@code [from, to]}. JPQL, so the
      *  soft-delete restriction applies. Backs the Reports comparison's "was this account active"
@@ -422,17 +423,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("""
            SELECT t.accountId AS accountId, MAX(t.txnDate) AS latestDate
              FROM Transaction t
-            WHERE t.userId = :userId AND t.accountId IN :accountIds
+            WHERE t.userId = :userId AND t.accountId IN :accountIds AND t.txnDate <= :through
             GROUP BY t.accountId
            """)
     List<LatestTxnDate> findLatestTxnDatesByAccount(@Param("userId") UUID userId,
-                                                     @Param("accountIds") java.util.Collection<UUID> accountIds);
+                                                     @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                                     @Param("through") LocalDate through);
 
     /** The newest date this user has any transaction -- DashboardRangeService's anchor for the
      *  preset ranges (3/6/12/24 months), mirroring ReportingPeriod's "newest month with data"
-     *  reporting-period philosophy rather than the real calendar date. */
-    @Query("SELECT MAX(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds")
-    LocalDate findLatestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds);
+     *  reporting-period philosophy rather than the real calendar date. Nothing after {@code through}
+     *  counts: see {@code ReportableDates}, for what one row typed with a future year did to every
+     *  screen anchored here. */
+    @Query("SELECT MAX(t.txnDate) FROM Transaction t WHERE t.userId = :userId AND t.accountId IN :accountIds AND t.txnDate <= :through")
+    LocalDate findLatestTxnDate(@Param("userId") UUID userId, @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                @Param("through") LocalDate through);
 
     /**
      * Backs the Ledger page's multi-filter search. All filter params are optional (nullable) —
@@ -783,10 +788,11 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  own doc comment). */
     @Query("""
            SELECT DISTINCT t.txnDate FROM Transaction t
-            WHERE t.userId = :userId AND t.accountId IN :accountIds
+            WHERE t.userId = :userId AND t.accountId IN :accountIds AND t.txnDate <= :through
            """)
     List<LocalDate> findDistinctTransactionDates(@Param("userId") UUID userId,
-                                                   @Param("accountIds") java.util.Collection<UUID> accountIds);
+                                                   @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                                   @Param("through") LocalDate through);
 
     /**
      * Whether this account already has a live transaction dated after {@code afterDate} that

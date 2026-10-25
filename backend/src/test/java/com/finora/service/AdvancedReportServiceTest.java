@@ -64,9 +64,9 @@ class AdvancedReportServiceTest {
         when(reach.behindFor(any(), any(), any(), any())).thenReturn(Optional.empty());
         when(categoryRepository.findByUserId(userId)).thenAnswer(i -> List.copyOf(categories.values()));
         when(merchantRepository.findByUserId(userId)).thenAnswer(i -> List.copyOf(merchants));
-        when(transactions.findEarliestTxnDate(eq(userId), any())).thenAnswer(i -> world.stream()
+        when(transactions.findEarliestTxnDate(eq(userId), any(), any())).thenAnswer(i -> world.stream()
                 .map(Transaction::getTxnDate).min(LocalDate::compareTo).orElse(null));
-        when(transactions.findLatestTxnDate(eq(userId), any())).thenAnswer(i -> world.stream()
+        when(transactions.findLatestTxnDate(eq(userId), any(), any())).thenAnswer(i -> world.stream()
                 .map(Transaction::getTxnDate).max(LocalDate::compareTo).orElse(null));
         when(transactions.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
                 .thenAnswer(i -> {

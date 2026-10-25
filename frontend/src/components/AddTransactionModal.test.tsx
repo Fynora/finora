@@ -54,6 +54,14 @@ describe('AddTransactionModal', () => {
     }
   });
 
+  it('does not offer a date after tomorrow, which the backend refuses', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 25, 10, 0));
+    renderModal();
+    const dateInput = await screen.findByLabelText('Date') as HTMLInputElement;
+    expect(dateInput.max).toBe('2026-10-26');
+  });
+
   it('excludes credit card accounts from the account picker', async () => {
     vi.mocked(accountsApi.list).mockResolvedValue([
       { id: 'a-1', name: 'HDFC Savings', accountType: 'SAVINGS' },

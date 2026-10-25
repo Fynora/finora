@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { formatDate, formatTime, withSep } from './date';
+import { formatDate, formatTime, latestTransactionDate, withSep } from './date';
 import { formatDayMonthYear } from '../components/AccountUI';
 
 describe('formatDate', () => {
@@ -89,5 +89,14 @@ describe('September as Sep', () => {
 
   it('the accounts list writes Sep', () => {
     expect(formatDayMonthYear(new Date(2026, 8, 30, 12).toISOString())).toBe('30 Sep 2026');
+  });
+});
+
+// The backend refuses a transaction dated after tomorrow (TXN_013); the date inputs stop there too.
+describe('latestTransactionDate', () => {
+  it('is tomorrow, across a month and a year end', () => {
+    expect(latestTransactionDate(new Date(2026, 9, 25, 23, 30))).toBe('2026-10-26');
+    expect(latestTransactionDate(new Date(2026, 9, 31, 9, 0))).toBe('2026-11-01');
+    expect(latestTransactionDate(new Date(2026, 11, 31, 0, 5))).toBe('2027-01-01');
   });
 });

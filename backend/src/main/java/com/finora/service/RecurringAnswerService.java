@@ -284,9 +284,11 @@ public class RecurringAnswerService {
     private Map<String, List<Transaction>> expenseRowsByPayee(UUID userId) {
         List<UUID> live = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
         if (live.isEmpty()) return Map.of();
+        java.time.LocalDate through = recurringService.latestDate(userId);
         return transactionRepository.findByUserIdAndAccountIdIn(userId, live).stream()
                 .filter(t -> t.getTxnType() == Transaction.Type.EXPENSE && t.getMerchant() != null
-                        && RecurringService.countsAsAPayment(t))
+                        && RecurringService.countsAsAPayment(t)
+                        && !ReportableDates.isAfter(t.getTxnDate(), through))
                 .sorted(Comparator.comparing(Transaction::getTxnDate))
                 .collect(Collectors.groupingBy(t -> payeeKey(t.getMerchant())));
     }

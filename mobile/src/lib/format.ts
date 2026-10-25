@@ -90,6 +90,16 @@ export function toLocalDateString(d: Date): string {
 }
 
 /**
+ * The latest day a transaction can be given: tomorrow, at local midnight. The backend refuses
+ * anything later (TXN_013, ReportableDates), because one row typed with the wrong year took over
+ * every money screen; this is the same limit on the picker. The server's own check, in the user's
+ * saved timezone, is the one that decides. Mirrors the web's `latestTransactionDate`.
+ */
+export function latestTransactionDay(now: Date = new Date()): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+}
+
+/**
  * A backend LocalDate ("YYYY-MM-DD") back into a Date at LOCAL midnight -- the inverse of the
  * above, and necessary for the same reason: `new Date('2027-03-01')` parses as UTC midnight, which
  * is the previous day for anyone behind UTC.

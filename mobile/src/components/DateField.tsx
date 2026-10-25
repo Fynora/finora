@@ -27,9 +27,11 @@ interface Props {
   /** Shown when nothing is picked yet. */
   placeholder?: string;
   minimumDate?: Date;
+  /** The latest day the picker offers -- a transaction's date, for one (latestTransactionDay). */
+  maximumDate?: Date;
 }
 
-export function DateField({ label, value, onChange, placeholder = 'Not set', minimumDate }: Props) {
+export function DateField({ label, value, onChange, placeholder = 'Not set', minimumDate, maximumDate }: Props) {
   const c = useTheme();
   const [iosOpen, setIosOpen] = useState(false);
   const current = value ? fromLocalDateString(value) : new Date();
@@ -53,6 +55,7 @@ export function DateField({ label, value, onChange, placeholder = 'Not set', min
         value: current,
         mode: 'date',
         minimumDate,
+        maximumDate,
         onChange: (event, date) => {
           androidPickerOpen.current = false;
           // 'dismissed' fires with no date when the user backs out -- treating that as a change
@@ -104,6 +107,7 @@ export function DateField({ label, value, onChange, placeholder = 'Not set', min
           mode="date"
           display="inline"
           minimumDate={minimumDate}
+          maximumDate={maximumDate}
           onChange={(event, date) => {
             setIosOpen(false);
             if (event.type === 'set' && date) onChange(toLocalDateString(date));

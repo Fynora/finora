@@ -177,6 +177,21 @@ public class RecurringService {
         this.peopleLedgerService = peopleLedgerService;
     }
 
+    /** Set by Spring; the default zone in a unit test that builds this service by hand. */
+    private ReportableDates reportableDates = ReportableDates.withDefaultZone();
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setReportableDates(ReportableDates reportableDates) {
+        this.reportableDates = reportableDates;
+    }
+
+    /** The latest date a payment counts from, for this service and RecurringAnswerService: a row
+     *  dated after it is no payment yet, and as an account's latest row it made every pattern on
+     *  that account look ended (see ReportableDates). */
+    LocalDate latestDate(UUID userId) {
+        return reportableDates.latestFor(userId);
+    }
+
     /** The user's average share of a repeating bill once other people's shares are taken off; null
      *  when nobody shares any of its payments. Detection itself reads the full amounts, which stay
      *  steady while shares come and go. */
@@ -245,8 +260,13 @@ public class RecurringService {
                 .map(com.finora.entity.Account::getId).toList();
         List<Transaction> allTransactions = liveAccountIds.isEmpty() ? List.of()
                 : transactionRepository.findByUserIdAndAccountIdIn(userId, liveAccountIds);
+        // A row dated after tomorrow is no payment yet (see latestDate). Left out here and from each
+        // account's latest date below, but kept in allTransactions, so a badge it carries from
+        // before is still cleared with the other rows outside `active`.
+        LocalDate through = latestDate(userId);
         List<Transaction> active = allTransactions.stream()
-                .filter(t -> countsAsAPayment(t) && t.getTxnType() == Transaction.Type.EXPENSE)
+                .filter(t -> countsAsAPayment(t) && t.getTxnType() == Transaction.Type.EXPENSE
+                        && !ReportableDates.isAfter(t.getTxnDate(), through))
                 .toList();
         Set<UUID> activeIds = active.stream().map(Transaction::getId).collect(java.util.stream.Collectors.toSet());
 
@@ -285,6 +305,7 @@ public class RecurringService {
         // How far each account's data runs, for hasEnded: its latest payment that counts.
         Map<UUID, LocalDate> latestByAccount = new HashMap<>();
         allTransactions.stream().filter(RecurringService::countsAsAPayment).filter(t -> t.getTxnDate() != null)
+                .filter(t -> !ReportableDates.isAfter(t.getTxnDate(), through))
                 .forEach(t -> latestByAccount.merge(t.getAccountId(), t.getTxnDate(), (a, b) -> a.isAfter(b) ? a : b));
 
         List<RecurringDto> results = new ArrayList<>();

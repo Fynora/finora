@@ -102,7 +102,7 @@ public class BudgetService {
                 : transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(userId, from, to, liveAccountIds);
         List<Transaction> reportable = reportRows.reportable(userId, monthTxns);
         RefundNetting spend = withUnlinkedOffsets(userId, refunds, reportable);
-        Map<UUID, BigDecimal> spendByCategory = RefundNetting.withoutNegativeSpend(reportable.stream()
+        Map<UUID, BigDecimal> spendByCategory = RefundNetting.withSpendLeft(reportable.stream()
                 .filter(t -> spend.countsAsSpend(t) && t.getCategoryId() != null)
                 .collect(Collectors.groupingBy(Transaction::getCategoryId,
                         Collectors.reducing(BigDecimal.ZERO, spend::spendAmount, BigDecimal::add))));

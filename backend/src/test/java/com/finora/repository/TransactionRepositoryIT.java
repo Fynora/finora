@@ -415,23 +415,45 @@ class TransactionRepositoryIT extends AbstractIntegrationTest {
      * this automatic) and must be scoped to the given live account ids -- a mock could not catch
      * either MIN/MAX aggregate silently including a deleted row or a different account's data.
      */
+    /** A row after {@code through} is no data yet (ReportableDates): it is neither the latest date,
+     *  nor a date in the month list, nor an account's coverage. */
+    @Test
+    @Transactional
+    void dateQueries_leaveOutRowsAfterThrough() {
+        newTransaction(BigDecimal.valueOf(100), LocalDate.of(2026, 3, 1), "Real");
+        newTransaction(BigDecimal.valueOf(200), LocalDate.of(2026, 10, 26), "Tomorrow");
+        newTransaction(BigDecimal.valueOf(999), LocalDate.of(2099, 1, 5), "Typed with the wrong year");
+        LocalDate through = LocalDate.of(2026, 10, 26);
+
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId), through))
+                .isEqualTo(LocalDate.of(2026, 10, 26));
+        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(accountId), LocalDate.of(2026, 2, 28)))
+                .as("only rows after the bound: no earliest either").isNull();
+        assertThat(transactionRepository.findDistinctTransactionDates(userId, List.of(accountId), through))
+                .containsExactlyInAnyOrder(LocalDate.of(2026, 3, 1), LocalDate.of(2026, 10, 26));
+        assertThat(transactionRepository.findLatestTxnDatesByAccount(userId, List.of(accountId), through))
+                .singleElement().satisfies(r -> assertThat(r.getLatestDate()).isEqualTo(LocalDate.of(2026, 10, 26)));
+    }
+
     @Test
     @Transactional
     void earliestAndLatestTxnDate_excludeSoftDeletedRows_andAreScopedToLiveAccountIds() {
+        // An upper bound past every row here; the bound itself is dateQueries_leaveOutRowsAfterThrough.
+        final LocalDate farFuture = LocalDate.of(9999, 12, 31);
         newTransaction(BigDecimal.valueOf(100), LocalDate.of(2026, 3, 1), "Earliest");
         newTransaction(BigDecimal.valueOf(200), LocalDate.of(2026, 6, 15), "Middle");
         Transaction latest = newTransaction(BigDecimal.valueOf(300), LocalDate.of(2026, 8, 20), "Latest, will be deleted");
 
-        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(accountId)))
+        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(accountId), farFuture))
                 .isEqualTo(LocalDate.of(2026, 3, 1));
-        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId)))
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId), farFuture))
                 .isEqualTo(LocalDate.of(2026, 8, 20));
 
         transactionRepository.delete(latest);
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId)))
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(accountId), farFuture))
                 .as("the deleted row's date must no longer count as the latest")
                 .isEqualTo(LocalDate.of(2026, 6, 15));
 
@@ -442,8 +464,8 @@ class TransactionRepositoryIT extends AbstractIntegrationTest {
         otherAccount.setAccountType(Account.Type.SAVINGS);
         otherAccount.setBalance(BigDecimal.ZERO);
         otherAccount = accountRepository.save(otherAccount);
-        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
-        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(otherAccount.getId()))).isNull();
+        assertThat(transactionRepository.findEarliestTxnDate(userId, List.of(otherAccount.getId()), farFuture)).isNull();
+        assertThat(transactionRepository.findLatestTxnDate(userId, List.of(otherAccount.getId()), farFuture)).isNull();
     }
 
     // Plan 6, Track B: AccountAggregatorTransactionDiffService needs "every AA-sourced row this

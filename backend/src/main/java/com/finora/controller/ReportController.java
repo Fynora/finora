@@ -47,7 +47,7 @@ public class ReportController {
     @GetMapping("/trend")
     public ApiResponse<List<ReportService.ReportTrendPoint>> monthlyTrend(@RequestParam(required = false) String month,
                                                                           @RequestParam(defaultValue = "6") int months) {
-        YearMonth anchor = month == null || month.isBlank() ? null : YearMonth.parse(month);
+        YearMonth anchor = month == null || month.isBlank() ? null : com.finora.util.MonthParam.parse(month);
         return ApiResponse.ok(reportService.trend(currentUser.id(), anchor, months));
     }
 }

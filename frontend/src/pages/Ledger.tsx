@@ -37,7 +37,7 @@ import { CountsAsSection } from '../components/inflow/CountsAsSection';
 import { BillPickerModal } from '../components/people/BillPickerModal';
 import { PeopleModal, qualifiesForPeople } from '../components/people/PeopleModal';
 import { personPath } from '../components/people/WithPeopleCard';
-import { withSep } from '../utils/date';
+import { latestTransactionDate, withSep } from '../utils/date';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -1579,7 +1579,7 @@ function EditTransactionModal({
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <label htmlFor="edit-txn-date" className="block text-2xs uppercase text-muted mb-1">Date</label>
-              <input id="edit-txn-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
+              <input id="edit-txn-date" type="date" value={date} max={latestTransactionDate()} onChange={(e) => setDate(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />
             </div>
             <div>
               <label htmlFor="edit-txn-type" className="block text-2xs uppercase text-muted mb-1">Type</label>

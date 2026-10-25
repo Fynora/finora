@@ -181,6 +181,37 @@ class RecurringServiceTest {
         assertThat(recurringService.detectForUser(userId)).extracting(RecurringDto::merchant).containsExactly("netflix");
     }
 
+    /** Live test, 2026-10-25: one row on the account typed with the year 2099 made it the account's
+     *  latest date, so every pattern on it looked ended and the list came back empty. A row dated
+     *  after tomorrow is no payment yet (ReportableDates). */
+    @Test
+    void aRowDatedInTheFuture_doesNotEndThePatternsOnItsAccount() {
+        List<Transaction> txns = new java.util.ArrayList<>(List.of(
+                expense("netflix", LocalDate.of(2026, 7, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 8, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 9, 5), BigDecimal.valueOf(649))));
+        txns.add(expense("typo date", LocalDate.of(2099, 1, 5), BigDecimal.valueOf(999)));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        assertThat(recurringService.detectForUser(userId)).extracting(RecurringDto::merchant).containsExactly("netflix");
+    }
+
+    /** Left out of detection, but not of the stale-badge pass: a future row that carries the badge
+     *  from before has it cleared, as any row outside `active` does. */
+    @Test
+    void aRowDatedInTheFuture_isNotAPayment_andLosesAStaleBadge() {
+        Transaction future = expense("netflix", LocalDate.of(2099, 10, 5), BigDecimal.valueOf(649));
+        future.setRecurring(true);
+        List<Transaction> txns = List.of(
+                expense("netflix", LocalDate.of(2026, 8, 5), BigDecimal.valueOf(649)),
+                expense("netflix", LocalDate.of(2026, 9, 5), BigDecimal.valueOf(649)),
+                future);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        assertThat(recurringService.detectForUser(userId)).as("two real charges are not a pattern").isEmpty();
+        assertThat(future.isRecurring()).isFalse();
+    }
+
     /** Two average gaps plus the gap tolerance (35%, at least 5 days) past the last charge, exactly. */
     @Test
     void hasEnded_atTheBoundary() {

@@ -315,6 +315,8 @@ public class TransactionService {
             }
         }
 
+        requireNotInTheFuture(userId, req.date());
+
         // Bug fix: req.accountId() used to go straight onto the transaction with no check that it
         // actually belongs to userId -- every other entry point into an Account (AccountService's
         // own getOwned, and this class's own getOwned for transactions) verifies ownership before
@@ -582,6 +584,15 @@ public class TransactionService {
      */
     private static final BigDecimal MAX_TRANSACTION_AMOUNT = new BigDecimal("999999999.99");
 
+    /** A date after tomorrow in the user's zone is refused on add and edit -- see
+     *  {@link com.finora.service.ReportableDates} for what one such row did to every money screen. */
+    private void requireNotInTheFuture(UUID userId, java.time.LocalDate date) {
+        java.time.LocalDate latest = new com.finora.service.ReportableDates(userRepository).latestFor(userId);
+        if (com.finora.service.ReportableDates.isAfter(date, latest)) {
+            throw new ApiException(ErrorCode.TXN_DATE_IN_FUTURE);
+        }
+    }
+
     /**
      * The whole balance-sign convention (see balanceDelta's doc comment) assumes amount is
      * always a non-negative magnitude, with direction encoded solely by the transaction's type.
@@ -627,6 +638,7 @@ public class TransactionService {
     @Transactional
     public TransactionDto update(UUID userId, UUID txnId, TransactionDto.UpdateRequest req) {
         Transaction t = getOwned(userId, txnId);
+        requireNotInTheFuture(userId, req.date());
 
         BigDecimal oldDelta = balanceOf(t);
         // Located before the edit: a date change can move the row in or out of a stated figure.

@@ -630,7 +630,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearIncome: a full prior year sums correctly and is marked complete")
     void multiYearIncome_sumsAFullYear_andMarksItComplete() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
                 eq(userId), any(), any(), any()))
@@ -649,7 +649,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearIncome: money from a person is not income")
     void incomeSeries_excludesMoneyFromAPerson() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction salary = income(LocalDate.of(2025, 3, 1), new BigDecimal("50000"));
         salary.setDescription("NEFT ACME TECHNOLOGIES SALARY MAR");
@@ -671,7 +671,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearIncome: no transactions ever -> empty report, not an error")
     void multiYearIncome_returnsEmptyReport_whenThereIsNoDataAtAll() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any())).thenReturn(null);
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any())).thenReturn(null);
 
         AnalyticsDto.MultiYearReport report = analyticsService.multiYearIncome(userId);
 
@@ -683,7 +683,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearSpend: refund nets the expense the same way merchantTrend already does")
     void multiYearSpend_netsARefundAgainstItsPurchase() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction purchase = expense(null, LocalDate.of(2025, 4, 1), new BigDecimal("500"));
         Transaction refund = new Transaction();
@@ -713,7 +713,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearSpend and lifestyle: an investment transfer is not spending, as in Reports and the Dashboard")
     void multiYear_leavesInvestmentTransfersOutOfSpend() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction spend = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("800"));
         Transaction invested = expense(null, LocalDate.of(2025, 3, 2), new BigDecimal("5000"));
@@ -738,7 +738,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearLifestyleInflation: computes expense/income ratio per full year")
     void multiYearLifestyleInflation_computesTheRatio() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction spend = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("800"));
         Transaction earn = income(LocalDate.of(2025, 3, 1), new BigDecimal("1000"));
@@ -758,7 +758,7 @@ class AnalyticsServiceTest {
     @Test
     @DisplayName("multiYearLifestyleInflation: ratio is null, not a guess, when income is zero")
     void multiYearLifestyleInflation_leavesRatioNull_whenIncomeIsZero() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(
                 eq(userId), any(), any(), any()))
@@ -782,7 +782,7 @@ class AnalyticsServiceTest {
         food.setName("Food");
         when(categoryRepository.findByUserId(userId)).thenReturn(List.of(food));
 
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction t1 = expense(null, LocalDate.of(2025, 3, 1), new BigDecimal("300"));
         t1.setCategoryId(foodCategoryId);
@@ -893,7 +893,7 @@ class AnalyticsServiceTest {
 
     @Test
     void multiYearSpend_netsAnUnlinkedRefund_butTheIncomeSeriesDoesNotCountIt() {
-        when(transactionRepository.findEarliestTxnDate(eq(userId), any()))
+        when(transactionRepository.findEarliestTxnDate(eq(userId), any(), any()))
                 .thenReturn(LocalDate.of(2025, 1, 5));
         Transaction purchase = expense(null, LocalDate.of(2025, 4, 1), new BigDecimal("500"));
         Transaction salary = income(LocalDate.of(2025, 4, 1), new BigDecimal("50000"));

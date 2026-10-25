@@ -1,7 +1,7 @@
 import {
   currentYearMonth, fmtCurrency, fmtDate, fmtForeignAmount, fmtStatementBalance, fmtMonthYear, fmtRelativeFutureTime, fmtRelativeTime,
   fromLocalDateString, initials, monthDateRange, monthDayRangeLabel, monthLabel, monthLabelLong,
-  toLocalDateString, withSep,
+  latestTransactionDay, toLocalDateString, withSep,
 } from './format';
 
 describe('fmtStatementBalance', () => {
@@ -263,5 +263,15 @@ describe('currentYearMonth', () => {
     const now = new Date();
     const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     expect(currentYearMonth()).toBe(expected);
+  });
+});
+
+// The backend refuses a transaction dated after tomorrow (TXN_013); the picker stops there too.
+describe('latestTransactionDay', () => {
+  it('is tomorrow at local midnight, across a month and a year end', () => {
+    expect(toLocalDateString(latestTransactionDay(new Date(2026, 9, 25, 23, 30)))).toBe('2026-10-26');
+    expect(toLocalDateString(latestTransactionDay(new Date(2026, 9, 31, 9, 0)))).toBe('2026-11-01');
+    expect(toLocalDateString(latestTransactionDay(new Date(2026, 11, 31, 0, 5)))).toBe('2027-01-01');
+    expect(latestTransactionDay(new Date(2026, 9, 25, 23, 30)).getHours()).toBe(0);
   });
 });

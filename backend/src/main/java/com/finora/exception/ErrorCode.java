@@ -49,6 +49,9 @@ public enum ErrorCode {
             "Give this bill a category first, so Fynora knows which bills to link every month."),
     PEOPLE_MORE_THAN_LEFT("TXN_012", HttpStatus.UNPROCESSABLE_ENTITY,
             "That's more than is left of this payment after the bills it's linked to."),
+    /** See {@code ReportableDates}: one row typed with a wrong year took over every money screen. */
+    TXN_DATE_IN_FUTURE("TXN_013", HttpStatus.BAD_REQUEST,
+            "That date is in the future. Check the year and try again."),
 
     // Statement import (com.finora.imports)
     IMPORT_NO_HEADER_DETECTED("IMPORT_001", HttpStatus.UNPROCESSABLE_ENTITY, "Could not find a transaction table in this file", true),

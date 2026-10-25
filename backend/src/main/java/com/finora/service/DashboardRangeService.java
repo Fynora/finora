@@ -67,10 +67,12 @@ public class DashboardRangeService {
         ZoneId zone = com.finora.util.UserZone.forUser(userRepository, userId);
         List<Account> accounts = accountRepository.findByUserId(userId);
         List<UUID> liveAccountIds = accounts.stream().map(Account::getId).toList();
+        // A row dated in the future anchors nothing: see ReportableDates.
+        LocalDate through = ReportableDates.latestAllowed(LocalDate.now(zone));
         LocalDate earliestTxnDate = liveAccountIds.isEmpty() ? null
-                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds);
+                : transactionRepository.findEarliestTxnDate(userId, liveAccountIds, through);
         LocalDate latestTxnDate = liveAccountIds.isEmpty() ? null
-                : transactionRepository.findLatestTxnDate(userId, liveAccountIds);
+                : transactionRepository.findLatestTxnDate(userId, liveAccountIds, through);
 
         LocalDate start;
         LocalDate end;

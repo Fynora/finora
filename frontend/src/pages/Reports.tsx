@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PieChart, UploadCloud, Loader2 } from 'lucide-react';
 import { reportsApi, type ReportData } from '../api/endpoints';
 import { useAsyncGuard } from '../hooks/useAsyncGuard';
@@ -102,10 +102,17 @@ export default function Reports() {
   const previousMonth = report && report.month === month && report.comparison?.reliable ? report.comparison.previousMonth : null;
   const extras = useReportExtras(month, previousMonth);
 
+  // A link can name the month to open on (Insights' "See the full month in Reports"); one Reports does
+  // not have falls back to the newest, as without a link.
+  // Read once, on arrival: after that the month picker owns the month.
+  const [searchParams] = useSearchParams();
+  const linkedMonth = useRef(searchParams.get('month'));
+
   useEffect(() => {
     reportsApi.availableMonths().then((m) => {
       setMonths(m);
-      if (m.length > 0) setMonth(m[m.length - 1]);
+      const wanted = linkedMonth.current;
+      if (m.length > 0) setMonth(wanted && m.includes(wanted) ? wanted : m[m.length - 1]);
       setLoading(false);
     }).catch(() => {
       setError(true);

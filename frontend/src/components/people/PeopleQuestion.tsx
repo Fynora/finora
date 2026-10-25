@@ -16,6 +16,9 @@ interface Props {
   /** The built-in Paid back kind, for "Always do this"; null until the kinds have loaded. */
   paidBackKindId: string | null;
   onAck: () => void;
+  /** The "not now" answers ("Got it", "Keep waiting", ...), when the page offers them an undo; else
+   *  they go through onAck like the rest. */
+  onGotIt?: () => void;
   onPickBill: (item: PeopleSuggestion) => void;
   onAsk: (item: PeopleSuggestion) => void;
   /** "Paid for something": the payment, to give it a category. */
@@ -40,7 +43,7 @@ interface Choice {
  * the app's own row (mobile/src/components/insights/PeopleLookAtRow.tsx). Nothing here changes a
  * figure until clicked; "Got it" and the "not now" answers go through the page's acknowledgement.
  */
-export function PeopleQuestion({ item, today, paidBackKindId, onAck, onPickBill, onAsk, onOpenPayment, onAnswered }: Props) {
+export function PeopleQuestion({ item, today, paidBackKindId, onAck, onGotIt, onPickBill, onAsk, onOpenPayment, onAnswered }: Props) {
   const refreshFigures = useInvalidateMoneyFigures();
   const [busy, setBusy] = useState(false);
   // The guard itself: state only disables the buttons on the next render, too late for a double click.
@@ -71,7 +74,7 @@ export function PeopleQuestion({ item, today, paidBackKindId, onAck, onPickBill,
     }
   }
 
-  const gotIt = (text = 'Got it'): Choice => ({ text, name: `${text}: ${label}`, onClick: onAck });
+  const gotIt = (text = 'Got it'): Choice => ({ text, name: `${text}: ${label}`, onClick: onGotIt ?? onAck });
   const owedOrBorrowed = (part?: number): Choice[] => [
     { text: 'They owed you', write: () => peopleApi.addEntry(txnId, 'PAID_BACK', part) },
     { text: 'Borrowed', write: () => peopleApi.addEntry(txnId, 'BORROWED', part) },

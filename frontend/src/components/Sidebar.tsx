@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -9,9 +9,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { safeStorage } from '../lib/safeStorage';
 import { visiblePlanCode } from '../lib/planDisplay';
-import { entitlementsApi } from '../api/endpoints';
+import { aiInsightsApi, entitlementsApi, insightsApi } from '../api/endpoints';
 import { BrandMark } from './BrandMark';
 import { trackNavigation } from '../lib/trackNavigation';
+import { LOOK_AT_KEY, ackEntry, isAcked, lookAtRowsFromServer } from '../lib/insightsFeed';
 
 // Persisted so the choice survives a reload/new tab rather than resetting to expanded every
 // time -- same reasoning TopBar's own read-notification tracking and ThemeContext already apply
@@ -62,6 +63,16 @@ export function Sidebar() {
     queryFn: () => entitlementsApi.mine(),
     staleTime: 60_000,
   });
+  // The Insights dot (web Insights spec): the same query, under the same key, as the page's "To look
+  // at", so the page open costs no second request; less what was marked "Got it" since. An older
+  // server without the list, or a failed read, shows no dot.
+  const lookAtQ = useQuery({ queryKey: LOOK_AT_KEY, queryFn: () => aiInsightsApi.lookAt(), retry: false, staleTime: 60_000 });
+  const acksQ = useQuery({ queryKey: ['insight-acknowledgements'], queryFn: () => insightsApi.acknowledgements(), retry: false });
+  const somethingToLookAt = useMemo(() => {
+    if (!lookAtQ.data) return false;
+    const acks = new Set((acksQ.data ?? []).map((a) => ackEntry(a.kind, a.itemKey)));
+    return lookAtRowsFromServer(lookAtQ.data.rows).some((r) => !isAcked(r, acks));
+  }, [lookAtQ.data, acksQ.data]);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
@@ -145,8 +156,14 @@ export function Sidebar() {
               }`
             }
           >
-            <Icon size={18} strokeWidth={2} className="flex-shrink-0" />
+            <span className="relative flex-shrink-0">
+              <Icon size={18} strokeWidth={2} />
+              {id === 'insights' && somethingToLookAt && (
+                <span data-testid="insights-dot" aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-danger" />
+              )}
+            </span>
             {!collapsed && label}
+            {id === 'insights' && somethingToLookAt && <span className="sr-only">, something to look at</span>}
           </NavLink>
         ))}
       </nav>

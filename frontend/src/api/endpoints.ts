@@ -1054,9 +1054,40 @@ export interface AiStory {
   /** Only with NOT_HELPFUL. */
   ratingReason: AiFeedbackReason | null;
 }
+/** One "To look at" row as the server builds it (LookAtRowDto, AI insights spec §8.2); each kind fills
+ *  only its own fields. */
+export interface LookAtServerRow {
+  kind: 'card-statement' | 'people' | 'new-recurring' | 'amount-changed' | 'running-high';
+  key: string;
+  ackKind: AckKind | null;
+  ackItemKey: string | null;
+  month: string | null;
+  total: number | null;
+  count: number | null;
+  cardName: string | null;
+  cardLast4: string | null;
+  people: PeopleSuggestion | null;
+  recurring: RecurringItem | null;
+  merchant: string | null;
+  category: string | null;
+  latestAmount: number | null;
+  latestDate: string | null;
+  current: number | null;
+  priorAverage: number | null;
+  whyAvailable: boolean | null;
+}
+export interface LookAtResponse {
+  rows: LookAtServerRow[];
+  orderedByAi: boolean;
+}
 // A field renamed on the server fails the type check here (FieldsOf is defined with the people shapes).
-const _aiStoryMatchesTheServer: FieldsOf<AiStory, GeneratedSchemas['StoryDto']> = true;
-void _aiStoryMatchesTheServer;
+const _aiInsightShapesMatchTheServer: [
+  FieldsOf<AiStory, GeneratedSchemas['StoryDto']>,
+  FieldsOf<LookAtServerRow, GeneratedSchemas['LookAtRowDto']>,
+  FieldsOf<LookAtResponse, GeneratedSchemas['LookAtDto']>,
+  FieldsOf<RecurringItem, GeneratedSchemas['RecurringDto']>,
+] = [true, true, true, true];
+void _aiInsightShapesMatchTheServer;
 
 export const aiInsightsApi = {
   /** Reads only; never makes the server call the model. */
@@ -1065,6 +1096,9 @@ export const aiInsightsApi = {
   /** Writes the story if it may. Idempotent: a repeat returns the stored or in-progress text. */
   generateStory: (month?: string) =>
     api.post<AiStory>('/insights/story', { month }).then((r) => r.data),
+  /** "To look at", in the order to show it, less what was marked "Got it". Never calls the model. */
+  lookAt: (month?: string) =>
+    api.get<LookAtResponse>('/insights/look-at', { params: month ? { month } : {} }).then((r) => r.data),
   /** Thumbs on an AI text: null clears it; a reason goes only with NOT_HELPFUL. */
   feedback: (id: string, rating: AiFeedbackRating | null, reason: AiFeedbackReason | null) =>
     api.patch<void>(`/insights/ai-texts/${id}/feedback`, { rating, reason }).then(() => undefined),

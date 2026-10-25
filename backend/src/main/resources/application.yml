@@ -1029,8 +1029,8 @@ app:
       count-sandbox-referrals: ${REVENUECAT_COUNT_SANDBOX_REFERRALS:false}
 
   # Gate 2b spec §6: the month-start statement nudge (StatementMonthStartNudge). Hourly; it sends
-  # nothing before 10:00 India time, the no-data case only from the 3rd, and at most one nudge per
-  # user per month (the outbox key), so a rerun or a second instance sends nothing twice.
+  # nothing before 10:00 India time, the no-data case only from the 3rd to the 9th, and at most one
+  # nudge per user per month (the outbox key), so a rerun or a second instance sends nothing twice.
   reminders:
     month-start:
       enabled: ${REMINDERS_MONTH_START_ENABLED:true}

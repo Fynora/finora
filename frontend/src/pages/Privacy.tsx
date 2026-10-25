@@ -326,9 +326,10 @@ export default function Privacy() {
         </p>
         <p>
           When you delete a statement, its original file stays in our storage for 90 days and is then
-          deleted. The file from an import that could not be completed is kept, so it can be retried without
-          uploading it again, until you delete your account. When you delete your Fynora account, your
-          statement files are deleted with it.
+          deleted. If an import could not be completed, we keep its file so it can be retried without
+          uploading it again, until you delete your account. The one exception is a password-protected PDF
+          whose password you chose not to save: if its import fails, the file is not kept. When you delete
+          your Fynora account, your statement files are deleted with it.
         </p>
         <p>
           We maintain routine backups of our production database for disaster recovery, with point-in-time

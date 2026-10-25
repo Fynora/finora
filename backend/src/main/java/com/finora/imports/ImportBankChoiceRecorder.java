@@ -11,8 +11,10 @@ import java.util.UUID;
 
 /**
  * One row per account a statement import creates (V285 {@code import_bank_choice}): where its bank
- * came from at staging and what bank the account ended up with. Feeds the admin counts of users'
- * bank choices per layout and of bank origins per week (spec 2026-10-22, sections 6 and 8).
+ * came from at staging and what bank the account ended up with. Feeds the admin counts of the
+ * banks created accounts ended up with per layout, and of bank origins per week (spec 2026-10-22,
+ * sections 6 and 8). Until the import review asks for a bank, the clients send back the detected
+ * one, so a row whose bank was unknown at staging records OTHER without anyone having chosen it.
  *
  * <p>Deliberately records no user or account: those admin surfaces show counts only.
  */

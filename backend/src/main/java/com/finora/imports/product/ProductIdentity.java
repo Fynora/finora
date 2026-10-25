@@ -148,11 +148,11 @@ public record ProductIdentity(String institutionId, FinancialProductType type, S
      * check. Visible digits at account and check positions are what tell one of a customer's cards
      * from another. The study ruled that any EXACT promotion must be gated on this measured entropy,
      * never on a visible-digit count and never on an issuer table; five issuers' masks converge on
-     * 4, an SBI-style "XX14" mask keeps 2.
+     * 4, an SBI-style "XX37" mask keeps 2.
      *
      * <p>Shapes: a 15- or 16-position mask (digits and mask characters, spaces and hyphens ignored)
      * is read by position; 4 to 6 bare trailing digits (a "card ending with 2468" sentence capture,
-     * or a bullet-masked "\u2022\u2022\u2022\u20226385" whose bullets stand for the hidden prefix)
+     * or a bullet-masked "\u2022\u2022\u2022\u20227319" whose bullets stand for the hidden prefix)
      * are the trailing positions; anything else, including a full unmasked number, is 0 -- a full
      * number resolves on its strong key, not on this rule.
      */

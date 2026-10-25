@@ -400,7 +400,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     expect(screen.queryByText('No bank set')).not.toBeInTheDocument();
   });
 
-  it('shows what users chose for a layout whose bank was unknown', async () => {
+  it('shows which bank the accounts imported from an unknown-bank layout ended up with', async () => {
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
     vi.mocked(adminLayoutRegistryApi.bankChoices).mockResolvedValue([
       { fingerprint: 'FP-1-AAAA0001', bankId: 'HDFC', bankName: 'HDFC Bank', count: 2 },
@@ -409,16 +409,20 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
     ]);
     renderPage('/layout-intelligence?tab=review');
 
-    expect(await screen.findByText('Users chose: HDFC Bank 2 · Other bank 1')).toBeInTheDocument();
+    const line = await screen.findByText('Accounts created as: HDFC Bank 2 · Other bank 1');
+    expect(line).toBeInTheDocument();
+    // The clients do not ask for a bank yet, so these counts must not claim anyone chose one.
+    expect(screen.queryByText(/Users chose/)).not.toBeInTheDocument();
+    expect(line).toHaveAttribute('title', expect.stringMatching(/not a choice/));
     expect(screen.queryByText(/ICICI Bank 5/)).not.toBeInTheDocument();
   });
 
-  it('says nothing about users\' choices when there are none', async () => {
+  it('says nothing about created accounts\' banks when there are none', async () => {
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
     renderPage('/layout-intelligence?tab=review');
 
     expect(await screen.findByText('FP-1-AAAA0001')).toBeInTheDocument();
-    expect(screen.queryByText(/Users chose/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Accounts created as/)).not.toBeInTheDocument();
   });
 
   it('shows where new accounts got their bank, week by week', async () => {

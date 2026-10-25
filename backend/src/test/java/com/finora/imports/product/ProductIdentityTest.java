@@ -211,9 +211,9 @@ class ProductIdentityTest {
         // 16 positions: 1-6 BIN, 7-15 account, 16 check. Only account and check positions count.
         assertThat(ProductIdentity.MaskCensus.of("460012******2468").dEff()).as("BIN + last four").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("5210XXXXXXXX1357").dEff()).as("shorter BIN + last four").isEqualTo(4);
-        assertThat(ProductIdentity.MaskCensus.of("XXXX XXXX XXXX XX14").dEff()).as("two trailing digits").isEqualTo(2);
-        assertThat(ProductIdentity.MaskCensus.of("48xx xxxx xxxx 6048").dEff()).as("lower-case mask, spaced").isEqualTo(4);
-        assertThat(ProductIdentity.MaskCensus.of("\u2022\u2022\u2022\u20226385").dEff()).as("bullet mask, last four only").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("XXXX XXXX XXXX XX37").dEff()).as("two trailing digits").isEqualTo(2);
+        assertThat(ProductIdentity.MaskCensus.of("41xx xxxx xxxx 2097").dEff()).as("lower-case mask, spaced").isEqualTo(4);
+        assertThat(ProductIdentity.MaskCensus.of("\u2022\u2022\u2022\u20227319").dEff()).as("bullet mask, last four only").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("2468").dEff()).as("a bare last-four sentence capture").isEqualTo(4);
         assertThat(ProductIdentity.MaskCensus.of("12").dEff()).isEqualTo(0);
         assertThat(ProductIdentity.MaskCensus.of(null).dEff()).isEqualTo(0);
@@ -242,8 +242,8 @@ class ProductIdentityTest {
 
     @Test
     void aTwoDigitMask_neverBorrowsTheOtherSidesEntropy() {
-        var twoDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
-        var fourDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "5514");
+        var twoDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX37");
+        var fourDigits = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "8237");
 
         assertThat(fourDigits.matches(twoDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
         assertThat(twoDigits.matches(fourDigits)).isNotEqualTo(ProductIdentity.Match.EXACT);
@@ -251,8 +251,8 @@ class ProductIdentityTest {
 
     @Test
     void sbiStyleMask_withTwoDigits_staysProbable() {
-        var first = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
-        var second = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX14");
+        var first = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX37");
+        var second = ProductIdentity.of("SBI", FinancialProductType.CREDIT_CARD, null, "XXXX XXXX XXXX XX37");
 
         assertThat(first.matches(second)).isEqualTo(ProductIdentity.Match.PROBABLE);
     }

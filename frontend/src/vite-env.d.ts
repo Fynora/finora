@@ -29,6 +29,10 @@ interface ImportMetaEnv {
   // every way into Gmail sync while it is paused. Only the exact string "true" turns it on. Build-time
   // (Vite inlines it), so a change needs a redeploy. See lib/features.ts.
   readonly VITE_GMAIL_SYNC_UI_ENABLED?: string;
+  // Optional, "unset means closed" -- unset (the shipped state) shows Bank Sync's connect button as
+  // "Coming soon" and disabled. Only the exact string "true" opens it. Build-time (Vite inlines it),
+  // so a change needs a redeploy. See lib/features.ts.
+  readonly VITE_BANK_SYNC_CONNECT_ENABLED?: string;
   // Optional, same "unset means hidden" reasoning -- unset (the shipped state) hides the Premium
   // plan everywhere. Only the exact string "true" shows it. Build-time (Vite inlines it), so a
   // change needs a redeploy. See lib/premiumVisibility.ts.

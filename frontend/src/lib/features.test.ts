@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { GMAIL_SYNC_UI_ENABLED } from './features';
+import { BANK_SYNC_CONNECT_ENABLED, GMAIL_SYNC_UI_ENABLED } from './features';
 
 // Gmail sync is paused until Google's annual CASA assessment is funded (docs/engineering/
 // gmail-sync-paused.md). Some tests that touch this flag mock the module so both states can be
@@ -36,5 +36,26 @@ describe('features', () => {
 
   it('stays paused when the variable is absent altogether', async () => {
     expect(await loadWithEnv(undefined)).toBe(false);
+  });
+});
+
+describe('BANK_SYNC_CONNECT_ENABLED', () => {
+  async function loadBankSync(value: string | undefined): Promise<boolean> {
+    vi.resetModules();
+    vi.stubEnv('VITE_BANK_SYNC_CONNECT_ENABLED', value);
+    const fresh = await import('./features');
+    return fresh.BANK_SYNC_CONNECT_ENABLED;
+  }
+
+  it('is closed in the build the tests see, where the variable is not set', () => {
+    expect(BANK_SYNC_CONNECT_ENABLED).toBe(false);
+  });
+
+  it('opens only for the exact value "true"', async () => {
+    expect(await loadBankSync('true')).toBe(true);
+  });
+
+  it.each(['', 'false', 'TRUE', '1', ' true', undefined])('stays closed for %j', async (value) => {
+    expect(await loadBankSync(value)).toBe(false);
   });
 });

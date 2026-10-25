@@ -79,9 +79,15 @@ public class NotificationPreferenceService {
         for (NotificationCategory category : List.of(NotificationCategory.FINANCIAL, NotificationCategory.REMINDERS)) {
             if (!categories.contains(category)) continue;
             for (NotificationChannel channel : channelsOf(category)) {
-                // Both are opt-out: no row means enabled, the same default the resolver applies.
-                views.add(new PreferenceView(category, channel,
-                        stored.getOrDefault(category + ":" + channel, true)));
+                // Both are opt-out: no row means enabled, the same default the resolver applies --
+                // except that an unset REMINDERS follows the user's FINANCIAL choice on the same
+                // channel (Sid, 2026-10-25; DatabaseNotificationPreferenceResolver#unsetValue).
+                Boolean own = stored.get(category + ":" + channel);
+                boolean enabled = own != null ? own
+                        : category == NotificationCategory.REMINDERS
+                                ? stored.getOrDefault(NotificationCategory.FINANCIAL + ":" + channel, true)
+                                : true;
+                views.add(new PreferenceView(category, channel, enabled));
             }
         }
         return views;

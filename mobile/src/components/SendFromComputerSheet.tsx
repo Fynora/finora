@@ -88,11 +88,13 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
   }, [receivedJobId]);
 
   const status = phase.kind === 'code' ? phase.state : null;
+  // Closing during the "Received." pause still follows the file: closing then must not strand it.
+  const close = () => (receivedJobId ? onReceived(receivedJobId) : onClose());
 
   return (
-    <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={close}>
       <View style={styles.flex}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Close" />
         <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           {phase.kind === 'issuing' ? (
             <ActivityIndicator style={styles.spinner} color={c.primary} accessibilityLabel="Getting a code" />
@@ -133,7 +135,7 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
               )}
             </View>
           )}
-          <Button label="Close" variant="link" onPress={onClose} />
+          <Button label="Close" variant="link" onPress={close} />
         </GlassSurface>
       </View>
     </AppModal>

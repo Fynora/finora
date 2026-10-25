@@ -114,6 +114,20 @@ describe('SendFromComputerSheet (Gate 2b spec §7)', () => {
     expect(screen.getByText('AB3K7M')).toBeOnTheScreen();
   });
 
+  // Closing during the "Received." pause must not strand the file: the screen still follows it.
+  it('follows the received file even when closed during the pause', async () => {
+    renderSheet();
+    await settle();
+    api.current.mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-2' });
+    await advance(POLL_MS);
+    expect(screen.getByText('Received.')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByText('Close'));
+
+    expect(onReceived).toHaveBeenCalledWith('job-2');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('closes when Close is pressed', async () => {
     renderSheet();
     await settle();

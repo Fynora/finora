@@ -13,6 +13,7 @@ const KEEP: Record<string, { count: number; why: string }> = {
   'components/ledger/LedgerDayCard.tsx': { count: 1, why: 'a transaction being deleted' },
   'screens/PaywallScreen.tsx': { count: 1, why: 'a plan being bought' },
   'components/ImportProgressCard.tsx': { count: 1, why: 'import progress' },
+  'components/SendFromComputerSheet.tsx': { count: 1, why: 'a send-from-computer code being issued after a tap' },
   'screens/LedgerScreen.tsx': { count: 1, why: 'the next page of transactions' },
   'screens/CategoryReviewScreen.tsx': { count: 1, why: 'the refetch after a review action' },
   'screens/GmailReviewScreen.tsx': { count: 1, why: 'an approve or reject running' },

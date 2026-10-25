@@ -156,6 +156,15 @@ public enum ErrorCode {
             "The dates in this file are written in two different orders (some day first, some month "
                     + "first), so we can't tell which date each transaction belongs to. Please export the "
                     + "statement again and upload that file.", true),
+    // Gate 2b spec §7: send a statement from your computer (StatementSendService). One message for a
+    // wrong, expired, used or cancelled code, on purpose: telling them apart would tell a guesser
+    // which codes exist. Copy new in the plan, shown to Sid in the PR.
+    SEND_CODE_INVALID("IMPORT_024", HttpStatus.BAD_REQUEST,
+            "That code didn't work. Check it on your phone, or ask for a new one.", true),
+    // Five codes that didn't work from one network address within an hour block it for the rest of
+    // that hour (spec §7), whatever code comes next. Copy new, shown to Sid in the PR.
+    SEND_CODE_BLOCKED("IMPORT_025", HttpStatus.TOO_MANY_REQUESTS,
+            "Too many codes didn't work from this network. Try again in an hour."),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

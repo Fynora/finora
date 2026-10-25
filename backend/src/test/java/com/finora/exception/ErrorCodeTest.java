@@ -97,7 +97,12 @@ class ErrorCodeTest {
                         ErrorCode.IMPORT_WRONG_FILE_TYPE,
                         // IMPORT_DATE_ORDER_CONFLICT (2026-10-24): dates written day-first and
                         // month-first in one file; the fix is the user's, exporting it again.
-                        ErrorCode.IMPORT_DATE_ORDER_CONFLICT);
+                        ErrorCode.IMPORT_DATE_ORDER_CONFLICT,
+                        // SEND_CODE_INVALID (Gate 2b, 2026-10-25): a mistyped or old code from the
+                        // phone; the fix is the user's, checking it or asking for a new one. Its
+                        // neighbour SEND_CODE_BLOCKED is not here: waiting out the hour is nothing
+                        // to correct, like any other rate limit.
+                        ErrorCode.SEND_CODE_INVALID);
     }
 
     /** Gate 2b refusal audit, row 8: the busy message named the product's old spelling. */

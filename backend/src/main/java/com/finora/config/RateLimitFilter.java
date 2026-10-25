@@ -105,6 +105,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // generous for legitimate use (re-staging after fixing a file, trying a few statements) while
     // still bounding that.
     private final RateLimiter importStageLimiter;
+    // Gate 2b spec §7: POST /api/v1/send, public. Each call writes an object to storage and a queue
+    // row for the code's owner, like /import/jobs, but with no account behind the caller to bound it.
+    private final RateLimiter sendStatementLimiter;
     // Shared across all three password-change steps rather than one limiter each -- a caller
     // working through the flow normally touches all three anyway, so bucketing them together is
     // both simpler and doesn't require guessing a separate reasonable ceiling for each individual
@@ -360,6 +363,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // 600/min is ~2.5 cores of bcrypt(12): high enough that a launch-day spike of real sign-ins
     // never meets it, low enough that a botnet cannot spend the whole instance on hashing.
     static final int DEFAULT_AUTH_GLOBAL_MAX = 600, DEFAULT_AUTH_GLOBAL_WINDOW = 60;
+    /** Gate 2b spec §7: the public send-a-statement upload, per address. Five WRONG codes per address
+     *  per hour are counted separately, in StatementSendService. */
+    static final int DEFAULT_SEND_STATEMENT_MAX = 20, DEFAULT_SEND_STATEMENT_WINDOW = 600;
 
     /**
      * The shipped configuration, for tests.
@@ -395,7 +401,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_AA_LINK_INITIATE_MAX, DEFAULT_AA_LINK_INITIATE_WINDOW,
                 DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW,
                 DEFAULT_STATEMENT_REFRESH_MAX, DEFAULT_STATEMENT_REFRESH_WINDOW,
-                DEFAULT_AUTH_GLOBAL_MAX, DEFAULT_AUTH_GLOBAL_WINDOW);
+                DEFAULT_AUTH_GLOBAL_MAX, DEFAULT_AUTH_GLOBAL_WINDOW,
+                DEFAULT_SEND_STATEMENT_MAX, DEFAULT_SEND_STATEMENT_WINDOW);
     }
 
     /**
@@ -462,7 +469,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.statement-refresh.max:15}") int statementRefreshMax,
             @Value("${app.rate-limit.statement-refresh.window-seconds:600}") int statementRefreshWindow,
             @Value("${app.rate-limit.auth-global.max:600}") int authGlobalMax,
-            @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow) {
+            @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow,
+            @Value("${app.rate-limit.send-statement.max:20}") int sendStatementMax,
+            @Value("${app.rate-limit.send-statement.window-seconds:600}") int sendStatementWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
@@ -490,6 +499,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.fynScreenshotLimiter = new RateLimiter(fynScreenshotMax, fynScreenshotWindow, "fyn-screenshot", redisTemplate);
         this.statementRefreshLimiter = new RateLimiter(statementRefreshMax, statementRefreshWindow, "statement-refresh", redisTemplate);
         this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate);
+        this.sendStatementLimiter = new RateLimiter(sendStatementMax, sendStatementWindow, "send-statement", redisTemplate);
         this.authGlobalEndpoints = List.of(
                 PARSER.parse("/api/v1/auth/login"),
                 PARSER.parse("/api/v1/auth/register"),
@@ -541,6 +551,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 // no parsing. This bounds how often an upload may be ACCEPTED, which is a different
                 // question and was simply not being asked.
                 new LimitedEndpoint(PARSER.parse("/api/v1/import/jobs"), importStageLimiter),
+                new LimitedEndpoint(PARSER.parse("/api/v1/send"), sendStatementLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/start"), passwordChangeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/verify-otp"), passwordChangeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/complete"), passwordChangeLimiter),

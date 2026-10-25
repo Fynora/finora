@@ -744,6 +744,22 @@ export interface ImportJobTimeline {
   openedForFixOn?: string[];
 }
 
+/**
+ * Gate 2b spec §7: app.fynora.net/send, the public page that sends one file with a code from the
+ * user's phone. On rawApi so no Authorization header is ever attached, and without cookies: the page
+ * is public and must not carry a signed-in session from this browser to the server.
+ */
+export const sendStatementApi = {
+  send: (code: string, file: File) => {
+    const form = new FormData();
+    form.append('code', code);
+    form.append('file', file);
+    return rawApi
+      .post<ApiEnvelope<{ received: boolean }>>('/send', form, { withCredentials: false })
+      .then((r) => r.data.data);
+  },
+};
+
 export const importJobsApi = {
   // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
   // offered for saving. Optional because an older backend does not send it -- absent means no.

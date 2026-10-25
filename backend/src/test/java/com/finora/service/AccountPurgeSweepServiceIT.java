@@ -155,6 +155,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @Autowired private UserRepository userRepository;
+    @Autowired private com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
     @Autowired private com.finora.repository.StatementRefreshRunRepository refreshRunRepository;
@@ -303,7 +305,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider, adminAlerts);
+                auditLogRepository, emailProvider, adminAlerts, statementSendCodeRepository);
         ReflectionTestUtils.setField(built, "sweepEnabled", true);
         ReflectionTestUtils.setField(built, "retentionHours", 0);
         ReflectionTestUtils.setField(built, "batchSize", 200);
@@ -398,6 +400,22 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(signupAttributionRepository.findById(userId)).isEmpty();
+    }
+
+    /** Codes to send a statement from a computer (V293), same anonymize-not-delete trap: the
+     *  cascade on users never fires because the purge never deletes the user row. */
+    @Test
+    @Transactional
+    void purgeDeletesCodes() {
+        entityManager.flush();
+        jdbcTemplate.update("INSERT INTO statement_send_codes (id, user_id, code_hash, created_at, expires_at) "
+                + "VALUES (gen_random_uuid(), ?, ?, now(), now() + interval '10 minutes')",
+                userId, "0".repeat(64));
+        assertThat(statementSendCodeRepository.findFirstByUserIdOrderByCreatedAtDesc(userId)).isPresent();
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(statementSendCodeRepository.findFirstByUserIdOrderByCreatedAtDesc(userId)).isEmpty();
     }
 
     /** Shared payments and loans (V281): all five tables, same anonymize-not-delete trap. */

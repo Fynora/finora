@@ -6,7 +6,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
-import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, statementImportsApi } from '../../api/endpoints';
+import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
@@ -51,6 +51,11 @@ jest.mock('../../api/endpoints', () => ({
     cancel: jest.fn(),
   },
   statementImportsApi: { confirmReimport: jest.fn() },
+  // Gate 2b spec §7: the "My statement is on my computer" sheet.
+  sendCodesApi: {
+    issue: jest.fn().mockResolvedValue({ code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' }),
+    current: jest.fn().mockResolvedValue({ state: 'WAITING', importJobId: null }),
+  },
   activationApi: {
     funnelEvent: jest.fn().mockResolvedValue(undefined),
     answer: jest.fn().mockResolvedValue(undefined),
@@ -114,6 +119,7 @@ const api = {
   categories: categoriesApi as jest.Mocked<typeof categoriesApi>,
   import: importApi as jest.Mocked<typeof importApi>,
   importJobs: importJobsApi as jest.Mocked<typeof importJobsApi>,
+  sendCodes: sendCodesApi as jest.Mocked<typeof sendCodesApi>,
   statements: statementImportsApi as jest.Mocked<typeof statementImportsApi>,
 };
 
@@ -1402,6 +1408,49 @@ function treeAsyncAvailable() {
  * convention as "upload completion dwell" above: ImportProgressCard's own poll schedule starts at
  * 100ms, so a 3000ms waitFor timeout comfortably covers a few real polls settling.
  */
+// Gate 2b spec §7: send a statement from a computer, offered only where queued uploads are on --
+// the file from the computer has nowhere else to go.
+describe('ImportScreen — send from a computer', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.sendCodes.issue.mockReset().mockResolvedValue({ code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' });
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'WAITING', importJobId: null });
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('offersSendFromComputerWhenQueuedUploadsAreOn, and opens the code sheet', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('My statement is on my computer'));
+
+    expect(await screen.findByText('AB3K7M')).toBeOnTheScreen();
+  });
+
+  // Sid (2026-10-25): on arrival the screen follows the file like one picked here, to the review.
+  it('followsTheReceivedFileToItsProgressCard', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-7' });
+    api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('My statement is on my computer'));
+
+    await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-7'), { timeout: 9000 });
+    expect(screen.queryByText('AB3K7M')).toBeNull();
+  }, 15000);
+
+  it('does not offer it where queued uploads are off', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+    render(tree());
+
+    await screen.findByText('Choose a file');
+    expect(screen.queryByText('My statement is on my computer')).toBeNull();
+  });
+});
+
 describe('ImportScreen — async import job (Phase 4)', () => {
   beforeEach(() => {
     mockRouteParams = undefined;

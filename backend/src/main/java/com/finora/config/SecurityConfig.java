@@ -168,6 +168,12 @@ public class SecurityConfig {
                     // same reasoning as the webhooks above. TraceRetentionIT calls it with no
                     // Authorization header to pin that this rule is what lets it through.
                     .requestMatchers(HttpMethod.POST, "/api/v1/internal/trace-retention/gone").permitAll()
+                    // Gate 2b spec §7: app.fynora.net/send, a public page that takes a code from the
+                    // user's phone and one file. The code (StatementSendService: 6 characters, 10
+                    // minutes, once, hashed, five wrong tries per address blocks it for an hour)
+                    // replaces authentication, and grants only adding one file to its owner's review
+                    // queue. POST on this one path only.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/send").permitAll()
                     // Actuator lives on its own port (management.server.port), which Railway never
                     // routes a domain to -- so these two rules only ever grant anything to a caller
                     // already inside the private network. On the public port the endpoints are not

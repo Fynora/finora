@@ -720,6 +720,18 @@ export interface ImportJobTimeline {
   stages: ImportTimelineStage[];
 }
 
+/**
+ * Gate 2b spec §7: send a statement from a computer. The phone asks for a code (valid 10 minutes,
+ * once; a new one cancels the old) and watches for the file to arrive. The computer side is the
+ * public web page app.fynora.net/send.
+ */
+export type SendCodeState = 'NONE' | 'WAITING' | 'RECEIVED' | 'EXPIRED';
+export const sendCodesApi = {
+  issue: () => api.post<{ code: string; expiresAt: string }>('/imports/send-codes').then((r) => r.data),
+  current: () =>
+    api.get<{ state: SendCodeState; importJobId: string | null }>('/imports/send-codes/current').then((r) => r.data),
+};
+
 export const importJobsApi = {
   // savePasswordAvailable (statement refresh, step 4): whether a protected PDF's password may be
   // offered for saving. Optional because an older backend does not send it -- absent means no.

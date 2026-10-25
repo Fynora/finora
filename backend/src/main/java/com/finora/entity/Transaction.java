@@ -538,7 +538,7 @@ public class Transaction extends BaseEntity {
     /**
      * Everything a category choice sets on a row (TransactionService.markChosen): which category, who
      * set it, and the engine's decision behind it. Kept by a LET_GO entry so undoing the let-go puts
-     * the payment back exactly as it was (V290).
+     * the payment back exactly as it was (V292).
      */
     public record CategoryChoice(UUID categoryId, boolean manuallySet, boolean needsReview,
                                  DecisionSource decisionSource, UUID decisionRuleId, Integer decisionConfidence) {

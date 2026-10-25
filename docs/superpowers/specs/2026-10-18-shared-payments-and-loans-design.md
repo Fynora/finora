@@ -128,7 +128,7 @@ person-to-person rows, so these are **shapes, not proportions**.
 | More paid back than owed | The excess flips the balance: the user owes P | — | — |
 | Paid back after a **let go** (2026-10-25) | Leaves income; takes that much of the let-go back (with nothing owed, or the excess past what is owed), before any flip | The lent payment counts as spending only for what is still let go | Lent month |
 | A repayment marked after **paid in cash** (2026-10-25) | Leaves income | — | Cash settles close only what is still owed, so a repayment dated before one never opens a debt |
-| A **let go undone** (the loan or the let-go removed, 2026-10-25) | — | Back in the category it had before the let-go, exactly as filed (V290), unless the user chose another since | — |
+| A **let go undone** (the loan or the let-go removed, 2026-10-25) | — | Back in the category it had before the let-go, exactly as filed (V292), unless the user chose another since | — |
 | A lent, paid-back or borrowed payment **corrected** (2026-10-25) | The entry follows the payment's current amount; one no longer the right kind of payment (lent, then edited into money in) counts for nothing | | — |
 
 Rules that follow from it, stated so a builder does not have to choose:

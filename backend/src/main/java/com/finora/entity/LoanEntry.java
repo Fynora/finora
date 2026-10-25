@@ -45,7 +45,7 @@ public class LoanEntry {
     private Instant createdAt = Instant.now();
 
     // A LET_GO on a lent payment: what the payment's category was before the let-go re-filed it, and
-    // the category it was re-filed under (V290). All null on any other entry and on older LET_GOs.
+    // the category it was re-filed under (V292). All null on any other entry and on older LET_GOs.
     @Column(name = "before_category_id")
     private UUID beforeCategoryId;
 

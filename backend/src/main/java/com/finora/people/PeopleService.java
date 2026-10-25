@@ -249,7 +249,7 @@ public class PeopleService {
             }
             loanEntries.delete(e);
             // The payment goes back to the category it had before the let-go filed it as a gift, unless
-            // the user has chosen another since. A let-go from before V290 kept nothing to go back to.
+            // the user has chosen another since. A let-go from before V292 kept nothing to go back to.
             for (LoanEntry g : letGos) {
                 Transaction.CategoryChoice before = g.categoryBeforeLetGo();
                 // The rule that filed it may have been deleted since: decision_rule_id references

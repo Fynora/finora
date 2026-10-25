@@ -241,6 +241,12 @@ class StatementSendIT extends AbstractIntegrationTest {
         assertThat(read(blocked).get("errorCode").asText()).isEqualTo("IMPORT_025");
         assertThat(jobsOf(user)).isEmpty();
         assertThat(status(user).get("state").asText()).as("the right code was never even tried").isEqualTo("WAITING");
+        // Sid (25 Oct): the block lasts 15 minutes, not an hour.
+        var keys = redis.keys("ratelimit:send-code-failure:*");
+        assertThat(keys).hasSize(1);
+        assertThat(redis.getExpire(keys.iterator().next())).isBetween(1L, 900L);
+        assertThat(read(blocked).get("message").asText())
+                .isEqualTo("Too many codes didn't work from this network. Try again in 15 minutes.");
     }
 
     @Test
@@ -456,7 +462,7 @@ class StatementSendIT extends AbstractIntegrationTest {
         org.mockito.Mockito.when(metadata.ip()).thenReturn("burst-" + UUID.randomUUID());
         StatementSendService service = new StatementSendService(slowJdbc,
                 org.mockito.Mockito.mock(com.finora.imports.jobs.ImportJobService.class),
-                org.mockito.Mockito.mock(com.finora.service.AuditService.class), metadata, redis, 5, 3600);
+                org.mockito.Mockito.mock(com.finora.service.AuditService.class), metadata, redis, 5, 900);
 
         ExecutorService pool = Executors.newFixedThreadPool(callers);
         List<java.util.concurrent.Future<String>> answers = new java.util.ArrayList<>();

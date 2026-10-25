@@ -51,10 +51,13 @@ import java.util.UUID;
  * </ul>
  *
  * <h2>Guessing</h2>
- * Five codes that didn't work from one address within an hour block that address until the hour is
- * up. Each attempt takes a slot BEFORE its code is tried, atomically, and a code that works gives its
- * slot back ({@link RateLimiter#reserve}): a blocked guesser cannot land a right guess, and a burst of
- * simultaneous guesses cannot slip past the limit before any of them is recorded. A wrong, expired, used or cancelled code all get one answer,
+ * Five codes that didn't work from one address within 15 minutes block that address until the oldest
+ * of them is 15 minutes old. Sid (25 Oct): 15 minutes, not the spec's hour, so that if production
+ * resolves many visitors to one address (an open question about the proxy chain), one person's typos
+ * or guesses lock everyone else out for less time. Each attempt takes a slot BEFORE its code is tried,
+ * atomically, and a code that works gives its slot back ({@link RateLimiter#reserve}): a blocked
+ * guesser cannot land a right guess, and a burst of simultaneous guesses cannot slip past the limit
+ * before any of them is recorded. A wrong, expired, used or cancelled code all get one answer,
  * {@link ErrorCode#SEND_CODE_INVALID}, so an answer never tells a guesser which codes exist. The
  * per-address request limit on the endpoint is in RateLimitFilter ({@code send-statement}).
  *
@@ -81,7 +84,7 @@ public class StatementSendService {
     public StatementSendService(JdbcTemplate jdbc, ImportJobService importJobService, AuditService auditService,
                                 RequestMetadata requestMetadata, StringRedisTemplate redisTemplate,
                                 @Value("${app.rate-limit.send-code-failure.max:5}") int failureMax,
-                                @Value("${app.rate-limit.send-code-failure.window-seconds:3600}") int failureWindow) {
+                                @Value("${app.rate-limit.send-code-failure.window-seconds:900}") int failureWindow) {
         this.jdbc = jdbc;
         this.importJobService = importJobService;
         this.auditService = auditService;

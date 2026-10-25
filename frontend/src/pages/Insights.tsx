@@ -1,31 +1,32 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Repeat, TrendingUp, X, Check, Trophy } from 'lucide-react';
+import { Trophy } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  aiInsightsApi, insightsApi, recurringApi, onboardingApi, usageApi, categoriesApi,
-  type AiStory, type InsightsData, type RecurringItem, type ChecklistStatus, type CategoryOption,
+  accountsApi, aiInsightsApi, insightsApi, recurringApi, onboardingApi, reportsApi, usageApi,
+  type AiStory, type InsightAcknowledgement, type InsightsData, type RecurringItem, type ChecklistStatus,
 } from '../api/endpoints';
 import { AiText } from '../components/insights/AiText';
-import { FinoraCard, EmptyState, SectionHeader, Skeleton, Badge } from '../design-system';
+import { LookAtCard } from '../components/insights/LookAtCard';
+import { ComingUpCard, PaidRegularlyCard } from '../components/insights/RegularPaymentsCards';
+import { FinoraCard, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
 import { MemoryReinforcementToast } from '../components/MemoryReinforcementToast';
-import { RecurringQuestion } from '../components/RecurringQuestion';
-import { PeopleQuestionsCard } from '../components/people/PeopleQuestionsCard';
 import { WithPeopleCard } from '../components/people/WithPeopleCard';
-import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
+import { COLOR_HEX } from '../lib/categoryIcons';
+import {
+  LOOK_AT_KEY, ackEntry, comingUp, isAcked, lookAtRowsFromServer, monthLine, paidRegularly, rowAck, type LookAtRow,
+} from '../lib/insightsFeed';
+import { trackNavigation } from '../lib/trackNavigation';
+import { toLocalDateString } from '../utils/date';
 
 function fmt(n: number) {
   // Negative amounts (e.g. a month where spend exceeded income) must render as "-₹500",
   // not "₹-500" -- string concatenation put the currency symbol before the sign.
   return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
 }
-
-// Same cutoff InsightsService.MOVER_SIGNIFICANCE_THRESHOLD_PCT already uses server-side to decide
-// which movers are worth a sentence -- reused here rather than a separate frontend-only number, so
-// "this mover gets a badge" and "this mover gets a sentence" agree on what counts as significant.
-const MOVER_SIGNIFICANCE_THRESHOLD_PCT = 15;
 
 // While another request is writing the story, read it again this many times, this far apart
 // (the same as mobile's Insights screen).
@@ -62,28 +63,7 @@ function ObservationsSkeleton() {
   );
 }
 
-/**
- * The row shape both list cards share: a label on the left, figures on the right, on a dashed
- * divider -- matching the real `flex justify-between ... border-b border-dashed py-2` rows rather
- * than using Skeleton.Row, whose fixed field-and-button composition belongs to a different shape
- * (Ledger hand-composed its rows for the same reason).
- */
-function ListSkeleton({ rows }: { rows: number }) {
-  return (
-    <div className="space-y-2">
-      {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex justify-between items-center border-b border-dashed py-2">
-          <Skeleton.Text width="w-1/3" />
-          <Skeleton.Text width="w-1/4" className="h-2.5" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** The 32px rounded-icon-on-tinted-background chip Budgets.tsx's own category rows already use --
- *  applied here to Category Movers, Recurring, and the Top Merchant row for visual consistency
- *  with the rest of the app's redesigned list rows, instead of this page's plain text-only lines. */
+/** The 32px rounded-icon-on-tinted-background chip Budgets.tsx's own category rows already use. */
 function CategoryIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }) {
   return (
     <div
@@ -95,9 +75,21 @@ function CategoryIcon({ icon: Icon, color }: { icon: LucideIcon; color: string }
   );
 }
 
+function queryStatus(q: { isLoading: boolean; isError: boolean; data: unknown }): 'loading' | 'error' | 'ready' {
+  if (q.isLoading) return 'loading';
+  if (q.isError && q.data === undefined) return 'error';
+  return 'ready';
+}
+
+/**
+ * Insights on the website (docs/superpowers/specs/2026-10-24-web-insights-redesign-design.md, the
+ * website form of the mobile Insights redesign): what's worth knowing about the newest month. On a
+ * wide screen the left column is what to act on (the month, the AI story, "To look at") and the right
+ * what to glance at (coming up, paid regularly, with people); below `lg` it is one column, with
+ * question links that jump down it.
+ */
 export default function Insights() {
   const [data, setData] = useState<InsightsData | null>(null);
-  const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   // The AI month story (AI insights spec §8.4). No loading or error flags, deliberately: until an AI
   // story is ready, and whenever there is none (not in the audience, a spent budget, a failed check,
   // an outage), the card shows its own rule-based sentences -- no skeleton, no message, nothing that
@@ -112,22 +104,11 @@ export default function Insights() {
   const storyPoll = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Which story load is the newest; an older one's answers are dropped.
   const storyLoad = useRef(0);
-  // Two endpoints, two sets of flags. These used to share one `loading` and one `error` behind a
-  // single Promise.all, which conflated sources that have no dependency on each other: /recurring
-  // feeds only the Recurring card, /insights only the Observations and Movers cards. That shared
-  // gate meant the whole page waited on the slower of the two, and -- worse -- a /recurring failure
-  // blanked Observations and Movers even though /insights had succeeded. Splitting them is what
-  // the roadmap's "section-scoped loading, not page-scoped, whenever sections are independently
-  // sourced" rule requires (§1), not incidental refactoring.
+  // Section-scoped loading (§1): /insights feeds the month card only, so a slow or failed /recurring
+  // never holds it back, and the other way round.
   const [insightsLoading, setInsightsLoading] = useState(true);
-  const [recurringLoading, setRecurringLoading] = useState(true);
   const [insightsError, setInsightsError] = useState(false);
-  const [recurringError, setRecurringError] = useState(false);
   const [checklist, setChecklist] = useState<ChecklistStatus | null>(null);
-  // Cosmetic only, same "safe fallback, never blocks the page" reasoning Budgets.tsx's own
-  // categoriesApi.list() call documents -- a failure here just leaves every icon/color lookup
-  // below on its already-built 'tag'/'gray' fallback, nothing more.
-  const [categoriesByName, setCategoriesByName] = useState<Map<string, CategoryOption>>(new Map());
   // An AI story, once ready, REPLACES the rule-based sentence list as the primary text (rather than
   // sitting as a gloss line above it) -- the repo owner's explicit call: insights should read as
   // prose, not template strings, whenever the AI story is available. The rule-based sentences stay
@@ -145,12 +126,7 @@ export default function Insights() {
     const item = checklist?.items.find((i) => i.key === 'VIEW_INSIGHTS');
     if (!item || item.completed) return;
     const timer = setTimeout(() => {
-      // Bug fix: this used to leave the shared ['onboarding'] react-query cache untouched after a
-      // successful completion -- this page tracks its own `checklist` via local state, not that
-      // cache, so nothing here needed it. But Dashboard's ChecklistWidget reads the SAME backend
-      // state through that cache key with a 30s staleTime, so without invalidating it here, it
-      // could keep showing "View insights" as unchecked for up to 30s after it was actually
-      // completed. Same fix as Ledger.tsx's own REVIEW_TRANSACTIONS dwell timer.
+      // Dashboard's ChecklistWidget reads the same state through the ['onboarding'] cache.
       onboardingApi.completeChecklistItem('VIEW_INSIGHTS')
         .then(() => queryClient.invalidateQueries({ queryKey: ['onboarding'] }))
         .catch(() => {});
@@ -168,22 +144,26 @@ export default function Insights() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Saved answers whose payee's amount moved out of range, for payees no longer detected -- shown as
-  // extra "still X?" rows in the recurring card. Absent on an older backend: the query just fails.
-  const changedAmountsQ = useQuery({
-    queryKey: ['recurring-changed-amounts'], queryFn: () => recurringApi.changedAmounts(), retry: false,
+  const recurringQ = useQuery({ queryKey: ['recurring'], queryFn: () => recurringApi.list() });
+  const lookAtQ = useQuery({ queryKey: LOOK_AT_KEY, queryFn: () => aiInsightsApi.lookAt(), retry: false });
+  const acksQ = useQuery({ queryKey: ['insight-acknowledgements'], queryFn: () => insightsApi.acknowledgements(), retry: false });
+  const monthsQ = useQuery({ queryKey: ['report-months'], queryFn: () => reportsApi.availableMonths(), retry: false });
+  const accountsQ = useQuery({ queryKey: ['accounts'], queryFn: () => accountsApi.list(), retry: false });
+  const reportingMonth = data?.reportingMonth ?? null;
+  // Reports' own trend, so the month line and Reports can never disagree.
+  const trendQ = useQuery({
+    queryKey: ['report', 'trend', reportingMonth],
+    queryFn: () => reportsApi.trend(reportingMonth as string, 6),
+    enabled: reportingMonth !== null,
+    retry: false,
   });
-  // The recurring list lives in local state here (see the split-loading comment above), so an
-  // answer reloads it directly; React Query invalidation alone would not reach it.
-  const reloadRecurring = () => {
-    recurringApi.list().then(setRecurring).catch(() => {});
-  };
+
   // A share, a loan, a rule or a repeating-payment answer (which re-files past payments) moves the
-  // month's figures and a repeating bill's share, which this page keeps in local state (see above):
-  // re-read them, and the story written from those figures, as an answer elsewhere would not.
+  // month's figures, which this page keeps in local state: re-read them and the story written from
+  // them. The cached lists (repeating payments, the trend, "To look at") are already refreshed by the
+  // answer itself (useInvalidateMoneyFigures).
   const reloadAfterAnswer = () => {
     insightsApi.get().then(setData).catch(() => {});
-    reloadRecurring();
     loadStory();
   };
 
@@ -219,10 +199,6 @@ export default function Insights() {
       .then(setData)
       .catch(() => setInsightsError(true))
       .finally(() => setInsightsLoading(false));
-    recurringApi.list()
-      .then(setRecurring)
-      .catch(() => setRecurringError(true))
-      .finally(() => setRecurringLoading(false));
   }, []);
 
   useEffect(() => {
@@ -244,34 +220,52 @@ export default function Insights() {
     loadStory();
   }, []);
 
-  useEffect(() => {
-    categoriesApi.list()
-      .then((cats) => setCategoriesByName(new Map(cats.map((c) => [c.name, c]))))
-      .catch(() => {});
-  }, []);
-
   const showInsightsSkeleton = useDelayedLoading(insightsLoading);
-  const showRecurringSkeleton = useDelayedLoading(recurringLoading);
 
-  function iconFor(categoryName: string): LucideIcon {
-    return ICON_COMPONENTS[categoriesByName.get(categoryName)?.icon ?? 'tag'] ?? ICON_COMPONENTS.tag;
-  }
-  function colorFor(categoryName: string): string {
-    return COLOR_HEX[categoriesByName.get(categoryName)?.color ?? 'gray'];
+  const recurring = useMemo(() => recurringQ.data ?? [], [recurringQ.data]);
+  const acks = useMemo(() => new Set((acksQ.data ?? []).map((a) => ackEntry(a.kind, a.itemKey))), [acksQ.data]);
+  const lookAtRows = useMemo(
+    () => (lookAtQ.data ? lookAtRowsFromServer(lookAtQ.data.rows).filter((r) => !isAcked(r, acks)) : []),
+    [lookAtQ.data, acks],
+  );
+  const upcoming = useMemo(() => comingUp(recurring, toLocalDateString(new Date())), [recurring]);
+  const regular = useMemo(() => paidRegularly(recurring), [recurring]);
+  const latestStatementEnd = useMemo(() => {
+    const ends = (accountsQ.data ?? [])
+      .map((a) => a.lastStatementPeriodEnd)
+      .filter((d): d is string => typeof d === 'string' && d.length > 0)
+      .sort();
+    return ends.length > 0 ? ends[ends.length - 1] : null;
+  }, [accountsQ.data]);
+  const line = monthLine(reportingMonth, trendQ.data ?? []);
+  // One month of data or none: nothing to compare yet.
+  const firstMonth = monthsQ.data !== undefined && monthsQ.data.length <= 1;
+  const recurringStatus = queryStatus(recurringQ);
+
+  // Saved through the cache, not a mutation hook: LookAtCard saves what is still waiting when the page
+  // closes, after this component's own hooks are gone.
+  function acknowledge(row: LookAtRow) {
+    const ack = rowAck(row);
+    if (!ack) return;
+    const entry: InsightAcknowledgement = { kind: ack.kind, itemKey: ack.itemKey };
+    queryClient.setQueryData<InsightAcknowledgement[]>(['insight-acknowledgements'], (list) => [...(list ?? []), entry]);
+    insightsApi.acknowledge(ack.kind, ack.itemKey)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['ai-insights', 'look-at'] }))
+      .catch(() => {
+        // Not saved: the row comes back, as the server still has it.
+        queryClient.setQueryData<InsightAcknowledgement[]>(['insight-acknowledgements'], (list) =>
+          (list ?? []).filter((a) => !(a.kind === entry.kind && a.itemKey === entry.itemKey)));
+      });
   }
 
   // Optimistic: this list is purely informational, so there is no real cost to a rare rollback
-  // flashing the row back in on a failed request. Invalidates the shared ['recurring'] react-query
-  // cache key too -- this page tracks its own `recurring` local state rather than that cache (see
-  // the loading-state split's own comment above), but Dashboard.tsx's widget reads the SAME
-  // backend list through it, and would otherwise keep showing an already-dismissed row until its
-  // own cache happened to go stale.
+  // flashing the row back in on a failed request. Dashboard reads the same ['recurring'] cache.
   function dismissRecurring(merchant: string) {
-    const previous = recurring;
-    setRecurring((items) => items.filter((item) => item.merchant !== merchant));
+    const previous = queryClient.getQueryData<RecurringItem[]>(['recurring']);
+    queryClient.setQueryData<RecurringItem[]>(['recurring'], (items) => (items ?? []).filter((item) => item.merchant !== merchant));
     recurringApi.dismiss(merchant)
       .then(() => queryClient.invalidateQueries({ queryKey: ['recurring'] }))
-      .catch(() => setRecurring(previous));
+      .catch(() => queryClient.setQueryData(['recurring'], previous));
   }
 
   // Issue #1451: "confirm" has no persisted state of its own (see backend RecurringService
@@ -288,212 +282,151 @@ export default function Insights() {
   }
 
   // `data` staying null on failure used to fall through to `return null`, rendering a blank page
-  // with no indication anything went wrong. That message now lives per-card below rather than as a
-  // page-level early return, so one failed endpoint no longer takes the other's card down with it.
+  // with no indication anything went wrong. That message lives in the month card, so one failed
+  // endpoint no longer takes the other sections down with it.
   const insightsFailed = insightsError || !data;
-  const movers = (data?.movers ?? []).filter((m) => m.pctChange !== null).slice(0, 6);
   // Only AI text leads the card; rules text and "none" leave the sentences in place.
   const aiStory = story && story.writtenByAi && story.text ? story : null;
+  const reportsLink = reportingMonth ? `/app/reports?month=${reportingMonth}` : '/app/reports';
+
+  // Narrow screens only: one long column, so questions that jump down it (mobile spec idea 4).
+  const questions = [
+    lookAtRows.length > 0 && { href: '#look-at', text: `What needs a look? (${lookAtRows.length})` },
+    upcoming.rows.length > 0 && { href: '#coming-up', text: "What's coming up?" },
+    regular.rows.length > 0 && { href: '#paid-regularly', text: 'What do I pay regularly?' },
+  ].filter((q): q is { href: string; text: string } => Boolean(q));
 
   return (
-    <div className="space-y-6">
-      <div className="bg-primary/10 border-l-4 border-primary rounded p-3 text-sm">
-        {aiStory
-          ? 'Text marked "Written by AI" is written by AI from your own figures. Everything else here is rule-based, from your own transaction history.'
-          : 'These are rule-based statistical observations, computed directly from your real transaction history.'}
-      </div>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
+        <div className="space-y-4 min-w-0">
+          <FinoraCard>
+            {insightsLoading ? (
+              // Region outside the delayed gate, shapes inside -- the accessible label announces
+              // immediately while only the visual shape waits out the anti-flash window.
+              <Skeleton.Region label="Loading your observations">
+                {showInsightsSkeleton && <ObservationsSkeleton />}
+              </Skeleton.Region>
+            ) : insightsFailed ? (
+              <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
+            ) : (
+              <div className="space-y-3">
+                {reportingMonth && (
+                  <div>
+                    <h2 className="text-xs text-muted">{monthLabelLong(reportingMonth)}</h2>
+                    {line && <p className="text-base text-ink">{line}</p>}
+                  </div>
+                )}
+                {aiStory ? (
+                  <div className="space-y-2">
+                    <div className="border-l-4 border-accent-purple bg-accent-purple-bg rounded p-3">
+                      <AiText
+                        key={aiStory.id ?? 'story'}
+                        id={aiStory.id}
+                        text={aiStory.text!}
+                        writtenByAi
+                        basis={aiStory.basis}
+                        rating={aiStory.rating}
+                        ratingReason={aiStory.ratingReason}
+                        onFeedback={(rating, ratingReason) => setStory((s) => (s ? { ...s, rating, ratingReason } : s))}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNumbers((v) => !v)}
+                      aria-expanded={showNumbers}
+                      className="text-xs font-medium text-primary underline underline-offset-2"
+                    >
+                      {showNumbers ? 'Hide the numbers' : 'View the numbers'}
+                    </button>
+                    {showNumbers && (
+                      <div className="space-y-2 pt-1">
+                        {data!.sentences.map((s, i) => (
+                          <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // The AI story is still loading, unavailable, or there is nothing to say: the same
+                  // rule-based sentences this page has always shown, uncollapsed.
+                  data!.sentences.map((s, i) => (
+                    <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
+                  ))
+                )}
 
-      <FinoraCard>
-        <SectionHeader title="Key Insights" />
-        {insightsLoading ? (
-          // Region outside the delayed gate, shapes inside -- the accessible label announces
-          // immediately while only the visual shape waits out the anti-flash window
-          // (ChartContainer.tsx is the reference implementation of this contract).
-          // No month in the label: which month these describe is only known once they arrive.
-          <Skeleton.Region label="Loading your observations">
-            {showInsightsSkeleton && <ObservationsSkeleton />}
-          </Skeleton.Region>
-        ) : insightsFailed ? (
-          <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
-        ) : (
-          <div className="space-y-3">
-            {aiStory ? (
-              <div className="space-y-2">
-                <div className="border-l-4 border-accent-purple bg-accent-purple-bg rounded p-3">
-                  <AiText
-                    key={aiStory.id ?? 'story'}
-                    id={aiStory.id}
-                    text={aiStory.text!}
-                    writtenByAi
-                    basis={aiStory.basis}
-                    rating={aiStory.rating}
-                    ratingReason={aiStory.ratingReason}
-                    onFeedback={(rating, ratingReason) => setStory((s) => (s ? { ...s, rating, ratingReason } : s))}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowNumbers((v) => !v)}
-                  aria-expanded={showNumbers}
-                  className="text-xs font-medium text-primary underline underline-offset-2"
-                >
-                  {showNumbers ? 'Hide the numbers' : 'View the numbers'}
-                </button>
-                {showNumbers && (
-                  <div className="space-y-2 pt-1">
-                    {data!.sentences.map((s, i) => (
-                      <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
-                    ))}
+                {data!.topMerchant && (
+                  // Never in the AI story -- no payee name reaches the model (AI insights spec §4.1).
+                  <div className="flex items-center gap-3 border-l-4 border-border bg-black/[0.02] rounded p-3">
+                    <CategoryIcon icon={Trophy} color={COLOR_HEX.gray} />
+                    <p className="text-sm leading-relaxed">
+                      Your top merchant {insightsPeriodPhrase(data)} was{' '}
+                      <span className="font-semibold">"{data!.topMerchant.name}"</span> at{' '}
+                      <span className="font-semibold">{fmt(data!.topMerchant.amount)}</span>.
+                    </p>
                   </div>
                 )}
               </div>
-            ) : (
-              // The AI story is still loading, unavailable (not in the audience, over budget, a
-              // failed check, an outage), or there is nothing to say -- the same rule-based
-              // sentences this page has always shown, uncollapsed, so nothing regresses when AI
-              // isn't in the loop for this request.
-              data!.sentences.map((s, i) => (
-                <p key={i} className="text-sm leading-relaxed border-l-4 border-border bg-black/[0.02] rounded p-3">{s}</p>
-              ))
             )}
-
-            {data!.topMerchant && (
-              // Never in the AI story -- no payee name reaches the model (AI insights spec §4.1),
-              // so this is the one insight that always needs an explicit home here rather than
-              // folding into the AI prose above.
-              <div className="flex items-center gap-3 border-l-4 border-border bg-black/[0.02] rounded p-3">
-                <CategoryIcon icon={Trophy} color={COLOR_HEX.gray} />
-                <p className="text-sm leading-relaxed">
-                  Your top merchant {insightsPeriodPhrase(data)} was{' '}
-                  <span className="font-semibold">"{data!.topMerchant.name}"</span> at{' '}
-                  <span className="font-semibold">{fmt(data!.topMerchant.amount)}</span>.
-                </p>
-              </div>
+            {questions.length > 0 && (
+              <nav aria-label="Jump to" className="lg:hidden flex flex-wrap gap-2 mt-3">
+                {questions.map((q) => (
+                  <a key={q.href} href={q.href} className="text-xs border border-border rounded-full px-3 py-1 hover:bg-black/[0.03]">
+                    {q.text}
+                  </a>
+                ))}
+                <Link
+                  to={reportsLink}
+                  onClick={() => trackNavigation('reports', 'contextual')}
+                  className="text-xs border border-border rounded-full px-3 py-1 hover:bg-black/[0.03]"
+                >
+                  Where did my money go?
+                </Link>
+              </nav>
             )}
-          </div>
-        )}
-      </FinoraCard>
+          </FinoraCard>
 
-      <PeopleQuestionsCard onChanged={reloadAfterAnswer} />
-
-      <FinoraCard>
-        <SectionHeader title="Recurring Payments & Subscriptions" />
-        {recurringLoading ? (
-          <Skeleton.Region label="Loading recurring payments">
-            {showRecurringSkeleton && <ListSkeleton rows={3} />}
-          </Skeleton.Region>
-        ) : recurringError ? (
-          <p className="text-muted text-sm">Couldn't load your recurring payments — please try again later.</p>
-        ) : recurring.length === 0 && (changedAmountsQ.data ?? []).length === 0 ? (
-          <EmptyState
-            icon={Repeat}
-            iconBg="bg-primary-light"
-            iconColor="text-primary"
-            title="No recurring payments detected yet"
-            desc="This needs at least 2 charges from the same merchant with a regular interval to spot a pattern."
+          <LookAtCard
+            status={queryStatus(lookAtQ)}
+            rows={lookAtRows}
+            month={reportingMonth}
+            firstMonth={firstMonth}
+            onAck={acknowledge}
+            onRetry={() => void lookAtQ.refetch()}
+            onAnswered={reloadAfterAnswer}
           />
-        ) : (
-          <div className="space-y-2">
-            {recurring.map((r) => (
-              <div key={r.merchant} className="border-b border-dashed py-2">
-              <div className="flex items-center gap-3 text-sm">
-                <CategoryIcon icon={Repeat} color={COLOR_HEX.blue} />
-                <span className="flex-1 min-w-0 capitalize truncate">{r.merchant} <Badge label={r.label} className="ml-1" /></span>
-                <span className="flex items-center gap-3 text-xs text-muted flex-shrink-0">
-                  {/* A bill other people share counts at the user's share, as every figure does. */}
-                  <span>
-                    {r.yourShare != null && r.sharedWith != null
-                      ? `Your share ${fmt(r.yourShare)} of ${fmt(r.averageAmount)} · split with ${r.sharedWith} · ${r.occurrences}x seen`
-                      : `${fmt(r.averageAmount)} · ${r.occurrences}x seen`}
-                  </span>
-                  <span>next ~{r.nextEstimate}</span>
-                  <button
-                    type="button"
-                    onClick={() => confirmRecurring(r.merchant)}
-                    disabled={confirmedMerchants.has(r.merchant)}
-                    aria-label={confirmedMerchants.has(r.merchant) ? `${r.merchant} confirmed as recurring` : `Confirm ${r.merchant} as recurring`}
-                    title={confirmedMerchants.has(r.merchant) ? 'Confirmed' : 'Yes, keep tracking this'}
-                    className="text-muted hover:text-success disabled:hover:text-muted disabled:opacity-50"
-                  >
-                    <Check size={13} className={confirmedMerchants.has(r.merchant) ? 'text-success' : undefined} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dismissRecurring(r.merchant)}
-                    aria-label={`Not recurring: dismiss ${r.merchant}`}
-                    title="Not recurring"
-                    className="text-muted hover:text-ink"
-                  >
-                    <X size={13} />
-                  </button>
-                </span>
-              </div>
-              <div className="pl-9">
-                <RecurringQuestion
-                  merchant={r.merchant}
-                  state={r.state ?? 'NONE'}
-                  answer={r.answer ?? null}
-                  amount={r.state === 'NEEDS_ANSWER' ? r.averageAmount : (r.latestAmount ?? r.averageAmount)}
-                  label={r.label}
-                  onSaved={reloadAfterAnswer}
-                />
-              </div>
-              </div>
-            ))}
-            {(changedAmountsQ.data ?? []).map((c) => (
-              <div key={`changed-${c.merchant}`} className="border-b border-dashed py-2 pl-9">
-                <RecurringQuestion
-                  merchant={c.merchant} state="AMOUNT_CHANGED" answer={c.category} amount={c.latestAmount}
-                  onSaved={reloadAfterAnswer}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </FinoraCard>
+        </div>
 
-      <WithPeopleCard />
-
-      <FinoraCard>
-        <SectionHeader title="Category Movers vs. Recent Average" />
-        {insightsLoading ? (
-          <Skeleton.Region label="Loading category movers">
-            {showInsightsSkeleton && <ListSkeleton rows={4} />}
-          </Skeleton.Region>
-        ) : insightsFailed ? (
-          <p className="text-muted text-sm">Couldn't load your insights — please try again later.</p>
-        ) : movers.length === 0 ? (
-          <EmptyState
-            icon={TrendingUp}
-            iconBg="bg-accent-purple-bg"
-            iconColor="text-accent-purple"
-            title="Not enough history yet"
-            desc="Add a few months of transactions to compare trends."
-          />
-        ) : (
-          <div className="space-y-2">
-            {movers.map((m) => {
-              const isSignificant = Math.abs(m.pctChange!) >= MOVER_SIGNIFICANCE_THRESHOLD_PCT;
-              const rising = m.pctChange! >= 0;
-              return (
-                <div key={m.category} className="flex items-center gap-3 text-sm border-b border-dashed py-2">
-                  <CategoryIcon icon={iconFor(m.category)} color={colorFor(m.category)} />
-                  <span className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="truncate">{m.category}</span>
-                    {isSignificant && <Badge tone={rising ? 'danger' : 'success'} label={rising ? 'Up' : 'Down'} />}
-                  </span>
-                  <span className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-muted text-xs">{fmt(m.current)} vs usual {fmt(m.priorAverage)}</span>
-                    <span className={rising ? 'text-danger' : 'text-success'}>
-                      {rising ? '▲' : '▼'} {Math.abs(m.pctChange!).toFixed(0)}%
-                    </span>
-                  </span>
-                </div>
-              );
-            })}
+        <div className="space-y-4 min-w-0">
+          <div id="coming-up">
+            <ComingUpCard
+              rows={upcoming.rows} stillToGoOut={upcoming.stillToGoOut} latestStatementEnd={latestStatementEnd}
+              status={recurringStatus}
+            />
           </div>
-        )}
-      </FinoraCard>
+          <div id="paid-regularly">
+            <PaidRegularlyCard
+              rows={regular.rows} monthlyTotal={regular.monthlyTotal} yearlyTotal={regular.yearlyTotal}
+              status={recurringStatus} confirmed={confirmedMerchants}
+              onConfirm={confirmRecurring} onDismiss={dismissRecurring}
+            />
+          </div>
+          <WithPeopleCard />
+        </div>
+      </div>
+
+      <footer className="text-center text-xs text-muted space-y-1 pt-2">
+        <p>
+          <Link to={reportsLink} onClick={() => trackNavigation('reports', 'contextual')} className="text-primary underline underline-offset-2">
+            See the full month in Reports
+          </Link>
+        </p>
+        <p>
+          {aiStory
+            ? 'Text marked "Written by AI" is written by AI from your own figures. Everything else here is rule-based, from your own transaction history.'
+            : 'These are rule-based statistical observations, computed directly from your real transaction history.'}
+        </p>
+      </footer>
 
       <MemoryReinforcementToast message={memoryReinforcement.message} />
     </div>

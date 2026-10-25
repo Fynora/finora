@@ -15233,6 +15233,9 @@
                     "installmentsTotal": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "amountOwedKnown": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -17935,6 +17938,10 @@
                     },
                     "holderIsMine": {
                         "type": "boolean"
+                    },
+                    "amountOwedToday": {
+                        "type": "number",
+                        "minimum": 0.0
                     }
                 },
                 "required": [
@@ -18796,6 +18803,10 @@
                         "items": {
                             "$ref": "#/components/schemas/SnapshotPoint"
                         }
+                    },
+                    "cardsWithUnknownAmountOwed": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -19422,6 +19433,10 @@
                     },
                     "userConfirmedContinue": {
                         "type": "boolean"
+                    },
+                    "amountOwedToday": {
+                        "type": "number",
+                        "minimum": 0.0
                     }
                 },
                 "required": [
@@ -27062,6 +27077,10 @@
                     },
                     "statementBehind": {
                         "$ref": "#/components/schemas/StatementBehindDto"
+                    },
+                    "cardsWithUnknownAmountOwed": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },
@@ -27232,6 +27251,10 @@
                     },
                     "statementBehind": {
                         "$ref": "#/components/schemas/StatementBehindDto"
+                    },
+                    "cardsWithUnknownAmountOwed": {
+                        "type": "integer",
+                        "format": "int32"
                     }
                 }
             },

@@ -6676,6 +6676,7 @@ export interface components {
             installmentsPaid?: number;
             /** Format: int32 */
             installmentsTotal?: number;
+            amountOwedKnown?: boolean;
         };
         ApiResponseAccountDto: {
             success?: boolean;
@@ -7672,6 +7673,7 @@ export interface components {
             userConfirmedContinue?: boolean;
             idempotencyKey?: string;
             holderIsMine?: boolean;
+            amountOwedToday?: number;
         };
         NewAccountRequest: {
             name: string;
@@ -7977,6 +7979,8 @@ export interface components {
             totalLiabilities?: number;
             netWorth?: number;
             history?: components["schemas"]["SnapshotPoint"][];
+            /** Format: int32 */
+            cardsWithUnknownAmountOwed?: number;
         };
         SnapshotPoint: {
             /** Format: date */
@@ -8211,6 +8215,7 @@ export interface components {
             /** Format: date */
             paymentDueDate?: string;
             userConfirmedContinue?: boolean;
+            amountOwedToday?: number;
         };
         ApiResponseMultiAccountConfirmResponse: {
             success?: boolean;
@@ -11111,6 +11116,8 @@ export interface components {
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
             statementBehind?: components["schemas"]["StatementBehindDto"];
+            /** Format: int32 */
+            cardsWithUnknownAmountOwed?: number;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -11183,6 +11190,8 @@ export interface components {
             unresolvedTopReason?: string;
             savingsRateGateReason?: string;
             statementBehind?: components["schemas"]["StatementBehindDto"];
+            /** Format: int32 */
+            cardsWithUnknownAmountOwed?: number;
         };
         ApiResponseChangeStampDto: {
             success?: boolean;

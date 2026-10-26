@@ -67,6 +67,21 @@ describe('readAmountOwed', () => {
     expect(readAmountOwed('10.001')).toEqual({ state: 'invalid' });
     expect(readAmountOwed('1000000000000')).toEqual({ state: 'invalid' });
   });
+
+  it('accepts commas only as digit grouping, never as a decimal mark', () => {
+    // A keyboard that types "," for the decimal point would otherwise turn 12.50 into 1,250.
+    expect(readAmountOwed('12,50')).toEqual({ state: 'invalid' });
+    expect(readAmountOwed('1,2')).toEqual({ state: 'invalid' });
+    expect(readAmountOwed('100,5')).toEqual({ state: 'invalid' });
+    expect(readAmountOwed('1,00,0')).toEqual({ state: 'invalid' });
+    expect(readAmountOwed(',500')).toEqual({ state: 'invalid' });
+    // Indian and international grouping both read.
+    expect(readAmountOwed('1,000')).toEqual({ state: 'valid', value: 1000 });
+    expect(readAmountOwed('12,345.67')).toEqual({ state: 'valid', value: 12345.67 });
+    expect(readAmountOwed('1,00,396.53')).toEqual({ state: 'valid', value: 100396.53 });
+    expect(readAmountOwed('10,00,000')).toEqual({ state: 'valid', value: 1000000 });
+    expect(readAmountOwed('1,000,000')).toEqual({ state: 'valid', value: 1000000 });
+  });
 });
 
 describe('amountOwedToSend', () => {

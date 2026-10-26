@@ -416,3 +416,29 @@ describe('InvestmentsScreen first load', () => {
     expect(screen.queryByTestId('skeleton-chart-donut', { hidden: true })).toBeNull();
   });
 });
+
+describe('InvestmentsScreen -- net worth leaves out a card whose amount owed is not known', () => {
+  beforeEach(() => {
+    accounts.list.mockReset().mockResolvedValue([account({})]);
+    categories.list.mockReset().mockResolvedValue([]);
+    transactions.search.mockReset().mockResolvedValue({ content: [], page: 0, size: 100, totalElements: 0, totalPages: 0 } as never);
+  });
+
+  it('says so under net worth and liabilities', async () => {
+    networth.current.mockReset().mockResolvedValue({
+      totalAssets: 150000, totalLiabilities: 0, netWorth: 150000, history: [], cardsWithUnknownAmountOwed: 1,
+    });
+    renderScreen();
+    await loaded();
+    expect(screen.getAllByText("Leaves out 1 card whose amount owed isn't known.")).toHaveLength(2);
+  });
+
+  it('says nothing when no card is left out', async () => {
+    networth.current.mockReset().mockResolvedValue({
+      totalAssets: 150000, totalLiabilities: 0, netWorth: 150000, history: [],
+    });
+    renderScreen();
+    await loaded();
+    expect(screen.queryByText(/Leaves out/)).not.toBeOnTheScreen();
+  });
+});

@@ -77,7 +77,9 @@ const config: ExpoConfig = {
   // 1.1.0: Phase 2 of the glass UI adds expo-glass-effect and expo-blur (native). With
   // runtimeVersion.policy 'appVersion' an OTA reaches every binary of the same version, so the
   // version moves in the same commit as the native modules -- glassMigration.test.ts guards it.
-  version: '1.1.0',
+  // 1.1.1: the next store build after 1.1.0 (Android build 36) went live, so an update meant for
+  // the live 1.1.0 never reaches this binary (Sid, 2026-10-26).
+  version: '1.1.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',

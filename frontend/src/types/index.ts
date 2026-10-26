@@ -65,6 +65,14 @@ export interface Account {
   // the backend). Import.tsx's account picker re-enables the option when this is true, instead of
   // leaving a stale-linked account permanently unselectable.
   aaSyncStale: boolean;
+  // False only for a credit card whose balance was summed from zero off statements with no closing
+  // balance (AmountOwedRule on the backend): show "Amount owed not known", never the figure.
+  // Optional so an older server's response still type-checks; missing means known.
+  amountOwedKnown?: boolean;
+  // Whether anything ever stated this account's figure (a closing balance that set it, a typed
+  // balance, an opening balance read at import). The import review asks "How much do you owe on
+  // this card today?" for a card where this is false. Missing (older server) means don't ask.
+  balanceStated?: boolean;
 
   // Deposit attributes -- see DetectedAccountInfo's own note. Populated only for FD/RD imported
   // from a statement; null for every hand-created account and every ledger account.
@@ -181,6 +189,9 @@ export interface DashboardSummary {
   totalAssets: number;
   totalLiabilities: number;
   netWorth: number;
+  // Cards left out of totalLiabilities and netWorth because their amount owed is not known
+  // (lib/amountOwed.ts). Optional: an older server does not send it.
+  cardsWithUnknownAmountOwed?: number;
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;
@@ -334,6 +345,8 @@ export type DashboardRangeType = 'LAST_3_MONTHS' | 'LAST_6_MONTHS' | 'LAST_12_MO
  * formatted string from the server.
  */
 export interface DashboardRangeSummary {
+  // Cards left out of a live currentBalance (lib/amountOwed.ts). Optional: older servers omit it.
+  cardsWithUnknownAmountOwed?: number;
   rangeType: DashboardRangeType;
   startDate: string;
   endDate: string;

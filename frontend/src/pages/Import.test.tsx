@@ -4300,3 +4300,186 @@ describe('Import — a statement held by the accuracy check on the synchronous p
     expect(importJobsApi.progress).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * "How much do you owe on this card today?" -- asked when a card statement gives no closing balance
+ * and nothing has stated the card's figure. Without it the card is summed from zero.
+ * docs/superpowers/specs/2026-10-26-card-amount-owed-prompt-design.md.
+ */
+describe('Import — amount owed on a card with no closing balance', () => {
+  const cardDetected: DetectedAccountInfo = {
+    ...detectedAccount,
+    suggestedName: 'ICICI Card',
+    suggestedAccountType: 'CREDIT_CARD',
+    detectedProduct: 'CREDIT_CARD',
+  };
+
+  function card(overrides: Partial<Account> = {}): Account {
+    return {
+      id: 'card-1',
+      name: 'ICICI Card',
+      accountType: 'CREDIT_CARD',
+      balance: 0,
+      accountHolderName: null,
+      accountNumberMasked: null,
+      branchName: null,
+      ifscCode: null,
+      bank: {
+        id: 'ICICI', officialName: 'ICICI Bank', shortName: 'ICICI', colorHex: '#000000', initials: 'I',
+        logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+      },
+      lastImportedAt: null,
+      lastStatementPeriodStart: null,
+      lastStatementPeriodEnd: null,
+      statementsCount: 0,
+      transactionsCount: 0,
+      status: 'ACTIVE',
+      primarySource: 'MANUAL',
+      aaSyncStale: false,
+      amountOwedKnown: true,
+      balanceStated: false,
+      ...overrides,
+    };
+  }
+
+  function stage(detected: DetectedAccountInfo) {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({
+      ...stagingResultWith(),
+      staging: { rows: [ONE_STAGED_ROW], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+  }
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.confirm).mockReset().mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [], account: null,
+      totalCredits: 0, totalDebits: 1, statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: null, statementPeriodEnd: null, importDurationMs: 12, source: 'CSV',
+    } as never);
+  });
+
+  const confirmButton = () => screen.getByRole('button', { name: /confirm import/i });
+  const amountField = () => screen.getByLabelText('Amount owed today (₹)');
+
+  async function upload() {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    return user;
+  }
+
+  it('asks for a new card, and sends the answer with the import', async () => {
+    stage(cardDetected);
+    const user = await upload();
+
+    await user.type(amountField(), '12345.67');
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(importApi.confirm).mock.calls[0][0]).toEqual(expect.objectContaining({ amountOwedToday: 12345.67 }));
+  });
+
+  it('lets the user skip, and then sends no amount', async () => {
+    stage(cardDetected);
+    const user = await upload();
+
+    await user.type(amountField(), '500');
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }));
+    expect(screen.getByText(/the card will show "Amount owed not known"/)).toBeInTheDocument();
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(importApi.confirm).mock.calls[0][0].amountOwedToday).toBeUndefined();
+  });
+
+  it('holds the import while the amount typed is not a number of rupees', async () => {
+    stage(cardDetected);
+    const user = await upload();
+
+    await user.type(amountField(), '12abc');
+    expect(confirmButton()).toBeDisabled();
+    await user.clear(amountField());
+    expect(confirmButton()).toBeEnabled();
+  });
+
+  it('does not ask when the statement gives a closing balance', async () => {
+    stage({ ...cardDetected, closingBalance: 8000 });
+    await upload();
+    expect(screen.queryByText('How much do you owe on this card today?')).not.toBeInTheDocument();
+  });
+
+  it('does not ask for a new card once an opening balance is entered', async () => {
+    stage({ ...cardDetected, openingBalance: 4000 });
+    await upload();
+    expect(screen.queryByText('How much do you owe on this card today?')).not.toBeInTheDocument();
+  });
+
+  it('asks for an existing card made by hand at zero, and not for one with a stated figure', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([
+      card(),
+      card({ id: 'card-2', name: 'HDFC Card', balanceStated: true }),
+    ]);
+    stage(cardDetected);
+    const user = await upload();
+
+    await user.click(screen.getByLabelText('Use an existing account'));
+    await user.selectOptions(screen.getByLabelText('Select an existing account'), 'card-1');
+    expect(screen.getByText('How much do you owe on this card today?')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Select an existing account'), 'card-2');
+    expect(screen.queryByText('How much do you owe on this card today?')).not.toBeInTheDocument();
+  });
+
+  it('never asks for a savings account', async () => {
+    stage(detectedAccount);
+    await upload();
+    expect(screen.queryByText('How much do you owe on this card today?')).not.toBeInTheDocument();
+  });
+});
+
+describe('Import — amount owed on a multi-account statement', () => {
+  function section(name: string, overrides: Partial<DetectedAccountInfo>): StagedAccountSection {
+    return {
+      detectedAccount: { ...detectedAccount, suggestedName: name, ...overrides },
+      rows: [ONE_STAGED_ROW],
+      totalParsed: 1,
+      flaggedDuplicates: 0,
+      unparseableRows: [],
+    } as unknown as StagedAccountSection;
+  }
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({ perAccount: [] } as never);
+    vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+      sessionId: 'session-multi-1',
+      multiAccount: true,
+      staging: null,
+      sections: [
+        section('HSBC Savings', { suggestedAccountType: 'SAVINGS' }),
+        section('HSBC Card', { suggestedAccountType: 'CREDIT_CARD', detectedProduct: 'CREDIT_CARD' }),
+      ],
+    } as never);
+  });
+
+  it('asks only in the card section, and sends the answer for that section only', async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+
+    expect(within(screen.getByTestId('account-section-0')).queryByText('How much do you owe on this card today?')).not.toBeInTheDocument();
+    const cardSection = within(screen.getByTestId('account-section-1'));
+    await user.type(cardSection.getByLabelText('Amount owed today (₹)'), '2500');
+    await user.click(screen.getByRole('button', { name: /confirm all 2 accounts/i }));
+
+    await waitFor(() => expect(importApi.confirmMulti).toHaveBeenCalledTimes(1));
+    const sections = vi.mocked(importApi.confirmMulti).mock.calls[0][0].sections;
+    expect(sections[0].amountOwedToday).toBeUndefined();
+    expect(sections[1].amountOwedToday).toBe(2500);
+  });
+});

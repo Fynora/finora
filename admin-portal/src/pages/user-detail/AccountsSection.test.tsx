@@ -83,3 +83,55 @@ describe('AccountsSection coverage panel', () => {
     expect(adminAccountsApi.coverage).not.toHaveBeenCalled();
   });
 });
+
+describe('AccountsSection — card balances and coverage with nothing on file', () => {
+  const CARD: AccountDto = {
+    ...ACCOUNT, id: 'card-1', name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: -100396.53,
+    amountOwedKnown: false,
+  };
+
+  it('puts the minus sign before the rupee sign', async () => {
+    mockHasPermission = () => false;
+    vi.mocked(adminAccountsApi.list).mockResolvedValue([CARD]);
+    renderSection();
+    expect(await screen.findByText('−₹1,00,396.53')).toBeInTheDocument();
+    expect(screen.queryByText(/₹-/)).not.toBeInTheDocument();
+  });
+
+  it('tags a card whose amount owed is not known, and only that card', async () => {
+    mockHasPermission = () => false;
+    vi.mocked(adminAccountsApi.list).mockResolvedValue([CARD, { ...ACCOUNT, amountOwedKnown: true }]);
+    renderSection();
+    expect(await screen.findByText('ICICI Bank Rupay')).toBeInTheDocument();
+    expect(screen.getAllByText('amount owed not known')).toHaveLength(1);
+  });
+
+  it('reads as no statements on file, not complete, when there are none', async () => {
+    mockHasPermission = () => true;
+    vi.mocked(adminAccountsApi.list).mockResolvedValue([ACCOUNT]);
+    vi.mocked(adminAccountsApi.coverage).mockResolvedValue({
+      ...COVERAGE, coverageStatus: 'NO_STATEMENTS', coveredDays: 0, missingDays: 0, coveragePercentage: null,
+      hasGaps: false, segments: [], gaps: [],
+    });
+    renderSection();
+    await waitFor(() => expect(screen.getByText('HDFC Savings')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /coverage/i }));
+
+    expect(await screen.findByText('No statements on file')).toBeInTheDocument();
+    expect(screen.queryByText('COMPLETE')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0d covered/)).not.toBeInTheDocument();
+  });
+
+  it('shows a gap delta with the minus sign first', async () => {
+    mockHasPermission = () => true;
+    vi.mocked(adminAccountsApi.list).mockResolvedValue([ACCOUNT]);
+    vi.mocked(adminAccountsApi.coverage).mockResolvedValue({
+      ...COVERAGE, gaps: [{ gapStart: '2026-06-01', gapEnd: '2026-06-30', daysMissing: 30, delta: -1500.5 }],
+    });
+    renderSection();
+    await waitFor(() => expect(screen.getByText('HDFC Savings')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /coverage/i }));
+
+    expect(await screen.findByText(/balance delta −₹1,500\.50/)).toBeInTheDocument();
+  });
+});

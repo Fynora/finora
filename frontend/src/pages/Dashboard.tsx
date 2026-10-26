@@ -18,6 +18,10 @@ import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
 import { MerchantLogo } from '../components/MerchantLogo';
 import { AddTransactionModal } from '../components/AddTransactionModal';
+import { AddAmountOwedDialog, AmountOwedNotKnown } from '../components/AddAmountOwedDialog';
+import { isAmountOwedUnknown, unknownCardsNote } from '../lib/amountOwed';
+import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
+
 import { FinoraCard, MetricCard, EmptyState, SectionHeader, QuickActionCard, ChartContainer, Badge, baseChartOptions, Button, Skeleton, HealthScoreGauge, HealthScoreRangeLegend, HealthScoreSparkline, useChartColors } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { useMemoryReinforcement } from '../hooks/useMemoryReinforcement';
@@ -32,7 +36,7 @@ import {
   dashboardApi, accountsApi, transactionsApi, categoriesApi, goalsApi, insightsApi, userApi, budgetsApi, reportsApi, recurringApi,
   type CategoryOption, type RecurringItem,
 } from '../api/endpoints';
-import type { DashboardRangeType, DashboardSummary, SavingsRateGateReason } from '../types';
+import type { Account, DashboardRangeType, DashboardSummary, SavingsRateGateReason } from '../types';
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { withSep } from '../utils/date';
@@ -322,6 +326,16 @@ export default function Dashboard() {
     }
   }
 
+  // The card whose "How much do you owe on this card today?" dialog is open (AddAmountOwedDialog).
+  const [addingAmountFor, setAddingAmountFor] = useState<Account | null>(null);
+  const invalidateMoneyFigures = useInvalidateMoneyFigures();
+  /** A stated amount changes the card and every total it was left out of: reload both. */
+  function onAmountOwedSaved() {
+    setAddingAmountFor(null);
+    invalidateMoneyFigures();
+    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+  }
+
   function onTransactionAdded() {
     setShowAddModal(false);
     void queryClient.invalidateQueries({ queryKey: ['recent-transactions'] });
@@ -556,7 +570,9 @@ export default function Dashboard() {
     {
       label: 'Net worth',
       value: fmt(summary.netWorth),
-      caption: periodIsCurrent ? 'as of today' : `as of ${monthLabel(summary.reportingMonth!)}`,
+      // A card whose amount owed is not known is left out of this figure (lib/amountOwed.ts); say so.
+      caption: [periodIsCurrent ? 'as of today' : `as of ${monthLabel(summary.reportingMonth!)}`,
+        unknownCardsNote(summary.cardsWithUnknownAmountOwed)].filter(Boolean).join('. '),
       delta: null as number | null, deltaLabel: '',
       icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: null as string | null,
     },
@@ -608,7 +624,8 @@ export default function Dashboard() {
     {
       label: 'Net worth',
       value: rangeSummary.currentBalance !== null ? fmt(rangeSummary.currentBalance) : '—',
-      caption: rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : undefined,
+      caption: [rangeSummary.currentBalanceAsOf ? `as of ${dayLabel(rangeSummary.currentBalanceAsOf)}` : null,
+        unknownCardsNote(rangeSummary.cardsWithUnknownAmountOwed)].filter(Boolean).join('. ') || undefined,
       delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
       icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: balanceGateReasonText,
     },
@@ -1367,7 +1384,11 @@ export default function Dashboard() {
                     {a.accountNumberMasked ? a.accountNumberMasked : a.accountType.replace('_', ' ')}
                   </p>
                 </div>
-                <span className="text-sm font-semibold text-ink flex-shrink-0">{fmt(a.balance)}</span>
+                {isAmountOwedUnknown(a) ? (
+                  <AmountOwedNotKnown className="flex-shrink-0 text-xs" onAdd={() => setAddingAmountFor(a)} />
+                ) : (
+                  <span className="text-sm font-semibold text-ink flex-shrink-0">{fmt(a.balance)}</span>
+                )}
               </div>
             ))}
           </div>
@@ -1748,6 +1769,10 @@ export default function Dashboard() {
 
       {showAddModal && (
         <AddTransactionModal onClose={() => setShowAddModal(false)} onSaved={onTransactionAdded} />
+      )}
+
+      {addingAmountFor && (
+        <AddAmountOwedDialog account={addingAmountFor} onClose={() => setAddingAmountFor(null)} onSaved={onAmountOwedSaved} />
       )}
 
       <MemoryReinforcementToast message={memoryReinforcement.message} />

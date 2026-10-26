@@ -63,6 +63,8 @@ import { formatForeignAmount } from '../lib/foreignAmount';
 import { trackNavigation } from '../lib/trackNavigation';
 import { trackFunnel, type FunnelEvent } from '../lib/trackFunnel';
 import { WhatStoppedYou } from '../components/activation/WhatStoppedYou';
+import { AmountOwedQuestion } from '../components/AmountOwedQuestion';
+import { amountOwedToSend, readAmountOwed, shouldAskAmountOwed } from '../lib/amountOwed';
 import type { ActivationMoment } from '../api/endpoints';
 
 type Step = 'upload' | 'review' | 'summary';
@@ -120,6 +122,9 @@ interface SectionState {
   // Per section, never merged -- one section of a composite statement can verify while another
   // does not, and a combined verdict would hide that.
   verification: VerificationReport | null;
+  // "How much do you owe on this card today?", asked per card section (lib/amountOwed.ts).
+  amountOwed: string;
+  amountOwedSkipped: boolean;
 }
 
 function initialSectionState(section: StagedAccountSection, existingAccounts: Account[]): SectionState {
@@ -151,7 +156,28 @@ function initialSectionState(section: StagedAccountSection, existingAccounts: Ac
     newDueDate: detected.paymentDueDate ?? '',
     unparseableRows: section.unparseableRows,
     verification: section.verification ?? null,
+    amountOwed: '',
+    amountOwedSkipped: false,
   };
+}
+
+/** Whether a section is asked "How much do you owe on this card today?" -- the same rule as the
+ *  single-account review (lib/amountOwed.ts), over this section's own account choice. */
+function sectionAsksAmountOwed(s: SectionState, existingAccounts: Account[]): boolean {
+  const existing = s.accountChoice === 'existing'
+    ? existingAccounts.find((a) => a.id === s.selectedAccountId) ?? null
+    : null;
+  return shouldAskAmountOwed({
+    closingBalance: s.detectedAccount.closingBalance,
+    existing,
+    newType: s.accountChoice === 'new' ? s.newType : null,
+    newOpeningBalance: s.accountChoice === 'new' ? s.newOpeningBalance : null,
+  });
+}
+
+/** An answer typed but not usable holds the import: it is never silently dropped. */
+function amountOwedBlocks(asked: boolean, raw: string, skipped: boolean): boolean {
+  return asked && !skipped && readAmountOwed(raw).state === 'invalid';
 }
 
 function fmt(n: number | null) {
@@ -308,6 +334,9 @@ export default function Import() {
   const [newOpeningBalance, setNewOpeningBalance] = useState('');
   const [newCreditLimit, setNewCreditLimit] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
+  // "How much do you owe on this card today?" (lib/amountOwed.ts).
+  const [amountOwed, setAmountOwed] = useState('');
+  const [amountOwedSkipped, setAmountOwedSkipped] = useState(false);
 
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [multiSummary, setMultiSummary] = useState<ImportSummary[] | null>(null);
@@ -533,6 +562,8 @@ export default function Import() {
     setNewOpeningBalance(estimatedOpeningBalance != null ? String(estimatedOpeningBalance) : '');
     setNewCreditLimit(staging.detectedAccount.creditLimit != null ? String(staging.detectedAccount.creditLimit) : '');
     setNewDueDate(staging.detectedAccount.paymentDueDate ?? '');
+    setAmountOwed('');
+    setAmountOwedSkipped(false);
 
     // Default to the account this statement actually matches, and to "new account" when it
     // matches none.
@@ -896,6 +927,16 @@ export default function Import() {
   // that state, and a React state update isn't visible in the same render's closure yet. The
   // overrides (and holderIsMineNow, for "This is my account") sidestep that; the state still exists
   // for the payload sent to the backend below.
+  // Never on a re-import: that replaces a statement already on the card, it does not start one.
+  const askAmountOwed = !reimportState && shouldAskAmountOwed({
+    closingBalance: detectedAccount?.closingBalance,
+    existing: accountChoice === 'existing'
+      ? existingAccounts.find((a) => a.id === selectedAccountId) ?? null
+      : null,
+    newType: accountChoice === 'new' ? newType : null,
+    newOpeningBalance: accountChoice === 'new' ? newOpeningBalance : null,
+  });
+
   async function confirmImport(ownershipAcknowledgedNow = false, holderIsMineNow = false) {
     if (!reimportState && !sessionId) return;
     // The button is disabled for this already; here too because the ownership dialog confirms
@@ -958,6 +999,7 @@ export default function Import() {
             paymentDueDate: detectedAccount?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged ? true : undefined,
             holderIsMine: mine ? true : undefined,
+            amountOwedToday: amountOwedToSend(askAmountOwed, amountOwed, amountOwedSkipped),
           });
       // Only on success: a failed attempt keeps its key so a retry is recognised as the SAME
       // attempt rather than becoming a second one the server would happily import.
@@ -1008,6 +1050,7 @@ export default function Import() {
           statementPeriodEnd: s.detectedAccount.statementPeriodEnd ?? null,
           totalAmountDue: s.detectedAccount.totalAmountDue ?? null,
           paymentDueDate: s.detectedAccount.paymentDueDate ?? null,
+          amountOwedToday: amountOwedToSend(sectionAsksAmountOwed(s, existingAccounts), s.amountOwed, s.amountOwedSkipped),
         };
       });
 
@@ -1762,6 +1805,17 @@ export default function Import() {
                     setNewDueDate={(v) => updateSection(setMultiSections, sectionIndex, { newDueDate: v })}
                   />
 
+                  {sectionAsksAmountOwed(section, existingAccounts) && (
+                    <AmountOwedQuestion
+                      idPrefix={`import-section-${sectionIndex}`}
+                      value={section.amountOwed}
+                      onChange={(v) => updateSection(setMultiSections, sectionIndex, { amountOwed: v })}
+                      skipped={section.amountOwedSkipped}
+                      onSkip={() => updateSection(setMultiSections, sectionIndex, { amountOwedSkipped: true })}
+                      onUndoSkip={() => updateSection(setMultiSections, sectionIndex, { amountOwedSkipped: false })}
+                    />
+                  )}
+
                   <TransactionPreviewTable
                     rows={section.rows}
                     flagged={flaggedRows(section.verification, section.rows.length)}
@@ -1819,6 +1873,7 @@ export default function Import() {
                     loading={confirming}
                     disabled={
                       multiSections.some((s) => s.accountChoice === 'existing' && !s.selectedAccountId) ||
+                      multiSections.some((s) => amountOwedBlocks(sectionAsksAmountOwed(s, existingAccounts), s.amountOwed, s.amountOwedSkipped)) ||
                       // The same gate the single-account path applies, summed across every section. A
                       // statement covering two accounts is not two imports the user can partially
                       // approve -- confirmMulti posts them together, so one unanswered row anywhere
@@ -1912,6 +1967,19 @@ export default function Import() {
                     ? { profileName: fullName!, checked: claimHolder, onChange: setClaimHolder }
                     : undefined}
                 />
+
+                {askAmountOwed && (
+                  <div className="mt-4">
+                    <AmountOwedQuestion
+                      idPrefix="import"
+                      value={amountOwed}
+                      onChange={setAmountOwed}
+                      skipped={amountOwedSkipped}
+                      onSkip={() => setAmountOwedSkipped(true)}
+                      onUndoSkip={() => setAmountOwedSkipped(false)}
+                    />
+                  </div>
+                )}
               </div>
               )}
 
@@ -1963,6 +2031,7 @@ export default function Import() {
                     disabled={
                       (!reimportState && !sessionId) ||
                       (!reimportState && accountChoice === 'existing' && !selectedAccountId) ||
+                      amountOwedBlocks(askAmountOwed, amountOwed, amountOwedSkipped) ||
                       // The gate. Every flagged row must have an explicit answer before anything is
                       // written to the ledger -- which is what stops a duplicate being resolved by
                       // inattention rather than by a decision.

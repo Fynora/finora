@@ -472,6 +472,10 @@ export interface ConfirmPayload {
   // needs no key -- its ImportSession is claimed atomically server-side and cannot be confirmed
   // twice. See lib/idempotencyKey.ts.
   idempotencyKey?: string;
+  // The answer to "How much do you owe on this card today?" (lib/amountOwed.ts). Omitted when the
+  // question was not asked, was skipped or left blank. The server applies it only to a card with
+  // no statement closing balance.
+  amountOwedToday?: number;
 }
 
 // One account's worth of reviewed rows within a MultiAccountConfirmPayload -- same shape as
@@ -486,6 +490,8 @@ interface SectionConfirmPayload {
   statementPeriodEnd: string | null;
   totalAmountDue: number | null;
   paymentDueDate: string | null;
+  // Same as ConfirmPayload.amountOwedToday, per section.
+  amountOwedToday?: number;
 }
 
 export interface MultiAccountConfirmPayload {
@@ -965,6 +971,9 @@ export interface NetWorthData {
   totalLiabilities: number;
   netWorth: number;
   history: NetWorthSnapshotPoint[];
+  // Cards left out of totalLiabilities and netWorth because their amount owed is not known
+  // (lib/amountOwed.ts). Optional: an older server does not send it.
+  cardsWithUnknownAmountOwed?: number;
 }
 export const networthApi = {
   current: () => api.get<NetWorthData>('/networth').then((r) => r.data),

@@ -6,6 +6,7 @@ import { adminAccountsApi, banksApi } from '../../api/endpoints';
 import type { AccountDto, CreateAccountRequest } from '../../types';
 import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { formatInr } from '../../lib/formatInr';
 
 // Phase 1 of docs/proposals/statement-continuity-and-coverage-integrity-proposal.md (§0.14): the
 // first consumer of the coverage engine, deliberately admin-only -- someone needs to watch it run
@@ -23,19 +24,30 @@ function CoveragePanel({ accountId }: { accountId: string }) {
   if (!data) return null;
 
   const clean = !data.hasGaps && !data.hasOverlaps && !data.hasNonStandardPeriods;
+  // Nothing on file is unknown coverage, not complete coverage: "COMPLETE · 0d covered · 0d
+  // missing" read as a clean bill of health for an account with no statements at all.
+  const noStatements = data.coverageStatus === 'NO_STATEMENTS' || (data.segments.length === 0 && clean);
 
   return (
     <div className="border-t border-border px-4 py-3 space-y-2 bg-bg/50">
       <div className="flex items-center gap-2 flex-wrap text-xs">
-        <span
-          className={`font-semibold px-2 py-0.5 rounded-full ${clean ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}
-        >
-          {data.coverageStatus}
-        </span>
-        <span className="text-muted">
-          {data.coveredDays}d covered · {data.missingDays}d missing
-          {data.coveragePercentage !== null && ` · ${data.coveragePercentage.toFixed(1)}%`}
-        </span>
+        {noStatements ? (
+          <span className="font-semibold px-2 py-0.5 rounded-full bg-bg text-muted border border-border">
+            No statements on file
+          </span>
+        ) : (
+          <>
+            <span
+              className={`font-semibold px-2 py-0.5 rounded-full ${clean ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'}`}
+            >
+              {data.coverageStatus}
+            </span>
+            <span className="text-muted">
+              {data.coveredDays}d covered · {data.missingDays}d missing
+              {data.coveragePercentage !== null && ` · ${data.coveragePercentage.toFixed(1)}%`}
+            </span>
+          </>
+        )}
       </div>
 
       {data.gaps.length > 0 && (
@@ -44,7 +56,7 @@ function CoveragePanel({ accountId }: { accountId: string }) {
             <li key={`${gap.gapStart}-${gap.gapEnd}`} className="flex items-center gap-1.5 text-xs text-warning">
               <AlertTriangle size={12} />
               Missing {gap.gapStart} to {gap.gapEnd} ({gap.daysMissing}d)
-              {gap.delta !== null && ` · balance delta ₹${gap.delta.toLocaleString('en-IN')}`}
+              {gap.delta !== null && ` · balance delta ${formatInr(gap.delta)}`}
             </li>
           ))}
         </ul>
@@ -329,7 +341,14 @@ export function AccountsSection({ userId }: { userId: string }) {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-ink">₹{account.balance.toLocaleString('en-IN')}</span>
+                  {/* Admins still see the stored figure; the tag says it was summed from zero and
+                      the customer has not stated it (AmountOwedRule on the backend). */}
+                  {account.amountOwedKnown === false && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-warning-bg text-warning">
+                      amount owed not known
+                    </span>
+                  )}
+                  <span className="text-sm font-semibold text-ink">{formatInr(account.balance)}</span>
                   {canViewCoverage && (
                     <button
                       type="button"

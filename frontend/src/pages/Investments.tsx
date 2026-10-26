@@ -9,6 +9,7 @@ import { useAsyncGuard } from '../hooks/useAsyncGuard';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { Button, FinoraCard, MetricCard, EmptyState, SectionHeader, ChartContainer, baseChartOptions, ConfirmDialog, Skeleton, useChartColors } from '../design-system';
 import { InvestmentActivity } from '../components/InvestmentActivity';
+import { unknownCardsNote } from '../lib/amountOwed';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend);
 
@@ -192,8 +193,9 @@ export default function Investments() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <MetricCard label="Total Investments" value={fmt(totalInvestments)} icon={LineChartIcon} iconBg="bg-primary-light" iconColor="text-primary" />
-          <MetricCard label="Net Worth" value={fmt(netWorth?.netWorth ?? 0)} icon={TrendingUp} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
-          <MetricCard label="Liabilities" value={fmt(netWorth?.totalLiabilities ?? 0)} icon={TrendingDown} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
+          {/* A card whose amount owed is not known is left out of both figures (lib/amountOwed.ts). */}
+          <MetricCard label="Net Worth" value={fmt(netWorth?.netWorth ?? 0)} caption={unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed) ?? undefined} icon={TrendingUp} iconBg="bg-success-bg" iconColor="text-success" valueColor="text-success" />
+          <MetricCard label="Liabilities" value={fmt(netWorth?.totalLiabilities ?? 0)} caption={unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed) ?? undefined} icon={TrendingDown} iconBg="bg-danger-bg" iconColor="text-danger" valueColor="text-danger" />
         </div>
       )}
 

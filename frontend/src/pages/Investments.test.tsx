@@ -361,3 +361,25 @@ describe('Investments — SIPs & broker transfers section', () => {
   });
 });
 
+
+describe('Investments — net worth leaves out a card whose amount owed is not known', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(categoriesApi.list).mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockResolvedValue(emptyPage());
+    vi.mocked(accountsApi.list).mockResolvedValue([holding()]);
+  });
+
+  it('says so under Net Worth and Liabilities', async () => {
+    vi.mocked(networthApi.current).mockResolvedValue(netWorth({ cardsWithUnknownAmountOwed: 1 }));
+    renderInvestments();
+    expect(await screen.findAllByText("Leaves out 1 card whose amount owed isn't known.")).toHaveLength(2);
+  });
+
+  it('says nothing when no card is left out', async () => {
+    vi.mocked(networthApi.current).mockResolvedValue(netWorth());
+    renderInvestments();
+    await screen.findByText('Index Fund');
+    expect(screen.queryByText(/Leaves out/)).not.toBeInTheDocument();
+  });
+});

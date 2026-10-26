@@ -65,7 +65,7 @@ vi.mock('../api/endpoints', () => ({
   statementRefreshApi: {
     overview: vi.fn().mockResolvedValue({ enabled: false, savePasswordAvailable: false, updatable: [], needsPassword: [] }),
   },
-  accountsApi: { list: vi.fn() },
+  accountsApi: { list: vi.fn(), update: vi.fn() },
   transactionsApi: { search: vi.fn(), create: vi.fn(), confirmNotDuplicate: vi.fn() },
   categoriesApi: { list: vi.fn() },
   goalsApi: { list: vi.fn() },
@@ -510,6 +510,49 @@ describe('Dashboard — Financial Health Score', () => {
     expect(hero.queryByRole('link', { name: /import statement/i })).not.toBeInTheDocument();
     expect(hero.queryByRole('button', { name: /add transaction/i })).not.toBeInTheDocument();
   });
+
+  describe('a card whose amount owed is not known', () => {
+    const BANK = {
+      id: 'icici', officialName: 'ICICI Bank', shortName: 'ICICI', colorHex: '#000000', initials: 'I',
+      logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+    };
+    const UNKNOWN_CARD = {
+      id: 'card-1', name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD' as const, balance: -100396.53,
+      bank: BANK, amountOwedKnown: false, balanceStated: false,
+    } as any;
+
+    it('net worth says it leaves the card out', async () => {
+      vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ cardsWithUnknownAmountOwed: 1 }));
+      renderDashboard();
+      expect(await screen.findByText(/Leaves out 1 card whose amount owed isn't known\./)).toBeInTheDocument();
+    });
+
+    it('says nothing when no card is left out', async () => {
+      renderDashboard();
+      await screen.findByText('Financial Health Score');
+      expect(screen.queryByText(/Leaves out/)).not.toBeInTheDocument();
+    });
+
+    it('lists the card with no figure, and "Add it" saves the amount', async () => {
+      vi.mocked(accountsApi.list).mockResolvedValue([UNKNOWN_CARD]);
+      vi.mocked(accountsApi.update).mockReset().mockResolvedValue({ ...UNKNOWN_CARD, balance: 500, amountOwedKnown: true });
+      const user = userEvent.setup();
+      renderDashboard();
+
+      expect(await screen.findByText('ICICI Bank Rupay')).toBeInTheDocument();
+      expect(screen.getByText('Amount owed not known')).toBeInTheDocument();
+      expect(screen.queryByText(/1,00,396/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Add it' }));
+      await user.type(screen.getByLabelText('Amount owed today (₹)'), '500');
+      await user.click(screen.getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(accountsApi.update).toHaveBeenCalledWith('card-1',
+        { name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: 500 }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+  });
+
 });
 
 describe('Dashboard — Spending Breakdown category review warning', () => {

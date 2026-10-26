@@ -12,6 +12,10 @@ import { formatDate } from '../utils/date';
 import { ConfirmDialog, Button, IconButton, Skeleton } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { trackNavigation } from '../lib/trackNavigation';
+import { useQueryClient } from '@tanstack/react-query';
+import { AddAmountOwedDialog, AmountOwedNotKnown } from '../components/AddAmountOwedDialog';
+import { isAmountOwedUnknown } from '../lib/amountOwed';
+import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
 
 const TYPE_LABEL: Record<Account['accountType'], string> = {
   SAVINGS: 'Savings Account',
@@ -68,6 +72,18 @@ export default function Setup() {
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // The card whose "How much do you owe on this card today?" dialog is open (AddAmountOwedDialog).
+  const [addingAmountFor, setAddingAmountFor] = useState<Account | null>(null);
+  const queryClient = useQueryClient();
+  const invalidateMoneyFigures = useInvalidateMoneyFigures();
+
+  /** A stated amount changes the card and every total it was left out of: reload both. */
+  function amountOwedSaved() {
+    setAddingAmountFor(null);
+    load();
+    invalidateMoneyFigures();
+    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+  }
 
   // Bug fix: no loading flag existed, so `accounts` starting `[]` was indistinguishable from
   // "genuinely no accounts yet" -- see the identical fix and reasoning on Budgets.tsx/Goals.tsx.
@@ -255,7 +271,11 @@ export default function Setup() {
                       </span>
                     </p>
                   </div>
-                  <p className="text-lg font-bold text-ink flex-shrink-0">{fmt(a.balance)}</p>
+                  {isAmountOwedUnknown(a) ? (
+                    <AmountOwedNotKnown className="flex-shrink-0" onAdd={() => setAddingAmountFor(a)} />
+                  ) : (
+                    <p className="text-lg font-bold text-ink flex-shrink-0">{fmt(a.balance)}</p>
+                  )}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <Link to="/app/statements" onClick={() => trackNavigation('statement-history', 'contextual')} className="text-primary border border-primary/30 rounded-lg px-3 py-1.5 text-xs font-medium">
                       Statements
@@ -298,7 +318,7 @@ export default function Setup() {
                     {a.accountHolderName ?? 'Not Available'}
                   </InfoField>
                   <InfoField icon={Wallet} label="Current Balance">
-                    {fmt(a.balance)}
+                    {isAmountOwedUnknown(a) ? 'Not known' : fmt(a.balance)}
                   </InfoField>
                   <InfoField icon={Calendar} label="Last Imported">
                     {lastImported ?? 'No statements yet'}
@@ -419,6 +439,14 @@ export default function Setup() {
         </div>
       </details>
       {error && <p className="text-danger text-sm">{error}</p>}
+
+      {addingAmountFor && (
+        <AddAmountOwedDialog
+          account={addingAmountFor}
+          onClose={() => setAddingAmountFor(null)}
+          onSaved={amountOwedSaved}
+        />
+      )}
 
       {confirmRemoveId && (
         <ConfirmDialog

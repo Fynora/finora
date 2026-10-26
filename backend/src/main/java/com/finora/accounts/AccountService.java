@@ -71,7 +71,16 @@ public class AccountService {
         this.aaLinks = aaLinks;
         this.aaStaleness = aaStaleness;
         this.userRepository = userRepository;
+        this.amountOwedRule = new AmountOwedRule(statementImportRepository);
+        this.typedBalance = new TypedBalance(userRepository, transactionRepository);
     }
+
+    /** Same reasoning as {@link #amountOwedRule}. */
+    private final TypedBalance typedBalance;
+
+    /** Stateless over the repository this service already holds, so built here rather than
+     *  widening the constructor every caller and test passes. */
+    private final AmountOwedRule amountOwedRule;
 
     @Transactional(readOnly = true)
     public List<AccountDto> listForUser(UUID userId) {
@@ -110,6 +119,9 @@ public class AccountService {
                                 com.finora.integrations.setu.AccountAggregatorLink::getAccountId,
                                 java.util.function.Function.identity()));
 
+        // One query at most -- and none when no card could qualify.
+        java.util.Set<UUID> unknownAmountOwed = amountOwedRule.unknownCardIds(userId, accounts);
+
         return accounts.stream()
                 .map(a -> {
                     StatementMetadata latestImport = latestImportByAccount.get(a.getId());
@@ -122,7 +134,8 @@ public class AccountService {
                             latestImport == null ? null : latestImport.getStatementPeriodEnd(),
                             statementsCountByAccount.getOrDefault(a.getId(), 0),
                             transactionsCountByAccount.getOrDefault(a.getId(), 0L),
-                            aaSyncStale);
+                            aaSyncStale,
+                            !unknownAmountOwed.contains(a.getId()));
                 })
                 .toList();
     }
@@ -214,7 +227,7 @@ public class AccountService {
         // is excluded too: the app itself creates accounts with 0 as "nothing yet" (the Gmail
         // receipts bucket, a new bank-link account), and a new account a user really opens at 0
         // loses nothing by being treated the same way. An edit to 0 (update) is still typed.
-        if (req.balance() != null && req.balance().signum() != 0) markBalanceTyped(a);
+        if (req.balance() != null && req.balance().signum() != 0) typedBalance.markTyped(a);
         a.setCreditLimit(req.creditLimit());
         a.setDueDate(req.dueDate());
         a.setInvestmentKind(req.investmentKind());
@@ -245,33 +258,6 @@ public class AccountService {
         return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
     }
 
-    /**
-     * A typed balance is the whole truth as of the moment it was typed, the same as a statement's
-     * closing balance: the bank's figure already carries every real transaction, whether or not
-     * Finora is currently showing a given row as a duplicate. So nothing already on the account is
-     * separately in the balance any more, and a marked row's record ({@link
-     * Transaction#isDuplicateBalanceReversed()}) says its mark took nothing off: un-marking it later
-     * adds nothing, and deleting it moves nothing -- exactly how a mark behaves for a row inside a
-     * statement's closing balance. Nothing moves the balance here: the figure is the user's, whole.
-     *
-     * <p>This used to record a marked row as taken off the typed figure, so un-marking it after a
-     * balance edit added it on top: a correction to Finora's own view of the ledger changed a
-     * balance the user had just stated.
-     *
-     * <p>In particular this releases every mark the outgoing SET held ({@link
-     * Transaction#getDuplicateBalanceAnchorId()}); the SET's pre-set snapshot is unreachable once
-     * the pointer is cleared, so nothing else could.
-     */
-    /**
-     * Records that the user has just stated this account's balance. The figure holds everything
-     * already on the account (see {@link RowBalanceEffect}), and every transaction dated before
-     * today: a statement for an earlier period imported afterwards does not add those again (see
-     * {@link BalanceCoverage}). Today itself is left out -- a transaction made later today may or
-     * may not be in a balance typed this morning, and counting it is the recoverable mistake.
-     * "Today" is the user's own day, in their timezone ({@link com.finora.util.UserZone}): it was the
-     * app's default zone (India), which put the cut-off a day off for a user elsewhere typing near
-     * midnight.
-     */
     /** Only the last four digits of a typed account number are kept, as {@code ••••1234}: the form
      *  every import stores ({@code CsvParser.maskAccountNumber}). {@code accountNumberMasked} is
      *  documented never to hold a full number, and a full one typed on the Accounts page used to be
@@ -296,25 +282,6 @@ public class AccountService {
                     "Enter a valid IFSC: 4 letters, a zero, then 6 letters or numbers (for example HDFC0XXXXXX).");
         }
         return ifsc;
-    }
-
-    private void markBalanceTyped(Account account) {
-        account.setBalanceTypedAt(java.time.Instant.now());
-        java.time.ZoneId zone = com.finora.util.UserZone.forUser(userRepository, account.getUserId());
-        account.setBalanceBaselineDate(java.time.LocalDate.now(zone).minusDays(1));
-    }
-
-    private void rebaseDuplicateMarks(Account account) {
-        List<Transaction> marked = transactionRepository.findByAccountIdAndIsDuplicateOfIsNotNull(account.getId());
-        if (marked.isEmpty()) return;
-        List<Transaction> dirty = new java.util.ArrayList<>();
-        for (Transaction t : marked) {
-            if (!t.isDuplicateBalanceReversed() && t.getDuplicateBalanceAnchorId() == null) continue;
-            t.setDuplicateBalanceReversed(false);
-            t.setDuplicateBalanceAnchorId(null);
-            dirty.add(t);
-        }
-        if (!dirty.isEmpty()) transactionRepository.saveAll(dirty);
     }
 
     /** Bug fix: same atomicity gap as {@link #create} between the account save and the audit
@@ -342,15 +309,8 @@ public class AccountService {
         // Account" action, which only sends {name, accountType} -- and accountRepository.save()
         // would then fail outright with a NOT NULL constraint violation on every rename.
         if (req.balance() != null) {
-            a.setBalance(req.balance());
-            // A manual balance edit is a fresh, fully-trusted baseline -- any statement's claim to
-            // being this account's live absolute-SET anchor is invalidated by it, the same way a
-            // later ABSOLUTE-mode statement confirm would invalidate an earlier one. See the
-            // "absolute balance reversal" design spec's Case D / product-decision note: automatic
-            // balance lineage is intentionally abandoned once a manual edit occurs.
-            a.setLastAbsoluteSetStatementId(null);
-            markBalanceTyped(a);
-            rebaseDuplicateMarks(a);
+            // A fresh, fully-trusted figure: see TypedBalance for everything stating it does.
+            typedBalance.state(a, req.balance());
         }
         if (req.creditLimit() != null) a.setCreditLimit(req.creditLimit());
         if (req.dueDate() != null) a.setDueDate(req.dueDate());
@@ -370,7 +330,10 @@ public class AccountService {
         // edit. Accepted because nothing consumes update()'s response for that signal -- the
         // account picker (Import.tsx) always re-fetches via listForUser, which resolves this
         // accurately. See AccountDto.aaSyncStale's own doc comment.
-        return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()));
+        // amountOwedKnown is resolved: the "Add it" sheet reads this response, and a rename of a
+        // card with no known amount owed must not report it known.
+        return AccountDto.from(saved, bankManagementService.resolve(saved.getBankId()),
+                null, null, null, 0, 0L, false, !amountOwedRule.isUnknown(saved));
     }
 
     /** Bug fix: same atomicity gap as {@link #create} between the account (soft-)delete and the
@@ -396,6 +359,25 @@ public class AccountService {
         auditService.record(userId, "ACCOUNT_DELETED", "Account", accountId,
                 Map.of("name", a.getName(), "type", a.getAccountType().name(),
                         "actorId", actingAdminId.toString(), "graphEdgesRejected", edgesRejected));
+    }
+
+    /**
+     * The user's answer to "How much do you owe on this card today?" at import review (see
+     * {@link AmountOwedRule}). Stated exactly as an account edit states a balance ({@link
+     * TypedBalance}), and audited as one, with where it came from. Anything but a credit card is
+     * left alone: the question is never asked for one, and a stray answer must not overwrite a
+     * savings balance. Joins the caller's transaction, so a failed import states nothing.
+     */
+    @Transactional
+    public void stateAmountOwedAtImport(UUID userId, UUID accountId, java.math.BigDecimal amountOwed) {
+        Account a = getOwned(userId, accountId);
+        if (a.getAccountType() != Account.Type.CREDIT_CARD) return;
+        java.math.BigDecimal previousBalance = a.getBalance();
+        typedBalance.state(a, amountOwed);
+        Account saved = accountRepository.save(a);
+        auditService.record(userId, "ACCOUNT_UPDATED", "Account", accountId,
+                Map.of("previousBalance", previousBalance, "newBalance", saved.getBalance(),
+                        "source", "IMPORT_CONFIRM", "actorId", userId.toString()));
     }
 
     private Account getOwned(UUID userId, UUID accountId) {

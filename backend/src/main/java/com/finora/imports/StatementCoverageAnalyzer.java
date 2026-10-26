@@ -80,8 +80,11 @@ public final class StatementCoverageAnalyzer {
                                   boolean hasNonStandardPeriods, boolean hasDuplicatePeriods) {
 
         /** A UI convenience only (§0.24) -- never a source of information the boolean flags don't
-         *  already carry. {@code COMPLETE} iff every flag is false. */
+         *  already carry. {@code NO_STATEMENTS} when there are no segments at all: nothing on file
+         *  is unknown coverage, not complete coverage (it read "COMPLETE · 0d covered · 0d
+         *  missing" on the admin page). Otherwise {@code COMPLETE} iff every flag is false. */
         public String coverageStatus() {
+            if (segments.isEmpty()) return "NO_STATEMENTS";
             if (hasGaps && hasOverlaps) return "HAS_GAPS_AND_OVERLAPS";
             if (hasGaps) return "HAS_GAPS";
             if (hasOverlaps) return "HAS_OVERLAPS";

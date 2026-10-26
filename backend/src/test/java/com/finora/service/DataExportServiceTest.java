@@ -444,6 +444,27 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .isEqualTo("[]");
     }
 
+    /** The exported account says the same as the app: a card summed from zero is not known. */
+    @Test
+    void buildBundle_exportsWhetherACardsAmountOwedIsKnown() {
+        com.finora.entity.Account card = new com.finora.entity.Account();
+        org.springframework.test.util.ReflectionTestUtils.setField(card, "id", UUID.randomUUID());
+        card.setUserId(userId);
+        card.setName("Card");
+        card.setAccountType(com.finora.entity.Account.Type.CREDIT_CARD);
+        card.setBalance(new java.math.BigDecimal("-500.00"));
+        when(accountRepository.findByUserIdIncludingDeleted(any())).thenReturn(List.of(card));
+        StatementImportRepository.ImportMode mode = mock(StatementImportRepository.ImportMode.class);
+        when(mode.getAccountId()).thenReturn(card.getId());
+        when(mode.getBalanceApplicationMode()).thenReturn(com.finora.entity.StatementImport.BalanceApplicationMode.ADDITIVE);
+        when(statementImportRepository.findImportModesForUser(any())).thenReturn(List.of(mode));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.accounts()).singleElement()
+                .satisfies(e -> assertThat(e.account().amountOwedKnown()).isFalse());
+    }
+
     @Test
     void buildBundle_correctPassword_proceeds() {
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);

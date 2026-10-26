@@ -72,8 +72,40 @@ public record AccountDto(
         BigDecimal maturityAmount,
         BigDecimal installmentAmount,
         Integer installmentsPaid,
-        Integer installmentsTotal
+        Integer installmentsTotal,
+
+        // False only for a credit card whose amount owed nothing ever stated -- its balance was
+        // summed from zero off statements with no closing balance (see AmountOwedRule). The apps
+        // then show "Amount owed not known" instead of the figure, and the totals leave it out.
+        // Always true for every other account. Resolved by AccountService.listForUser and update;
+        // the other AccountDto.from call sites pass true, the same simplification as aaSyncStale.
+        boolean amountOwedKnown,
+
+        // True when something states this account's figure: a statement's closing balance that set
+        // it, a balance the user typed (including a typed zero), or an opening balance read at
+        // import. Read straight off the account (see AmountOwedRule.balanceStated). The review
+        // screen asks "How much do you owe on this card today?" for a card where this is false and
+        // the statement gives no closing balance -- including a card made by hand at zero, which is
+        // amountOwedKnown (no statements yet) but becomes summed from zero with that import.
+        boolean balanceStated
 ) {
+    /** Pre-existing arity, from before {@code amountOwedKnown} and {@code balanceStated}: both default
+     *  to true, so nothing built this way is asked about. */
+    public AccountDto(UUID id, String name, String accountType, BigDecimal balance, BigDecimal creditLimit,
+                      LocalDate dueDate, String investmentKind, String accountHolderName,
+                      String accountNumberMasked, String branchName, String ifscCode, BankDto bank,
+                      Instant lastImportedAt, LocalDate lastStatementPeriodStart, LocalDate lastStatementPeriodEnd,
+                      int statementsCount, long transactionsCount, String status, String primarySource,
+                      boolean aaSyncStale, BigDecimal principalAmount, BigDecimal interestRate,
+                      LocalDate maturityDate, BigDecimal maturityAmount, BigDecimal installmentAmount,
+                      Integer installmentsPaid, Integer installmentsTotal) {
+        this(id, name, accountType, balance, creditLimit, dueDate, investmentKind, accountHolderName,
+                accountNumberMasked, branchName, ifscCode, bank, lastImportedAt, lastStatementPeriodStart,
+                lastStatementPeriodEnd, statementsCount, transactionsCount, status, primarySource, aaSyncStale,
+                principalAmount, interestRate, maturityDate, maturityAmount, installmentAmount,
+                installmentsPaid, installmentsTotal, true, true);
+    }
+
     /** Everything BankLogo and the bank picker need to render/search a bank, resolved
      *  server-side from BankRegistry so the frontend never hardcodes bank metadata.
      *  logoPath points at a file that may not actually exist on disk yet (see BankRegistry's
@@ -160,6 +192,15 @@ public record AccountDto(
     public static AccountDto from(Account a, BankDto bank, Instant lastImportedAt,
                                    LocalDate lastStatementPeriodStart, LocalDate lastStatementPeriodEnd,
                                    int statementsCount, long transactionsCount, boolean aaSyncStale) {
+        return from(a, bank, lastImportedAt, lastStatementPeriodStart, lastStatementPeriodEnd,
+                statementsCount, transactionsCount, aaSyncStale, true);
+    }
+
+    /** As above, with {@link #amountOwedKnown} resolved by the caller (see AmountOwedRule). */
+    public static AccountDto from(Account a, BankDto bank, Instant lastImportedAt,
+                                   LocalDate lastStatementPeriodStart, LocalDate lastStatementPeriodEnd,
+                                   int statementsCount, long transactionsCount, boolean aaSyncStale,
+                                   boolean amountOwedKnown) {
         return new AccountDto(a.getId(), a.getName(), a.getAccountType().name(),
                 a.getBalance(), a.getCreditLimit(), a.getDueDate(), a.getInvestmentKind(),
                 a.getAccountHolderName(), a.getAccountNumberMasked(),
@@ -171,7 +212,8 @@ public record AccountDto(
                 a.getPrimarySource().name(),
                 aaSyncStale,
                 a.getPrincipalAmount(), a.getInterestRate(), a.getMaturityDate(), a.getMaturityAmount(),
-                a.getInstallmentAmount(), a.getInstallmentsPaid(), a.getInstallmentsTotal());
+                a.getInstallmentAmount(), a.getInstallmentsPaid(), a.getInstallmentsTotal(),
+                amountOwedKnown, AmountOwedRule.balanceStated(a));
     }
 
     // Bug fix: this record had zero Bean Validation, and neither AccountController.create() nor

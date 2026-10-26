@@ -76,6 +76,12 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public DashboardSummaryDto summarize(UUID userId) {
         List<Account> accounts = accountRepository.findByUserId(userId);
+        // Cards whose amount owed nothing ever stated (see AmountOwedRule): a balance summed from
+        // zero, left out of every total and the health score until the user states it.
+        java.util.Set<UUID> unknownAmountOwed = new com.finora.accounts.AmountOwedRule(statementImportRepository)
+                .unknownCardIds(userId, accounts);
+        List<Account> statedAccounts = unknownAmountOwed.isEmpty() ? accounts
+                : accounts.stream().filter(a -> !unknownAmountOwed.contains(a.getId())).toList();
         // Soft-deleting an account never touches its transactions'/statements' own deleted_at
         // (that column means "this transaction/statement itself was removed", not "its account
         // was") -- by design, since Statement History deliberately keeps a deleted account's
@@ -134,11 +140,11 @@ public class DashboardService {
                         t.getAmount()))
                 .toList();
 
-        BigDecimal liquid = sumBalances(accounts, Account.Type.SAVINGS).add(sumBalances(accounts, Account.Type.WALLET));
-        BigDecimal investments = sumBalances(accounts, Account.Type.INVESTMENT);
-        BigDecimal liabilities = sumBalances(accounts, Account.Type.CREDIT_CARD);
+        BigDecimal liquid = sumBalances(statedAccounts, Account.Type.SAVINGS).add(sumBalances(statedAccounts, Account.Type.WALLET));
+        BigDecimal investments = sumBalances(statedAccounts, Account.Type.INVESTMENT);
+        BigDecimal liabilities = sumBalances(statedAccounts, Account.Type.CREDIT_CARD);
         BigDecimal totalAssets = liquid.add(investments);
-        BigDecimal netWorth = netWorthOf(accounts);
+        BigDecimal netWorth = netWorthOf(statedAccounts);
 
         // Bug 05. `currentMonth` was the newest month the user had DATA for, and every figure
         // derived from it was rendered as "this month" / "vs last month". A user who had not yet
@@ -198,7 +204,7 @@ public class DashboardService {
         SavingsRate.Reading savingsReading = SavingsRate.of(incomeCur, expenseCur, unresolvedCur);
         BigDecimal savingsRate = savingsReading.pct();
 
-        var health = computeHealthScore(accounts, activeForTotals, months, liquid, spend, flow);
+        var health = computeHealthScore(statedAccounts, activeForTotals, months, liquid, spend, flow);
 
         // Write-on-read: keeps this month's snapshot fresh the moment the user opens their
         // dashboard. HealthScoreSnapshotSweepService covers users who don't. Never runs for an
@@ -321,7 +327,7 @@ public class DashboardService {
         // `zone` was resolved once already, above, to decide the reporting period -- reusing it
         // rather than re-reading User.timezone keeps the due-date countdowns below on the same
         // clock as the period this response reports on.
-        List<String> notifications = buildNotifications(accounts, budgets, spendByCategoryId, categoriesById, lowBalanceThreshold, zone);
+        List<String> notifications = buildNotifications(accounts, unknownAmountOwed, budgets, spendByCategoryId, categoriesById, lowBalanceThreshold, zone);
 
         // A dashboard built from `months.size()` (distinct calendar months touched by any
         // transaction) < LIMITED_HISTORY_MONTH_FLOOR full months of data presents trend deltas and
@@ -384,7 +390,8 @@ public class DashboardService {
                 // reporting month IS that month, so this asks about the month the KPIs describe.
                 currentMonth == null || months.isEmpty() ? null
                         : statementReach.behindFor(userId, YearMonth.parse(currentMonth),
-                                YearMonth.parse(months.get(months.size() - 1))).orElse(null)
+                                YearMonth.parse(months.get(months.size() - 1))).orElse(null),
+                unknownAmountOwed.size()
         );
     }
 
@@ -750,7 +757,8 @@ public class DashboardService {
         return sum.divide(BigDecimal.valueOf(values.size()), 6, RoundingMode.HALF_UP);
     }
 
-    private List<String> buildNotifications(List<Account> accounts, List<Budget> budgets,
+    private List<String> buildNotifications(List<Account> accounts, java.util.Set<UUID> unknownAmountOwed,
+                                             List<Budget> budgets,
                                              Map<UUID, BigDecimal> spendByCategoryId,
                                              Map<UUID, Category> categoriesById,
                                              BigDecimal lowBalanceThreshold, ZoneId zone) {
@@ -760,7 +768,11 @@ public class DashboardService {
             if (c.getAccountType() == Account.Type.CREDIT_CARD && c.getDueDate() != null) {
                 long days = ChronoUnit.DAYS.between(today, c.getDueDate());
                 if (days >= 0 && days <= 7) {
-                    notifs.add(c.getName() + " payment of " + c.getBalance() + " is due in " + days + " day(s).");
+                    // The due date still matters when the amount owed is not known; a figure summed
+                    // from zero does not (see AmountOwedRule), so it is left out.
+                    notifs.add(unknownAmountOwed.contains(c.getId())
+                            ? c.getName() + " payment is due in " + days + " day(s)."
+                            : c.getName() + " payment of " + c.getBalance() + " is due in " + days + " day(s).");
                 }
             }
             // Low-balance warning: liquid (SAVINGS/WALLET) accounts only -- CREDIT_CARD/INVESTMENT

@@ -1119,7 +1119,9 @@ public class ImportService {
                     null, // a multi-section PDF was already unlocked once to be staged; no password to carry here
                     sectionConfirm.statementPeriodStart(), sectionConfirm.statementPeriodEnd(),
                     sectionConfirm.totalAmountDue(), sectionConfirm.paymentDueDate(),
-                    sectionConfirm.userConfirmedContinue());
+                    sectionConfirm.userConfirmedContinue(),
+                    null, null, // no idempotency key or holder answer on this path, as before
+                    sectionConfirm.amountOwedToday());
             persisted.add(persistSection(userId, session.getFileName(), statementContentService.read(session), perAccountRequest, i,
                     session.getLayoutMetadataJson(), session.getLayoutFingerprint(), session.getActivatedCapabilitiesJson(),
                 // A multi-section import is CSV/PDF only -- a Gmail receipt is never
@@ -1937,7 +1939,10 @@ public class ImportService {
                         accountId, balanceDecision.reason(), balanceDecision.details().keySet());
             } else if (balanceDecision.verdict() == ClosingBalanceGuard.Verdict.NOT_APPLICABLE
                     && !accountsCreated.isEmpty()
-                    && AccountBalanceConvention.isLiability(accountType)) {
+                    && AccountBalanceConvention.isLiability(accountType)
+                    // Not when the user answered "How much do you owe on this card today?": that
+                    // figure replaces the summed one below, so nothing is missing.
+                    && request.amountOwedToday() == null) {
                 // Bug fix: a brand-new account's very first import has no prior balance to build
                 // on -- ADDITIVE mode above wrote Account.balance as purely net(these rows), with
                 // no way to include whatever was already owed/held before this statement's own
@@ -1984,6 +1989,16 @@ public class ImportService {
                         : everyRowCovered
                                 ? StatementImport.BalanceApplicationMode.COVERED
                                 : StatementImport.BalanceApplicationMode.ADDITIVE);
+
+        // "How much do you owe on this card today?" -- asked at review when this statement gives no
+        // closing balance. The answer is the card's balance, stated by the user now, after this
+        // statement's rows are on the account, so none of them (nor a later refresh of them, nor an
+        // earlier-period statement) moves it again. A closing balance, when there is one, is the
+        // statement's own figure and wins; the client never asks then, and a stray answer is
+        // ignored. AccountService ignores it for anything but a card.
+        if (request.amountOwedToday() != null && request.statementClosingBalance() == null) {
+            accountService.stateAmountOwedAtImport(userId, accountId, request.amountOwedToday());
+        }
 
         // Counted HERE rather than after reconciliation, which is where it used to sit. Nothing
         // between the two points creates merchants -- they are created while the rows above are
@@ -2098,8 +2113,13 @@ public class ImportService {
         // for the escape-hatch-used case (a manual import that just succeeded against a stale
         // AA-linked account), this one-shot confirm-response snapshot isn't what the account
         // picker reads from; see AccountDto.aaSyncStale's own doc comment.
+        // amountOwedKnown IS resolved here: the result screen shows this account's balance, and a
+        // card summed from zero (no closing balance, no answer to "How much do you owe on this card
+        // today?") must come back as not known so the app hides that figure (see AmountOwedRule).
         AccountDto accountSnapshot = accountRepository.findById(accountId)
-                .map(AccountDto::from)
+                .map(a -> AccountDto.from(a, AccountDto.BankDto.from(com.finora.util.BankRegistry.get(a.getBankId())),
+                        null, null, null, 0, 0L, false,
+                        !new com.finora.accounts.AmountOwedRule(statementImportRepository).isUnknown(a)))
                 .orElse(null);
 
         return new ConfirmResponse(section.imported(), section.skipped(), duplicatesDetected, transfersIdentified,

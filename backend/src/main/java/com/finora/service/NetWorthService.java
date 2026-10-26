@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.accounts.AccountBalanceConvention;
+import com.finora.accounts.AmountOwedRule;
 import com.finora.dto.NetWorthDto;
 import com.finora.entity.Account;
 import com.finora.entity.User;
@@ -25,9 +26,12 @@ public class NetWorthService {
     private final NetWorthSnapshotRepository snapshotRepository;
     private final UserRepository userRepository;
     private final TimelineEventService timelineEventService;
+    private final AmountOwedRule amountOwedRule;
 
     public NetWorthService(AccountRepository accountRepository, NetWorthSnapshotRepository snapshotRepository,
-                            UserRepository userRepository, TimelineEventService timelineEventService) {
+                            UserRepository userRepository, TimelineEventService timelineEventService,
+                            AmountOwedRule amountOwedRule) {
+        this.amountOwedRule = amountOwedRule;
         this.accountRepository = accountRepository;
         this.snapshotRepository = snapshotRepository;
         this.userRepository = userRepository;
@@ -36,7 +40,8 @@ public class NetWorthService {
 
     @Transactional(readOnly = true)
     public NetWorthDto current(UUID userId) {
-        List<Account> accounts = accountRepository.findByUserId(userId);
+        List<Account> all = accountRepository.findByUserId(userId);
+        List<Account> accounts = statedOnly(userId, all);
         BigDecimal liquid = sum(accounts, Account.Type.SAVINGS).add(sum(accounts, Account.Type.WALLET));
         BigDecimal investments = sum(accounts, Account.Type.INVESTMENT);
         BigDecimal liabilities = sum(accounts, Account.Type.CREDIT_CARD);
@@ -46,7 +51,7 @@ public class NetWorthService {
         List<NetWorthDto.SnapshotPoint> history = snapshotRepository.findByUserIdOrderBySnapshotDateAsc(userId)
                 .stream().map(s -> new NetWorthDto.SnapshotPoint(s.getSnapshotDate(), s.getNetWorth())).toList();
 
-        return new NetWorthDto(totalAssets, liabilities, netWorth, history);
+        return new NetWorthDto(totalAssets, liabilities, netWorth, history, all.size() - accounts.size());
     }
 
     /** Called from the Investments page's "Save today's snapshot" button — same-day snapshots overwrite.
@@ -87,7 +92,7 @@ public class NetWorthService {
      *  swept user a duplicate {@code accountRepository.findByUserId} call and a fetch of their
      *  entire, unbounded snapshot history just to discard both. */
     public void snapshotForTodayOnly(UUID userId, String timezone) {
-        List<Account> accounts = accountRepository.findByUserId(userId);
+        List<Account> accounts = statedOnly(userId, accountRepository.findByUserId(userId));
         BigDecimal liquid = sum(accounts, Account.Type.SAVINGS).add(sum(accounts, Account.Type.WALLET));
         BigDecimal investments = sum(accounts, Account.Type.INVESTMENT);
         BigDecimal liabilities = sum(accounts, Account.Type.CREDIT_CARD);
@@ -127,6 +132,13 @@ public class NetWorthService {
      *  service is what let AnalyticsService end up as the one that never got a copy. */
     private ZoneId safeZoneId(String timezone) {
         return com.finora.util.UserZone.of(timezone);
+    }
+
+    /** {@code accounts} without the cards whose amount owed is not known (see AmountOwedRule): a
+     *  balance summed from zero is not counted in any total until the user states it. */
+    private List<Account> statedOnly(UUID userId, List<Account> accounts) {
+        java.util.Set<UUID> unknown = amountOwedRule.unknownCardIds(userId, accounts);
+        return unknown.isEmpty() ? accounts : accounts.stream().filter(a -> !unknown.contains(a.getId())).toList();
     }
 
     /**

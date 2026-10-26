@@ -97,5 +97,12 @@ public record DashboardRangeSummaryDto(
          * returned -- a client labels them rather than hiding them. Same meaning as
          * DashboardSummaryDto.statementBehind, judged over the month the range ends in.
          */
-        StatementBehindDto statementBehind
+        StatementBehindDto statementBehind,
+
+        /*
+         * Credit cards left out of currentBalance when it is computed live (no snapshot), because
+         * nothing ever stated what is owed on them (see AmountOwedRule). Same meaning as
+         * DashboardSummaryDto.cardsWithUnknownAmountOwed.
+         */
+        int cardsWithUnknownAmountOwed
 ) {}

@@ -5,6 +5,8 @@ import com.finora.accounts.AccountDto;
 import com.finora.imports.ImportReliabilityStatus;
 import com.finora.imports.RowKind;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -640,8 +642,22 @@ public class ImportDto {
             BigDecimal totalAmountDue, LocalDate paymentDueDate,
             // Same round-trip as ConfirmRequest's own userConfirmedContinue -- see that record's
             // doc comment.
-            Boolean userConfirmedContinue
+            Boolean userConfirmedContinue,
+            // Same as ConfirmRequest.amountOwedToday, per section: a multi-account upload asks once
+            // for each card section that qualifies.
+            @DecimalMin(value = "0.00", message = "amountOwedToday must not be negative")
+            @Digits(integer = 12, fraction = 2, message = "amountOwedToday must be at most 12 digits with 2 decimals")
+            BigDecimal amountOwedToday
     ) {
+        /** Pre-existing arity, from before {@code amountOwedToday}: that field defaults to null. */
+        public SectionConfirm(List<ConfirmedRow> rows, UUID existingAccountId, NewAccountRequest newAccount,
+                               BigDecimal statementOpeningBalance, BigDecimal statementClosingBalance,
+                               LocalDate statementPeriodStart, LocalDate statementPeriodEnd,
+                               BigDecimal totalAmountDue, LocalDate paymentDueDate, Boolean userConfirmedContinue) {
+            this(rows, existingAccountId, newAccount, statementOpeningBalance, statementClosingBalance,
+                    statementPeriodStart, statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, null);
+        }
+
         /** Pre-existing arity -- see ConfirmRequest's own legacy constructor for why. */
         public SectionConfirm(List<ConfirmedRow> rows, UUID existingAccountId, NewAccountRequest newAccount,
                                BigDecimal statementOpeningBalance, BigDecimal statementClosingBalance) {
@@ -845,8 +861,27 @@ public class ImportDto {
             // holder, and the user says the account is theirs anyway. persistSection then saves the
             // user's own profile name as the account's holder. Null or false keeps whatever the
             // statement printed -- the "Continue anyway" answer, for a family member's statement.
-            Boolean holderIsMine
+            Boolean holderIsMine,
+            // The user's answer to "How much do you owe on this card today?", asked at review when
+            // a card statement gives no closing balance and nothing has stated the card's figure
+            // (see AmountOwedRule). Positive = owed. Applied only to a credit card and only when
+            // statementClosingBalance is null; ignored otherwise. Null when not asked or skipped.
+            @DecimalMin(value = "0.00", message = "amountOwedToday must not be negative")
+            @Digits(integer = 12, fraction = 2, message = "amountOwedToday must be at most 12 digits with 2 decimals")
+            BigDecimal amountOwedToday
     ) {
+        /** Pre-existing arity, from before {@code amountOwedToday}: that field defaults to null. */
+        public ConfirmRequest(UUID sessionId, List<ConfirmedRow> rows, UUID existingAccountId,
+                               NewAccountRequest newAccount, BigDecimal statementOpeningBalance,
+                               BigDecimal statementClosingBalance, String password,
+                               LocalDate statementPeriodStart, LocalDate statementPeriodEnd,
+                               BigDecimal totalAmountDue, LocalDate paymentDueDate,
+                               Boolean userConfirmedContinue, String idempotencyKey, Boolean holderIsMine) {
+            this(sessionId, rows, existingAccountId, newAccount, statementOpeningBalance,
+                    statementClosingBalance, password, statementPeriodStart, statementPeriodEnd,
+                    totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey, holderIsMine, null);
+        }
+
         /** Pre-existing arity, from before {@code holderIsMine}: that field defaults to null. */
         public ConfirmRequest(UUID sessionId, List<ConfirmedRow> rows, UUID existingAccountId,
                                NewAccountRequest newAccount, BigDecimal statementOpeningBalance,
@@ -865,14 +900,14 @@ public class ImportDto {
             return new ConfirmRequest(sessionId, replacement, existingAccountId, newAccount,
                     statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
                     statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey,
-                    holderIsMine);
+                    holderIsMine, amountOwedToday);
         }
 
         public ConfirmRequest withNewAccount(NewAccountRequest replacement) {
             return new ConfirmRequest(sessionId, rows, existingAccountId, replacement,
                     statementOpeningBalance, statementClosingBalance, password, statementPeriodStart,
                     statementPeriodEnd, totalAmountDue, paymentDueDate, userConfirmedContinue, idempotencyKey,
-                    holderIsMine);
+                    holderIsMine, amountOwedToday);
         }
 
         /** Pre-existing arity. Kept so the many call sites that construct a request with no printed

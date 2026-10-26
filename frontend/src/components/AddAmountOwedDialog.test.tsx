@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { StrictMode, useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AddAmountOwedDialog, AmountOwedNotKnown } from './AddAmountOwedDialog';
@@ -24,6 +25,33 @@ describe('AddAmountOwedDialog', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     expect(accountsApi.update).toHaveBeenCalledWith('card-1', { name: 'ICICI Card', accountType: 'CREDIT_CARD', balance: 12345.67 });
+  });
+
+  it('opens with the amount field focused, so typing goes straight into it', async () => {
+    const user = userEvent.setup();
+    render(<AddAmountOwedDialog account={card} onClose={vi.fn()} onSaved={vi.fn()} />);
+    expect(screen.getByLabelText('Amount owed today (₹)')).toHaveFocus();
+    await user.keyboard('500');
+    expect(screen.getByLabelText('Amount owed today (₹)')).toHaveValue('500');
+  });
+
+  // Seen in the running app: opened by a real click, focus ended on Close. React's StrictMode runs
+  // the dialog helper's focus effect, its cleanup (back to the opener) and the effect again, which
+  // then lands on the first control -- Close -- because the field no longer has focus.
+  it('keeps the amount field focused when opened from a button under StrictMode', async () => {
+    const user = userEvent.setup();
+    function Opener() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Add it</button>
+          {open && <AddAmountOwedDialog account={card} onClose={() => setOpen(false)} onSaved={vi.fn()} />}
+        </>
+      );
+    }
+    render(<StrictMode><Opener /></StrictMode>);
+    await user.click(screen.getByRole('button', { name: 'Add it' }));
+    expect(screen.getByLabelText('Amount owed today (₹)')).toHaveFocus();
   });
 
   it('will not save a blank or unreadable amount', async () => {

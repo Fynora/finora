@@ -372,6 +372,9 @@ export interface AccountDto {
   statementsCount: number;
   transactionsCount: number;
   status: string;
+  // False only for a credit card whose balance was summed from zero off statements with no closing
+  // balance (AmountOwedRule on the backend). Optional: an older server does not send it.
+  amountOwedKnown?: boolean;
 }
 
 // Phase 1 of docs/proposals/statement-continuity-and-coverage-integrity-proposal.md.

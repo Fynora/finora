@@ -625,16 +625,25 @@ public class DashboardService {
         LocalDate latestTxnDate = active.stream().map(Transaction::getTxnDate).max(Comparator.naturalOrder()).orElse(null);
         List<BigDecimal> fullMonthlyExpense = new ArrayList<>();
         List<BigDecimal> fullMonthlyIncome = new ArrayList<>();
+        String latestFullMonth = null;
         for (int i = 0; i < last6.size(); i++) {
             String m = last6.get(i);
             if (isPartialBoundaryMonth(m, earliestTxnDate, latestTxnDate)) continue;
             fullMonthlyExpense.add(monthlyExpense.get(i));
             fullMonthlyIncome.add(monthlyIncome.get(i));
+            latestFullMonth = m;
         }
 
         BigDecimal avgExpense = average(monthlyExpense);
-        BigDecimal incomeCur = last6.isEmpty() ? BigDecimal.ZERO : monthlyIncome.get(monthlyIncome.size() - 1);
-        BigDecimal expenseCur = last6.isEmpty() ? BigDecimal.ZERO : monthlyExpense.get(monthlyExpense.size() - 1);
+        // The savings-rate part reads the latest FULL month too, as consistency and cash flow below
+        // already do. It read the newest bucket whatever its length: one rent payment three days
+        // into a month, before its salary, made the savings rate 0% and took the score from 100 to
+        // 75 for a user whose finances had not changed. With no full month yet, the newest bucket
+        // is all there is.
+        BigDecimal incomeCur = !fullMonthlyIncome.isEmpty() ? fullMonthlyIncome.get(fullMonthlyIncome.size() - 1)
+                : last6.isEmpty() ? BigDecimal.ZERO : monthlyIncome.get(monthlyIncome.size() - 1);
+        BigDecimal expenseCur = !fullMonthlyExpense.isEmpty() ? fullMonthlyExpense.get(fullMonthlyExpense.size() - 1)
+                : last6.isEmpty() ? BigDecimal.ZERO : monthlyExpense.get(monthlyExpense.size() - 1);
         BigDecimal netCur = incomeCur.subtract(expenseCur);
         double savingsRate = incomeCur.compareTo(BigDecimal.ZERO) > 0
                 ? netCur.divide(incomeCur, 4, RoundingMode.HALF_UP).doubleValue() * 100 : 0;
@@ -699,7 +708,8 @@ public class DashboardService {
         // this map already avoids asserting a period for the same reason; this one now matches.
         // The score above is unchanged; only the sentence follows SavingsRate's gate, so it never
         // prints a percentage the dashboard itself withholds.
-        String latestMonth = last6.isEmpty() ? null : last6.get(last6.size() - 1);
+        // The month the savings rate above was read from: the latest full one, else the newest.
+        String latestMonth = latestFullMonth != null ? latestFullMonth : last6.isEmpty() ? null : last6.get(last6.size() - 1);
         BigDecimal unresolvedLatest = latestMonth == null ? BigDecimal.ZERO : FlowTotals.unresolvedInflow(active.stream()
                 .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(latestMonth)).toList(), flow);
         String savingsGate = SavingsRate.of(incomeCur, expenseCur, unresolvedLatest).gateReason();

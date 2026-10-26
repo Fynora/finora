@@ -14,6 +14,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
+
+    /** The user's row, locked for the rest of the transaction. AccountService.create takes it before
+     *  counting accounts against the free plan's cap: a count-then-insert let six creations at once
+     *  each see room and make six accounts on a plan allowed two. Creations by one user take turns
+     *  now; other users never wait. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id")
+    Optional<User> lockById(@Param("id") UUID id);
     // --- Identity lookups ------------------------------------------------------------------------
     //
     // Since V52 an email and a phone number identify a user only WITHIN a portal scope: the same

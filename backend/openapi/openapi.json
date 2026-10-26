@@ -15067,7 +15067,7 @@
                     "creditLimit": {
                         "type": "number",
                         "maximum": 999999999999.99,
-                        "minimum": -999999999999.99
+                        "minimum": 0.0
                     },
                     "dueDate": {
                         "type": "string",

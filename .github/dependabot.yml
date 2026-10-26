@@ -248,6 +248,14 @@ updates:
       # 57 line still arrive through npm-minor-and-patch.
       - dependency-name: "jest-expo"
         update-types: ["version-update:semver-major"]
+      # babel-preset-expo and eslint-config-expo are the same case again under names `expo-*` does
+      # not match. PR #2384 moved babel-preset-expo 57.0.16 -> 58.0.19 while expo stayed on ~57.0.31;
+      # `npx expo install --check` expects ~57.0.0, and babel-preset-expo is what compiles the app's
+      # JavaScript in a store build. Jest passed, and nothing else would have caught it before a build.
+      - dependency-name: "babel-preset-expo"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint-config-expo"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 

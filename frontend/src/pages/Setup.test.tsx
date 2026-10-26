@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Setup from './Setup';
 import { accountsApi, banksApi } from '../api/endpoints';
 import type { Account } from '../types';
@@ -29,11 +30,13 @@ function account(overrides: Partial<Account> = {}): Account {
   } as unknown as Account;
 }
 
-function renderPage() {
+function renderPage(queryClient = new QueryClient()) {
   return render(
-    <MemoryRouter>
-      <Setup />
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <Setup />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -103,5 +106,51 @@ describe('Setup', () => {
     fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
     await waitFor(() => expect(accountsApi.create).toHaveBeenCalledTimes(2));
     expect(vi.mocked(accountsApi.create).mock.calls[1][0].balance).toBe(2500);
+  });
+});
+
+describe('Setup — a card whose amount owed is not known', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(banksApi.list).mockResolvedValue([]);
+  });
+
+  const unknownCard = () => account({
+    id: 'card-1', name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: -100396.53,
+    amountOwedKnown: false, balanceStated: false,
+  });
+
+  it('shows no figure for it, anywhere on its card', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([unknownCard()]);
+    renderPage();
+    expect(await screen.findByText('ICICI Bank Rupay')).toBeInTheDocument();
+    expect(screen.getByText('Amount owed not known')).toBeInTheDocument();
+    expect(screen.queryByText(/1,00,396/)).not.toBeInTheDocument();
+  });
+
+  it('"Add it" saves the amount as the card balance, then reloads the accounts and every total', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([unknownCard()]);
+    vi.mocked(accountsApi.update).mockResolvedValue(account({ id: 'card-1', accountType: 'CREDIT_CARD', balance: 12345.67 }));
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    renderPage(queryClient);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add it' }));
+    fireEvent.change(screen.getByLabelText('Amount owed today (₹)'), { target: { value: '12345.67' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(accountsApi.update).toHaveBeenCalledWith('card-1',
+      { name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: 12345.67 }));
+    await waitFor(() => expect(accountsApi.list).toHaveBeenCalledTimes(2));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard-summary'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows a card with a known amount as before', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({ name: 'HDFC Card', accountType: 'CREDIT_CARD', balance: 4200, amountOwedKnown: true })]);
+    renderPage();
+    expect(await screen.findByText('HDFC Card')).toBeInTheDocument();
+    expect(screen.queryByText('Amount owed not known')).not.toBeInTheDocument();
   });
 });

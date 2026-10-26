@@ -75,7 +75,10 @@ Every other account is "known", as today.
 
 Ask when the target is a card and the statement's `closingBalance` is null, and either:
 
-- the import goes to an existing account whose amount owed is not known; or
+- the import goes to an existing card where nothing states the figure (`AccountDto.balanceStated` is
+  false: no SET anchor, no typed balance, no baseline date). This includes a card made by hand at ₹0.
+  That card is "known" while it has no statements, but this import would leave it summed from zero.
+  (Found in review, 2026-10-26: asking only when `amountOwedKnown` is false missed this case.); or
 - the import creates a new card with no opening balance entered. The new-account form already has an
   opening-balance field. When it is filled, the account gets a baseline and is known, so no question.
 
@@ -117,8 +120,10 @@ account edit. *My call.*
   notification text (`DashboardService`, `DashboardRangeService`, `NetWorthService` current and daily
   snapshot). Where a total is shown and a card was left out, one muted line says so: "Leaves out 1
   card whose amount owed isn't known."
-- `AccountDto` gains `amountOwedKnown` (boolean; always true for non-cards). The dashboard and net
-  worth DTOs gain `cardsWithUnknownAmountOwed` (int).
+- `AccountDto` gains `amountOwedKnown` (boolean; always true for non-cards) and `balanceStated`
+  (boolean; read off the account). `amountOwedKnown` is resolved on the account list, on the account
+  update response, on the import confirm response (so the result screen can hide a summed figure) and
+  in the data export. The dashboard and net worth DTOs gain `cardsWithUnknownAmountOwed` (int).
 
 ### Admin
 

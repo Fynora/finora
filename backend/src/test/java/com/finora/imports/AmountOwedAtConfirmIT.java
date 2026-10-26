@@ -201,6 +201,17 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void anAnswerOfZero_isAStatedZero() throws Exception {
+        User user = user();
+        StatementImport s = confirm(CARD_FILE, user, account(user, Account.Type.CREDIT_CARD), null, null, null,
+                new BigDecimal("0.00"));
+        Account card = accountOf(s);
+        assertThat(card.getBalance()).isEqualByComparingTo("0.00");
+        assertThat(card.getBalanceTypedAt()).isNotNull();
+        assertThat(known(user, card.getId())).isTrue();
+    }
+
+    @Test
     void withoutTheAmount_theCardIsSummedFromZeroAndNotKnown() throws Exception {
         User user = user();
         StatementImport s = confirm(CARD_FILE, user, account(user, Account.Type.CREDIT_CARD), null, null, null, null);

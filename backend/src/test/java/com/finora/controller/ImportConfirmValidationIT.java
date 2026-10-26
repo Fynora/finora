@@ -151,6 +151,17 @@ class ImportConfirmValidationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void csvConfirm_amountOwedTodayOnePaiseBelowZero_isRejectedAsValidationError() throws Exception {
+        User user = createUser();
+        ConfirmRequest request = new ConfirmRequest(UUID.randomUUID(), List.of(row(null)), UUID.randomUUID(),
+                null, null, null, null, null, null, null, null, null, null, null, new BigDecimal("-0.01"));
+
+        ResponseEntity<String> response = post("/api/v1/import/csv/confirm", user, request);
+
+        assertValidationError(response, "amountOwedToday");
+    }
+
+    @Test
     void csvConfirm_amountOwedTodayWithThreeDecimals_isRejectedAsValidationError() throws Exception {
         User user = createUser();
         ConfirmRequest request = new ConfirmRequest(UUID.randomUUID(), List.of(row(null)), UUID.randomUUID(),

@@ -128,10 +128,10 @@ Apply rule, in `persistSection`, last balance step: re-fetch the account (the Ba
 ### Task 7: Web review question
 
 **Files:**
-- Create: `frontend/src/lib/amountOwed.ts`. `shouldAskAmountOwed(input: { accountType: string | null; closingBalance: number | null; existing: { accountType: string; amountOwedKnown?: boolean } | null; newOpeningBalance: string | null }): boolean`. True only for a card with a null closing balance, where the existing account has `amountOwedKnown === false`, or it is a new card with a blank opening balance.
+- Create: `frontend/src/lib/amountOwed.ts`. `shouldAskAmountOwed(input: { accountType: string | null; closingBalance: number | null; existing: { accountType: string; balanceStated?: boolean } | null; newOpeningBalance: string | null }): boolean`. True only for a card with a null closing balance, where the existing card has `balanceStated === false` (a hand-made card at ₹0 included -- see the spec), or it is a new card with a blank opening balance.
 - Create: `frontend/src/components/import/AmountOwedQuestion.tsx`. Props: `{ value: string; onChange(v: string): void; skipped: boolean; onSkip(): void; onUndoSkip(): void }`. Uses the constraint copy.
-- Modify: `frontend/src/pages/Import.tsx`. Show the question on the single-account review and per section on the multi-account review. Send `amountOwedToday` (number, or omitted when blank or skipped) in both confirm payloads.
-- Test: `frontend/src/lib/amountOwed.test.ts` (the four spec cases plus savings), and `Import.test.tsx` cases: shown and sent; skipped means not sent; not shown with a closing balance; not shown for a known existing card.
+- Modify: `frontend/src/pages/Import.tsx`. Show the question on the single-account review and per section on the multi-account review. Send `amountOwedToday` (number, or omitted when blank or skipped) in both confirm payloads. On the result screen, when the confirm response's `account.amountOwedKnown` is false, show "Amount owed not known" instead of its balance.
+- Test: `frontend/src/lib/amountOwed.test.ts` (the four spec cases plus savings), and `Import.test.tsx` cases: shown and sent; skipped means not sent; not shown with a closing balance; not shown for a card with a stated figure; shown for a card made by hand at ₹0 (`balanceStated` false); the result screen hides a summed figure.
 
 - [ ] Steps: failing tests, run, implement, run (`npx vitest run src/lib/amountOwed.test.ts src/pages/Import.test.tsx`), lint and tsc, commit `feat(web): ask what's owed on a card when the statement doesn't say`.
 
@@ -161,8 +161,8 @@ Apply rule, in `persistSection`, last balance step: re-fetch the account (the Ba
 **Files:**
 - Create: `mobile/src/lib/amountOwed.ts`, the same signature as the web helper.
 - Create: `mobile/src/screens/import/AmountOwedQuestion.tsx`, the same props as web.
-- Modify: `mobile/src/screens/import/ImportScreen.tsx` and `mobile/src/lib/importPayload.ts`. Show the question; send `amountOwedToday` in the single and multi payloads.
-- Test: `amountOwed.test.ts`, `importPayload.test.ts` and `ImportScreen.test.tsx` (the same four cases as web).
+- Modify: `mobile/src/screens/import/ImportScreen.tsx` and `mobile/src/lib/importPayload.ts`. Show the question; send `amountOwedToday` in the single and multi payloads; the result screen hides a summed figure the same way as web.
+- Test: `amountOwed.test.ts`, `importPayload.test.ts` and `ImportScreen.test.tsx` (the same cases as web, including the hand-made ₹0 card and the result screen).
 
 ### Task 11: Mobile card state, "Add it" and totals line
 

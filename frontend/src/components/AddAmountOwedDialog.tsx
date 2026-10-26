@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
@@ -40,6 +40,11 @@ export function AddAmountOwedDialog({
   const [error, setError] = useState<string | null>(null);
   const answer = readAmountOwed(value);
   const panelRef = useDialogA11y({ onClose, closeDisabled: saving });
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Declared after useDialogA11y so it runs after that hook's focus effect. autoFocus alone lost
+  // to it under StrictMode: the hook's effect, its cleanup (back to the opener) and the effect
+  // again landed on the first control, Close, so typing went nowhere.
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
   async function save() {
     if (answer.state !== 'valid' || saving) return;
@@ -86,8 +91,8 @@ export function AddAmountOwedDialog({
             <label htmlFor="add-amount-owed" className="block text-xs uppercase text-muted mb-1">Amount owed today (₹)</label>
             <input
               id="add-amount-owed"
+              ref={inputRef}
               inputMode="decimal"
-              autoFocus
               value={value}
               onChange={(e) => { setValue(e.target.value); setError(null); }}
               aria-invalid={answer.state === 'invalid'}

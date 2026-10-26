@@ -445,6 +445,10 @@ export interface ConfirmPayload {
   // "This is my account" on that warning: the server saves the user's own profile name as the
   // account's holder. Omitted for "Continue anyway", which keeps the name the statement printed.
   holderIsMine?: boolean;
+  // The answer to "How much do you owe on this card today?" (lib/amountOwed.ts). Omitted when the
+  // question was not asked, was skipped or left blank. The server applies it only to a card with
+  // no statement closing balance.
+  amountOwedToday?: number;
 }
 
 interface SectionConfirmPayload {
@@ -1057,6 +1061,9 @@ export interface NetWorthData {
   totalLiabilities: number;
   netWorth: number;
   history: NetWorthSnapshotPoint[];
+  // Cards left out of totalLiabilities and netWorth because their amount owed is not known
+  // (lib/amountOwed.ts). Optional: an older server does not send it.
+  cardsWithUnknownAmountOwed?: number;
 }
 export const networthApi = {
   current: () => api.get<NetWorthData>('/networth').then((r) => r.data),

@@ -529,6 +529,110 @@ describe('ImportScreen — new-account credit limit and due date fields', () => 
     const [payload] = api.import.confirm.mock.calls[0];
     expect(payload.newAccount).toMatchObject({ creditLimit: 50000, dueDate: '2026-09-20' });
   });
+
+  // "How much do you owe on this card today?" -- asked when a card statement gives no closing
+  // balance and nothing has stated the card's figure. docs/superpowers/specs/2026-10-26-card-amount-owed-prompt-design.md.
+  describe('amount owed on a card with no closing balance', () => {
+    const confirmed = {
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source: 'fresh',
+    } as never;
+
+    function stagePlainCard(closingBalance: number | null = null) {
+      api.import.stageCsv.mockReset().mockResolvedValue({
+        sessionId: 'session-1',
+        multiAccount: false,
+        sections: null,
+        staging: {
+          rows: [stagedRow('Coffee')], totalParsed: 1, flaggedDuplicates: 0,
+          detectedAccount: {
+            ...detectedWithBank, suggestedAccountType: 'CREDIT_CARD', totalAmountDue: null,
+            openingBalance: null, closingBalance,
+          } as DetectedAccountInfo,
+          unparseableRows: [],
+        },
+      } as never);
+    }
+
+    function card(over: Partial<Account> = {}): Account {
+      return {
+        id: 'card-1', name: 'ICICI Card', accountType: 'CREDIT_CARD', balance: -100396.53,
+        bank: { id: 'ICICI', initials: 'I' } as Account['bank'],
+        lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+        statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL',
+        amountOwedKnown: true, balanceStated: false, ...over,
+      };
+    }
+
+    it('asks for a new card, and sends the answer with the import', async () => {
+      api.import.confirm.mockResolvedValue(confirmed);
+      stagePlainCard();
+      await reachReview();
+
+      fireEvent.changeText(screen.getByLabelText('Amount owed today (₹)'), '2500');
+      await pressImport();
+
+      expect(api.import.confirm.mock.calls[0][0].amountOwedToday).toBe(2500);
+    });
+
+    it('lets the user skip, and then sends no amount', async () => {
+      api.import.confirm.mockResolvedValue(confirmed);
+      stagePlainCard();
+      await reachReview();
+
+      fireEvent.changeText(screen.getByLabelText('Amount owed today (₹)'), '2500');
+      fireEvent.press(screen.getByRole('button', { name: 'Skip for now' }));
+      expect(screen.getByText(/the card will show "Amount owed not known"/)).toBeOnTheScreen();
+      await pressImport();
+
+      expect(api.import.confirm.mock.calls[0][0].amountOwedToday).toBeUndefined();
+    });
+
+    it('holds the import while the amount typed is not a number of rupees', async () => {
+      stagePlainCard();
+      await reachReview();
+
+      fireEvent.changeText(screen.getByLabelText('Amount owed today (₹)'), '12abc');
+      fireEvent.press(await screen.findByText(/^Import \d+ transaction/));
+      await settle();
+      expect(api.import.confirm).not.toHaveBeenCalled();
+    });
+
+    it('does not ask when the statement gives a closing balance', async () => {
+      stagePlainCard(8000);
+      await reachReview();
+      expect(screen.queryByText('How much do you owe on this card today?')).not.toBeOnTheScreen();
+    });
+
+    it('asks for an existing card made by hand at zero, and not for one with a stated figure', async () => {
+      api.accounts.list.mockReset().mockResolvedValue([
+        card(),
+        card({ id: 'card-2', name: 'HDFC Card', balance: 4200, balanceStated: true }),
+      ]);
+      stagePlainCard();
+      await reachReview();
+
+      fireEvent.press(screen.getByText('An existing account'));
+      fireEvent.press(screen.getByText('ICICI Card'));
+      expect(screen.getByText('How much do you owe on this card today?')).toBeOnTheScreen();
+
+      fireEvent.press(screen.getByText('HDFC Card'));
+      expect(screen.queryByText('How much do you owe on this card today?')).not.toBeOnTheScreen();
+    });
+
+    it('lists a card whose amount owed is not known without its summed figure', async () => {
+      api.accounts.list.mockReset().mockResolvedValue([card({ amountOwedKnown: false })]);
+      stagePlainCard();
+      await reachReview();
+
+      fireEvent.press(screen.getByText('An existing account'));
+      expect(screen.getByText('Amount owed not known')).toBeOnTheScreen();
+      expect(screen.queryByText(/1,00,396/)).not.toBeOnTheScreen();
+    });
+  });
 });
 
 describe('ImportScreen — upload completion dwell', () => {

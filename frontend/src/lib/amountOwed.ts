@@ -33,15 +33,23 @@ export type AmountOwedAnswer = { state: 'blank' } | { state: 'invalid' } | { sta
 /** The most the server stores: 12 digits before the decimal point (accounts.balance is NUMERIC(14,2)). */
 const MAX_RUPEES = 999_999_999_999.99;
 
+const PLAIN = /^\d+(\.\d{1,2})?$/;
+const INDIAN_GROUPING = /^\d{1,2}(,\d{2})*,\d{3}(\.\d{1,2})?$/;
+const INTERNATIONAL_GROUPING = /^\d{1,3}(,\d{3})+(\.\d{1,2})?$/;
+
 /**
  * Reads what was typed. Indian digit grouping ("1,00,396.53") is accepted; a negative figure, more
  * than two decimals or anything that is not a number is invalid -- the server refuses those too.
  */
 export function readAmountOwed(raw: string): AmountOwedAnswer {
-  const trimmed = raw.trim().replace(/,/g, '');
-  if (!trimmed) return { state: 'blank' };
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return { state: 'invalid' };
-  const value = Number(trimmed);
+  const typed = raw.trim();
+  if (!typed) return { state: 'blank' };
+  // Commas only as digit grouping -- Indian (1,00,396.53) or international (100,396.53) -- never
+  // as a decimal mark: a keyboard that types "," for the point would otherwise turn 12,50 into 1,250.
+  if (!PLAIN.test(typed) && !INDIAN_GROUPING.test(typed) && !INTERNATIONAL_GROUPING.test(typed)) {
+    return { state: 'invalid' };
+  }
+  const value = Number(typed.replace(/,/g, ''));
   if (!Number.isFinite(value) || value > MAX_RUPEES) return { state: 'invalid' };
   return { state: 'valid', value };
 }

@@ -540,6 +540,14 @@ class StatementSendIT extends AbstractIntegrationTest {
             List<UUID> live = jdbc.queryForList("SELECT id FROM statement_send_codes WHERE user_id = ? "
                     + "AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > now()", UUID.class, user.getId());
             assertThat(live).as("live codes of one user").hasSize(1);
+            // Codes are stamped in the order they were issued: every code the live one replaced is
+            // strictly older. With now() (the transaction's start, before the lock) two requests
+            // could tie or invert, and the status named a cancelled code.
+            Integer notOlder = jdbc.queryForObject("SELECT count(*) FROM statement_send_codes c "
+                    + "WHERE c.user_id = ? AND c.id <> ? AND c.created_at >= "
+                    + "(SELECT created_at FROM statement_send_codes WHERE id = ?)",
+                    Integer.class, user.getId(), live.get(0), live.get(0));
+            assertThat(notOlder).as("codes stamped at or after the live one").isZero();
             assertThat(status(user).get("codeId").asText()).isEqualTo(live.get(0).toString());
         }
     }

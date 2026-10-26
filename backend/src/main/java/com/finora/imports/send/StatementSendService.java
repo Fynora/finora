@@ -143,7 +143,9 @@ public class StatementSendService {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
                     "You've asked for a lot of codes. Wait a few minutes, then try again.");
         }
-        jdbc.update("UPDATE statement_send_codes SET cancelled_at = now() "
+        // Cancelled at the clock after the lock too (see the insert below), so a code's
+        // cancelled_at is never before the created_at of the code that replaced it.
+        jdbc.update("UPDATE statement_send_codes SET cancelled_at = clock_timestamp() "
                 + "WHERE user_id = ? AND used_at IS NULL AND cancelled_at IS NULL", userId);
         for (int attempt = 0; attempt < 10; attempt++) {
             String code = newCode(random);
@@ -189,7 +191,7 @@ public class StatementSendService {
                          ELSE 'WAITING'
                        END AS state, import_job_id, id
                   FROM statement_send_codes WHERE user_id = ?
-                 ORDER BY created_at DESC LIMIT 1
+                 ORDER BY created_at DESC, (cancelled_at IS NULL) DESC LIMIT 1
                 """, (rs, i) -> new SendDto.CodeStatus(rs.getString("state"), uuid(rs, "import_job_id"), uuid(rs, "id")),
                 userId);
         return rows.isEmpty() ? new SendDto.CodeStatus("NONE", null, null) : rows.get(0);

@@ -54,6 +54,7 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
     @Autowired private ImportSessionService importSessionService;
     @Autowired private StatementRefreshService refreshService;
     @Autowired private TransactionService transactionService;
+    @Autowired private com.finora.service.StatementImportService statementImportService;
     @Autowired private AccountService accountService;
     @Autowired private AccountRepository accountRepository;
     @Autowired private StatementImportRepository statementImportRepository;
@@ -115,6 +116,13 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
     /** Stages {@code file} for real and confirms it through the production path. */
     private StatementImport confirm(byte[] file, User user, UUID accountId, NewAccountRequest newAccount,
                                     BigDecimal opening, BigDecimal closing, BigDecimal amountOwedToday) throws Exception {
+        var response = confirmResponse(file, user, accountId, newAccount, opening, closing, amountOwedToday);
+        return statementImportRepository.findById(response.statementImportId()).orElseThrow();
+    }
+
+    private com.finora.dto.ImportDto.ConfirmResponse confirmResponse(byte[] file, User user, UUID accountId,
+                                    NewAccountRequest newAccount, BigDecimal opening, BigDecimal closing,
+                                    BigDecimal amountOwedToday) throws Exception {
         StagingResponse staging = importService.parseAndStage(user.getId(), "card.csv", new ByteArrayInputStream(file));
         ImportSession session = importSessionService.createSession(user.getId(), "card.csv", file,
                 staging.rows(), staging.detectedAccount());
@@ -124,10 +132,24 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
                     true, r.categorySource(), r.ruleId(), r.likelyDuplicate(),
                     r.referenceNumber(), r.balanceAfter(), false, r.categoryConfidence(), r.rowPosition()));
         }
-        var response = importService.confirmSession(user.getId(), new ConfirmRequest(session.getId(), rows,
+        return importService.confirmSession(user.getId(), new ConfirmRequest(session.getId(), rows,
                 accountId, newAccount, opening, closing, null, null, null, null, null, null, null, null,
                 amountOwedToday));
-        return statementImportRepository.findById(response.statementImportId()).orElseThrow();
+    }
+
+    /** The result screen shows the account from the confirm response: a skipped answer must come
+     *  back as not known, so the app hides the summed figure there too. */
+    @Test
+    void theConfirmResponseAccount_saysWhetherTheAmountOwedIsKnown() throws Exception {
+        User user = user();
+        var skipped = confirmResponse(CARD_FILE, user, account(user, Account.Type.CREDIT_CARD), null, null, null, null);
+        assertThat(skipped.account().amountOwedKnown()).isFalse();
+        assertThat(skipped.account().balanceStated()).isFalse();
+
+        var answered = confirmResponse(CARD_FILE, user(), null, newCard(), null, null, OWED);
+        assertThat(answered.account().amountOwedKnown()).isTrue();
+        assertThat(answered.account().balanceStated()).isTrue();
+        assertThat(answered.account().balance()).isEqualByComparingTo("12345.67");
     }
 
     private Account accountOf(StatementImport s) {
@@ -167,6 +189,18 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
     }
 
     @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void theMissingPreviousBalanceWarning_isLoggedOnlyWhenNothingWasStated(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        String warning = "may be missing a previous balance";
+        confirm(CARD_FILE, user(), null, newCard(), null, null, OWED);
+        assertThat(output.getAll()).as("the user stated the figure").doesNotContain(warning);
+
+        confirm(CARD_FILE, user(), null, newCard(), null, null, null);
+        assertThat(output.getAll()).contains(warning);
+    }
+
+    @Test
     void withoutTheAmount_theCardIsSummedFromZeroAndNotKnown() throws Exception {
         User user = user();
         StatementImport s = confirm(CARD_FILE, user, account(user, Account.Type.CREDIT_CARD), null, null, null, null);
@@ -186,6 +220,29 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void deletingTheWholeStatementLater_doesNotMoveTheStatedFigure_andItStaysKnown() throws Exception {
+        User user = user();
+        UUID cardId = account(user, Account.Type.CREDIT_CARD);
+        StatementImport s = confirm(CARD_FILE, user, cardId, null, null, null, OWED);
+
+        statementImportService.delete(user.getId(), s.getId(), user.getId());
+
+        assertThat(accountRepository.findById(cardId).orElseThrow().getBalance()).isEqualByComparingTo("12345.67");
+        assertThat(known(user, cardId)).isTrue();
+    }
+
+    @Test
+    void reUploadingTheSameStatementAfterwards_doesNotMoveTheStatedFigure() throws Exception {
+        User user = user();
+        UUID cardId = account(user, Account.Type.CREDIT_CARD);
+        confirm(CARD_FILE, user, cardId, null, null, null, OWED);
+
+        confirm(CARD_FILE, user, cardId, null, null, null, null);
+
+        assertThat(accountRepository.findById(cardId).orElseThrow().getBalance()).isEqualByComparingTo("12345.67");
+    }
+
+    @Test
     void aStatementRefreshAfterwards_doesNotMoveTheStatedFigure() throws Exception {
         User user = user();
         StatementImport s = confirm(CARD_FILE, user, account(user, Account.Type.CREDIT_CARD), null, null, null, OWED);
@@ -199,6 +256,7 @@ class AmountOwedAtConfirmIT extends AbstractIntegrationTest {
         assertThat(outcome.rowsChanged()).isEqualTo(1);
         assertThat(outcome.rowsAdded()).isEqualTo(1);
         assertThat(accountOf(s).getBalance()).isEqualByComparingTo("12345.67");
+        assertThat(outcome.balanceChange()).as("what the refresh summary tells the user: no change (null)").isNull();
     }
 
     @Test

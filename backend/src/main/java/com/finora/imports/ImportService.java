@@ -1939,7 +1939,10 @@ public class ImportService {
                         accountId, balanceDecision.reason(), balanceDecision.details().keySet());
             } else if (balanceDecision.verdict() == ClosingBalanceGuard.Verdict.NOT_APPLICABLE
                     && !accountsCreated.isEmpty()
-                    && AccountBalanceConvention.isLiability(accountType)) {
+                    && AccountBalanceConvention.isLiability(accountType)
+                    // Not when the user answered "How much do you owe on this card today?": that
+                    // figure replaces the summed one below, so nothing is missing.
+                    && request.amountOwedToday() == null) {
                 // Bug fix: a brand-new account's very first import has no prior balance to build
                 // on -- ADDITIVE mode above wrote Account.balance as purely net(these rows), with
                 // no way to include whatever was already owed/held before this statement's own
@@ -2110,8 +2113,13 @@ public class ImportService {
         // for the escape-hatch-used case (a manual import that just succeeded against a stale
         // AA-linked account), this one-shot confirm-response snapshot isn't what the account
         // picker reads from; see AccountDto.aaSyncStale's own doc comment.
+        // amountOwedKnown IS resolved here: the result screen shows this account's balance, and a
+        // card summed from zero (no closing balance, no answer to "How much do you owe on this card
+        // today?") must come back as not known so the app hides that figure (see AmountOwedRule).
         AccountDto accountSnapshot = accountRepository.findById(accountId)
-                .map(AccountDto::from)
+                .map(a -> AccountDto.from(a, AccountDto.BankDto.from(com.finora.util.BankRegistry.get(a.getBankId())),
+                        null, null, null, 0, 0L, false,
+                        !new com.finora.accounts.AmountOwedRule(statementImportRepository).isUnknown(a)))
                 .orElse(null);
 
         return new ConfirmResponse(section.imported(), section.skipped(), duplicatesDetected, transfersIdentified,

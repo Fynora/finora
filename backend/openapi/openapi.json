@@ -15236,6 +15236,9 @@
                     },
                     "amountOwedKnown": {
                         "type": "boolean"
+                    },
+                    "balanceStated": {
+                        "type": "boolean"
                     }
                 }
             },

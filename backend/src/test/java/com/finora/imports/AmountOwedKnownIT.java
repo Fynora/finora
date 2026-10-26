@@ -112,6 +112,30 @@ class AmountOwedKnownIT extends AbstractIntegrationTest {
         assertThat(listed(user, card).amountOwedKnown()).as("no statements left").isTrue();
     }
 
+    /** What the review screen asks on: a card nothing has stated a figure for. A card made by hand
+     *  at zero is known (no statements to doubt) but not stated, so its first statement with no
+     *  closing balance must be asked about -- that import is what makes it summed from zero. */
+    @Test
+    void balanceStated_saysWhetherAnythingEverStatedTheFigure() throws Exception {
+        UUID user = user();
+        UUID handMadeAtZero = account(user, Account.Type.CREDIT_CARD);
+        assertThat(listed(user, handMadeAtZero).amountOwedKnown()).isTrue();
+        assertThat(listed(user, handMadeAtZero).balanceStated()).isFalse();
+
+        UUID typedAtCreation = accountService.create(user, new AccountDto.CreateRequest("Typed card", "CREDIT_CARD",
+                new BigDecimal("900.00"), null, null, null, null, null, null, null, null), user).id();
+        assertThat(listed(user, typedAtCreation).balanceStated()).isTrue();
+
+        importWithoutClosing(user, handMadeAtZero);
+        assertThat(listed(user, handMadeAtZero).balanceStated()).isFalse();
+
+        AccountDto typed = accountService.update(user, handMadeAtZero, new AccountDto.CreateRequest("Card",
+                "CREDIT_CARD", new BigDecimal("0.00"), null, null, null, null, null, null, null, null), user);
+        assertThat(typed.balanceStated()).as("an edit to zero is a stated zero").isTrue();
+        assertThat(listed(user, handMadeAtZero).balanceStated()).isTrue();
+        assertThat(listed(user, handMadeAtZero).amountOwedKnown()).isTrue();
+    }
+
     @Test
     void typingTheBalanceMakesItKnown_butARenameDoesNot() throws Exception {
         UUID user = user();

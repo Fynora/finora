@@ -6677,6 +6677,7 @@ export interface components {
             /** Format: int32 */
             installmentsTotal?: number;
             amountOwedKnown?: boolean;
+            balanceStated?: boolean;
         };
         ApiResponseAccountDto: {
             success?: boolean;

@@ -459,8 +459,12 @@ public class DataExportService {
                         TransactionRepository.AccountTransactionCount::getCount));
 
         List<Account> accountEntities = accountRepository.findByUserIdIncludingDeleted(userId);
+        // Same answer the app gives (see AmountOwedRule): one query, none when no card qualifies.
+        java.util.Set<UUID> unknownAmountOwed = new com.finora.accounts.AmountOwedRule(statementImportRepository)
+                .unknownCardIds(userId, accountEntities);
         List<AccountExportEntry> accounts = accountEntities.stream()
-                .map(a -> toAccountExportEntry(a, latestImportByAccount, statementsCountByAccount, transactionsCountByAccount))
+                .map(a -> toAccountExportEntry(a, latestImportByAccount, statementsCountByAccount, transactionsCountByAccount,
+                        !unknownAmountOwed.contains(a.getId())))
                 .toList();
 
         // Fetched once and reused for both categoryNames (transactions.json's category label) and
@@ -958,7 +962,8 @@ public class DataExportService {
 
     private AccountExportEntry toAccountExportEntry(Account a, Map<UUID, StatementMetadata> latestImportByAccount,
                                                       Map<UUID, Integer> statementsCountByAccount,
-                                                      Map<UUID, Long> transactionsCountByAccount) {
+                                                      Map<UUID, Long> transactionsCountByAccount,
+                                                      boolean amountOwedKnown) {
         // Bug fix (review): used to call AccountDto's 2-arg from(Account, BankDto) overload, which
         // hardcodes statementsCount/transactionsCount/lastImportedAt to 0/0/null -- every exported
         // account misrepresented its own history regardless of how much it actually had, even
@@ -977,7 +982,8 @@ public class DataExportService {
                 // staleness signal (it's a point-in-time archive, not the live app). Same
                 // deliberate simplification as create()/update() (see AccountDto.aaSyncStale's
                 // own doc comment), extended to this fourth call site.
-                false);
+                false,
+                amountOwedKnown);
         return new AccountExportEntry(dto, a.getDeletedAt() != null, a.getDeletedAt());
     }
 

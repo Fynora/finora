@@ -68,10 +68,15 @@ public class AmountOwedRule {
         return !unknownCardIds(account.getUserId(), List.of(account)).isEmpty();
     }
 
+    /** Whether anything states this account's figure: a statement's closing balance that set it, a
+     *  balance the user typed, or an opening balance read at import (a baseline date). */
+    public static boolean balanceStated(Account a) {
+        return a.getLastAbsoluteSetStatementId() != null
+                || a.getBalanceTypedAt() != null
+                || a.getBalanceBaselineDate() != null;
+    }
+
     private static boolean nothingStated(Account a) {
-        return a.getAccountType() == Account.Type.CREDIT_CARD
-                && a.getLastAbsoluteSetStatementId() == null
-                && a.getBalanceTypedAt() == null
-                && a.getBalanceBaselineDate() == null;
+        return a.getAccountType() == Account.Type.CREDIT_CARD && !balanceStated(a);
     }
 }

@@ -253,10 +253,12 @@ class DashboardRangeServiceTest {
 
     @Test
     void customRange_missingDates_throws() {
+        // An ApiException with words for the user: an IllegalArgumentException reached them as
+        // "One of the request's parameters is not valid".
         assertThatThrownBy(() -> service.summarize(userId, DashboardRangeType.CUSTOM, null, LocalDate.now()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(com.finora.exception.ApiException.class).hasMessageContaining("start and an end date");
         assertThatThrownBy(() -> service.summarize(userId, DashboardRangeType.CUSTOM, LocalDate.now(), null))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(com.finora.exception.ApiException.class).hasMessageContaining("start and an end date");
     }
 
     @Test
@@ -264,7 +266,17 @@ class DashboardRangeServiceTest {
         LocalDate start = LocalDate.of(2026, 8, 1);
         LocalDate end = LocalDate.of(2026, 1, 1);
         assertThatThrownBy(() -> service.summarize(userId, DashboardRangeType.CUSTOM, start, end))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(com.finora.exception.ApiException.class).hasMessageContaining("starts after its end");
+    }
+
+    @Test
+    void customRange_whosePeriodBeforeWouldStartBeforeYear1_isRefusedWithAReason() {
+        assertThatThrownBy(() -> service.summarize(userId, DashboardRangeType.CUSTOM,
+                LocalDate.of(1, 1, 1), LocalDate.of(9999, 12, 31)))
+                .isInstanceOf(com.finora.exception.ApiException.class).hasMessageContaining("too long");
+        assertThatThrownBy(() -> service.summarize(userId, DashboardRangeType.CUSTOM,
+                LocalDate.of(2026, 1, 1), LocalDate.of(10000, 1, 1)))
+                .isInstanceOf(com.finora.exception.ApiException.class).hasMessageContaining("9999");
     }
 
     @Test

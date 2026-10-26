@@ -224,7 +224,8 @@ public record AccountDto(
                                  @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Balance" + MoneyLimits.TOO_NEGATIVE)
                                  @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Balance" + MoneyLimits.TOO_LARGE)
                                  @WholePaise(message = "Balance" + MoneyLimits.FINER_THAN_PAISA) BigDecimal balance,
-                                 @DecimalMin(value = MoneyLimits.MIN_SIGNED_AMOUNT_TEXT, message = "Credit limit" + MoneyLimits.TOO_NEGATIVE)
+                                 // A limit is never below zero: a negative one was accepted, and debt utilization divides by it.
+                                 @DecimalMin(value = "0.00", message = "Credit limit can't be negative")
                                  @DecimalMax(value = MoneyLimits.MAX_AMOUNT_TEXT, message = "Credit limit" + MoneyLimits.TOO_LARGE)
                                  @WholePaise(message = "Credit limit" + MoneyLimits.FINER_THAN_PAISA) BigDecimal creditLimit,
                                  LocalDate dueDate,

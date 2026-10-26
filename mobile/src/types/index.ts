@@ -72,6 +72,13 @@ export interface Account {
   // Ported from frontend/src/types/index.ts's Account -- see accountMatch.ts's own comment on
   // why the two clients' copies of this logic have to stay in lockstep.
   primarySource: 'MANUAL' | 'ACCOUNT_AGGREGATOR';
+  // False only for a credit card whose balance was summed from zero off statements with no closing
+  // balance (AmountOwedRule on the backend): show "Amount owed not known", never the figure.
+  // Optional so an older server's response still type-checks; missing means known.
+  amountOwedKnown?: boolean;
+  // Whether anything ever stated this account's figure. The import review asks "How much do you
+  // owe on this card today?" for a card where this is false. Missing (older server) means don't ask.
+  balanceStated?: boolean;
 
   // Deposit attributes -- see DetectedAccountInfo's own note. Populated only for FD/RD imported
   // from a statement; null for every hand-created account and every ledger account.

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
+import { unknownCardsNote } from '../lib/amountOwed';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { Button } from '../components/Button';
@@ -96,6 +97,7 @@ export function InvestmentsScreen() {
   // otherwise be stated as fact, so going offline reads as "not available" rather than as ₹0.
   const accountsUnknown = accountsQ.isError || isPausedCold(accountsQ);
   const netWorthUnknown = netWorthQ.isError || isPausedCold(netWorthQ);
+  const unknownCards = netWorthUnknown ? null : unknownCardsNote(netWorth?.cardsWithUnknownAmountOwed);
   const refreshing = (accountsQ.isFetching || netWorthQ.isFetching) && !loading;
 
   function refresh() {
@@ -303,12 +305,15 @@ export function InvestmentsScreen() {
           >
             {netWorthUnknown ? '—' : fmtCurrency(netWorth?.netWorth ?? 0)}
           </Text>
+          {/* A card whose amount owed is not known is left out of both figures (lib/amountOwed.ts). */}
+          {unknownCards ? <Text style={[styles.leftOut, { color: c.muted }]}>{unknownCards}</Text> : null}
         </Card>
         <Card style={styles.totalCard}>
           <Text style={[styles.totalLabel, { color: c.muted }]}>Liabilities</Text>
           <Text style={[styles.totalValue, { color: c.dangerInk }]} numberOfLines={1} adjustsFontSizeToFit>
             {netWorthUnknown ? '—' : fmtCurrency(netWorth?.totalLiabilities ?? 0)}
           </Text>
+          {unknownCards ? <Text style={[styles.leftOut, { color: c.muted }]}>{unknownCards}</Text> : null}
         </Card>
       </View>
 
@@ -424,6 +429,7 @@ export function InvestmentsScreen() {
 }
 
 const styles = StyleSheet.create({
+  leftOut: { fontSize: 12, marginTop: 4 },
   glassRoot: { flex: 1 },
   content: { padding: spacing.md, paddingBottom: spacing.xl },
   header: { alignItems: 'flex-end', marginBottom: spacing.sm },

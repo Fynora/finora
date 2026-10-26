@@ -205,3 +205,39 @@ describe('AccountsScreen first load', () => {
     expect(__activeShimmerCountForTests()).toBe(0);
   });
 });
+
+describe('AccountsScreen -- a card whose amount owed is not known', () => {
+  const unknownCard = () => account({
+    id: 'card-1', name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: -100396.53,
+    amountOwedKnown: false, balanceStated: false,
+  });
+
+  it('shows no figure for it', async () => {
+    api.list.mockResolvedValue([unknownCard()]);
+    renderScreen();
+    expect(await screen.findByText('Amount owed not known')).toBeOnTheScreen();
+    expect(screen.queryByText(/1,00,396/)).not.toBeOnTheScreen();
+  });
+
+  it('"Add it" saves the amount as the card balance, then reloads the accounts', async () => {
+    api.list.mockResolvedValue([unknownCard()]);
+    api.update.mockReset().mockResolvedValue({ ...unknownCard(), balance: 12345.67, amountOwedKnown: true });
+    renderScreen();
+
+    fireEvent.press(await screen.findByRole('button', { name: 'Add it' }));
+    fireEvent.changeText(screen.getByLabelText('Amount owed today (₹)'), '12345.67');
+    fireEvent.press(screen.getByRole('button', { name: 'Save' }));
+    await settle();
+
+    expect(api.update).toHaveBeenCalledWith('card-1', { name: 'ICICI Bank Rupay', accountType: 'CREDIT_CARD', balance: 12345.67 });
+    expect(api.list.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByLabelText('Amount owed today (₹)')).not.toBeOnTheScreen();
+  });
+
+  it('shows a card with a known amount as before', async () => {
+    api.list.mockResolvedValue([account({ name: 'HDFC Card', accountType: 'CREDIT_CARD', balance: 4200, amountOwedKnown: true })]);
+    renderScreen();
+    expect(await screen.findByText('HDFC Card')).toBeOnTheScreen();
+    expect(screen.queryByText('Amount owed not known')).not.toBeOnTheScreen();
+  });
+});

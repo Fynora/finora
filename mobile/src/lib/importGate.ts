@@ -29,6 +29,12 @@ export type ImportGateState = {
    * the person has not said they have since upgraded. Optional: absent means no such limit.
    */
   freePlanLimitBlocks?: boolean;
+  /**
+   * "How much do you owe on this card today?" was asked, not skipped, and what was typed is not a
+   * number of rupees (lib/amountOwed.ts). An answer is never silently dropped. Optional: absent
+   * means nothing is held.
+   */
+  amountOwedInvalid?: boolean;
 };
 
 export function canConfirmImport(state: ImportGateState): boolean {
@@ -44,5 +50,6 @@ export function canConfirmImport(state: ImportGateState): boolean {
   // and the backend answers with a 400 the user cannot act on. Never applies to a re-import,
   // which has no picker and posts its own pinned account id instead.
   if (!state.isReimport && state.accountChoice === 'existing' && !state.selectedAccountId) return false;
+  if (state.amountOwedInvalid) return false;
   return true;
 }

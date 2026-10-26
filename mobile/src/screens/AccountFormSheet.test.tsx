@@ -218,3 +218,26 @@ describe('AccountFormSheet -- edit mode', () => {
     expect(api.update).not.toHaveBeenCalled();
   });
 });
+
+describe('AccountFormSheet -- a card whose amount owed is not known', () => {
+  it('does not put the summed figure in the balance field, and a rename sends no balance', async () => {
+    renderSheet(account({ id: 'card-1', name: 'ICICI Card', accountType: 'CREDIT_CARD', balance: -100396.53, amountOwedKnown: false }));
+
+    expect(screen.getByLabelText('Balance').props.value).toBe('');
+    fireEvent.changeText(screen.getByLabelText('Account name'), 'ICICI Rupay');
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update).toHaveBeenCalledWith('card-1', expect.not.objectContaining({ balance: expect.anything() }));
+  });
+
+  it('sends a typed balance even when it equals the summed figure: the user has now stated it', async () => {
+    renderSheet(account({ id: 'card-1', name: 'ICICI Card', accountType: 'CREDIT_CARD', balance: -500, amountOwedKnown: false }));
+
+    fireEvent.changeText(screen.getByLabelText('Balance'), '-500');
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update).toHaveBeenCalledWith('card-1', expect.objectContaining({ balance: -500 }));
+  });
+});

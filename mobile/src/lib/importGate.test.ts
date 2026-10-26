@@ -31,6 +31,12 @@ describe('canConfirmImport', () => {
     expect(canConfirmImport(state({ accountChoice: 'existing', selectedAccountId: '' }))).toBe(false);
   });
 
+  it('blocks while the amount owed typed is not a number of rupees', () => {
+    // An answer the user typed is never silently dropped: fix it, clear it or skip the question.
+    expect(canConfirmImport(state({ amountOwedInvalid: true }))).toBe(false);
+    expect(canConfirmImport(state({ amountOwedInvalid: false }))).toBe(true);
+  });
+
   it('blocks a statement the Free one-month limit will refuse', () => {
     // The backend refuses it at confirm; the button waits rather than sending a sure refusal.
     expect(canConfirmImport(state({ freePlanLimitBlocks: true }))).toBe(false);

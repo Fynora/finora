@@ -56,6 +56,8 @@ import {
 } from '../../lib/importReview';
 import { matchExistingAccount } from '../../lib/accountMatch';
 import { canConfirmImport } from '../../lib/importGate';
+import { amountOwedToSend, isAmountOwedUnknown, readAmountOwed, shouldAskAmountOwed } from '../../lib/amountOwed';
+import { AmountOwedQuestion } from './AmountOwedQuestion';
 import { isUnsupportedStatementFile, pickStatement, type PickedStatement, type StatementFormat } from '../../lib/statementFile';
 import { useAuth } from '../../context/AuthContext';
 import { radius, spacing, useTheme } from '../../theme';
@@ -262,6 +264,9 @@ export function ImportScreen() {
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [accountForm, setAccountForm] = useState<NewAccountForm>(initialAccountForm(null));
+  // "How much do you owe on this card today?" (lib/amountOwed.ts).
+  const [amountOwed, setAmountOwed] = useState('');
+  const [amountOwedSkipped, setAmountOwedSkipped] = useState(false);
 
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [categoryPickerFor, setCategoryPickerFor] = useState<number | null>(null);
@@ -458,6 +463,8 @@ export function ImportScreen() {
     setLimitOverridden(false);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
+    setAmountOwed('');
+    setAmountOwedSkipped(false);
     // Cleared here as well as being set explicitly on every successful upload: leaving the
     // previous statement's account selected is how a stale choice survives into the next import,
     // and "Import another" runs this between two imports that may well belong to different
@@ -530,6 +537,8 @@ export function ImportScreen() {
     setDetected(staging.detectedAccount);
     setVerification(staging.verification ?? null);
     setAccountForm(initialAccountForm(staging.detectedAccount, staging.rows));
+    setAmountOwed('');
+    setAmountOwedSkipped(false);
 
     // Default to filing into the existing account this statement's own signals actually point
     // at -- same bank, same account number -- rather than blindly picking the first account in
@@ -890,6 +899,17 @@ export function ImportScreen() {
     });
   }
 
+  // Never on a re-import: that replaces a statement already on the card, it does not start one.
+  const askAmountOwed = !reimport && shouldAskAmountOwed({
+    closingBalance: detected?.closingBalance,
+    existing: accountChoice === 'existing'
+      ? existingAccounts.find((a) => a.id === selectedAccountId) ?? null
+      : null,
+    newType: accountChoice === 'new' ? accountForm.accountType : null,
+    newOpeningBalance: accountChoice === 'new' ? accountForm.openingBalance : null,
+  });
+  const amountOwedInvalid = askAmountOwed && !amountOwedSkipped && readAmountOwed(amountOwed).state === 'invalid';
+
   async function runConfirm() {
     setConfirming(true);
     setError(null);
@@ -933,6 +953,7 @@ export function ImportScreen() {
             paymentDueDate: detected?.paymentDueDate ?? null,
             userConfirmedContinue: ownershipAcknowledged.current ? true : undefined,
             holderIsMine: holderIsMine.current || (claimHolder && holderClaimAvailable()) ? true : undefined,
+            amountOwedToday: amountOwedToSend(askAmountOwed, amountOwed, amountOwedSkipped),
           });
       setSummary(result);
       setStep('summary');
@@ -1541,7 +1562,10 @@ export function ImportScreen() {
                       <Text style={[styles.accountName, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
                         {a.name}{aaLinked ? ' — Bank Sync active' : ''}
                       </Text>
-                      <Text style={[styles.body, { color: c.muted }]}>{fmtCurrency(a.balance)}</Text>
+                      {/* A figure summed from zero is never shown (lib/amountOwed.ts). */}
+                      <Text style={[styles.body, { color: c.muted }]}>
+                        {isAmountOwedUnknown(a) ? 'Amount owed not known' : fmtCurrency(a.balance)}
+                      </Text>
                     </Pressable>
                   );
                 })
@@ -1649,6 +1673,15 @@ export function ImportScreen() {
                   />
                 </View>
               ) : null}
+              {askAmountOwed ? (
+                <AmountOwedQuestion
+                  value={amountOwed}
+                  onChange={setAmountOwed}
+                  skipped={amountOwedSkipped}
+                  onSkip={() => setAmountOwedSkipped(true)}
+                  onUndoSkip={() => setAmountOwedSkipped(false)}
+                />
+              ) : null}
             </Card>
             )}
 
@@ -1719,6 +1752,7 @@ export function ImportScreen() {
                     accountChoice,
                     selectedAccountId,
                     freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
+                    amountOwedInvalid,
                   })
                 }
               />

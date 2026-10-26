@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import { accountsApi } from '../api/endpoints';
 import { AccountFormSheet } from './AccountFormSheet';
+import { AddAmountOwedSheet, AmountOwedNotKnown } from './AddAmountOwedSheet';
+import { isAmountOwedUnknown } from '../lib/amountOwed';
 import { Button } from '../components/Button';
 import { Card, EmptyState } from '../components/Card';
 import { LoadFailed } from '../components/LoadFailed';
@@ -66,6 +68,14 @@ export function AccountsScreen() {
 
   function onFormSaved() {
     setFormTarget(null);
+    invalidateFinancialData(queryClient);
+  }
+
+  // The card whose "How much do you owe on this card today?" sheet is open (AddAmountOwedSheet).
+  const [amountOwedFor, setAmountOwedFor] = useState<Account | null>(null);
+  /** A stated amount changes the card and every total it was left out of: reload both. */
+  function onAmountOwedSaved() {
+    setAmountOwedFor(null);
     invalidateFinancialData(queryClient);
   }
 
@@ -192,7 +202,11 @@ export function AccountsScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.balance, { color: c.ink }]}>{fmtCurrency(a.balance)}</Text>
+              {isAmountOwedUnknown(a) ? (
+                <AmountOwedNotKnown cardName={a.name} onAdd={() => setAmountOwedFor(a)} />
+              ) : (
+                <Text style={[styles.balance, { color: c.ink }]}>{fmtCurrency(a.balance)}</Text>
+              )}
               {a.accountType === 'CREDIT_CARD' && a.creditLimit ? (
                 <Text style={[styles.detail, { color: c.muted }]}>
                   Limit {fmtCurrency(a.creditLimit)}
@@ -277,6 +291,14 @@ export function AccountsScreen() {
           account={formTarget === 'new' ? null : formTarget}
           onClose={() => setFormTarget(null)}
           onSaved={onFormSaved}
+        />
+      ) : null}
+
+      {amountOwedFor ? (
+        <AddAmountOwedSheet
+          account={amountOwedFor}
+          onClose={() => setAmountOwedFor(null)}
+          onSaved={onAmountOwedSaved}
         />
       ) : null}
     </ScrollView>

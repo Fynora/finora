@@ -15,6 +15,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
+import { isAmountOwedUnknown } from '../lib/amountOwed';
 
 const ACCOUNT_TYPES = ['SAVINGS', 'CREDIT_CARD', 'WALLET', 'INVESTMENT'] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -56,7 +57,10 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
   const [accountType, setAccountType] = useState<AccountType>(
     (account?.accountType as AccountType | undefined) ?? 'SAVINGS'
   );
-  const [balance, setBalance] = useState(account ? String(account.balance) : '');
+  // A card whose amount owed is not known starts blank: its balance was summed from zero and is
+  // never shown (lib/amountOwed.ts). Left blank, a save sends no balance and changes nothing.
+  const amountOwedUnknown = !!account && isAmountOwedUnknown(account);
+  const [balance, setBalance] = useState(account && !amountOwedUnknown ? String(account.balance) : '');
   const [creditLimit, setCreditLimit] = useState(
     account?.creditLimit != null ? String(account.creditLimit) : ''
   );
@@ -101,7 +105,9 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
           // account's statement-reconciliation lineage (see that method's own doc comment on
           // lastAbsoluteSetStatementId) -- resending the unchanged value on every plain rename
           // would silently break reconciliation for something the user never touched.
-          if (balanceNum !== undefined && balanceNum !== account.balance) {
+          // A card whose amount owed is not known sends whatever was typed, even the summed figure
+          // itself: typing it is the user stating it, which is what makes it known.
+          if (balanceNum !== undefined && (amountOwedUnknown || balanceNum !== account.balance)) {
             body.balance = balanceNum;
           }
           await accountsApi.update(account.id, body);
@@ -174,7 +180,7 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
               label={isEdit ? 'Balance' : 'Opening balance'}
               value={balance}
               onChangeText={setBalance}
-              placeholder="0.00"
+              placeholder={amountOwedUnknown ? 'Not known' : '0.00'}
               keyboardType="decimal-pad"
               error={!balanceValid ? 'Enter a valid amount.' : null}
             />

@@ -1,7 +1,9 @@
 # Rows that name nobody get no merchant
 
 Status: design approved section by section by the owner on 2026-10-14. Implemented 2026-10-27;
-section 4 records where the detach sweep is stricter than first written.
+section 4 records where the detach sweep is stricter than first written. After review the owner
+asked for four gaps to be closed on 2026-10-27: merchant-name rules, a choice for a repeating line
+(section 5), the ATM rule, and an import racing the sweep; each is marked where it changed.
 
 ## Problem
 
@@ -52,7 +54,10 @@ private `namesNobody(String word)`) is true when either:
   `MerchantNames.RAIL_PAYMENTS` ("UPI payment", "NACH payment", "Mobile banking payment", "Card
   payment", ...). This covers "UPI/RRN &lt;n&gt;/UPI", a QR payment left with a handle suffix
   ("Ybl"), and a narration left with a direction word ("Upi Dr"); or
-- the first word of the normalised narration is `atm`, `atw` or `nwd`.
+- it is a cash withdrawal (`MerchantNames.isCashWithdrawal`): HDFC's `ATW` or `NWD` code followed by
+  `-` or `/`, or a line opening with `ATM` that carries a withdrawal word (`WDL`, `WDR`, `CASH`,
+  ...). Changed on 2026-10-27 from "the first word is atm, atw or nwd", which treated a shop named
+  "ATM Electronics" as a withdrawal. On the corpus both rules pick the same rows.
 
 A narration with a structured payee field is never "nobody". The rule reuses #2133's naming, so
 "names nobody" has one definition in the codebase.
@@ -68,10 +73,10 @@ that the compiler names every caller. `resolveReadOnly` (both overloads) returns
 
 | Caller | With no merchant |
 |---|---|
-| `CategorizationService.suggest` | Runs as `suggestReadOnly` already does with no merchant: rules get no merchant name, the learned distribution is skipped, keywords / shared corpus / AI fallback / shop trade / P2P / bank activity run as now. `Suggestion.merchantId` is null. |
-| `CategorizationService.learn`, `queueLearning` | Do nothing. A correction stays on that row and never reaches unrelated payees. |
+| `CategorizationService.suggest` | Runs as `suggestReadOnly` already does with no merchant: the learned distribution is skipped and the remembered choice for the same text is used instead (below); keywords / shared corpus / AI fallback / shop trade / P2P / bank activity run as now. `Suggestion.merchantId` is null. |
+| `CategorizationService.learn`, `queueLearning`, `ImportService` confirm | No merchant learning. The choice is kept for the next row with the same text (below), never for other payees. |
 | `CategorizationService.resolveMerchantId` | Returns null. |
-| `CategorizationService.applySideEffectRules` | Runs with no merchant name. |
+| Rules on the `MERCHANT` field (suggest, preview, side-effect rules) | Matched against the name such a row's merchant used to have (`MerchantNames.forNarration`: "UPI payment", "Atm Wdl Sampletown"), so a rule an admin wrote against it keeps matching. Changed 2026-10-27; before, such rules silently stopped matching. |
 | `ImportService`, `StatementRefreshService` (2), `TransactionService.create` | Store no merchant. A statement refresh that rewrites a row's narration into one that names nobody clears its merchant. (`TransactionService.update` never re-resolves the merchant when a person edits a description; that is unchanged and out of scope.) |
 | `TransactionNormalizer` (import preview) | Already handles an empty `resolveReadOnly`; no change expected, to be confirmed by test. |
 
@@ -107,8 +112,27 @@ transaction's merchant id (only `MerchantGroup.merchantId`, built from rows that
   - modes `app.merchant-nobody-detach.sweep.mode`: `dry-run` (default; reads the whole queue once
     per start and logs rows it would detach, merchants it would delete, merchants it would keep),
     `apply`, `off`. Bounded batches; one batch per transaction; a DB error fails the batch.
+  - **It never waits on anyone** (added 2026-10-27). The merchant and its rows are locked
+    `FOR UPDATE SKIP LOCKED` first; a merchant another transaction holds is counted busy and left
+    queued. On the other side, `MerchantNormalizationEngine.resolve` holds a merchant
+    (`MerchantRepository.lockForLink`, `FOR KEY SHARE`) before linking a row to it, and makes a new
+    merchant if it turns out to be gone. Without both, an import linking a row to a merchant this
+    sweep (or a discard) was deleting failed on the foreign key; measured in
+    `MerchantDeletedWhileLinkingIT`.
+  - Batches of 25: on 1,000,000 invented rows, 200 merchants held one transaction for about 26 s.
 - **Before apply,** the owner runs a count-only query (to be written with the plan) for the same
   set, ATW/NWD included, so the dry-run numbers have something to be checked against.
+
+### 5. Remembering a choice for a line that repeats (added 2026-10-27)
+
+Owner's request, after review: a line that names nobody but repeats -- a NACH debit that prints
+only its mandate number, withdrawals at one ATM -- used to share a merchant, so a category chosen
+once was used again. `NarrationCategoryMemory` (`narration_category_memory`, V295) keeps the latest
+choice per user under a SHA-256 of the repeating text: for a withdrawal, the name its merchant used
+to get (place kept, reference dropped); for anything else, the whole normalised narration, so two
+bare UPI references never share a choice. Recalled where a merchant's learned category was; written
+after the caller commits, in its own transaction, so it can never fail or deadlock an import.
+Removed by the account purge.
 
 ## Verification
 

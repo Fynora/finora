@@ -296,6 +296,7 @@ public class AccountPurgeSweepService {
     private final AuditLogRepository auditLogRepository;
     private final EmailProvider emailProvider;
     private final HeldItemAdminAlertService adminAlerts;
+    private final NarrationCategoryMemory narrationCategoryMemory;
 
     public AccountPurgeSweepService(UserRepository userRepository,
                                      GmailConnectionService gmailConnectionService,
@@ -375,7 +376,9 @@ public class AccountPurgeSweepService {
                                      AuditLogRepository auditLogRepository,
                                      EmailProvider emailProvider,
                                      HeldItemAdminAlertService adminAlerts,
-                                     com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository) {
+                                     com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository,
+                                     NarrationCategoryMemory narrationCategoryMemory) {
+        this.narrationCategoryMemory = narrationCategoryMemory;
         this.adminAlerts = adminAlerts;
         this.statementSendCodeRepository = statementSendCodeRepository;
         this.userRepository = userRepository;
@@ -813,6 +816,9 @@ public class AccountPurgeSweepService {
             merchantLearningEventRepository.deleteByUserId(userId);
             merchantLearningAuditRepository.deleteByUserId(userId);
             merchantCategoryLearningRepository.deleteByUserId(userId);
+            // The categories chosen for rows that name nobody (V295): keyed by a hash of their
+            // narration, and the users row is never deleted, so nothing cascades to them.
+            narrationCategoryMemory.forgetUser(userId);
             merchantAliasRepository.deleteByUserId(userId);
             merchantCategoryMapRepository.deleteByUserId(userId);
             merchantRepository.deleteByUserId(userId);

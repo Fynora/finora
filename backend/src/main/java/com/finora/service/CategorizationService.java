@@ -9,6 +9,7 @@ import com.finora.exception.ApiException;
 import com.finora.repository.CategoryRepository;
 import com.finora.repository.MerchantCategoryLearningRepository;
 import com.finora.util.CategoryRules;
+import com.finora.util.MerchantNames;
 import com.finora.util.PersonToPersonTransferDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,6 +111,7 @@ public class CategorizationService {
     private final WorkspaceSettingsService workspaceSettingsService;
     private final SharedCorpusService sharedCorpusService;
     private final FynCategorizationFallbackService fynCategorizationFallbackService;
+    private final NarrationCategoryMemory narrationCategoryMemory;
 
     public CategorizationService(MerchantNormalizationEngine merchantNormalizationEngine,
                                   MerchantLearningService merchantLearningService,
@@ -120,7 +122,9 @@ public class CategorizationService {
                                   RuleEngineService ruleEngineService,
                                   WorkspaceSettingsService workspaceSettingsService,
                                   SharedCorpusService sharedCorpusService,
-                                  FynCategorizationFallbackService fynCategorizationFallbackService) {
+                                  FynCategorizationFallbackService fynCategorizationFallbackService,
+                                  NarrationCategoryMemory narrationCategoryMemory) {
+        this.narrationCategoryMemory = narrationCategoryMemory;
         this.merchantNormalizationEngine = merchantNormalizationEngine;
         this.merchantLearningService = merchantLearningService;
         this.learningEventPublisher = learningEventPublisher;
@@ -238,7 +242,7 @@ public class CategorizationService {
         // Empty for a narration that names nobody (MerchantNames.narrationNamesNobody): the row gets
         // a category the same way suggestReadOnly gives one to a row with no merchant yet.
         java.util.Optional<Merchant> merchant = merchantNormalizationEngine.resolve(userId, description);
-        String merchantName = merchant.map(Merchant::getCanonicalName).orElse(null);
+        String merchantName = merchantNameForRules(merchant, description);
         UUID merchantId = merchant.map(Merchant::getId).orElse(null);
 
         var ruleMatch = ruleEngineService.evaluateCategoryRule(userId, description, amount, merchantName, accountType, direction);
@@ -262,6 +266,8 @@ public class CategorizationService {
                 }
             }
         }
+        Optional<Suggestion> remembered = rememberedForNarration(userId, merchantId, description);
+        if (remembered.isPresent()) return remembered.get();
 
         String ruleCat = suggestCategoryWithMerchantFallback(description, trustedNameOf(merchant.orElse(null)));
         if (!ruleCat.equals("Other")) {
@@ -410,7 +416,7 @@ public class CategorizationService {
         var merchant = merchantIndex != null
                 ? merchantNormalizationEngine.resolveReadOnly(userId, description, merchantIndex)
                 : merchantNormalizationEngine.resolveReadOnly(userId, description);
-        String merchantName = merchant.map(Merchant::getCanonicalName).orElse(null);
+        String merchantName = merchantNameForRules(merchant, description);
         UUID merchantId = merchant.map(Merchant::getId).orElse(null);
 
         var ruleMatch = ruleEngineService.evaluateCategoryRule(rules, description, amount, merchantName, accountType, direction);
@@ -436,6 +442,8 @@ public class CategorizationService {
                 }
             }
         }
+        Optional<Suggestion> remembered = rememberedForNarration(userId, merchantId, description);
+        if (remembered.isPresent()) return remembered.get();
 
         String ruleCat = suggestCategoryWithMerchantFallback(description, trustedNameOf(merchant.orElse(null)));
         if (!ruleCat.equals("Other")) {
@@ -718,10 +726,32 @@ public class CategorizationService {
      *  person is waiting on. That is the rule, and the two methods below are how it is expressed
      *  in code rather than in a comment. */
     public void learn(UUID userId, String description, UUID categoryId) {
-        // A row that names nobody has no merchant to learn for: the correction stays on that row.
-        merchantNormalizationEngine.resolve(userId, description)
-                .ifPresent(merchant -> merchantLearningService.confirm(userId, merchant.getId(), categoryId));
+        // A row that names nobody has no merchant to learn for: the choice is kept for the next row
+        // with the same text instead (NarrationCategoryMemory), and reaches no other payee.
+        merchantNormalizationEngine.resolve(userId, description).ifPresentOrElse(
+                merchant -> merchantLearningService.confirm(userId, merchant.getId(), categoryId),
+                () -> narrationCategoryMemory.remember(userId, description, categoryId));
     }
+
+    /** What {@link #learn} keeps for a row with no merchant: for a caller that has resolved the
+     *  merchant already and found none (ImportService's confirm loop). */
+    public void rememberForNarration(UUID userId, String description, UUID categoryId) {
+        narrationCategoryMemory.remember(userId, description, categoryId);
+    }
+
+    /** The category last chosen for a row with the same text, for a row with no merchant. Same
+     *  place in the order as a merchant's learned category, which such a row no longer has. */
+    private Optional<Suggestion> rememberedForNarration(UUID userId, UUID merchantId, String description) {
+        if (merchantId != null) return Optional.empty();
+        return narrationCategoryMemory.recall(userId, description)
+                .flatMap(categoryRepository::findById)
+                .map(cat -> new Suggestion(cat.getName(), "learned", null, Transaction.DecisionSource.LEARNED_PATTERN,
+                        null, REMEMBERED_CONFIDENCE));
+    }
+
+    /** A remembered choice is one person's answer for exactly this text: what a merchant's learned
+     *  category scores with a single confirmation (its whole distribution). */
+    private static final int REMEMBERED_CONFIDENCE = 100;
 
     /**
      * The queued counterpart of {@link #learn}, for BATCH callers (WI1A).
@@ -757,9 +787,11 @@ public class CategorizationService {
      * ImportService.confirm} queues per row for the identical reason.
      */
     public void queueLearning(UUID userId, String description, UUID categoryId) {
-        // As learn(): a row that names nobody has no merchant, and queues nothing.
-        merchantNormalizationEngine.resolve(userId, description)
-                .ifPresent(merchant -> learningEventPublisher.enqueue(userId, merchant.getId(), categoryId, null, null));
+        // As learn(): a row that names nobody has no merchant; its choice is kept for the next row
+        // with the same text, written after the caller commits (see NarrationCategoryMemory.remember).
+        merchantNormalizationEngine.resolve(userId, description).ifPresentOrElse(
+                merchant -> learningEventPublisher.enqueue(userId, merchant.getId(), categoryId, null, null),
+                () -> narrationCategoryMemory.remember(userId, description, categoryId));
     }
 
     /** Records that an ASSIGN_CATEGORY rule match actually reached a persisted transaction --
@@ -776,6 +808,19 @@ public class CategorizationService {
      *  callers (TransactionService, CsvImportService) so every transaction whose narration names a
      *  payee gets a merchant_id, whether its category came from a suggestion or an explicit user
      *  choice. Null for a narration that names nobody (MerchantNames.narrationNamesNobody). */
+    /**
+     * The name a rule on the MERCHANT field is matched against: the row's merchant's own name, or --
+     * for a row with none -- the name {@link MerchantNormalizationEngine} gives a new merchant
+     * ({@link MerchantNames#forNarration}). A row that names nobody had a merchant of exactly that
+     * name ("UPI payment", "Atm Wdl Sampletown") until it stopped getting one, so a rule written
+     * against it keeps matching. The preview of a payee seen for the first time gets the name its
+     * merchant is about to have, so the preview and the confirm agree.
+     */
+    private static String merchantNameForRules(java.util.Optional<Merchant> merchant, String description) {
+        if (merchant.isPresent()) return merchant.get().getCanonicalName();
+        return description == null || description.isBlank() ? null : MerchantNames.forNarration(description);
+    }
+
     public UUID resolveMerchantId(UUID userId, String description) {
         return merchantNormalizationEngine.resolve(userId, description).map(Merchant::getId).orElse(null);
     }
@@ -833,8 +878,8 @@ public class CategorizationService {
      * confirm loop.
      */
     public Category applySideEffectRules(UUID userId, Transaction t, List<CategoryRule> rules) {
-        String merchantName = merchantNormalizationEngine.resolve(userId, t.getDescription())
-                .map(Merchant::getCanonicalName).orElse(null);
+        String merchantName = merchantNameForRules(
+                merchantNormalizationEngine.resolve(userId, t.getDescription()), t.getDescription());
         List<RuleEngineService.RuleMatch> matches = rules != null
                 ? ruleEngineService.evaluateSideEffectRules(rules, t.getDescription(), t.getAmount(),
                         merchantName, null)

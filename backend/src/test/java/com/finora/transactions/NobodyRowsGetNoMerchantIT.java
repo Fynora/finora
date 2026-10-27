@@ -52,6 +52,7 @@ class NobodyRowsGetNoMerchantIT extends AbstractIntegrationTest {
     @Autowired private ImportSessionService importSessionService;
     @Autowired private ImportService importService;
     @Autowired private MerchantLearningEventRepository learningEventRepository;
+    @Autowired private com.finora.repository.CategoryRuleRepository ruleRepository;
     @Autowired private JdbcTemplate jdbc;
 
     private UUID userId;
@@ -78,6 +79,8 @@ class NobodyRowsGetNoMerchantIT extends AbstractIntegrationTest {
         // merchant_learning_events is shared by every IT; leave none of this user's behind.
         learningEventRepository.deleteAll(learningEventRepository.findAll().stream()
                 .filter(e -> userId.equals(e.getUserId())).toList());
+        // category_rules is shared by every IT too.
+        ruleRepository.deleteAll(ruleRepository.findAll().stream().filter(r -> userId.equals(r.getUserId())).toList());
     }
 
     private TransactionDto create(String narration, String categoryName) {
@@ -131,6 +134,65 @@ class NobodyRowsGetNoMerchantIT extends AbstractIntegrationTest {
         jdbc.update("UPDATE transactions SET needs_category_review = true WHERE id IN (?, ?)", first.getId(), second.getId());
 
         assertThat(groupingService.groupNeedsReviewByMerchant(userId)).isEmpty();
+    }
+
+    @Test
+    void aRuleOnTheMerchantNameStillMatchesARowThatNoLongerHasThatMerchant() {
+        com.finora.entity.CategoryRule rule = new com.finora.entity.CategoryRule();
+        rule.setUserId(userId);
+        rule.setScope(com.finora.entity.CategoryRule.Scope.USER);
+        rule.setField(com.finora.entity.CategoryRule.Field.MERCHANT);
+        rule.setOperator(com.finora.entity.CategoryRule.Operator.CONTAINS);
+        rule.setComparisonValue("Atm Wdl Sampletown");
+        rule.setActionType(com.finora.entity.CategoryRule.ActionType.ASSIGN_CATEGORY);
+        rule.setActionValue("Pocket Money");
+        rule.setPriority(100);
+        rule.setEnabled(true);
+        ruleRepository.save(rule);
+
+        Transaction t = stored(create("ATM WDL 100000000008 SAMPLETOWN", null));
+
+        assertThat(t.getMerchantId()).isNull();
+        assertThat(categoryRepository.findById(t.getCategoryId()).orElseThrow().getName()).isEqualTo("Pocket Money");
+    }
+
+    @Test
+    void aMandateThatRepeatsIsFiledAsThePersonFiledItLastTime() {
+        stored(create("NACH CHQ 004471", "Insurance"));
+
+        Transaction nextMonth = stored(create("NACH CHQ 004471", null));
+
+        assertThat(nextMonth.getMerchantId()).isNull();
+        assertThat(categoryRepository.findById(nextMonth.getCategoryId()).orElseThrow().getName()).isEqualTo("Insurance");
+    }
+
+    @Test
+    void aChoiceForOneBareUpiReferenceIsNotCarriedToAnother() {
+        stored(create("UPI/RRN 100000000011/UPI", "Gifts"));
+
+        Transaction another = stored(create("UPI/RRN 100000000012/UPI", null));
+
+        assertThat(categoryRepository.findById(another.getCategoryId()).orElseThrow().getName()).isNotEqualTo("Gifts");
+    }
+
+    @Test
+    void aChoiceMadeInImportReviewIsRememberedForTheNextImport() throws Exception {
+        String first = "Date,Description,Amount,Type\n2026-07-05,NACH CHQ 004481,500.00,DEBIT\n";
+        List<StagedRow> rows = previewGenerator.generate(userId, "statement.csv",
+                new ByteArrayInputStream(first.getBytes(StandardCharsets.UTF_8))).rows();
+        StagedRow shown = rows.get(0).withRowPosition(0);
+        ImportSession session = importSessionService.createSession(userId, "statement.csv",
+                first.getBytes(StandardCharsets.UTF_8), List.of(shown), null);
+        ConfirmedRow chosen = new ConfirmedRow(shown.date(), shown.description(), shown.amount(), shown.type(), "Insurance", true,
+                shown.categorySource(), shown.ruleId(), false, null, null, false, shown.categoryConfidence(), shown.rowPosition());
+        importService.confirmSession(userId, new ConfirmRequest(session.getId(), List.of(chosen), accountId, null, null, null, null));
+
+        String next = "Date,Description,Amount,Type\n2026-08-05,NACH CHQ 004481,500.00,DEBIT\n";
+        StagedRow nextMonth = previewGenerator.generate(userId, "statement.csv",
+                new ByteArrayInputStream(next.getBytes(StandardCharsets.UTF_8))).rows().get(0);
+
+        assertThat(nextMonth.suggestedCategory()).isEqualTo("Insurance");
+        assertThat(nextMonth.merchant()).isNull();
     }
 
     private ConfirmedRow confirmed(StagedRow r) {

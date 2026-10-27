@@ -56,11 +56,19 @@ public class TransactionExplanationService {
                     "Matched a rule you created.", confidence, reconciliation);
             case GLOBAL_RULE -> ruleExplanation(t, "GLOBAL_RULE",
                     "Matched one of Finora's built-in rules.", confidence, reconciliation);
-            case LEARNED_PATTERN -> new TransactionExplanationDto(
-                    "LEARNED_PATTERN",
-                    "Categorized based on how you've categorized " + merchantPhrase(t) + " before.",
-                    List.of("Every time you confirm or correct a category, Finora remembers it for that merchant."),
-                    confidence, reconciliation);
+            // No merchant: a line that names nobody, filed as the person filed the same line before
+            // (NarrationCategoryMemory). "That merchant" would name something the row does not have.
+            case LEARNED_PATTERN -> t.getMerchantId() == null
+                    ? new TransactionExplanationDto(
+                            "LEARNED_PATTERN",
+                            "Categorized the way you categorized this same line before.",
+                            List.of("This line names no shop or person, so Finora remembers your choice for this exact line."),
+                            confidence, reconciliation)
+                    : new TransactionExplanationDto(
+                            "LEARNED_PATTERN",
+                            "Categorized based on how you've categorized " + merchantPhrase(t) + " before.",
+                            List.of("Every time you confirm or correct a category, Finora remembers it for that merchant."),
+                            confidence, reconciliation);
             case KEYWORD_MATCH -> new TransactionExplanationDto(
                     "KEYWORD_MATCH",
                     "Matched a keyword Finora recognizes in the description.",

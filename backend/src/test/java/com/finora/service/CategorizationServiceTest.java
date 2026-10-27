@@ -38,6 +38,7 @@ class CategorizationServiceTest {
     private SharedCorpusService sharedCorpusService;
     private FynCategorizationFallbackService fynCategorizationFallbackService;
     private CategorizationService categorizationService;
+    private NarrationCategoryMemory narrationCategoryMemory;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
@@ -58,11 +59,14 @@ class CategorizationServiceTest {
         workspaceSettingsService = mock(WorkspaceSettingsService.class);
         sharedCorpusService = mock(SharedCorpusService.class);
         fynCategorizationFallbackService = mock(FynCategorizationFallbackService.class);
+        // Unstubbed: recall() answers Optional.empty(), so nothing is remembered unless a test says so.
+        narrationCategoryMemory = mock(NarrationCategoryMemory.class);
         categorizationService = new CategorizationService(
                 merchantNormalizationEngine, merchantLearningService, learningEventPublisher,
                 learningRepository,
                 new ConfidenceEngine(), categoryRepository, ruleEngineService, workspaceSettingsService,
-                sharedCorpusService, fynCategorizationFallbackService); // ConfidenceEngine is pure logic — real instance is fine
+                sharedCorpusService, fynCategorizationFallbackService, // ConfidenceEngine is pure logic — real instance is fine
+                narrationCategoryMemory);
     }
 
     private Merchant merchantWithId(UUID id) {
@@ -1524,8 +1528,39 @@ class CategorizationServiceTest {
 
         assertThat(suggestion.merchantId()).isNull();
         assertThat(suggestion.category()).isEqualTo("Cash Withdrawal");
-        verify(ruleEngineService).evaluateCategoryRule(eq(userId), anyString(), any(), isNull(), any(), any());
+        // A MERCHANT-field rule still sees the name such a row's merchant used to have.
+        verify(ruleEngineService).evaluateCategoryRule(eq(userId), anyString(), any(), eq("Atm Wdl Sampletown"), any(), any());
         verify(learningRepository, never()).findByUserIdAndMerchantId(any(), any());
+    }
+
+    @Test
+    void aRowThatNamesNobodyIsFiledAsLastTimeForTheSameText() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+        UUID insurance = UUID.randomUUID();
+        Category category = new Category();
+        category.setName("Insurance");
+        when(narrationCategoryMemory.recall(userId, "NACH CHQ 004471")).thenReturn(Optional.of(insurance));
+        when(categoryRepository.findById(insurance)).thenReturn(Optional.of(category));
+
+        var suggestion = categorizationService.suggest(userId, "NACH CHQ 004471",
+                new java.math.BigDecimal("500.00"), null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Insurance");
+        assertThat(suggestion.source()).isEqualTo("learned");
+        assertThat(suggestion.merchantId()).isNull();
+    }
+
+    @Test
+    void aChoiceForARowWithNoMerchantIsRememberedForItsText_notLearnedForAMerchant() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+        UUID categoryId = UUID.randomUUID();
+
+        categorizationService.learn(userId, "NACH CHQ 004471", categoryId);
+        categorizationService.queueLearning(userId, "NACH CHQ 004471", categoryId);
+
+        verify(narrationCategoryMemory, times(2)).remember(userId, "NACH CHQ 004471", categoryId);
+        verify(merchantLearningService, never()).confirm(any(), any(), any());
+        verify(learningEventPublisher, never()).enqueue(any(), any(), any(), any(), any());
     }
 
     @Test

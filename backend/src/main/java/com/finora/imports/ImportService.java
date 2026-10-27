@@ -1493,6 +1493,10 @@ public class ImportService {
             // above already paid for it.
             if (decision.worthLearning() && merchantId != null) {
                 pendingLearning.add(new PendingLearning(merchantId, category.getId()));
+            } else if (decision.worthLearning()) {
+                // A row that names nobody has no merchant to learn for; the choice is kept for the
+                // next row with the same text, written after this transaction commits.
+                categorizationService.rememberForNarration(userId, row.description(), category.getId());
             }
             // The pin rides the same worthLearning decision the merchant-learning queue above
             // already made. t.setTxnType(...) hasn't run yet at this point in the loop --

@@ -1,7 +1,7 @@
 # Rows that name nobody get no merchant
 
-Status: design approved section by section by the owner on 2026-10-14; this document awaits the
-owner's review before an implementation plan is written.
+Status: design approved section by section by the owner on 2026-10-14. Implemented 2026-10-27;
+section 4 records where the detach sweep is stricter than first written.
 
 ## Problem
 
@@ -83,18 +83,23 @@ transaction's merchant id (only `MerchantGroup.merchantId`, built from rows that
 
 ### 4. Detaching existing rows
 
-- **Queue.** Migration `V269` (free on main and in every open PR on 2026-10-14) creates
+- **Queue.** Migration `V294` (planned as `V269`, which main took while this work was paused;
+  `V294` was free on main and on every branch on 2026-10-27) creates
   `merchant_nobody_detach` (merchant id, primary key, `ON DELETE CASCADE`) and queues every
   TEMPORARY merchant whose name's first word is one of the payment words the rule can produce or
   meet: the nine rails (`upi`, `imps`, `neft`, `rtgs`, `mob`, `mmt`, `ib`, `ach`, `nach`), `pos`,
   `atm`, `atw`, `nwd`. The names #2133 stores ("UPI payment", "NACH payment" ...) open with one of
   these words already.
 - **Sweep.** `MerchantNobodyDetachSweepService`, built like `MerchantRailNameSweepService`:
-  - per queued merchant that is still TEMPORARY, every live row whose narration `narrationNamesNobody` gets
-    `merchant_id = NULL`, written only where the row still points at that merchant;
-  - the merchant is deleted only if it then has no rows **and** no learned category
-    (`merchant_category_learning`) -- deleting would cascade the learning and its audit history, as
+  - per queued merchant that is still TEMPORARY, every row whose narration `narrationNamesNobody` gets
+    `merchant_id = NULL`, written only where the row still points at that merchant. A row in the
+    bin (soft-deleted) is detached too, so it comes back without the merchant if restored;
+  - the merchant is deleted only if no row (live or binned) then points at it **and** it has no
+    learning: no `merchant_category_learning`, no `merchant_learning_audit`, no
+    `merchant_learning_events` row. Deleting would cascade all three away, as
     `MerchantReviewService`'s own comment warns; a merchant left with learning is kept and counted;
+  - a merchant whose narrations the rule throws on is counted as failed and stays queued for the
+    next pass, as in `MerchantRailNameSweepService`; a database error fails the batch;
   - its aliases go with it (`ON DELETE CASCADE`), so a later import of the same narration meets the
     rule, not a dead alias;
   - each detach is audited as a new action, `MERCHANT_ROWS_DETACHED`, and each deletion with the

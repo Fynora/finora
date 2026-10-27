@@ -1,5 +1,11 @@
 # Rows That Name Nobody Get No Merchant -- Implementation Plan
 
+> **As executed (2026-10-27):** Tasks 1-3 were done on 2026-10-14 and carried onto a fresh
+> worktree from `origin/main`; Tasks 4-6 were done there. The migration is `V294`, not `V269`
+> (main took `V269` meanwhile). Task 5's service is stricter than the code below: it also detaches
+> binned rows, keeps a merchant with learning audit or learning events as well as learned
+> categories, and leaves a merchant queued when the rule throws. The spec's section 4 is current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A transaction whose narration names no payee (a bare UPI/NACH reference, an ATM/ATW/NWD withdrawal) gets no merchant, and the fake merchants already made for such rows are detached and removed by a one-time, dry-run-first sweep.

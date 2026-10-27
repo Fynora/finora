@@ -315,6 +315,24 @@ class MerchantNamesTest {
     }
 
     @Test
+    void aShopWhoseNameOpensWithAtmIsAPayee_notAWithdrawal() {
+        assertThat(MerchantNames.narrationNamesNobody("ATM ELECTRONICS STORE")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("ATM SERVICES PVT LTD 100000000001")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("ATWATER SAMPLE STORE")).isFalse();
+        assertThat(MerchantNames.narrationNamesNobody("NWDSAMPLE TRADERS")).isFalse();
+        assertThat(MerchantNames.isCashWithdrawal("ATM ELECTRONICS STORE")).isFalse();
+    }
+
+    @Test
+    void aWithdrawalIsKnownByItsWithdrawalWordOrHdfcCode() {
+        assertThat(MerchantNames.isCashWithdrawal("ATM WDR 100000000001 SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.isCashWithdrawal("ATM CASH 100000000001 SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.isCashWithdrawal("ATW/100000000001/SAMPLETOWN BRANCH")).isTrue();
+        assertThat(MerchantNames.isCashWithdrawal("NWD-512345XXXXXX1234-SAMPLETOWN")).isTrue();
+        assertThat(MerchantNames.isCashWithdrawal(null)).isFalse();
+    }
+
+    @Test
     void anEmptyNarrationIsLeftToTheEngine() {
         assertThat(MerchantNames.narrationNamesNobody(null)).isFalse();
         assertThat(MerchantNames.narrationNamesNobody("   ")).isFalse();

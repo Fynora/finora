@@ -86,6 +86,14 @@ class MerchantNormalizationEngineTest {
                     .filter(m -> id.equals(m.getId()) && scopedUserId.equals(m.getUserId()))
                     .findFirst();
         });
+        // The lock taken before a row is linked: present while the fake still holds the merchant.
+        // MerchantDeletedWhileLinkingIT covers what it is for against a real Postgres.
+        when(merchantRepository.lockForLink(any(), any())).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            return merchants.stream().filter(m -> id.equals(m.getId())).findFirst().map(m -> id.toString());
+        });
+        when(merchantAliasRepository.existsById(any())).thenAnswer(inv ->
+                aliases.stream().anyMatch(a -> java.util.Objects.equals(a.getId(), inv.getArgument(0))));
         when(merchantRepository.save(any(Merchant.class))).thenAnswer(inv -> {
             Merchant m = inv.getArgument(0);
             // Merchant.id is JPA-generated with no setter; the real save() assigns it on persist.

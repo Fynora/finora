@@ -34,6 +34,7 @@ class MerchantNobodyDetachSweepIT extends AbstractIntegrationTest {
     @Autowired private AccountRepository accountRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     private UUID userId;
     private UUID accountId;
@@ -167,6 +168,42 @@ class MerchantNobodyDetachSweepIT extends AbstractIntegrationTest {
         assertThat(merchantOf(row)).isEqualTo(approved.getId());
         assertThat(result.unchanged()).isEqualTo(1);
         assertThat(queued()).isEmpty();
+    }
+
+    @Test
+    void aMerchantAnImportIsHoldingIsLeftQueued_andTheSweepDoesNotWaitForIt() throws Exception {
+        Merchant held = merchant("UPI payment", Merchant.Lifecycle.TEMPORARY);
+        UUID row = expense(held, "UPI/RRN 100000000020/UPI");
+        enqueue(held);
+        java.util.concurrent.CountDownLatch locked = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        // Another transaction holds the merchant the way an import linking a row to it does.
+        Thread importLike = new Thread(() -> transactionTemplate.executeWithoutResult(tx -> {
+            merchantRepository.lockForLink(held.getId(), userId);
+            locked.countDown();
+            try { release.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }));
+        importLike.start();
+        try {
+            assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            long started = System.nanoTime();
+            MerchantNobodyDetachSweepService.Result result = sweepService.apply();
+            long tookMs = (System.nanoTime() - started) / 1_000_000;
+
+            assertThat(result.busy()).isEqualTo(1);
+            assertThat(result.drained()).isFalse();
+            assertThat(tookMs).isLessThan(5_000);
+            assertThat(merchantOf(row)).isEqualTo(held.getId());
+            assertThat(queued()).containsExactly(held.getId());
+        } finally {
+            release.countDown();
+            importLike.join(10_000);
+        }
+
+        // Released: the next pass finishes the job.
+        assertThat(sweepService.apply().merchantsDeleted()).isEqualTo(1);
+        assertThat(merchantOf(row)).isNull();
     }
 
     @Test

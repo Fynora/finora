@@ -22,13 +22,20 @@ import java.util.UUID;
  * groups as if it were a shop. New rows get no merchant now ({@link MerchantNames#narrationNamesNobody}).
  *
  * <p>Per queued merchant that is still TEMPORARY: every row whose narration names nobody gets
- * {@code merchant_id = NULL}, written only where it still points at this merchant. A row in the bin
- * (soft-deleted) is detached too, so it comes back without the merchant if it is restored. The
- * merchant is then deleted only if no row points at it any more <b>and</b> it has no learning --
- * no learned category, no learning audit, no learning event. Deleting would cascade all three away,
- * as {@code MerchantReviewService}'s own doc warns. Its aliases go with it, so a
- * later import of the same narration meets the rule, not a dead alias. A merchant a person approved
- * is left as it is.
+ * {@code merchant_id = NULL}. A row in the bin (soft-deleted) is detached too, so it comes back
+ * without the merchant if it is restored. The merchant is then deleted only if no row points at it
+ * any more <b>and</b> it has no learning -- no learned category, no learning audit, no learning
+ * event. Deleting would cascade all three away, as {@code MerchantReviewService}'s own doc warns.
+ * Its aliases go with it, so a later import of the same narration meets the rule, not a dead alias.
+ * A merchant a person approved is left as it is.
+ *
+ * <p><b>It never waits on anyone.</b> The merchant and its rows are locked {@code SKIP LOCKED}
+ * before anything is read or written. A merchant an import is linking a row to (it holds the
+ * merchant, {@link com.finora.repository.MerchantRepository#lockForLink}), or one with a row
+ * another transaction is changing, is left queued for the next pass. So an import is never failed or
+ * deadlocked by this sweep: it waits at most for one batch, then finds the merchant gone and makes a
+ * new one. And once the merchant is held here, no new row can be linked to it until this commits,
+ * so what is read is what is deleted.
  *
  * <p>Modes ({@code app.merchant-nobody-detach.sweep.mode}): {@code dry-run}, the default, reads the
  * whole queue once per start, logs what it would do and writes nothing; {@code apply} works through
@@ -57,6 +64,7 @@ public class MerchantNobodyDetachSweepService {
      * merchant costs a few scans of transactions (reading its rows with the binned ones, the delete's
      * re-check, and the foreign key's SET NULL). Measured on 1,000,000 invented rows: 200 merchants
      * held one transaction for about 26 s, so 25 come to about 3 s at the same cost per merchant.
+     * That is also the longest an import linking a row to one of them can wait.
      */
     @Value("${app.merchant-nobody-detach.sweep.batch-size:25}")
     private int batchSize;
@@ -78,9 +86,10 @@ public class MerchantNobodyDetachSweepService {
     public void scheduledSweep() {
         if ("apply".equals(mode)) {
             Result r = apply();
-            if (r.decided() > 0 || r.failed() > 0) {
-                log.info("Merchant nobody detach: {} rows detached, {} merchants removed, {} kept, {} left as they were, {} failed.{}",
-                        r.rowsDetached(), r.merchantsDeleted(), r.merchantsKept(), r.unchanged(), r.failed(),
+            if (r.decided() > 0 || r.failed() > 0 || r.busy() > 0) {
+                log.info("Merchant nobody detach: {} rows detached, {} merchants removed, {} kept, {} left as they were, "
+                                + "{} busy (retried next pass), {} failed.{}",
+                        r.rowsDetached(), r.merchantsDeleted(), r.merchantsKept(), r.unchanged(), r.busy(), r.failed(),
                         r.drained() ? " Queue drained." : "");
             }
         } else if ("dry-run".equals(mode) && !dryRunReported) {
@@ -97,13 +106,13 @@ public class MerchantNobodyDetachSweepService {
     private record Row(UUID id, String description) {}
 
     private static final class Tally {
-        int rowsDetached, deleted, kept, unchanged, failed;
+        int rowsDetached, deleted, kept, unchanged, busy, failed;
     }
 
     /** One batch of up to {@code batchSize} queued merchants, in one transaction; each decided one is dequeued. */
     public Result apply() {
         List<Queued> batch = queued(batchSize);
-        if (batch.isEmpty()) return new Result(0, 0, 0, 0, 0, true);
+        if (batch.isEmpty()) return new Result(0, 0, 0, 0, 0, 0, true);
         Tally tally = new Tally();
         transactionTemplate.executeWithoutResult(tx -> {
             for (Queued merchant : batch) {
@@ -112,15 +121,15 @@ public class MerchantNobodyDetachSweepService {
                 }
             }
         });
-        return new Result(tally.rowsDetached, tally.deleted, tally.kept, tally.unchanged, tally.failed,
-                batch.size() < batchSize && tally.failed == 0);
+        return new Result(tally.rowsDetached, tally.deleted, tally.kept, tally.unchanged, tally.busy, tally.failed,
+                batch.size() < batchSize && tally.failed == 0 && tally.busy == 0);
     }
 
-    /** What {@link #apply} would do to the whole queue, writing nothing. */
+    /** What {@link #apply} would do to the whole queue, writing nothing and locking nothing. */
     public Result dryRun() {
         Tally tally = new Tally();
         for (Queued merchant : queued(Integer.MAX_VALUE)) decide(merchant, tally, false);
-        return new Result(tally.rowsDetached, tally.deleted, tally.kept, tally.unchanged, tally.failed, true);
+        return new Result(tally.rowsDetached, tally.deleted, tally.kept, tally.unchanged, tally.busy, tally.failed, true);
     }
 
     private List<Queued> queued(int limit) {
@@ -135,14 +144,41 @@ public class MerchantNobodyDetachSweepService {
                 """, (rs, n) -> new Queued(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3)), limit);
     }
 
-    /** False when the merchant could not be decided; it stays queued for the next pass. */
+    /** False when the merchant could not be decided now; it stays queued for the next pass. */
     private boolean decide(Queued merchant, Tally tally, boolean write) {
         if (merchant.userId() == null || !"TEMPORARY".equals(merchant.lifecycle())) {
             tally.unchanged++;
             return true;
         }
-        List<Row> rows = jdbc.query("SELECT id, description FROM transactions WHERE merchant_id = ?",
-                (rs, n) -> new Row(rs.getObject(1, UUID.class), rs.getString(2)), merchant.merchantId());
+        UUID merchantId = merchant.merchantId();
+        List<Row> rows;
+        if (write) {
+            // The merchant first: held, no row can be linked to it until this commits.
+            List<UUID> held = jdbc.queryForList(
+                    "SELECT id FROM merchants WHERE id = ? AND lifecycle_status = 'TEMPORARY' FOR UPDATE SKIP LOCKED",
+                    UUID.class, merchantId);
+            if (held.isEmpty()) {
+                boolean stillQueuedShape = Boolean.TRUE.equals(jdbc.queryForObject(
+                        "SELECT EXISTS (SELECT 1 FROM merchants WHERE id = ? AND lifecycle_status = 'TEMPORARY')",
+                        Boolean.class, merchantId));
+                if (stillQueuedShape) {
+                    tally.busy++;   // another transaction holds it -- an import linking a row
+                    return false;
+                }
+                tally.unchanged++;  // gone, or approved since the queue was read
+                return true;
+            }
+            rows = jdbc.query("SELECT id, description FROM transactions WHERE merchant_id = ? FOR UPDATE SKIP LOCKED",
+                    (rs, n) -> new Row(rs.getObject(1, UUID.class), rs.getString(2)), merchantId);
+            Long all = jdbc.queryForObject("SELECT count(*) FROM transactions WHERE merchant_id = ?", Long.class, merchantId);
+            if (all == null || all != rows.size()) {
+                tally.busy++;       // a row another transaction is changing
+                return false;
+            }
+        } else {
+            rows = jdbc.query("SELECT id, description FROM transactions WHERE merchant_id = ?",
+                    (rs, n) -> new Row(rs.getObject(1, UUID.class), rs.getString(2)), merchantId);
+        }
         // Only the rule is caught: it parses narrations, and one odd narration must not stop the
         // queue. A database error is left to fail the whole batch, as in the other sweeps -- caught
         // here it would leave the transaction aborted for every merchant after it.
@@ -150,7 +186,7 @@ public class MerchantNobodyDetachSweepService {
         try {
             nobody = rows.stream().filter(r -> MerchantNames.narrationNamesNobody(r.description())).map(Row::id).toList();
         } catch (RuntimeException e) {
-            log.error("Merchant nobody detach failed for merchant {}: {}", merchant.merchantId(), e.toString());
+            log.error("Merchant nobody detach failed for merchant {}: {}", merchantId, e.toString());
             tally.failed++;
             return false;
         }
@@ -160,28 +196,27 @@ public class MerchantNobodyDetachSweepService {
         }
         if (!write) {
             boolean learned = Boolean.TRUE.equals(jdbc.queryForObject(
-                    "SELECT " + HAS_LEARNING + " FROM merchants m WHERE m.id = ?", Boolean.class, merchant.merchantId()));
+                    "SELECT " + HAS_LEARNING + " FROM merchants m WHERE m.id = ?", Boolean.class, merchantId));
             tally.rowsDetached += nobody.size();
             if (nobody.size() == rows.size() && !learned) tally.deleted++; else tally.kept++;
             return true;
         }
         int detached = 0;
         for (UUID id : nobody) {
-            detached += jdbc.update("UPDATE transactions SET merchant_id = NULL WHERE id = ? AND merchant_id = ?", id, merchant.merchantId());
+            detached += jdbc.update("UPDATE transactions SET merchant_id = NULL WHERE id = ? AND merchant_id = ?", id, merchantId);
         }
         tally.rowsDetached += detached;
         if (detached > 0) {
-            auditService.record(merchant.userId(), "MERCHANT_ROWS_DETACHED", "Merchant", merchant.merchantId(),
+            auditService.record(merchant.userId(), "MERCHANT_ROWS_DETACHED", "Merchant", merchantId,
                     Map.of("rows", detached, "actor", ACTOR));
         }
-        // Re-checked in the statement itself, so a row linked or a category learned in between wins.
         int deleted = jdbc.update("""
                 DELETE FROM merchants m
                 WHERE m.id = ? AND m.lifecycle_status = 'TEMPORARY'
                   AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.merchant_id = m.id)
-                  AND NOT\s""" + HAS_LEARNING, merchant.merchantId());
+                  AND NOT\s""" + HAS_LEARNING, merchantId);
         if (deleted > 0) {
-            auditService.record(merchant.userId(), "MERCHANT_DISCARDED", "Merchant", merchant.merchantId(), Map.of("actor", ACTOR));
+            auditService.record(merchant.userId(), "MERCHANT_DISCARDED", "Merchant", merchantId, Map.of("actor", ACTOR));
             tally.deleted++;
         } else {
             tally.kept++;
@@ -194,10 +229,12 @@ public class MerchantNobodyDetachSweepService {
      * @param merchantsDeleted merchants removed because nothing was left on them
      * @param merchantsKept    merchants that lost rows but keep others, or keep learning
      * @param unchanged        queued merchants left as they were (approved, gone, or no row naming nobody)
+     * @param busy             merchants another transaction was holding; left queued for the next pass
      * @param failed           merchants whose narrations the rule threw on; left queued for the next pass
      * @param drained          true when this pass emptied the queue
      */
-    public record Result(int rowsDetached, int merchantsDeleted, int merchantsKept, int unchanged, int failed, boolean drained) {
+    public record Result(int rowsDetached, int merchantsDeleted, int merchantsKept, int unchanged, int busy, int failed,
+                         boolean drained) {
         int decided() { return merchantsDeleted + merchantsKept + unchanged; }
     }
 }

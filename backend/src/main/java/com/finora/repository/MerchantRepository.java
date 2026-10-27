@@ -48,6 +48,18 @@ public interface MerchantRepository extends JpaRepository<Merchant, UUID> {
     // UUIDs. Same pattern as CurrentUser-scoped queries elsewhere in the codebase.
     Optional<Merchant> findByIdAndUserId(UUID id, UUID userId);
 
+    /**
+     * Holds a merchant for the rest of the caller's transaction so a row can be linked to it, or
+     * returns empty when it is gone. {@code FOR KEY SHARE} is the lock the foreign key would take
+     * at the insert anyway, taken before the insert instead: a merchant being deleted
+     * (MerchantNobodyDetachSweepService, a discard) is waited for and then reads as gone, so the
+     * caller makes a new merchant instead of failing on the foreign key. A rename does not
+     * conflict with it.
+     */
+    @Query(value = "SELECT CAST(id AS VARCHAR) FROM merchants WHERE id = :id AND user_id = :userId FOR KEY SHARE",
+            nativeQuery = true)
+    Optional<String> lockForLink(@Param("id") UUID id, @Param("userId") UUID userId);
+
     /** AccountPurgeSweepService -- called last among the merchant-intelligence tables, after
      *  merchant_aliases/merchant_category_learning/merchant_learning_audit/merchant_learning_events
      *  (all FK'd to merchants with ON DELETE CASCADE, which would clean them up anyway -- explicit

@@ -142,6 +142,44 @@ public final class MerchantNames {
         return narrations == null ? null : mostCommonName(narrations, name -> true);
     }
 
+    /** HDFC's own-ATM "ATW" and other-bank "NWD" codes, printed straight before a "-" or "/". */
+    private static final Pattern HDFC_CASH_WITHDRAWAL = Pattern.compile("(?i)^\\s*(?:ATW|NWD)\\s*[-/]");
+
+    /**
+     * The words that make an "ATM ..." line a withdrawal ("ATM WDL", "ATM/CASH WDL", "ATM WDR").
+     * Without one, "ATM" is just the first word of a name: a shop called "ATM Electronics" is a payee.
+     */
+    private static final Set<String> WITHDRAWAL_WORDS =
+            Set.of("wdl", "wd", "wdr", "wdrl", "withdrawal", "withdraw", "cash", "cwdr", "cw");
+
+    /**
+     * Whether a narration is a cash withdrawal: HDFC's "ATW-"/"NWD-" (or "/") codes, or a line that
+     * opens with "ATM" and carries a withdrawal word.
+     */
+    public static boolean isCashWithdrawal(String description) {
+        if (description == null || description.isBlank()) return false;
+        if (HDFC_CASH_WITHDRAWAL.matcher(description).find()) return true;
+        String[] words = CategoryRules.normalize(description).split(" ");
+        if (!words[0].equals("atm")) return false;
+        return Arrays.stream(words, 1, words.length).anyMatch(WITHDRAWAL_WORDS::contains);
+    }
+
+    /**
+     * Whether a narration names nobody a merchant could stand for: a payment that carries only its
+     * rail and a reference ("UPI/RRN &lt;n&gt;/UPI"), or a cash withdrawal. Such a row gets no
+     * merchant -- MerchantNormalizationEngine.resolve asks this first.
+     *
+     * <p>True for a cash withdrawal ({@link #isCashWithdrawal}), or when the narration has no
+     * structured payee field and the name {@link #forNarration} gives it is shown as a rail's payment
+     * ("UPI payment", "NACH payment", ...). A narration with a payee field always names somebody.
+     */
+    public static boolean narrationNamesNobody(String description) {
+        if (description == null || description.isBlank()) return false;
+        if (isCashWithdrawal(description)) return true;
+        if (CategoryRules.structuredPayee(description) != null) return false;
+        return RAIL_PAYMENTS.containsValue(forDisplay(forNarration(description)));
+    }
+
     private static String mostCommonName(Collection<String> narrations, java.util.function.Predicate<String> counts) {
         // Sorted, so an even split is settled by the name and not by the order the rows came in.
         Map<String, Integer> votes = new TreeMap<>();

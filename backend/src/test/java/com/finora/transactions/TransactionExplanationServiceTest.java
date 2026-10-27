@@ -19,6 +19,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -207,6 +208,19 @@ class TransactionExplanationServiceTest {
         TransactionExplanationDto result = service.explain(userId, txnId);
 
         assertThat(result.summary()).contains("\"Swiggy\"");
+    }
+
+    @Test
+    void aRememberedChoiceForALineWithNoMerchantNamesNoMerchant() {
+        Transaction t = transaction(Transaction.DecisionSource.LEARNED_PATTERN, null, Transaction.Source.CSV_IMPORT);
+        t.setMerchant("NACH payment");
+        when(transactionRepository.findById(txnId)).thenReturn(Optional.of(t));
+
+        TransactionExplanationDto result = service.explain(userId, txnId);
+
+        assertThat(result.summary()).isEqualTo("Categorized the way you categorized this same line before.");
+        assertThat(String.join(" ", result.evidence())).doesNotContain("merchant");
+        verifyNoInteractions(merchantRepository);
     }
 
     @Test

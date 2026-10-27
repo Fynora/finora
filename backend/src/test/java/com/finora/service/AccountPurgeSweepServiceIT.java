@@ -156,6 +156,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
 
     @Autowired private UserRepository userRepository;
     @Autowired private com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository;
+    @Autowired private NarrationCategoryMemory narrationCategoryMemory;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
@@ -305,7 +306,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider, adminAlerts, statementSendCodeRepository);
+                auditLogRepository, emailProvider, adminAlerts, statementSendCodeRepository, narrationCategoryMemory);
         ReflectionTestUtils.setField(built, "sweepEnabled", true);
         ReflectionTestUtils.setField(built, "retentionHours", 0);
         ReflectionTestUtils.setField(built, "batchSize", 200);
@@ -416,6 +417,23 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(statementSendCodeRepository.findFirstByUserIdOrderByCreatedAtDesc(userId)).isEmpty();
+    }
+
+    /** Categories remembered for rows that name nobody (V295), same anonymize-not-delete trap. */
+    @Test
+    @Transactional
+    void purgeDeletesNarrationCategoryMemory() {
+        entityManager.flush();
+        UUID categoryId = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO categories (id, user_id, name, is_system, icon, color) VALUES (?, ?, 'Sample', false, 'tag', '#000000')",
+                categoryId, userId);
+        jdbcTemplate.update("INSERT INTO narration_category_memory (user_id, key_hash, category_id) VALUES (?, ?, ?)",
+                userId, "0".repeat(64), categoryId);
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM narration_category_memory WHERE user_id = ?",
+                Long.class, userId)).isZero();
     }
 
     /** Shared payments and loans (V281): all five tables, same anonymize-not-delete trap. */

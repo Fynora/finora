@@ -1,0 +1,166 @@
+# Rows that name nobody get no merchant
+
+Status: design approved section by section by the owner on 2026-10-14. Implemented 2026-10-27;
+section 4 records where the detach sweep is stricter than first written. After review the owner
+asked for four gaps to be closed on 2026-10-27: merchant-name rules, a choice for a repeating line
+(section 5), the ATM rule, and an import racing the sweep; each is marked where it changed.
+
+## Problem
+
+Every imported transaction is linked to a merchant (`transactions.merchant_id`), and a merchant is
+created on first sight of a payee. Some bank narrations name no payee at all: a UPI line carrying
+only a reference number ("UPI/RRN &lt;n&gt;/UPI"), a NACH line carrying only a mandate number, or a
+cash withdrawal at an ATM. The engine still creates a merchant for each.
+
+- **Each such row gets its own merchant.** `MerchantNormalizationEngine.resolve` looks a row up by
+  its whole normalised narration first, reference number included, which is unique per row; the
+  grouping key, its second lookup, is null for a narration made only of payment words. So the row
+  can never match an existing merchant. On the statement corpus (34 statements, 1,965 rows) 165
+  such rows made 165 merchants, each holding exactly one row: 16% of all engine-made merchants.
+- **What a customer sees.** Since #2133 these merchants are named "UPI payment", "NACH payment" and
+  so on. Top Merchants and the needs-review merchant groups list them as if they were shops, and
+  the dashboard's "merchants identified" count includes them.
+- **What the engine learns.** A category the customer gives such a row is learned for a merchant no
+  later row ever lands on: it teaches nothing.
+- **What the counterparty review misses.** `TransactionGroupingService.groupNeedsReviewByCounterparty`
+  skips every row that has a merchant, so these rows never join it, even when they carry a UPI id.
+- **ATM withdrawals.** The codebase already treats an ATM withdrawal as a mechanism with no business
+  on the other side (`MerchantIdentityLookup.NON_ENTITY_TERMS`). They still get a merchant per ATM
+  place, named after the narration ("Atm Wdl &lt;place&gt;", "Atw &lt;card&gt; &lt;terminal&gt;
+  &lt;place&gt;"). The only ATM formats in the corpus are HDFC's "ATW-" and "NWD-" (1 row each).
+
+Production (owner's count-only queries, 2026-10-14): 2 merchants named after a rail alone, holding
+5 rows of 2 users, every one of those rows typed BUSINESS with a counterparty key, none with a
+learned category; 1 merchant opening with "Atm" (1 row). Merchants opening with "Atw" or "Nwd" were
+not counted.
+
+## Decisions (owner, 2026-10-14)
+
+1. Such a row gets **no merchant** (not a shared one, not one keyed by its counterparty).
+2. Scope is **narrow**: rows that name nobody, plus ATM withdrawals in the formats seen (ATM, ATW,
+   NWD). Other mechanism rows (salary, interest, charges, EMI) are out of scope.
+3. Existing rows are **detached** by a one-time job, dry-run first.
+4. Approach: **one rule at the source** -- the engine decides, every caller handles the answer.
+
+## Design
+
+### 1. The rule
+
+`MerchantNames.narrationNamesNobody(String description)` (named so: `MerchantNames` already has a
+private `namesNobody(String word)`) is true when either:
+
+- the narration has no structured payee field, and the name a new merchant would get shows as a
+  rail's payment: `MerchantNames.forDisplay(MerchantNames.forNarration(d))` is one of the labels in
+  `MerchantNames.RAIL_PAYMENTS` ("UPI payment", "NACH payment", "Mobile banking payment", "Card
+  payment", ...). This covers "UPI/RRN &lt;n&gt;/UPI", a QR payment left with a handle suffix
+  ("Ybl"), and a narration left with a direction word ("Upi Dr"); or
+- it is a cash withdrawal (`MerchantNames.isCashWithdrawal`): HDFC's `ATW` or `NWD` code followed by
+  `-` or `/`, or a line opening with `ATM` that carries a withdrawal word (`WDL`, `WDR`, `CASH`,
+  ...). Changed on 2026-10-27 from "the first word is atm, atw or nwd", which treated a shop named
+  "ATM Electronics" as a withdrawal. On the corpus both rules pick the same rows.
+
+A narration with a structured payee field is never "nobody". The rule reuses #2133's naming, so
+"names nobody" has one definition in the codebase.
+
+### 2. The engine
+
+`MerchantNormalizationEngine.resolve(userId, description)` applies the rule **first**, before the
+exact-alias lookup: an alias written before this change would otherwise hand the old merchant
+back. It returns `Optional<Merchant>`, empty for such a row. The return type changes on purpose, so
+that the compiler names every caller. `resolveReadOnly` (both overloads) returns empty the same way.
+
+### 3. The callers
+
+| Caller | With no merchant |
+|---|---|
+| `CategorizationService.suggest` | Runs as `suggestReadOnly` already does with no merchant: the learned distribution is skipped and the remembered choice for the same text is used instead (below); keywords / shared corpus / AI fallback / shop trade / P2P / bank activity run as now. `Suggestion.merchantId` is null. |
+| `CategorizationService.learn`, `queueLearning`, `ImportService` confirm | No merchant learning. The choice is kept for the next row with the same text (below), never for other payees. |
+| `CategorizationService.resolveMerchantId` | Returns null. |
+| Rules on the `MERCHANT` field (suggest, preview, side-effect rules) | Matched against the name such a row's merchant used to have (`MerchantNames.forNarration`: "UPI payment", "Atm Wdl Sampletown"), so a rule an admin wrote against it keeps matching. Changed 2026-10-27; before, such rules silently stopped matching. |
+| `ImportService`, `StatementRefreshService` (2), `TransactionService.create` | Store no merchant. A statement refresh that rewrites a row's narration into one that names nobody clears its merchant. (`TransactionService.update` never re-resolves the merchant when a person edits a description; that is unchanged and out of scope.) |
+| `TransactionNormalizer` (import preview) | Already handles an empty `resolveReadOnly`; no change expected, to be confirmed by test. |
+
+Readers that already handle a row with no merchant (`AnalyticsService`, `TransactionGroupingService`,
+`WorkspaceDashboardService`, `DataExportService`, `TransactionExplanationService`,
+`TransactionService`) need no change; tests confirm the rows drop out of Top Merchants and the
+merchant groups and into the counterparty groups. Web and mobile clients do not read a
+transaction's merchant id (only `MerchantGroup.merchantId`, built from rows that have one).
+
+### 4. Detaching existing rows
+
+- **Queue.** Migration `V294` (planned as `V269`, which main took while this work was paused;
+  `V294` was free on main and on every branch on 2026-10-27) creates
+  `merchant_nobody_detach` (merchant id, primary key, `ON DELETE CASCADE`) and queues every
+  TEMPORARY merchant whose name's first word is one of the payment words the rule can produce or
+  meet: the nine rails (`upi`, `imps`, `neft`, `rtgs`, `mob`, `mmt`, `ib`, `ach`, `nach`), `pos`,
+  `atm`, `atw`, `nwd`. The names #2133 stores ("UPI payment", "NACH payment" ...) open with one of
+  these words already.
+- **Sweep.** `MerchantNobodyDetachSweepService`, built like `MerchantRailNameSweepService`:
+  - per queued merchant that is still TEMPORARY, every row whose narration `narrationNamesNobody` gets
+    `merchant_id = NULL`, written only where the row still points at that merchant. A row in the
+    bin (soft-deleted) is detached too, so it comes back without the merchant if restored;
+  - the merchant is deleted only if no row (live or binned) then points at it **and** it has no
+    learning: no `merchant_category_learning`, no `merchant_learning_audit`, no
+    `merchant_learning_events` row. Deleting would cascade all three away, as
+    `MerchantReviewService`'s own comment warns; a merchant left with learning is kept and counted;
+  - a merchant whose narrations the rule throws on is counted as failed and stays queued for the
+    next pass, as in `MerchantRailNameSweepService`; a database error fails the batch;
+  - its aliases go with it (`ON DELETE CASCADE`), so a later import of the same narration meets the
+    rule, not a dead alias;
+  - each detach is audited as a new action, `MERCHANT_ROWS_DETACHED`, and each deletion with the
+    existing `MERCHANT_DISCARDED` (actor `merchant-nobody-detach`); counts only, no narration;
+  - modes `app.merchant-nobody-detach.sweep.mode`: `dry-run` (default; reads the whole queue once
+    per start and logs rows it would detach, merchants it would delete, merchants it would keep),
+    `apply`, `off`. Bounded batches; one batch per transaction; a DB error fails the batch.
+  - **It never waits on anyone** (added 2026-10-27). The merchant and its rows are locked
+    `FOR UPDATE SKIP LOCKED` first; a merchant another transaction holds is counted busy and left
+    queued. On the other side, `MerchantNormalizationEngine.resolve` holds a merchant
+    (`MerchantRepository.lockForLink`, `FOR KEY SHARE`) before linking a row to it, and makes a new
+    merchant if it turns out to be gone. Without both, an import linking a row to a merchant this
+    sweep (or a discard) was deleting failed on the foreign key; measured in
+    `MerchantDeletedWhileLinkingIT`.
+  - Batches of 25: on 1,000,000 invented rows, 200 merchants held one transaction for about 26 s.
+- **Before apply,** the owner runs a count-only query (to be written with the plan) for the same
+  set, ATW/NWD included, so the dry-run numbers have something to be checked against.
+
+### 5. Remembering a choice for a line that repeats (added 2026-10-27)
+
+Owner's request, after review: a line that names nobody but repeats -- a NACH debit that prints
+only its mandate number, withdrawals at one ATM -- used to share a merchant, so a category chosen
+once was used again. `NarrationCategoryMemory` (`narration_category_memory`, V295) keeps the latest
+choice per user under a SHA-256 of the repeating text: for a withdrawal, the name its merchant used
+to get (place kept, reference dropped); for anything else, the whole normalised narration, so two
+bare UPI references never share a choice. Recalled where a merchant's learned category was; written
+after the caller commits, in its own transaction, so it can never fail or deadlock an import.
+Removed by the account purge.
+
+## Verification
+
+1. Test-first throughout; each new test watched failing.
+   - `MerchantNamesTest`: the rule on invented narrations of every shape above, and on ones that do
+     name a payee ("UPI/.../SAMPLE STORE/...", "POS &lt;card&gt; SAMPLE MART", "NEFT ... SAMPLE TRADERS").
+   - `MerchantNormalizationEngineTest`: no merchant, no alias written; an old alias for the same
+     narration is not used.
+   - `CategorizationService` tests: suggest without a merchant (ATM row still "Cash Withdrawal"),
+     learn and queueLearning do nothing.
+   - ITs against Postgres: import and manual create each leave the
+     row with no merchant; the row joins the counterparty groups and leaves Top Merchants.
+   - `MerchantNobodyDetachSweepIT`: detaches only rows that name nobody; deletes only empty merchants
+     without learning; leaves APPROVED merchants; dry-run writes nothing; a row repointed meanwhile
+     is not touched.
+2. Corpus: every statement imported into a fresh account, before and after. Every row that does not
+   name nobody keeps the same merchant grouping; the rows that do get none. Expected about 165 + 2;
+   the measured counts go in the PR.
+3. Production count (owner) before apply; dry-run log compared against it.
+4. Full `./mvnw verify`, then the PR's full CI run (repository is private: `full-ci` label + push).
+
+## Out of scope
+
+- Other mechanism rows (salary, interest, charges, EMI, card bill payments).
+- Grouping rows by counterparty key as a merchant identity.
+- Narrations whose structured payee field is itself a code (one corpus row); noted, not changed.
+
+## Sequencing
+
+#2153 (card-purchase display) changes `MerchantNames` too. This work starts from main after #2153
+merges, or is rebased onto it.

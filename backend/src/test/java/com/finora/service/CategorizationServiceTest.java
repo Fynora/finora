@@ -38,6 +38,7 @@ class CategorizationServiceTest {
     private SharedCorpusService sharedCorpusService;
     private FynCategorizationFallbackService fynCategorizationFallbackService;
     private CategorizationService categorizationService;
+    private NarrationCategoryMemory narrationCategoryMemory;
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
@@ -58,11 +59,14 @@ class CategorizationServiceTest {
         workspaceSettingsService = mock(WorkspaceSettingsService.class);
         sharedCorpusService = mock(SharedCorpusService.class);
         fynCategorizationFallbackService = mock(FynCategorizationFallbackService.class);
+        // Unstubbed: recall() answers Optional.empty(), so nothing is remembered unless a test says so.
+        narrationCategoryMemory = mock(NarrationCategoryMemory.class);
         categorizationService = new CategorizationService(
                 merchantNormalizationEngine, merchantLearningService, learningEventPublisher,
                 learningRepository,
                 new ConfidenceEngine(), categoryRepository, ruleEngineService, workspaceSettingsService,
-                sharedCorpusService, fynCategorizationFallbackService); // ConfidenceEngine is pure logic — real instance is fine
+                sharedCorpusService, fynCategorizationFallbackService, // ConfidenceEngine is pure logic — real instance is fine
+                narrationCategoryMemory);
     }
 
     private Merchant merchantWithId(UUID id) {
@@ -97,7 +101,7 @@ class CategorizationServiceTest {
         // transaction's narration (or an admin/user rename) -- this transaction's own raw text
         // carries no recognizable brand token at all.
         Merchant merchant = merchantWith(merchantId, "Swiggy Bangalore");
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchant);
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchant));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "UPI/REF88213764/SETTLEMENT");
@@ -130,7 +134,7 @@ class CategorizationServiceTest {
         // confidence and unflagged. Only an APPROVED (human-confirmed) name may be retried.
         UUID merchantId = UUID.randomUUID();
         when(merchantNormalizationEngine.resolve(eq(userId), anyString()))
-                .thenReturn(temporaryMerchantWith(merchantId, "Upi Rajesh Tea Cafe"));
+                .thenReturn(Optional.of(temporaryMerchantWith(merchantId, "Upi Rajesh Tea Cafe")));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "UPI/RAJESH KUMAR/rajesh1@ybl/REF8812");
@@ -152,7 +156,7 @@ class CategorizationServiceTest {
         // description does not. That is exactly the gap that made the two paths disagree.
         String firstSighting = "IMPS 9999 TO ANIL VERMA";
         when(merchantNormalizationEngine.resolve(eq(userId), anyString()))
-                .thenReturn(temporaryMerchantWith(merchantId, "Imps To Anil Verma"));
+                .thenReturn(Optional.of(temporaryMerchantWith(merchantId, "Imps To Anil Verma")));
         when(merchantNormalizationEngine.resolveReadOnly(eq(userId), anyString()))
                 .thenReturn(Optional.empty());
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
@@ -189,7 +193,7 @@ class CategorizationServiceTest {
     void suggest_detectsStructuralP2pTransfer_whenNothingElseMatches() {
         UUID merchantId = UUID.randomUUID();
         Merchant merchant = merchantWith(merchantId, "Unknown Merchant");
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchant);
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchant));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "UPI-RAJESH KUMAR-sampleuser@ybl-REF881234");
@@ -213,7 +217,7 @@ class CategorizationServiceTest {
         // strictly as the last resort, never as an override.
         UUID merchantId = UUID.randomUUID();
         Merchant merchant = merchantWith(merchantId, "Uber");
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchant);
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchant));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "UPI-UBER TRIP-sampleuser@ybl-REF881234");
@@ -227,7 +231,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_namesCashbackTheBankPaid_whenTheDirectionIsKnown() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "CASHBACK EARNED", null, null, Transaction.Type.INCOME);
@@ -240,7 +244,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_withoutADirection_leavesBankActivityUndecided() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "CASHBACK EARNED");
@@ -274,7 +278,7 @@ class CategorizationServiceTest {
     void suggest_aLearnedCategoryStillWinsOverBankActivity() {
         UUID merchantId = UUID.randomUUID();
         UUID categoryId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         MerchantCategoryLearning learned = new MerchantCategoryLearning();
         learned.setUserId(userId);
         learned.setMerchantId(merchantId);
@@ -295,7 +299,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_namesAShopByItsTrade_inPlaceOfOther() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId,
@@ -363,7 +367,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_passesTheDirectionToTheRuleEngine() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         categorizationService.suggest(userId, "UPI-SAMPLE LANDLORD-x", new java.math.BigDecimal("10000"), null,
@@ -391,7 +395,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_fallsBackToRuleEngine_whenMerchantHasNoLearnedDistribution() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "SWIGGY*ORDR9182 BLR");
@@ -404,7 +408,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_fallsBackToOther_whenNoRuleMatchesAndNoDistribution() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "SOME COMPLETELY UNKNOWN VENDOR");
@@ -416,7 +420,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_trustedCorpusEntryAndNoKeywordMatch_returnsSharedCorpusSuggestion() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         // A corporate-suffix ("PVT LTD") business name invented for this test -- guaranteed not
         // to collide with any real CategoryRules keyword, same reasoning as this file's own
@@ -440,7 +444,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_noCorpusEntry_fallsBackToAi() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(eq(userId), eq("vpa:brandnewvendor"),
@@ -462,7 +466,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_namedIndividualTransfer_neverReachesTheAiFallback() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
@@ -505,7 +509,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_aNarrationWithNothingLeftOnceNamesAreMasked_neverReachesTheAiFallback() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
@@ -518,7 +522,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_noCorpusEntryAndNoAiAnswer_fallsThroughToStructuralP2pThenOther() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.empty());
@@ -587,7 +591,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_keylessNarration_skipsTheAiFallback() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         when(sharedCorpusService.findTrustedSuggestion(any(), any(), any())).thenReturn(Optional.empty());
         when(fynCategorizationFallbackService.suggest(any(), any(), any(), any())).thenReturn(Optional.of("Dining"));
@@ -640,7 +644,7 @@ class CategorizationServiceTest {
         category.setUserId(userId);
         category.setName("Entertainment");
 
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of(pair));
         when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
@@ -660,7 +664,7 @@ class CategorizationServiceTest {
         rule.setActionValue("Dining");
         rule.setScope(CategoryRule.Scope.USER);
 
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), anyString(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
@@ -692,7 +696,7 @@ class CategorizationServiceTest {
         shoppingCategory.setUserId(userId);
         shoppingCategory.setName("Shopping");
 
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId))
                 .thenReturn(List.of(shopping, electronics));
         when(categoryRepository.findById(shoppingId)).thenReturn(Optional.of(shoppingCategory));
@@ -706,7 +710,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_keywordFallbackMatch_reportsInitialRuleConfidence() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         // "SWIGGY" hits the static keyword table's Dining rule -- see
@@ -720,7 +724,7 @@ class CategorizationServiceTest {
     @Test
     void suggest_defaultFallback_reportsInitialDefaultConfidence() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
 
         var suggestion = categorizationService.suggest(userId, "SOME COMPLETELY UNKNOWN VENDOR");
@@ -733,7 +737,7 @@ class CategorizationServiceTest {
     void learn_resolvesMerchantAndDelegatesToMerchantLearningService() {
         UUID merchantId = UUID.randomUUID();
         UUID categoryId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
 
         categorizationService.learn(userId, "SWIGGY*ORDR9182 BLR", categoryId);
 
@@ -791,7 +795,7 @@ class CategorizationServiceTest {
     void queueLearning_resolvesTheMerchantItselfAndQueuesTheConfirmationInsteadOfApplyingIt() {
         UUID merchantId = UUID.randomUUID();
         UUID categoryId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
 
         categorizationService.queueLearning(userId, "SWIGGY*ORDR9182 BLR", categoryId);
 
@@ -808,7 +812,7 @@ class CategorizationServiceTest {
     @Test
     void resolveMerchantId_delegatesToNormalizationEngine() {
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
 
         UUID result = categorizationService.resolveMerchantId(userId, "some description");
 
@@ -1004,7 +1008,7 @@ class CategorizationServiceTest {
     void suggest_prefersUserRuleMatch_overLearnedDistributionAndKeywordFallback() {
         UUID merchantId = UUID.randomUUID();
         CategoryRule rule = userRule("Work Expenses");
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
@@ -1023,7 +1027,7 @@ class CategorizationServiceTest {
     void suggest_globalRuleMatch_reportsGlobalRuleAsTheDecisionSource() {
         UUID merchantId = UUID.randomUUID();
         CategoryRule rule = globalRule("Dining");
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(ruleEngineService.evaluateCategoryRule(eq(userId), anyString(), any(), any(), any(), any()))
                 .thenReturn(Optional.of(new RuleEngineService.RuleMatch(rule)));
 
@@ -1039,7 +1043,7 @@ class CategorizationServiceTest {
         // the new category_rules DB table -- both can produce source()=="rule"-shaped results in
         // spirit, but only the DB-table path should ever report GLOBAL_RULE/USER_RULE.
         UUID merchantId = UUID.randomUUID();
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(merchantId));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(merchantId)));
         when(learningRepository.findByUserIdAndMerchantId(userId, merchantId)).thenReturn(List.of());
         // ruleEngineService is unstubbed -- returns Optional.empty(), falls through to keyword table.
 
@@ -1091,7 +1095,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_markTransfer_setsTransferFlagAndReconciliationStatus() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.MARK_TRANSFER, null))));
 
@@ -1105,7 +1109,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_markInvestment_defaultsToInvestmentsCategory_whenActionValueIsBlank() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, null))));
         Category investments = new Category();
@@ -1123,7 +1127,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_markInvestment_usesActionValueAsCategoryName_whenProvided() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.MARK_INVESTMENT, "SIP - Equity"))));
         Category sipEquity = new Category();
@@ -1140,7 +1144,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_addTag_appendsWithoutDuplicating() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.ADD_TAG, "streaming"))));
 
@@ -1154,7 +1158,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_addTag_createsTagListWhenNull() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.ADD_TAG, "streaming"))));
 
@@ -1170,7 +1174,7 @@ class CategorizationServiceTest {
         // See applySideEffectRules's own doc comment for why -- RecurringService fully
         // recomputes Transaction.recurring on every call, so setting it here would just get
         // wiped out the next time anyone loads the Recurring page.
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(List.of(new RuleEngineService.RuleMatch(sideEffectRule(CategoryRule.ActionType.MARK_SUBSCRIPTION, null))));
 
@@ -1200,7 +1204,7 @@ class CategorizationServiceTest {
     }
 
     private void sideEffectMatches(CategoryRule... rules) {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any()))
                 .thenReturn(java.util.Arrays.stream(rules).map(RuleEngineService.RuleMatch::new).toList());
     }
@@ -1467,7 +1471,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_noMatches_leavesTransactionUntouched() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any())).thenReturn(List.of());
 
         Transaction t = txnFor("REGULAR GROCERY PURCHASE");
@@ -1482,7 +1486,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_recordsAMatch_forEveryRuleThatFired() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         CategoryRule markTransfer = sideEffectRule(CategoryRule.ActionType.MARK_TRANSFER, null);
         CategoryRule addTag = sideEffectRule(CategoryRule.ActionType.ADD_TAG, "streaming");
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any())).thenReturn(List.of(
@@ -1496,7 +1500,7 @@ class CategorizationServiceTest {
 
     @Test
     void applySideEffectRules_noMatches_recordsNothing() {
-        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(merchantWithId(UUID.randomUUID()));
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.of(merchantWithId(UUID.randomUUID())));
         when(ruleEngineService.evaluateSideEffectRules(eq(userId), anyString(), any(), any(), any())).thenReturn(List.of());
 
         categorizationService.applySideEffectRules(userId, txnFor("REGULAR GROCERY PURCHASE"));
@@ -1511,5 +1515,62 @@ class CategorizationServiceTest {
         categorizationService.recordRuleMatch(ruleId);
 
         verify(ruleEngineService).recordMatch(ruleId);
+    }
+
+    // ---- a row whose narration names nobody has no merchant ----
+
+    @Test
+    void aRowThatNamesNobodyIsSuggestedACategoryWithNoMerchant() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+
+        var suggestion = categorizationService.suggest(userId, "ATM WDL 100000000001 SAMPLETOWN",
+                new java.math.BigDecimal("500.00"), null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.merchantId()).isNull();
+        assertThat(suggestion.category()).isEqualTo("Cash Withdrawal");
+        // A MERCHANT-field rule still sees the name such a row's merchant used to have.
+        verify(ruleEngineService).evaluateCategoryRule(eq(userId), anyString(), any(), eq("Atm Wdl Sampletown"), any(), any());
+        verify(learningRepository, never()).findByUserIdAndMerchantId(any(), any());
+    }
+
+    @Test
+    void aRowThatNamesNobodyIsFiledAsLastTimeForTheSameText() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+        UUID insurance = UUID.randomUUID();
+        Category category = new Category();
+        category.setName("Insurance");
+        when(narrationCategoryMemory.recall(userId, "NACH CHQ 004471")).thenReturn(Optional.of(insurance));
+        when(categoryRepository.findById(insurance)).thenReturn(Optional.of(category));
+
+        var suggestion = categorizationService.suggest(userId, "NACH CHQ 004471",
+                new java.math.BigDecimal("500.00"), null, Transaction.Type.EXPENSE);
+
+        assertThat(suggestion.category()).isEqualTo("Insurance");
+        assertThat(suggestion.source()).isEqualTo("learned");
+        assertThat(suggestion.merchantId()).isNull();
+    }
+
+    @Test
+    void aChoiceForARowWithNoMerchantIsRememberedForItsText_notLearnedForAMerchant() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+        UUID categoryId = UUID.randomUUID();
+
+        categorizationService.learn(userId, "NACH CHQ 004471", categoryId);
+        categorizationService.queueLearning(userId, "NACH CHQ 004471", categoryId);
+
+        verify(narrationCategoryMemory, times(2)).remember(userId, "NACH CHQ 004471", categoryId);
+        verify(merchantLearningService, never()).confirm(any(), any(), any());
+        verify(learningEventPublisher, never()).enqueue(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void learningFromARowThatNamesNobodyTeachesNothing() {
+        when(merchantNormalizationEngine.resolve(eq(userId), anyString())).thenReturn(Optional.empty());
+
+        categorizationService.learn(userId, "UPI/RRN 100000000001/UPI", UUID.randomUUID());
+        categorizationService.queueLearning(userId, "UPI/RRN 100000000001/UPI", UUID.randomUUID());
+
+        verifyNoInteractions(merchantLearningService, learningEventPublisher);
+        assertThat(categorizationService.resolveMerchantId(userId, "UPI/RRN 100000000001/UPI")).isNull();
     }
 }

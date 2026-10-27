@@ -70,7 +70,7 @@ class MerchantOversizedDescriptionIT extends AbstractIntegrationTest {
                 .as("the fixture has to actually exceed the column, or it tests nothing")
                 .isGreaterThan(255);
 
-        Merchant merchant = engine.resolve(userId, OVERSIZED_NARRATION);
+        Merchant merchant = engine.resolve(userId, OVERSIZED_NARRATION).orElseThrow();
 
         // Non-null matters as much as not-throwing: every caller of resolve() dereferences the
         // result immediately, so returning null would have traded the rollback for an NPE -- the
@@ -102,8 +102,8 @@ class MerchantOversizedDescriptionIT extends AbstractIntegrationTest {
     void theSameMisparsedNarrationMapsToTheSameMerchantTwice() {
         UUID userId = newUser();
 
-        Merchant first = engine.resolve(userId, OVERSIZED_NARRATION);
-        Merchant second = engine.resolve(userId, OVERSIZED_NARRATION);
+        Merchant first = engine.resolve(userId, OVERSIZED_NARRATION).orElseThrow();
+        Merchant second = engine.resolve(userId, OVERSIZED_NARRATION).orElseThrow();
 
         // Truncation has to be deterministic. If it were not, a re-import of the same statement
         // would multiply merchant rows instead of matching the existing one -- which is the

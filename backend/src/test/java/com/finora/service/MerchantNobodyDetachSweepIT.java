@@ -170,6 +170,26 @@ class MerchantNobodyDetachSweepIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aQueueLongerThanOneBatchIsWorkedThroughOverSeveralPasses() {
+        // One more than the default batch of 25.
+        for (int i = 0; i < 26; i++) {
+            Merchant fake = merchant("UPI payment", Merchant.Lifecycle.TEMPORARY);
+            expense(fake, "UPI/RRN " + (100000000100L + i) + "/UPI");
+            enqueue(fake);
+        }
+
+        MerchantNobodyDetachSweepService.Result first = sweepService.apply();
+        assertThat(first.merchantsDeleted()).isEqualTo(25);
+        assertThat(first.drained()).isFalse();
+        assertThat(queued()).hasSize(1);
+
+        MerchantNobodyDetachSweepService.Result second = sweepService.apply();
+        assertThat(second.merchantsDeleted()).isEqualTo(1);
+        assertThat(second.drained()).isTrue();
+        assertThat(queued()).isEmpty();
+    }
+
+    @Test
     void aDryRunCountsWhatItWouldDoAndWritesNothing() {
         Merchant fake = merchant("Atw 512345xxxxxx1234 S1anbg12 Sampletown", Merchant.Lifecycle.TEMPORARY);
         UUID row = expense(fake, "ATW-512345XXXXXX1234-S1ANBG12-SAMPLETOWN");

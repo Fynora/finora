@@ -52,7 +52,13 @@ public class MerchantNobodyDetachSweepService {
     @Value("${app.merchant-nobody-detach.sweep.mode:dry-run}")
     private String mode;
 
-    @Value("${app.merchant-nobody-detach.sweep.batch-size:200}")
+    /**
+     * Merchants per transaction. Small on purpose: the merchant index covers live rows only, so each
+     * merchant costs a few scans of transactions (reading its rows with the binned ones, the delete's
+     * re-check, and the foreign key's SET NULL). Measured on 1,000,000 invented rows: 200 merchants
+     * held one transaction for about 26 s, so 25 come to about 3 s at the same cost per merchant.
+     */
+    @Value("${app.merchant-nobody-detach.sweep.batch-size:25}")
     private int batchSize;
 
     private final JdbcTemplate jdbc;

@@ -10,7 +10,8 @@ import {
   parseRedirects,
   spaShellHtml,
 } from './spaShell.mjs';
-import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
+import { HELP_ARTICLE_ROUTE } from '../src/pages/helpArticles';
+import { pageCollections } from './ssr-entry';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -32,11 +33,12 @@ const prerenderSource = read('scripts/prerender.mjs');
 const routeTags = appSource.match(/<Route\b/g) ?? [];
 const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*');
 const fixedPrerenderedPaths = [...prerenderSource.matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',?\s*$/gm)].map((m) => m[1]);
-// The Help answers: one file each, written by prerender.mjs's loop over ssr-entry's helpArticlePages
-// (seoFiles.test.tsx holds that loop and that list to HELP_ARTICLES). App.tsx serves them through a
-// single pattern route, HELP_ARTICLE_ROUTE.
-const helpPaths = HELP_ARTICLES.map(helpArticlePath);
-const prerenderedPaths = [...fixedPrerenderedPaths, ...helpPaths];
+// Collection pages (the Help answers): one file each, written by prerender.mjs's loop over
+// ssr-entry's pageCollections (seoFiles.test.tsx holds that loop to the sitemap). App.tsx serves
+// each collection through one pattern route, `/<section>/:slug`.
+const collectionRoutes = pageCollections.map((c) => c.route);
+const collectionPaths = pageCollections.flatMap((c) => Object.keys(c.pages));
+const prerenderedPaths = [...fixedPrerenderedPaths, ...collectionPaths];
 const notFoundFile = prerenderSource.match(/^const NOT_FOUND_FILE = '([^']+)';$/m)?.[1];
 
 const disallowRules = robots
@@ -58,8 +60,9 @@ describe('the lists this file reads', () => {
     expect(prerenderedPaths).toContain('/');
     expect(prerenderedPaths).toContain('/privacy');
     expect(fixedPrerenderedPaths.length).toBeGreaterThanOrEqual(12);
-    expect(routePaths).toContain(HELP_ARTICLE_ROUTE);
-    expect(helpPaths.length).toBeGreaterThanOrEqual(30);
+    expect(collectionRoutes).toContain(HELP_ARTICLE_ROUTE);
+    for (const route of collectionRoutes) expect(routePaths).toContain(route);
+    expect(collectionPaths.length).toBeGreaterThanOrEqual(30);
   });
 
   it('reads every <Route> in App.tsx: each has a literal, absolute path this file can check', () => {
@@ -111,8 +114,8 @@ describe('public/_redirects', () => {
   });
 
   it('sends every route that is not prerendered to the shell, with or without a trailing slash', () => {
-    // The Help article route is not browser-only: every address it serves has its own file.
-    const browserOnly = routePaths.filter((p) => !prerenderedPaths.includes(p) && p !== HELP_ARTICLE_ROUTE);
+    // A collection's pattern route is not browser-only: every address it serves has its own file.
+    const browserOnly = routePaths.filter((p) => !prerenderedPaths.includes(p) && !collectionRoutes.includes(p));
     expect(browserOnly.length).toBeGreaterThan(0);
     for (const route of browserOnly) {
       for (const address of [concrete(route), `${concrete(route)}/`]) {
@@ -126,14 +129,20 @@ describe('public/_redirects', () => {
 
   it('gives every prerendered page a route, so no file is served for an address the app does not know', () => {
     for (const page of fixedPrerenderedPaths) expect(routePaths, page).toContain(page);
-    for (const page of helpPaths) expect(page.startsWith('/help/'), `${page} is outside ${HELP_ARTICLE_ROUTE}`).toBe(true);
+    for (const collection of pageCollections) {
+      const section = collection.route.replace(/:slug$/, '');
+      for (const page of Object.keys(collection.pages)) expect(page.startsWith(section), `${page} is outside ${collection.route}`).toBe(true);
+    }
   });
 
-  it('leaves a Help answer that does not exist to the 404 page, like any unknown address', () => {
-    // No rule may cover /help/<anything>: it would replace every prerendered answer with the blank
-    // shell, and turn an unknown slug into a soft 404.
-    for (const address of ['/help/no-such-answer', '/help/no-such-answer/', '/help/x']) {
-      expect(matchRedirect(rules, address), address).toBeUndefined();
+  it('leaves a collection page that does not exist to the 404 page, like any unknown address', () => {
+    // No rule may cover /help/<anything> (or any collection's section): it would replace every
+    // prerendered page there with the blank shell, and turn an unknown slug into a soft 404.
+    for (const route of collectionRoutes) {
+      const section = route.replace(/:slug$/, '');
+      for (const address of [`${section}no-such-page`, `${section}no-such-page/`, `${section}x`]) {
+        expect(matchRedirect(rules, address), address).toBeUndefined();
+      }
     }
   });
 

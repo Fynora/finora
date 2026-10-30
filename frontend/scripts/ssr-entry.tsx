@@ -10,7 +10,7 @@ import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Help from '../src/pages/Help';
 import { HelpArticleView } from '../src/pages/HelpArticle';
-import { HELP_ARTICLES, helpArticlePath } from '../src/pages/helpArticles';
+import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
@@ -54,17 +54,50 @@ export const routes: Record<string, () => string> = {
 };
 
 /**
- * One page per Help answer, at /help/<slug>, written to dist/help/<slug>.html by
- * scripts/prerender.mjs. Built from HELP_ARTICLES rather than listed by hand, so an article added
- * there is prerendered without a second edit. Kept apart from `routes` because those are written
- * to the file names prerender.mjs lists; these are written under dist/help/.
+ * A set of pages that share one pattern route in App.tsx, `/<section>/:slug`, one page per record
+ * in a data module (the Help answers today). Each page is prerendered to
+ * dist/<section>/<slug>.html, which Cloudflare Pages serves at the extensionless /<section>/<slug>.
+ * They need no line in public/_redirects (a rewrite there would replace the file with the blank
+ * noindex shell), and a slug with no record has no file, so it gets 404.html with a 404.
+ *
+ * To add a collection (bank pages at /banks/<slug>, for example):
+ *   1. A data module with one record per page, each with a stable lower-case slug (see
+ *      src/pages/helpArticles.ts: HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath).
+ *   2. A view component that renders one record in PublicLayout, with a plain-text <h1> (it becomes
+ *      the <title>) and a `description` of 70 to 160 characters (it becomes the meta description),
+ *      and a route component that looks the slug up and renders NotFound when there is none
+ *      (src/pages/HelpArticle.tsx).
+ *   3. `<Route path="/<section>/:slug" ...>` in src/App.tsx.
+ *   4. An entry in `pageCollections` below. scripts/prerender.mjs writes every page of every
+ *      collection; it needs no edit.
+ *   5. One <url> per page in public/sitemap.xml, in the collection's order. seoFiles.test.tsx and
+ *      spaShell.test.ts read `pageCollections` and fail until the sitemap matches and no
+ *      _redirects rule covers the section.
+ *   6. Structured data for the pages in src/lib/structuredData.ts (structuredDataFor). Without a
+ *      branch of its own a page gets only Home > <title> breadcrumbs.
+ *   7. The view in pageMeta.test.tsx's PRERENDERED_PAGES, which holds every prerendered page's
+ *      description to 70 to 160 characters and to the same string in the browser and the HTML.
+ * A hub page for the collection (/banks) is an ordinary fixed page: `routes` above, OUTPUT_FILES in
+ * prerender.mjs, and the sitemap.
  */
+export interface PageCollection {
+  /** The pattern route in App.tsx, `/<section>/:slug`. */
+  route: string;
+  /** Every page's address and its renderer, in sitemap order. */
+  pages: Record<string, () => string>;
+}
+
+/** One page per Help answer, built from HELP_ARTICLES, so an article added there needs no edit here. */
 export const helpArticlePages: Record<string, () => string> = Object.fromEntries(
   HELP_ARTICLES.map((article) => {
     const route = helpArticlePath(article);
     return [route, page(route, () => <HelpArticleView article={article} />)];
   }),
 );
+
+export const pageCollections: PageCollection[] = [
+  { route: HELP_ARTICLE_ROUTE, pages: helpArticlePages },
+];
 
 /**
  * The not-found page, written to dist/404.html. Deliberately NOT an entry in `routes`: those are

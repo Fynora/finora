@@ -117,7 +117,7 @@ class DashboardServiceHealthScoreSnapshotIT extends AbstractIntegrationTest {
 
         // A prior snapshot far enough in the past that it is always strictly before "this month",
         // regardless of when this test actually runs.
-        healthScoreSnapshotRepository.upsertForMonth(userId, "2020-01", 40, "Fair", 40, 40, 40, 40, 40);
+        healthScoreSnapshotRepository.upsertForMonth(userId, "2020-01", 40, "Fair", 40.0, 40.0, 40.0, 40.0, 40.0);
 
         DashboardSummaryDto result = dashboardService.summarize(userId);
 

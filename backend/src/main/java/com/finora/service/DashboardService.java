@@ -584,7 +584,7 @@ public class DashboardService {
      */
     private Optional<Opportunity> computeTopOpportunity(Map<String, Double> breakdown) {
         return breakdown.entrySet().stream()
-                .filter(e -> e.getValue() < 80)
+                .filter(e -> e.getValue() != null && e.getValue() < 80)
                 .map(e -> new Opportunity(e.getKey(),
                         (int) Math.round(HEALTH_SCORE_WEIGHTS.get(e.getKey()) * (80 - e.getValue()))))
                 .filter(o -> o.potentialGain() >= 3)
@@ -679,12 +679,33 @@ public class DashboardService {
         long positiveMonths = countNonNegativeMonths(fullMonthlyIncome, fullMonthlyExpense);
         double cashFlowScore = fullMonthlyExpense.isEmpty() ? 100 : (double) positiveMonths / fullMonthlyExpense.size() * 100;
 
-        int overall = (int) Math.round(
-                savingsRateScore * HEALTH_SCORE_WEIGHTS.get("Savings Rate")
-                        + debtScore * HEALTH_SCORE_WEIGHTS.get("Debt Score")
-                        + emergencyScore * HEALTH_SCORE_WEIGHTS.get("Emergency Fund")
-                        + consistencyScore * HEALTH_SCORE_WEIGHTS.get("Spend Consistency")
-                        + cashFlowScore * HEALTH_SCORE_WEIGHTS.get("Cash Flow Stability"));
+        // The month the savings rate above was read from: the latest full one, else the newest.
+        String latestMonth = latestFullMonth != null ? latestFullMonth : last6.isEmpty() ? null : last6.get(last6.size() - 1);
+        BigDecimal unresolvedLatest = latestMonth == null ? BigDecimal.ZERO : FlowTotals.unresolvedInflow(active.stream()
+                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(latestMonth)).toList(), flow);
+        String savingsGate = SavingsRate.of(incomeCur, expenseCur, unresolvedLatest).gateReason();
+
+        // A part that cannot be measured yet is left out of the score, and its weight shared among
+        // the parts that can (the owner's choice, 2026-10-30). Spend Consistency used to score 100
+        // with under two full months (no variation measured reads as none), Cash Flow Stability
+        // 100 with no full month, the Emergency Fund 100 or 0 with no recorded expenses, and the
+        // savings rate 0 when its own card says it cannot be measured. Measured in production
+        // before this change: 5 of 12 users' scores moved by it, one from "Good" (69) to the
+        // "Fair" (56) its measured parts give.
+        Map<String, Double> breakdown = new LinkedHashMap<>();
+        breakdown.put("Savings Rate", savingsGate == null ? savingsRateScore : null);
+        breakdown.put("Debt Score", debtScore);
+        breakdown.put("Emergency Fund", avgExpense.compareTo(BigDecimal.ZERO) > 0 ? emergencyScore : null);
+        breakdown.put("Spend Consistency", fullMonthlyExpense.size() > 1 ? consistencyScore : null);
+        breakdown.put("Cash Flow Stability", fullMonthlyExpense.isEmpty() ? null : cashFlowScore);
+        double weighted = 0, weightMeasured = 0;
+        for (Map.Entry<String, Double> part : breakdown.entrySet()) {
+            if (part.getValue() == null) continue;
+            weighted += part.getValue() * HEALTH_SCORE_WEIGHTS.get(part.getKey());
+            weightMeasured += HEALTH_SCORE_WEIGHTS.get(part.getKey());
+        }
+        // Debt Score is always measured, so the weight is never zero.
+        int overall = (int) Math.round(weighted / weightMeasured);
         String label = overall >= 80 ? "Excellent" : overall >= 60 ? "Good" : overall >= 40 ? "Fair" : "Needs Attention";
 
         // "Debt Utilization" (not "Debt Score") used to label this -- but debtScore is INVERTED
@@ -694,12 +715,6 @@ public class DashboardService {
         // already a "higher = healthier" score under a name that doesn't fight that reading --
         // this was the one where the underlying real-world quantity (utilization) and the
         // displayed number run in opposite directions, so it's the one that needed renaming.
-        Map<String, Double> breakdown = new LinkedHashMap<>();
-        breakdown.put("Savings Rate", savingsRateScore);
-        breakdown.put("Debt Score", debtScore);
-        breakdown.put("Emergency Fund", emergencyScore);
-        breakdown.put("Spend Consistency", consistencyScore);
-        breakdown.put("Cash Flow Stability", cashFlowScore);
 
         // Each bar above shows a NORMALIZED 0-100 score, not the real quantity it was computed
         // from -- "Savings Rate: 62" is clamp(savingsRate, 0, 30) / 30 * 100, not 62% actually
@@ -715,11 +730,6 @@ public class DashboardService {
         // this map already avoids asserting a period for the same reason; this one now matches.
         // The score above is unchanged; only the sentence follows SavingsRate's gate, so it never
         // prints a percentage the dashboard itself withholds.
-        // The month the savings rate above was read from: the latest full one, else the newest.
-        String latestMonth = latestFullMonth != null ? latestFullMonth : last6.isEmpty() ? null : last6.get(last6.size() - 1);
-        BigDecimal unresolvedLatest = latestMonth == null ? BigDecimal.ZERO : FlowTotals.unresolvedInflow(active.stream()
-                .filter(t -> YearMonth.from(t.getTxnDate()).toString().equals(latestMonth)).toList(), flow);
-        String savingsGate = SavingsRate.of(incomeCur, expenseCur, unresolvedLatest).gateReason();
         breakdownDetail.put("Savings Rate", savingsGate == null
                 ? String.format(Locale.ENGLISH, "Your savings rate was %.1f%%.", savingsRate)
                 : SavingsRate.NO_INCOME.equals(savingsGate)

@@ -926,11 +926,17 @@ export default function Dashboard() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium text-ink">{name}</span>
-                      <Badge tone={badgeToneForScore(score)} label={scoreLabel(score)} />
+                      {score !== null && <Badge tone={badgeToneForScore(score)} label={scoreLabel(score)} />}
                     </div>
-                    <p className="text-lg font-bold text-ink mb-1">{Math.round(score)} / 100</p>
+                    {/* A part that cannot be measured yet has no score and is left out of the
+                        overall one; the detail line below says what it is waiting for. */}
+                    <p className="text-lg font-bold text-ink mb-1">
+                      {score === null ? 'Not enough data yet' : `${Math.round(score)} / 100`}
+                    </p>
                     <p className="text-xs text-muted">{summary.healthBreakdownDetail[name]}</p>
-                    <p className="text-xs text-ink mt-1.5">{healthImprovementSuggestion(name, score)}</p>
+                    {score !== null && (
+                      <p className="text-xs text-ink mt-1.5">{healthImprovementSuggestion(name, score)}</p>
+                    )}
                     {isTopOpportunity && summary.healthTopOpportunityPotentialGain !== null && (
                       <p className="text-xs font-semibold text-primary mt-1.5">
                         ↑ +{summary.healthTopOpportunityPotentialGain} point opportunity

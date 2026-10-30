@@ -210,7 +210,9 @@ export interface DashboardSummary {
   // before rendering these, don't infer availability from healthScore being non-null alone.
   healthScore: number | null;
   healthLabel: string | null;
-  healthBreakdown: Record<string, number>;
+  /** Each part's 0-100 score; null for a part that cannot be measured yet (left out of
+   *  healthScore -- healthBreakdownDetail says why). */
+  healthBreakdown: Record<string, number | null>;
   /**
    * The real quantity behind each entry in healthBreakdown, keyed by the same component name --
    * e.g. "Savings Rate" -> "Your savings rate was 18.5%." Each bar in healthBreakdown

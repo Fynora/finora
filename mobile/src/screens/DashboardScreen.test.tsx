@@ -1086,7 +1086,7 @@ describe('Financial Health Score, Categorization Confidence, Detected Issues (Tr
     // premium-redesign addition) -- so this asserts the label renders at all, not that it's unique.
     expect(screen.getAllByText('Excellent').length).toBeGreaterThan(0);
     expect(screen.getByText('Debt Score')).toBeTruthy();
-    expect(screen.getByText('100%')).toBeTruthy();
+    expect(screen.getByText('100 / 100')).toBeTruthy();
     // Savings Rate has no detail entry -- no "Why?" control to offer for it.
     const whys = screen.getAllByText('Why?');
     expect(whys).toHaveLength(1);

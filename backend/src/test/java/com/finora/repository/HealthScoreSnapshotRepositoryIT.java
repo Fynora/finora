@@ -29,12 +29,12 @@ class HealthScoreSnapshotRepositoryIT extends AbstractIntegrationTest {
     void upsertInsertsThenUpdatesTheSameMonthRow() {
         UUID userId = persistUser();
 
-        repository.upsertForMonth(userId, "2026-09", 51, "Fair", 0, 100, 2, 100, 100);
+        repository.upsertForMonth(userId, "2026-09", 51, "Fair", 0.0, 100.0, 2.0, 100.0, 100.0);
         List<HealthScoreSnapshot> afterFirst = repository.findTop6ByUserIdOrderByYearMonthDesc(userId);
         assertThat(afterFirst).hasSize(1);
         assertThat(afterFirst.get(0).getOverallScore()).isEqualTo(51);
 
-        repository.upsertForMonth(userId, "2026-09", 60, "Good", 20, 100, 10, 100, 100);
+        repository.upsertForMonth(userId, "2026-09", 60, "Good", 20.0, 100.0, 10.0, 100.0, 100.0);
         List<HealthScoreSnapshot> afterSecond = repository.findTop6ByUserIdOrderByYearMonthDesc(userId);
         assertThat(afterSecond).hasSize(1); // still one row -- updated, not duplicated
         assertThat(afterSecond.get(0).getOverallScore()).isEqualTo(60);
@@ -45,9 +45,9 @@ class HealthScoreSnapshotRepositoryIT extends AbstractIntegrationTest {
     void pastMonthsAreUntouchedByALaterMonthsUpsert() {
         UUID userId = persistUser();
 
-        repository.upsertForMonth(userId, "2026-07", 40, "Fair", 0, 80, 0, 80, 80);
-        repository.upsertForMonth(userId, "2026-08", 45, "Fair", 5, 80, 5, 80, 80);
-        repository.upsertForMonth(userId, "2026-09", 51, "Fair", 0, 100, 2, 100, 100);
+        repository.upsertForMonth(userId, "2026-07", 40, "Fair", 0.0, 80.0, 0.0, 80.0, 80.0);
+        repository.upsertForMonth(userId, "2026-08", 45, "Fair", 5.0, 80.0, 5.0, 80.0, 80.0);
+        repository.upsertForMonth(userId, "2026-09", 51, "Fair", 0.0, 100.0, 2.0, 100.0, 100.0);
 
         List<HealthScoreSnapshot> all = repository.findTop6ByUserIdOrderByYearMonthDesc(userId);
         assertThat(all).extracting(HealthScoreSnapshot::getYearMonth)
@@ -59,8 +59,8 @@ class HealthScoreSnapshotRepositoryIT extends AbstractIntegrationTest {
     @Test
     void findsMostRecentPriorSnapshotStrictlyBeforeGivenMonth() {
         UUID userId = persistUser();
-        repository.upsertForMonth(userId, "2026-06", 30, "Needs Attention", 0, 60, 0, 60, 60);
-        repository.upsertForMonth(userId, "2026-08", 45, "Fair", 5, 80, 5, 80, 80);
+        repository.upsertForMonth(userId, "2026-06", 30, "Needs Attention", 0.0, 60.0, 0.0, 60.0, 60.0);
+        repository.upsertForMonth(userId, "2026-08", 45, "Fair", 5.0, 80.0, 5.0, 80.0, 80.0);
 
         Optional<HealthScoreSnapshot> prior =
                 repository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(userId, "2026-09");
@@ -75,5 +75,20 @@ class HealthScoreSnapshotRepositoryIT extends AbstractIntegrationTest {
         Optional<HealthScoreSnapshot> prior =
                 repository.findFirstByUserIdAndYearMonthLessThanOrderByYearMonthDesc(userId, "2026-09");
         assertThat(prior).isEmpty();
+    }
+
+    // V296: a part that could not be measured is stored as null, not as a made-up score.
+    @Test
+    void aPartThatCouldNotBeMeasuredIsStoredAsNull() {
+        UUID userId = persistUser();
+
+        repository.upsertForMonth(userId, "2026-10", 56, "Fair", null, 100.0, 76.0, null, null);
+
+        HealthScoreSnapshot saved = repository.findTop6ByUserIdOrderByYearMonthDesc(userId).get(0);
+        assertThat(saved.getSavingsRateScore()).isNull();
+        assertThat(saved.getSpendConsistencyScore()).isNull();
+        assertThat(saved.getCashFlowStabilityScore()).isNull();
+        assertThat(saved.getDebtScore()).isEqualTo(100.0);
+        assertThat(saved.getEmergencyFundScore()).isEqualTo(76.0);
     }
 }

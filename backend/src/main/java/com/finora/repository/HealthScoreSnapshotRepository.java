@@ -67,9 +67,9 @@ public interface HealthScoreSnapshotRepository extends JpaRepository<HealthScore
            """, nativeQuery = true)
     void upsertForMonth(@Param("userId") UUID userId, @Param("yearMonth") String yearMonth,
                          @Param("overallScore") int overallScore, @Param("label") String label,
-                         @Param("savingsRateScore") double savingsRateScore,
+                         @Param("savingsRateScore") Double savingsRateScore,
                          @Param("debtScore") double debtScore,
-                         @Param("emergencyFundScore") double emergencyFundScore,
-                         @Param("spendConsistencyScore") double spendConsistencyScore,
-                         @Param("cashFlowStabilityScore") double cashFlowStabilityScore);
+                         @Param("emergencyFundScore") Double emergencyFundScore,
+                         @Param("spendConsistencyScore") Double spendConsistencyScore,
+                         @Param("cashFlowStabilityScore") Double cashFlowStabilityScore);
 }

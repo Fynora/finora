@@ -282,6 +282,29 @@ describe('Dashboard — Financial Health Score', () => {
     expect(screen.getByRole('img', { name: /financial health score 82 out of 100/i })).toBeInTheDocument();
   });
 
+  // A part that cannot be measured yet has no score and is out of the overall one: the card says so,
+  // keeps its reason, and shows no badge or tip -- it used to score a free 100, "Excellent".
+  it('shows a part that cannot be measured yet as "Not enough data yet", with its reason', async () => {
+    const base = summary();
+    vi.mocked(dashboardApi.summary).mockResolvedValue({
+      ...base,
+      healthBreakdown: { ...base.healthBreakdown, 'Spend Consistency': null },
+      healthBreakdownDetail: {
+        ...base.healthBreakdownDetail,
+        'Spend Consistency': 'Not enough full calendar months of spending yet to measure how consistent it is.',
+      },
+    });
+    renderDashboard();
+
+    await screen.findByText('Financial Health Score');
+    const card = within(screen.getByTestId('health-factor-Spend Consistency'));
+    expect(card.getByText('Not enough data yet')).toBeInTheDocument();
+    expect(card.getByText('Not enough full calendar months of spending yet to measure how consistent it is.')).toBeInTheDocument();
+    expect(card.queryByText(/\/ 100/)).not.toBeInTheDocument();
+    expect(card.queryByText('Excellent')).not.toBeInTheDocument();
+    expect(card.queryByText('Try to keep monthly spending within about 20% of your average.')).not.toBeInTheDocument();
+  });
+
   it('shows every factor with its own NN/100 score, status badge, and explanation', async () => {
     renderDashboard();
 

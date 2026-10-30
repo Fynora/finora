@@ -21,7 +21,8 @@ export function FinancialHealthFactorCard({
   name, score, detail, isExpanded, onToggle, isTopOpportunity, topOpportunityPotentialGain,
 }: {
   name: string;
-  score: number;
+  /** Null when this part cannot be measured yet: it has no score and is out of the overall one. */
+  score: number | null;
   detail: string | undefined;
   isExpanded: boolean;
   onToggle: () => void;
@@ -38,7 +39,7 @@ export function FinancialHealthFactorCard({
           takes the tile's full width, unlimited, with the link under it. */}
       <View testID={`factor-header-${name}`} style={[styles.headerRow, largeText && styles.headerStacked]}>
         <Text style={[typography.labelS, styles.name, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>{name}</Text>
-        {detail ? (
+        {detail && score !== null ? (
           <Pressable
             onPress={onToggle}
             hitSlop={14}
@@ -50,11 +51,22 @@ export function FinancialHealthFactorCard({
           </Pressable>
         ) : null}
       </View>
-      <Text style={[typography.numberM, { color: c.ink }]}>{Math.round(score)}%</Text>
-      <ProgressBar percent={score} color={healthBarColor(score, c)} height={4} />
-      <Text style={[typography.labelS, { color: healthLabelInk(score, c) }]}>{scoreLabel(score)}</Text>
-      {detail && isExpanded ? <Text style={[typography.bodyS, { color: c.mutedInk }]}>{detail}</Text> : null}
-      <Text style={[typography.bodyS, { color: c.mutedInk }]}>{healthImprovementSuggestion(name, score)}</Text>
+      {/* A score out of 100, as the web shows it: "100%" read as the actual rate ("Savings Rate
+          100%" for a user saving 71.6%). The real figure is in the detail line. */}
+      {score === null ? (
+        <>
+          <Text style={[typography.labelM, { color: c.ink }]}>Not enough data yet</Text>
+          {detail ? <Text style={[typography.bodyS, { color: c.mutedInk }]}>{detail}</Text> : null}
+        </>
+      ) : (
+        <>
+          <Text style={[typography.numberM, { color: c.ink }]}>{Math.round(score)} / 100</Text>
+          <ProgressBar percent={score} color={healthBarColor(score, c)} height={4} />
+          <Text style={[typography.labelS, { color: healthLabelInk(score, c) }]}>{scoreLabel(score)}</Text>
+          {detail && isExpanded ? <Text style={[typography.bodyS, { color: c.mutedInk }]}>{detail}</Text> : null}
+          <Text style={[typography.bodyS, { color: c.mutedInk }]}>{healthImprovementSuggestion(name, score)}</Text>
+        </>
+      )}
       {isTopOpportunity ? (
         <Text style={[typography.labelS, { color: c.brassInk }]}>
           ↑ +{topOpportunityPotentialGain} point opportunity

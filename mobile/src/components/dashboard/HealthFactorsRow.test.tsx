@@ -70,10 +70,25 @@ describe('HealthFactorsRow', () => {
   it('shows each factor name, score and label', () => {
     renderRow();
     expect(screen.getByText('Debt Score')).toBeTruthy();
-    expect(screen.getByText('100%')).toBeTruthy();
+    // A score out of 100, as the web shows it: "100%" read as the actual rate.
+    expect(screen.getByText('100 / 100')).toBeTruthy();
     expect(screen.getByText('Savings Rate')).toBeTruthy();
-    expect(screen.getByText('65%')).toBeTruthy();
+    expect(screen.getByText('65 / 100')).toBeTruthy();
+    expect(screen.queryByText('65%')).toBeNull();
     expect(screen.getByText('Good')).toBeTruthy();
+  });
+
+  // A part that cannot be measured yet has no score (it is left out of the overall one): the card
+  // says so and shows why straight away, with no number, bar, label or tip.
+  it('shows a part that cannot be measured yet as "Not enough data yet", with its reason', () => {
+    renderRow({
+      breakdown: { 'Debt Score': 100, 'Spend Consistency': null },
+      breakdownDetail: { 'Spend Consistency': 'Not enough full calendar months of spending yet to measure how consistent it is.' },
+    });
+    expect(screen.getByText('Not enough data yet')).toBeTruthy();
+    expect(screen.getByText('Not enough full calendar months of spending yet to measure how consistent it is.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Spend Consistency/ })).toBeNull();
+    expect(screen.getAllByText(/ \/ 100$/)).toHaveLength(1);
   });
 
   it('keeps the Why?/Hide detail disclosure, only for factors with a detail entry', async () => {

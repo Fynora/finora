@@ -5,7 +5,7 @@ import { cardShadowRoom, spacing } from '../../theme';
 
 interface Props {
   available: boolean;
-  breakdown: Record<string, number>;
+  breakdown: Record<string, number | null>;
   breakdownDetail: Record<string, string>;
   topOpportunityFactor: string | null;
   topOpportunityPotentialGain: number | null;

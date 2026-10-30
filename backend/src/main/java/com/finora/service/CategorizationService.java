@@ -1015,7 +1015,7 @@ public class CategorizationService {
     // MerchantNormalizationEngine.fitToColumn already guards against for merchant names, on the
     // same parser-output code path. By the time the constraint fires the transaction is already
     // poisoned, and no handling un-poisons it -- the write simply must not be attempted.
-    private static final int MAX_CATEGORY_NAME_LENGTH = 80;
+    public static final int MAX_CATEGORY_NAME_LENGTH = 80;
 
     /**
      * Bug 16: trims and matches case-insensitively so "dining", "Dining" and "Dining " all

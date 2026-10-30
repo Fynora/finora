@@ -257,7 +257,8 @@ public record TransactionDto(
             @Size(max = MAX_BULK_IDS, message = BULK_SIZE_MESSAGE)
             List<UUID> ids,
             @NotBlank(message = "Category name is required")
-            @Size(max = 255, message = "Category name can't exceed 255 characters")
+            // categories.name holds 80; a longer name was cut to fit without a word.
+            @Size(max = 80, message = CATEGORY_NAME_SIZE_MESSAGE)
             String category) {}
 
     /** Same bound as {@link BulkRecategorizeRequest}, for the delete endpoint's id list. */

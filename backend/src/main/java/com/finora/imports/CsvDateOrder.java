@@ -140,6 +140,6 @@ public final class CsvDateOrder {
         // reads as a numeric date -- so a cell judged here is parsed the same way there.
         Matcher m = CsvParser.DAY_MONTH_YEAR.matcher(CsvParser.withoutCsvTime(cell));
         if (!m.matches()) return null;
-        return new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(3))};
+        return new int[]{CsvParser.digitsToInt(m.group(1)), CsvParser.digitsToInt(m.group(3))};
     }
 }

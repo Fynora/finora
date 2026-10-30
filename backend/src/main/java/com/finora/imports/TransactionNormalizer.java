@@ -477,6 +477,11 @@ public class TransactionNormalizer {
         return CsvParser.firstNonBlank(row, DATE_HINTS);
     }
 
+    /** The header of the column {@link #dateCellOf} reads from, or null when the row has none. */
+    public static String dateColumnOf(Map<String, String> row) {
+        return CsvParser.firstNonBlankKey(row, DATE_HINTS);
+    }
+
     /** The row has no column recognised as a date. Same key and meaning as the PDF locator's. */
     public static final String REASON_NO_DATE_COLUMN = "UNANCHORED_NO_DATE_COLUMN";
     /** A date column exists but this row left it blank. Same key and meaning as the PDF locator's. */

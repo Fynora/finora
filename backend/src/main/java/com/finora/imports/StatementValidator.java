@@ -193,7 +193,7 @@ public class StatementValidator {
         // until now purely because nothing had re-checked it once the PDF path changed. This is
         // exactly what was printed, or genuinely null when nothing was, never a guess reconstructed
         // from the rows -- the same precedence as the PDF path, not just the same intent.
-        LocalDate[] printedPeriod = printedStatementPeriod(allRows, headerIdx, acc == null ? null : acc.dateOrder);
+        LocalDate[] printedPeriod = printedStatementPeriod(allRows, headerIdx, acc.dateOrder);
         LocalDate statementStart = printedPeriod[0];
         LocalDate statementEnd = printedPeriod[1];
 

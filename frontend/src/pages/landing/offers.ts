@@ -49,6 +49,28 @@ export function useBillingOffers(): BillingOffer[] {
   return offers.filter((o) => Date.parse(o.endsAt) > now);
 }
 
+/** One line announcing the live offers on a plan, for the marketing banner and the in-app pop-up:
+ *  "Plus at ₹125 for your first month (then ₹249/month), or ₹999 for your first year". Null when
+ *  the plan has no live offer. */
+export function offerHeadline(offers: BillingOffer[], planCode: string, planName: string): {
+  label: string; text: string; lastDay: string; code: string;
+} | null {
+  const monthly = offers.find((o) => o.planCode === planCode && o.billingCycle === 'MONTHLY');
+  const yearly = offers.find((o) => o.planCode === planCode && o.billingCycle === 'YEARLY');
+  const lead = monthly ?? yearly;
+  if (!lead) return null;
+  const parts: string[] = [];
+  if (monthly) {
+    parts.push(`${planName} at ${rupees(monthly.firstPeriodPrice)} for your first month (then ${rupees(monthly.regularPrice)}/month)`);
+  }
+  if (yearly) {
+    parts.push(monthly
+      ? `or ${rupees(yearly.firstPeriodPrice)} for your first year`
+      : `${planName} at ${rupees(yearly.firstPeriodPrice)} for your first year (then ${rupees(yearly.regularPrice)}/year)`);
+  }
+  return { label: lead.label, text: parts.join(', '), lastDay: offerLastDay(lead), code: lead.code };
+}
+
 /** The offer for this plan card and billing cycle, if one is live. */
 export function offerFor(offers: BillingOffer[], planId: string, cycle: BillingCycle): BillingOffer | undefined {
   const billingCycle = cycle === 'yearly' ? 'YEARLY' : 'MONTHLY';

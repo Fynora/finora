@@ -4,7 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { billingApi, type BillingOffer } from '../../api/endpoints';
 import { Pricing } from './Pricing';
-import { offerDisplay, offerFor, offerLastDay, resetBillingOffersCache } from './offers';
+import { offerDisplay, offerFor, offerHeadline, offerLastDay, resetBillingOffersCache } from './offers';
+import { OfferBanner } from './OfferBanner';
 
 // Synthetic offer fixtures, shaped like GET /billing/offers. endsAt is midnight 8 Nov in India,
 // the exclusive end of an offer whose last day is 7 Nov.
@@ -32,6 +33,47 @@ describe('offer helpers', () => {
     expect(offerDisplay(monthly).note).toBe('₹125 for your first month, then ₹249/month');
     expect(offerDisplay(yearly).note).toBe('₹999 for your first year, then ₹1,999/year');
     expect(offerDisplay({ ...monthly, endsAt: '2026-11-07T18:30:00Z' }).badge).toBe('Diwali offer · ends 7 Nov');
+  });
+});
+
+describe('offerHeadline', () => {
+  it('names the monthly price, what follows, and the yearly price', () => {
+    expect(offerHeadline([monthly, yearly], 'PLUS', 'Plus')?.text)
+      .toBe('Plus at ₹125 for your first month (then ₹249/month), or ₹999 for your first year');
+  });
+
+  it('works with only a yearly offer', () => {
+    expect(offerHeadline([yearly], 'PLUS', 'Plus')?.text)
+      .toBe('Plus at ₹999 for your first year (then ₹1,999/year)');
+  });
+
+  it('is null with no offer on the plan', () => {
+    expect(offerHeadline([monthly], 'PREMIUM', 'Premium')).toBeNull();
+  });
+});
+
+describe('OfferBanner', () => {
+  beforeEach(() => resetBillingOffersCache());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetBillingOffersCache();
+  });
+
+  it('announces the live offer and links to pricing', async () => {
+    vi.spyOn(billingApi, 'offers').mockResolvedValue([monthly]);
+    render(<OfferBanner />);
+
+    const banner = await screen.findByTestId('offer-banner');
+    expect(banner).toHaveTextContent('Diwali offer: Plus at ₹125 for your first month (then ₹249/month).');
+    expect(screen.getByRole('link', { name: /see pricing/i })).toHaveAttribute('href', '#pricing');
+  });
+
+  it('renders nothing without a live offer', async () => {
+    const offers = vi.spyOn(billingApi, 'offers').mockResolvedValue([]);
+    const { container } = render(<OfferBanner />);
+
+    await waitFor(() => expect(offers).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
   });
 });
 

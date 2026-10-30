@@ -404,6 +404,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/app-icon/schedule/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateAppIconSchedule"];
+        post?: never;
+        delete: operations["deleteAppIconSchedule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounts/{id}": {
         parameters: {
             query?: never;
@@ -3188,6 +3204,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/app-icon/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAppIconSchedule"];
+        put?: never;
+        post: operations["createAppIconSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin-mfa/enroll": {
         parameters: {
             query?: never;
@@ -4556,6 +4588,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_20"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/app/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["currentAppIcon"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6052,6 +6100,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/app-icon/icons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAppIcons"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/app-icon/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["currentAppIconForAdmin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/analytics/spending-tracking": {
         parameters: {
             query?: never;
@@ -7067,6 +7147,53 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             };
+        };
+        AppIconScheduleSaveRequest: {
+            icon: string;
+            label: string;
+            /** Format: date-time */
+            startsAt: string;
+            /** Format: date-time */
+            endsAt: string;
+            /** Format: int64 */
+            expectedVersion?: number;
+        };
+        ApiResponseAppIconScheduleDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppIconScheduleDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        AppIconScheduleDto: {
+            /** Format: uuid */
+            id?: string;
+            icon?: string;
+            iconLabel?: string;
+            label?: string;
+            /** Format: date-time */
+            startsAt?: string;
+            /** Format: date-time */
+            endsAt?: string;
+            /** @enum {string} */
+            state?: "UPCOMING" | "ACTIVE" | "ENDED";
+            /** Format: uuid */
+            createdBy?: string;
+            createdByEmail?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: uuid */
+            updatedBy?: string;
+            updatedByEmail?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: int64 */
+            version?: number;
         };
         PhoneChangeVerifyOtpRequest: {
             sessionId: string;
@@ -11401,6 +11528,23 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        ApiResponseAppIconDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppIconDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        AppIconDto: {
+            icon?: string;
+            /** Format: date-time */
+            until?: string;
+        };
         ApiResponseListTrendPoint: {
             success?: boolean;
             message?: string;
@@ -13776,6 +13920,34 @@ export interface components {
             /** Format: int32 */
             totalPages?: number;
         };
+        ApiResponseListAppIconScheduleDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppIconScheduleDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiResponseListAppIconOptionDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["AppIconOptionDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        AppIconOptionDto: {
+            key?: string;
+            label?: string;
+        };
         ApiResponseSpendingTrackingBreakdown: {
             success?: boolean;
             message?: string;
@@ -15088,6 +15260,54 @@ export interface operations {
         };
     };
     delete_5: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    updateAppIconSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppIconScheduleSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppIconScheduleDto"];
+                };
+            };
+        };
+    };
+    deleteAppIconSchedule: {
         parameters: {
             query?: never;
             header?: never;
@@ -19896,6 +20116,50 @@ export interface operations {
             };
         };
     };
+    listAppIconSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListAppIconScheduleDto"];
+                };
+            };
+        };
+    };
+    createAppIconSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppIconScheduleSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppIconScheduleDto"];
+                };
+            };
+        };
+    };
     enroll: {
         parameters: {
             query?: never;
@@ -21918,6 +22182,26 @@ export interface operations {
             };
         };
     };
+    currentAppIcon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppIconDto"];
+                };
+            };
+        };
+    };
     trend: {
         parameters: {
             query?: {
@@ -23934,6 +24218,46 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponsePagedResponseAuditLogDto"];
+                };
+            };
+        };
+    };
+    listAppIcons: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListAppIconOptionDto"];
+                };
+            };
+        };
+    };
+    currentAppIconForAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAppIconDto"];
                 };
             };
         };

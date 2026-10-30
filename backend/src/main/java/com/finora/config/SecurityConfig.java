@@ -135,6 +135,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> {
                 auth.requestMatchers("/api/v1/auth/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/setup/status").permitAll()
+                    // Which home-screen icon the app should show (AppIconController). The same answer
+                    // for every caller, nothing private in it, and the app asks before sign-in too.
+                    // GET on this one path only.
+                    .requestMatchers(HttpMethod.GET, "/api/v1/app/icon").permitAll()
                     // Live billing offers (V297): the public pricing page shows them to signed-out
                     // visitors. Read-only and the same for everyone -- plan codes, prices, an end
                     // date -- nothing about any user.

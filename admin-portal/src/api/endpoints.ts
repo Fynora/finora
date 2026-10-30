@@ -3,7 +3,7 @@ import { downloadBlob } from '../lib/download';
 import type { components } from './generated-types';
 import type {
 
-  AccountDto, ActivationFunnelDto, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
+  AccountDto, ActivationFunnelDto, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
@@ -328,6 +328,20 @@ export const adminFeatureFlagsApi = {
   list: () => api.get<FeatureFlagDto[]>('/admin/feature-flags').then((r) => r.data),
   update: (id: string, request: UpdateFeatureFlagRequest) =>
     api.put<FeatureFlagDto>(`/admin/feature-flags/${id}`, request).then((r) => r.data),
+};
+
+// Festival app icon schedule -- SYSTEM_SETTINGS, same gate as the feature flags above.
+// `current` is the admin copy of the public GET /app/icon: the public one may be reused from the
+// browser cache for a minute, which would show the old icon right after a save.
+export const adminAppIconApi = {
+  current: () => api.get<AppIconNow>('/admin/app-icon/current').then((r) => r.data),
+  icons: () => api.get<AppIconOption[]>('/admin/app-icon/icons').then((r) => r.data),
+  list: () => api.get<AppIconScheduleEntry[]>('/admin/app-icon/schedule').then((r) => r.data),
+  create: (body: AppIconScheduleSaveRequest) =>
+    api.post<AppIconScheduleEntry>('/admin/app-icon/schedule', body).then((r) => r.data),
+  update: (id: string, body: AppIconScheduleSaveRequest) =>
+    api.put<AppIconScheduleEntry>(`/admin/app-icon/schedule/${id}`, body).then((r) => r.data),
+  remove: (id: string) => api.delete<void>(`/admin/app-icon/schedule/${id}`).then(() => undefined),
 };
 
 export interface AuditLogFilters {

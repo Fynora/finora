@@ -6,6 +6,7 @@ import { Sparkles, X } from 'lucide-react';
 import { billingApi } from '../api/endpoints';
 import { useDialogA11y } from '../design-system';
 import { offerHeadline, useBillingOffers } from '../pages/landing/offers';
+import { trackNavigation } from '../lib/trackNavigation';
 
 /** Per browser and per offer: closing the Diwali pop-up keeps it closed, but a later offer (a new
  *  code) shows once again. */
@@ -116,6 +117,7 @@ function OfferDialog({ label, text, lastDay, onClose }: {
             type="button"
             onClick={() => {
               onClose();
+              trackNavigation('subscription', 'contextual');
               void navigate('/app/billing');
             }}
             className="mt-5 w-full text-sm font-semibold rounded-lg px-4 py-2.5 bg-primary text-on-primary"

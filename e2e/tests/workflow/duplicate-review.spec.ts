@@ -1,4 +1,4 @@
-import { test, expect, uploadStatement } from '../../fixtures/test';
+import { test, expect, uploadStatement, importIntoExisting } from '../../fixtures/test';
 import { csv, type Row } from '../../fixtures/statements';
 import { transactionsFor } from '../../fixtures/db';
 import type { Page } from '@playwright/test';
@@ -21,9 +21,12 @@ const LUNCH: Row = { date: '2026-06-08', description: 'SWIGGY ORDER 4471', amoun
 const COFFEE: Row = { date: '2026-06-09', description: 'BLUE TOKAI COFFEE', amount: 320.0, type: 'DEBIT' };
 const GROCERIES: Row = { date: '2026-06-10', description: 'BLINKIT GROCERIES 9982', amount: 1240.5, type: 'DEBIT' };
 
+/** Every test here seeds an account named "Primary" first and re-imports into it, which is what the
+ *  duplicate review is about. */
 async function stageInBrowser(page: Page, rows: Row[], fileName = 'statement.csv') {
   await page.goto('/app/import');
   await uploadStatement(page, fileName, 'text/csv', csv(rows));
+  await importIntoExisting(page, 'Primary');
 }
 
 const review = (page: Page) => page.getByTestId('duplicate-review');

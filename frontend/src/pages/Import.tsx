@@ -31,7 +31,7 @@ import { MaskedAccountNumber } from '../components/MaskedAccountNumber';
 import { VerificationPanel } from '../components/VerificationPanel';
 import StatementHandlingPanel from '../components/StatementHandlingPanel';
 import { flaggedRows, ROW_FLAG_LABEL, type FlaggedRows } from '../components/verificationFlags';
-import { matchExistingAccount } from '../lib/accountMatch';
+import { matchExistingAccount, sameBankAccounts } from '../lib/accountMatch';
 import { isLikelyMatch } from '../lib/holderNameMatcher';
 import { DuplicateReview } from '../components/DuplicateReview';
 import { ImportProgress } from '../components/ImportProgress';
@@ -52,12 +52,14 @@ import {
   type RowReview,
 } from '../lib/importReview';
 import { estimateOpeningBalanceFromTotalDue, toNewAccountPayload } from '../lib/newAccountPayload';
+import { accountNameForBank, bankHint, bankSourceOf, initialBankChoice } from '../lib/importBank';
+import { BankPicker } from '../components/BankPicker';
 import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
 import { QuickSortCta } from '../components/QuickSortCta';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
-import type { Account, AccountStatementGroup, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
+import type { Account, AccountStatementGroup, BankInfo, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
 import { formatDate, formatDateDDMMMYYYY } from '../utils/date';
 import { formatForeignAmount } from '../lib/foreignAmount';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -116,6 +118,10 @@ interface SectionState {
   newOpeningBalance: string;
   newCreditLimit: string;
   newDueDate: string;
+  // The new account's bank, asked per section (lib/importBank.ts): '' until known or chosen.
+  newBankId: string;
+  // True once the user typed a name of their own, so choosing a bank stops renaming the account.
+  newNameEdited: boolean;
   // "Never lose information" (see the engineering principles doc) -- rows the backend couldn't
   // parse into a transaction, shown for transparency, never confirmable into the ledger.
   unparseableRows: UnparseableRow[];
@@ -154,6 +160,8 @@ function initialSectionState(section: StagedAccountSection, existingAccounts: Ac
     newOpeningBalance: openingBalance != null ? String(openingBalance) : '',
     newCreditLimit: detected.creditLimit != null ? String(detected.creditLimit) : '',
     newDueDate: detected.paymentDueDate ?? '',
+    newBankId: initialBankChoice(detected),
+    newNameEdited: false,
     unparseableRows: section.unparseableRows,
     verification: section.verification ?? null,
     amountOwed: '',
@@ -334,6 +342,9 @@ export default function Import() {
   const [newOpeningBalance, setNewOpeningBalance] = useState('');
   const [newCreditLimit, setNewCreditLimit] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
+  // The new account's bank and whether the user typed their own name -- see SectionState.
+  const [newBankId, setNewBankId] = useState('');
+  const [newNameEdited, setNewNameEdited] = useState(false);
   // "How much do you owe on this card today?" (lib/amountOwed.ts).
   const [amountOwed, setAmountOwed] = useState('');
   const [amountOwedSkipped, setAmountOwedSkipped] = useState(false);
@@ -552,6 +563,8 @@ export default function Import() {
     // Pre-fill the new-account form from whatever the statement told us — every field here
     // is editable before anything is created, since detection is best-effort by design.
     setNewName(staging.detectedAccount.suggestedName);
+    setNewNameEdited(false);
+    setNewBankId(initialBankChoice(staging.detectedAccount));
     setNewType(staging.detectedAccount.suggestedAccountType);
     // A genuinely detected opening balance always wins; only estimated from the statement's own
     // total amount due when nothing was detected at all -- see
@@ -961,7 +974,7 @@ export default function Import() {
       const newAccount =
         accountChoice === 'new'
           ? toNewAccountPayload(
-              { newName, newType, newOpeningBalance, newCreditLimit, newDueDate },
+              { newName, newType, newOpeningBalance, newCreditLimit, newDueDate, newBankId },
               detectedAccount,
             )
           : null;
@@ -1130,6 +1143,13 @@ export default function Import() {
   const nothingSelectedToImport = nothingSelected(review);
   const nothingSelectedInEverySection =
     multiSections !== null && multiSections.every((s) => nothingSelected(s.review));
+  // A new account needs a bank or an explicit "Other bank" (spec 2026-10-22 §3). Importing into an
+  // existing account, and re-importing, never ask.
+  const singleNeedsBank = !reimportState && accountChoice === 'new' && newBankId === '';
+  const sectionsNeedingBank = (multiSections ?? [])
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.accountChoice === 'new' && s.newBankId === '')
+    .map(({ s, i }) => sectionLabel(s, i, multiSections?.length ?? 0));
 
   // Shared by the "continue previous import" list, the retry banner, and the dropzone itself below
   // -- hoisted once rather than repeated three times so the three conditions can't silently
@@ -1794,7 +1814,14 @@ export default function Import() {
                     selectedAccountId={section.selectedAccountId}
                     setSelectedAccountId={(v) => updateSection(setMultiSections, sectionIndex, { selectedAccountId: v })}
                     newName={section.newName}
-                    setNewName={(v) => updateSection(setMultiSections, sectionIndex, { newName: v })}
+                    setNewName={(v) => updateSection(setMultiSections, sectionIndex, { newName: v, newNameEdited: v.trim() !== '' })}
+                    newBankId={section.newBankId}
+                    chooseBank={(id, bank) =>
+                      updateSection(setMultiSections, sectionIndex, (s) => ({
+                        newBankId: id,
+                        ...(s.newNameEdited ? {} : { newName: accountNameForBank(id, bank) }),
+                      }))
+                    }
                     newType={section.newType}
                     setNewType={(v) => updateSection(setMultiSections, sectionIndex, { newType: v })}
                     newOpeningBalance={section.newOpeningBalance}
@@ -1861,6 +1888,11 @@ export default function Import() {
                     {blockedSectionLabels.join(' and ')}. Nothing is imported or skipped until you decide.
                   </p>
                 )}
+                {sectionsNeedingBank.length > 0 && (
+                  <p data-testid="multi-bank-gate" role="status" className="text-xs text-danger mb-3">
+                    Choose a bank, or Other bank, for {sectionsNeedingBank.join(' and ')} before importing.
+                  </p>
+                )}
                 {outstandingMultiDuplicates === 0 && nothingSelectedInEverySection && (
                   <p data-testid="multi-nothing-selected-gate" role="status" className="text-xs text-muted mb-3">
                     No transactions are selected, so there is nothing to import. Tick the ones you want, or
@@ -1873,6 +1905,8 @@ export default function Import() {
                     loading={confirming}
                     disabled={
                       multiSections.some((s) => s.accountChoice === 'existing' && !s.selectedAccountId) ||
+                      // A new account is never created without a bank or an explicit "Other bank".
+                      sectionsNeedingBank.length > 0 ||
                       multiSections.some((s) => amountOwedBlocks(sectionAsksAmountOwed(s, existingAccounts), s.amountOwed, s.amountOwedSkipped)) ||
                       // The same gate the single-account path applies, summed across every section. A
                       // statement covering two accounts is not two imports the user can partially
@@ -1953,7 +1987,12 @@ export default function Import() {
                   selectedAccountId={selectedAccountId}
                   setSelectedAccountId={setSelectedAccountId}
                   newName={newName}
-                  setNewName={setNewName}
+                  setNewName={(v) => { setNewName(v); setNewNameEdited(v.trim() !== ''); }}
+                  newBankId={newBankId}
+                  chooseBank={(id, bank) => {
+                    setNewBankId(id);
+                    if (!newNameEdited) setNewName(accountNameForBank(id, bank));
+                  }}
                   newType={newType}
                   setNewType={setNewType}
                   newOpeningBalance={newOpeningBalance}
@@ -2016,6 +2055,11 @@ export default function Import() {
                   onDecideAll={decideAllDuplicates}
                 />
 
+                {singleNeedsBank && (
+                  <p data-testid="bank-gate" role="status" className="text-xs text-danger mt-4">
+                    Choose the account's bank, or Other bank, before importing.
+                  </p>
+                )}
                 {/* Said only once the duplicate questions are answered: until then that review is
                     what the user has to act on, and it already explains the disabled button. */}
                 {unresolvedCount(rows, review.decisions) === 0 && nothingSelectedToImport && (
@@ -2031,6 +2075,8 @@ export default function Import() {
                     disabled={
                       (!reimportState && !sessionId) ||
                       (!reimportState && accountChoice === 'existing' && !selectedAccountId) ||
+                      // A new account is never created without a bank or an explicit "Other bank".
+                      singleNeedsBank ||
                       amountOwedBlocks(askAmountOwed, amountOwed, amountOwedSkipped) ||
                       // The gate. Every flagged row must have an explicit answer before anything is
                       // written to the ledger -- which is what stops a duplicate being resolved by
@@ -2310,6 +2356,8 @@ function AccountChoiceFields({
   setSelectedAccountId,
   newName,
   setNewName,
+  newBankId,
+  chooseBank,
   newType,
   setNewType,
   newOpeningBalance,
@@ -2337,6 +2385,10 @@ function AccountChoiceFields({
   setSelectedAccountId: (v: string) => void;
   newName: string;
   setNewName: (v: string) => void;
+  // The new account's bank ('' = not chosen yet) and the choice handler, which also renames the
+  // account after the bank unless the user typed a name of their own.
+  newBankId: string;
+  chooseBank: (bankId: string, bank: BankInfo | null) => void;
   newType: Account['accountType'];
   setNewType: (v: Account['accountType']) => void;
   newOpeningBalance: string;
@@ -2353,6 +2405,13 @@ function AccountChoiceFields({
   // account is theirs, which saves their profile name as its holder (ConfirmRequest.holderIsMine).
   holderClaim?: { profileName: string; checked: boolean; onChange: (v: boolean) => void };
 }) {
+  const bankSource = detectedAccount ? bankSourceOf(detectedAccount) : 'NONE';
+  // The hint names where a pre-filled bank came from, so it goes once the user picks another one.
+  const hint = detectedAccount && newBankId === detectedAccount.bank.id ? bankHint(bankSource) : null;
+  const sameBank = accountChoice === 'new'
+    ? sameBankAccounts(newBankId, newType, existingAccounts, detectedAccount?.accountNumberMasked)
+    : [];
+  const bankNoteId = hint || newBankId === '' ? `${idPrefix}-bank-note` : undefined;
   return (
     <>
       {!hideChoiceRadio && (
@@ -2381,6 +2440,12 @@ function AccountChoiceFields({
           className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full max-w-sm"
         >
           {existingAccounts.length === 0 && <option value="">No accounts yet</option>}
+          {/* Without this, an empty choice shows the first account as if it were selected, and
+              picking that same account fires no change -- so Confirm stays disabled for no reason
+              the user can see. */}
+          {existingAccounts.length > 0 && selectedAccountId === '' && (
+            <option value="" disabled>Choose an account</option>
+          )}
           {existingAccounts.map((a) => (
             <option
               key={a.id}
@@ -2399,14 +2464,43 @@ function AccountChoiceFields({
       ) : (
         <div className="grid md:grid-cols-2 gap-3">
           {detectedAccount && <ProductDetectionNotice detected={detectedAccount} />}
-          {detectedAccount && detectedAccount.bank.id !== 'OTHER' && (
-            <div className="md:col-span-2 flex items-center gap-2.5 bg-primary-light border border-primary/20 rounded-lg px-3 py-2">
-              <BankLogo bank={detectedAccount.bank} size={28} />
-              <p className="text-xs text-ink">
-                Detected <span className="font-semibold">{detectedAccount.bank.officialName}</span> from this statement.
+          <div className="md:col-span-2">
+            <label htmlFor={`${idPrefix}-bank`} className="block text-xs uppercase text-muted mb-1">Bank</label>
+            <BankPicker
+              id={`${idPrefix}-bank`}
+              value={newBankId}
+              onChange={chooseBank}
+              includeBanks={detectedAccount && bankSource !== 'NONE' ? [detectedAccount.bank] : []}
+              describedBy={bankNoteId}
+            />
+            {hint ? (
+              <p id={bankNoteId} className="text-xs text-primary mt-1 flex items-center gap-1.5">
+                {detectedAccount && <BankLogo bank={detectedAccount.bank} size={16} />}
+                {hint}
               </p>
-            </div>
-          )}
+            ) : newBankId === '' ? (
+              <p id={bankNoteId} className="text-xs text-muted mt-1">
+                This statement doesn't say which bank it's from. Choose it, or Other bank, so the account isn't labelled wrongly.
+              </p>
+            ) : null}
+            {sameBank.length > 0 && (
+              <p className="text-xs text-ink mt-1" data-testid={`${idPrefix}-same-bank-offer`}>
+                {sameBank.length === 1
+                  ? <>You already have <span className="font-semibold">{sameBank[0].name}</span> at this bank. </>
+                  : <>You already have {sameBank.length} accounts of this type at this bank. </>}
+                <button
+                  type="button"
+                  className="text-primary font-medium hover:underline"
+                  onClick={() => {
+                    setAccountChoice('existing');
+                    setSelectedAccountId(sameBank.length === 1 ? sameBank[0].id : '');
+                  }}
+                >
+                  {sameBank.length === 1 ? 'Import into it instead' : 'Choose one instead'}
+                </button>
+              </p>
+            )}
+          </div>
           <div>
             <label htmlFor={`${idPrefix}-account-name`} className="block text-xs uppercase text-muted mb-1">Account name</label>
             <input id={`${idPrefix}-account-name`} value={newName} onChange={(e) => setNewName(e.target.value)} className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full" />

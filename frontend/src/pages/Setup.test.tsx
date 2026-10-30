@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Setup from './Setup';
@@ -152,5 +152,183 @@ describe('Setup — a card whose amount owed is not known', () => {
     renderPage();
     expect(await screen.findByText('HDFC Card')).toBeInTheDocument();
     expect(screen.queryByText('Amount owed not known')).not.toBeInTheDocument();
+  });
+});
+
+const HDFC = {
+  id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#0B2447', initials: 'H',
+  logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+} as const;
+const SBI = { ...HDFC, id: 'SBI', officialName: 'State Bank of India', shortName: 'SBI', initials: 'SB' };
+
+async function openEdit(accountName: string) {
+  await screen.findByText(accountName);
+  fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+  fireEvent.click(screen.getByRole('button', { name: /edit account/i }));
+  return screen.getByRole('dialog');
+}
+
+describe('Setup — Edit account (name and bank)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.mocked(banksApi.list).mockResolvedValue([{ ...HDFC, supportedAccountTypes: [] }, { ...SBI, supportedAccountTypes: [] }]);
+  });
+
+  it("saves a new name and bank, then reloads the accounts everywhere they're shown", async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({ id: 'a1', name: 'Bank Statement Import', statementsCount: 1 })]);
+    vi.mocked(accountsApi.update).mockResolvedValue(account({ id: 'a1', name: 'Salary', bank: { ...HDFC } as never }));
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    renderPage(queryClient);
+
+    const dialog = await openEdit('Bank Statement Import');
+    expect(within(dialog).getByRole('heading', { name: 'Edit account' })).toBeInTheDocument();
+    const save = within(dialog).getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled(); // nothing changed yet
+
+    fireEvent.change(within(dialog).getByLabelText('Account name'), { target: { value: 'Salary' } });
+    const bank = within(dialog).getByLabelText('Bank') as HTMLSelectElement;
+    expect(bank.value).toBe('OTHER');
+    await waitFor(() => expect(within(bank).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    fireEvent.change(bank, { target: { value: 'HDFC' } });
+    fireEvent.click(save);
+
+    await waitFor(() => expect(accountsApi.update).toHaveBeenCalledWith('a1',
+      { name: 'Salary', accountType: 'SAVINGS', bankId: 'HDFC' }));
+    await waitFor(() => expect(accountsApi.list).toHaveBeenCalledTimes(2));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['accounts'] });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('narrows the bank list as the user searches, keeping the chosen bank listed', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({ id: 'a1', name: 'Salary Account', bank: { ...SBI } as never })]);
+    renderPage();
+
+    const dialog = await openEdit('Salary Account');
+    const bank = within(dialog).getByLabelText('Bank');
+    await waitFor(() => expect(within(bank).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    fireEvent.change(within(dialog).getByLabelText('Search banks'), { target: { value: 'hdfc' } });
+
+    const names = within(bank).getAllByRole('option').map((o) => o.textContent);
+    expect(names).toEqual(['HDFC Bank', 'State Bank of India', 'Other bank']);
+  });
+
+  it('shows an error and keeps the dialog open when the save fails', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({ id: 'a1', name: 'Salary Account' })]);
+    vi.mocked(accountsApi.update).mockRejectedValue({ response: { data: { message: 'Name is too long' } } });
+    renderPage();
+
+    const dialog = await openEdit('Salary Account');
+    fireEvent.change(within(dialog).getByLabelText('Account name'), { target: { value: 'Renamed' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await within(dialog).findByText('Name is too long')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('does not save a blank name', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({ id: 'a1', name: 'Salary Account' })]);
+    renderPage();
+
+    const dialog = await openEdit('Salary Account');
+    fireEvent.change(within(dialog).getByLabelText('Account name'), { target: { value: '   ' } });
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('keeps the bank read-only for a Bank Sync account, and never sends one for it', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([account({
+      id: 'aa1', name: 'Synced', primarySource: 'ACCOUNT_AGGREGATOR', bank: { ...SBI } as never,
+    })]);
+    vi.mocked(accountsApi.update).mockResolvedValue(account({ id: 'aa1', name: 'Synced savings' }));
+    renderPage();
+
+    const dialog = await openEdit('Synced');
+    expect(within(dialog).getByLabelText('Bank')).toBeDisabled();
+    expect(within(dialog).getByText(/set by bank sync/i)).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText('Account name'), { target: { value: 'Synced savings' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(accountsApi.update).toHaveBeenCalledWith('aa1',
+      { name: 'Synced savings', accountType: 'SAVINGS' }));
+  });
+});
+
+describe('Setup — "Which bank is this?"', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.mocked(banksApi.list).mockResolvedValue([{ ...HDFC, supportedAccountTypes: [] }]);
+  });
+
+  const imported = (overrides: Partial<Account> = {}) =>
+    account({ id: 'imp1', name: 'Bank Statement Import', statementsCount: 1, lastImportedAt: '2026-10-20T10:00:00Z', ...overrides });
+  const prompt = () => screen.queryByRole('note', { name: /which bank is/i });
+
+  it('asks on an imported account with no bank', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([imported()]);
+    renderPage();
+    await screen.findByText('Bank Statement Import');
+    expect(prompt()).toBeInTheDocument();
+  });
+
+  it('does not ask on a hand-made account, a Bank Sync account, or one with a bank', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([
+      account({ id: 'man1', name: 'Cash Box' }),
+      imported({ id: 'aa1', name: 'Synced', primarySource: 'ACCOUNT_AGGREGATOR' }),
+      imported({ id: 'hd1', name: 'My HDFC', bank: { ...HDFC } as never }),
+    ]);
+    renderPage();
+    await screen.findByText('My HDFC');
+    expect(prompt()).not.toBeInTheDocument();
+  });
+
+  it('remembers a dismissal for that account', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([imported()]);
+    const { unmount } = renderPage();
+    await screen.findByText('Bank Statement Import');
+
+    fireEvent.click(within(prompt()!).getByRole('button', { name: "Don't ask again" }));
+    expect(prompt()).not.toBeInTheDocument();
+
+    unmount();
+    renderPage();
+    await screen.findByText('Bank Statement Import');
+    expect(prompt()).not.toBeInTheDocument();
+  });
+
+  it('opens the bank choice, and choosing a bank saves it', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValueOnce([imported()])
+      .mockResolvedValue([imported({ bank: { ...HDFC } as never })]);
+    vi.mocked(accountsApi.update).mockResolvedValue(imported({ bank: { ...HDFC } as never }));
+    renderPage();
+    await screen.findByText('Bank Statement Import');
+
+    fireEvent.click(within(prompt()!).getByRole('button', { name: 'Choose bank' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Which bank is this?' })).toBeInTheDocument();
+    const bank = within(dialog).getByLabelText('Bank');
+    await waitFor(() => expect(within(bank).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    fireEvent.change(bank, { target: { value: 'HDFC' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(accountsApi.update).toHaveBeenCalledWith('imp1',
+      { name: 'Bank Statement Import', accountType: 'SAVINGS', bankId: 'HDFC' }));
+    await waitFor(() => expect(prompt()).not.toBeInTheDocument());
+  });
+
+  it('counts "Other bank" again as an answer, without a request', async () => {
+    vi.mocked(accountsApi.list).mockResolvedValue([imported()]);
+    renderPage();
+    await screen.findByText('Bank Statement Import');
+
+    fireEvent.click(within(prompt()!).getByRole('button', { name: 'Choose bank' }));
+    const dialog = screen.getByRole('dialog');
+    expect((within(dialog).getByLabelText('Bank') as HTMLSelectElement).value).toBe('OTHER');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(accountsApi.update).not.toHaveBeenCalled();
+    expect(prompt()).not.toBeInTheDocument();
   });
 });

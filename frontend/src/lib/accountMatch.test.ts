@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchExistingAccount } from './accountMatch';
+import { matchExistingAccount, sameBankAccounts } from './accountMatch';
 import type { Account, BankInfo, DetectedAccountInfo } from '../types';
 
 const KOTAK: BankInfo = {
@@ -152,5 +152,68 @@ describe('matchExistingAccount', () => {
     const statement = detected({ accountNumberMasked: 'XXXXXX4587' });
 
     expect(matchExistingAccount(statement, [staleAaLinked])?.id).toBe('acc-aa');
+  });
+});
+
+const OTHER: BankInfo = {
+  id: 'OTHER', officialName: null, shortName: 'Other', colorHex: '#000000', initials: 'OT',
+  logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+};
+
+describe('matchExistingAccount — "Other bank" is not a bank', () => {
+  it('never matches an OTHER statement to an OTHER account, even as the sole same-type account', () => {
+    // The bug: one "Other bank" savings account got every unknown-bank savings statement
+    // preselected into it, whatever bank the statement really came from.
+    const otherSavings = account({ id: 'acc-other', bank: OTHER });
+    const unknownStatement = detected({ bank: OTHER, suggestedName: 'Bank Statement Import' });
+
+    expect(matchExistingAccount(unknownStatement, [otherSavings])).toBeNull();
+  });
+
+  it('never matches an OTHER statement to an OTHER account, even with the same account number', () => {
+    const otherSavings = account({ id: 'acc-other', bank: OTHER, accountNumberMasked: 'XXXX4587' });
+    const unknownStatement = detected({ bank: OTHER, accountNumberMasked: 'XXXXXX4587' });
+
+    expect(matchExistingAccount(unknownStatement, [otherSavings])).toBeNull();
+  });
+
+  it('still matches a real bank to the same real bank', () => {
+    const kotak = account({ id: 'acc-kotak' });
+    expect(matchExistingAccount(detected({}), [kotak, account({ id: 'acc-other', bank: OTHER })])?.id).toBe('acc-kotak');
+  });
+});
+
+describe('sameBankAccounts', () => {
+  const kotakSavings = account({ id: 'acc-kotak-sav' });
+  const kotakCard = account({ id: 'acc-kotak-card', accountType: 'CREDIT_CARD' });
+  const hdfcSavings = account({ id: 'acc-hdfc-sav', bank: HDFC });
+  const otherSavings = account({ id: 'acc-other', bank: OTHER });
+
+  it('lists accounts of the chosen bank and type only', () => {
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', [kotakSavings, kotakCard, hdfcSavings]).map((a) => a.id))
+      .toEqual(['acc-kotak-sav']);
+  });
+
+  it('offers nothing for "Other bank" or no choice yet', () => {
+    expect(sameBankAccounts('OTHER', 'SAVINGS', [otherSavings])).toEqual([]);
+    expect(sameBankAccounts('', 'SAVINGS', [otherSavings, kotakSavings])).toEqual([]);
+  });
+
+  it('leaves out an account whose number is known to differ from the statement', () => {
+    const numbered = account({ id: 'acc-4587', accountNumberMasked: 'XXXX4587' });
+    const otherNumber = account({ id: 'acc-9911', accountNumberMasked: 'XXXX9911' });
+    const unnumbered = account({ id: 'acc-none', accountNumberMasked: null });
+
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', [numbered, otherNumber, unnumbered], 'XXXXXX4587').map((a) => a.id))
+      .toEqual(['acc-4587', 'acc-none']);
+    // No number on the statement: nothing to rule out.
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', [numbered, otherNumber], null).map((a) => a.id))
+      .toEqual(['acc-4587', 'acc-9911']);
+  });
+
+  it('leaves out an AA-linked account unless its sync is stale', () => {
+    const linked = account({ id: 'acc-aa', primarySource: 'ACCOUNT_AGGREGATOR', aaSyncStale: false });
+    const stale = account({ id: 'acc-aa-stale', primarySource: 'ACCOUNT_AGGREGATOR', aaSyncStale: true });
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', [linked, stale]).map((a) => a.id)).toEqual(['acc-aa-stale']);
   });
 });

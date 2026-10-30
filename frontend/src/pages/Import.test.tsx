@@ -44,7 +44,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, type ImportJobProgress } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
@@ -79,6 +79,11 @@ vi.mock('../api/endpoints', () => ({
   },
   accountsApi: {
     list: vi.fn(),
+  },
+  // The new-account form's bank picker. Empty unless a suite sets it: the staged bank is offered
+  // whether or not the list loads.
+  banksApi: {
+    list: vi.fn().mockResolvedValue([]),
   },
   // The asynchronous path. Availability defaults to false for the suites below, which are all about
   // the synchronous flow -- so they keep exercising it rather than silently becoming tests of the
@@ -125,18 +130,22 @@ const detectedAccount: DetectedAccountInfo = {
   installmentAmount: null,
   installmentsPaid: null,
   installmentsTotal: null,
+  // A bank the statement itself named, so the review pre-fills it and the suites below stay about
+  // what they test. The bank-unknown path, which holds the import, has its own suite
+  // ("Import — the new account's bank").
   bank: {
-    id: 'OTHER',
-    officialName: null,
-    shortName: 'Other',
+    id: 'SBI',
+    officialName: 'State Bank of India',
+    shortName: 'SBI',
     colorHex: '#000000',
-    initials: 'OT',
+    initials: 'SB',
     logoPath: '',
     category: null,
     websiteUrl: null,
     ifscPrefix: null,
     supportedAccountTypes: [],
   },
+  bankSource: 'FILE',
 };
 
 /**
@@ -201,6 +210,9 @@ beforeEach(() => {
   // this file exercising exactly what it did before that chrome existed.
   vi.mocked(statementImportsApi.listGroupedByAccount).mockReset().mockResolvedValue([]);
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+  // Also asked on every mount. A suite that never set it only passed after an earlier suite had,
+  // so running one of its tests alone (-t) failed.
+  vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(activationApi.funnelEvent).mockReset().mockResolvedValue(undefined);
   // The server allows any import-screen question unless a test says otherwise.
   vi.mocked(activationApi.question).mockReset().mockImplementation(async (m) => m ?? null);
@@ -2150,7 +2162,8 @@ describe('Import — multi-account statements get the same duplicate review', ()
 
     expect(confirmAll()).toBeDisabled();
     expect(screen.getByTestId('multi-duplicate-gate')).toHaveTextContent(/2 possible duplicates still need a decision/i);
-    expect(screen.getByTestId('multi-duplicate-gate')).toHaveTextContent(/Account 1 of 2 and Account 2 of 2/);
+    // Each label carries the section's bank ("Account 1 of 2 — State Bank of India").
+    expect(screen.getByTestId('multi-duplicate-gate')).toHaveTextContent(/Account 1 of 2\b.* and Account 2 of 2\b/);
 
     // Answering one section does not answer the other -- the review state is per account.
     await user.click(within(card(0)).getByRole('button', { name: 'Import anyway' }));
@@ -3473,7 +3486,8 @@ describe('Import — resuming via navigation state', () => {
    * accounts list straight into resumeSession/hydrateReviewFrom instead of relying on that state.
    */
   it('matches an existing account instead of silently defaulting to "create a new account"', async () => {
-    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([existingAccount()]);
+    // Same bank as the staged statement: "Other bank" never matches "Other bank" (lib/accountMatch).
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([existingAccount({ bank: detectedAccount.bank })]);
     vi.mocked(importApi.getSession).mockResolvedValue(stagingResultWith({ sessionId: 'sess-from-detail' }));
     renderImportWithResumeState('sess-from-detail');
 
@@ -4481,5 +4495,253 @@ describe('Import — amount owed on a multi-account statement', () => {
     const sections = vi.mocked(importApi.confirmMulti).mock.calls[0][0].sections;
     expect(sections[0].amountOwedToday).toBeUndefined();
     expect(sections[1].amountOwedToday).toBe(2500);
+  });
+});
+
+/**
+ * Spec 2026-10-22 §3 and §5: a new account is never created without a bank the file or the layout's
+ * profile named, or one the user chose -- "Other bank" included, as an explicit answer.
+ */
+describe("Import — the new account's bank", () => {
+  const HDFC = {
+    id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#0B2447', initials: 'H',
+    logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+  } as const;
+  const OTHER = {
+    id: 'OTHER', officialName: null, shortName: 'Other', colorHex: '#000000', initials: 'OT',
+    logoPath: '', category: null, websiteUrl: null, ifscPrefix: null, supportedAccountTypes: [],
+  } as const;
+  const unknownBank: DetectedAccountInfo = {
+    ...detectedAccount, bank: { ...OTHER, supportedAccountTypes: [] }, bankSource: 'NONE',
+    suggestedName: 'Bank Statement Import',
+  };
+
+  function stage(detected: DetectedAccountInfo) {
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue({
+      ...stagingResultWith(),
+      staging: { rows: [ONE_STAGED_ROW], totalParsed: 1, flaggedDuplicates: 0, detectedAccount: detected, unparseableRows: [] },
+    } as never);
+  }
+
+  function existing(overrides: Partial<Account> = {}): Account {
+    return {
+      id: 'acct-hdfc', name: 'My HDFC', accountType: 'SAVINGS', balance: 0,
+      accountHolderName: null, accountNumberMasked: null, branchName: null, ifscCode: null,
+      bank: { ...HDFC, supportedAccountTypes: [] }, lastImportedAt: null, lastStatementPeriodStart: null,
+      lastStatementPeriodEnd: null, statementsCount: 0, transactionsCount: 0, status: 'ACTIVE',
+      primarySource: 'MANUAL', aaSyncStale: false, ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(banksApi.list).mockReset().mockResolvedValue([{ ...HDFC, supportedAccountTypes: [] }]);
+    vi.mocked(importApi.confirm).mockReset().mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [], account: null,
+      totalCredits: 0, totalDebits: 1, statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: null, statementPeriodEnd: null, importDurationMs: 12, source: 'CSV',
+    } as never);
+  });
+
+  const confirmButton = () => screen.getByRole('button', { name: /confirm import/i });
+  const bankField = () => screen.getByLabelText('Bank') as HTMLSelectElement;
+  const nameField = () => screen.getByLabelText('Account name') as HTMLInputElement;
+  const sentNewAccount = () => vi.mocked(importApi.confirm).mock.calls[0][0].newAccount;
+
+  async function upload() {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    return user;
+  }
+
+  it('holds Import while the bank is unknown, and says why', async () => {
+    stage(unknownBank);
+    await upload();
+
+    expect(bankField().value).toBe('');
+    expect(confirmButton()).toBeDisabled();
+    expect(screen.getByTestId('bank-gate')).toHaveTextContent(/choose the account's bank, or other bank/i);
+  });
+
+  it('"Other bank" is an answer: it releases Import and is what gets sent', async () => {
+    stage(unknownBank);
+    const user = await upload();
+
+    await user.selectOptions(bankField(), 'OTHER');
+    expect(confirmButton()).toBeEnabled();
+    expect(screen.queryByTestId('bank-gate')).not.toBeInTheDocument();
+
+    await user.click(confirmButton());
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(sentNewAccount()).toMatchObject({ bankId: 'OTHER', name: 'Bank Statement Import' });
+  });
+
+  it('choosing a bank names the account after it and sends it', async () => {
+    stage(unknownBank);
+    const user = await upload();
+
+    await waitFor(() => expect(within(bankField()).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    await user.selectOptions(bankField(), 'HDFC');
+    expect(nameField().value).toBe('HDFC Bank');
+
+    await user.click(confirmButton());
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(sentNewAccount()).toMatchObject({ bankId: 'HDFC', name: 'HDFC Bank' });
+  });
+
+  it('keeps a name the user typed when they then choose a bank', async () => {
+    stage(unknownBank);
+    const user = await upload();
+
+    await user.clear(nameField());
+    await user.type(nameField(), 'Salary');
+    await waitFor(() => expect(within(bankField()).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    await user.selectOptions(bankField(), 'HDFC');
+
+    expect(nameField().value).toBe('Salary');
+  });
+
+  it('pre-fills a bank the statement named, says so, and lets Import through', async () => {
+    stage({ ...detectedAccount, bankSource: 'FILE' });
+    await upload();
+
+    expect(bankField().value).toBe('SBI');
+    expect(screen.getByText('Detected from this statement')).toBeInTheDocument();
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+  });
+
+  it("pre-fills a bank recognised from the statement's format, with its own wording", async () => {
+    stage({ ...detectedAccount, bankSource: 'PROFILE' });
+    await upload();
+
+    expect(bankField().value).toBe('SBI');
+    expect(screen.getByText("Recognised from this statement's format")).toBeInTheDocument();
+  });
+
+  it('reads a session staged before bankSource existed: a named bank as found in the file', async () => {
+    stage({ ...detectedAccount, bankSource: null });
+    await upload();
+
+    expect(bankField().value).toBe('SBI');
+    expect(screen.getByText('Detected from this statement')).toBeInTheDocument();
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+  });
+
+  it('reads a session staged before bankSource existed: OTHER as unknown, so it is asked', async () => {
+    stage({ ...unknownBank, bankSource: null });
+    await upload();
+
+    expect(bankField().value).toBe('');
+    expect(confirmButton()).toBeDisabled();
+  });
+
+  it('drops the hint, and the staged product key, once the user picks another bank', async () => {
+    stage({ ...detectedAccount, bankSource: 'FILE', productIdentityHash: 'staged-key' });
+    const user = await upload();
+
+    await waitFor(() => expect(within(bankField()).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    await user.selectOptions(bankField(), 'HDFC');
+    expect(screen.queryByText('Detected from this statement')).not.toBeInTheDocument();
+
+    await user.click(confirmButton());
+    await waitFor(() => expect(importApi.confirm).toHaveBeenCalledTimes(1));
+    expect(sentNewAccount()).toMatchObject({ bankId: 'HDFC', productIdentityHash: null });
+  });
+
+  it('offers an existing account of the chosen bank and type, without preselecting it', async () => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([existing()]);
+    stage(unknownBank);
+    const user = await upload();
+
+    expect(screen.getByRole('radio', { name: /create a new account/i })).toBeChecked();
+    await waitFor(() => expect(within(bankField()).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+    await user.selectOptions(bankField(), 'HDFC');
+
+    const offer = screen.getByTestId('import-same-bank-offer');
+    expect(offer).toHaveTextContent('You already have My HDFC at this bank.');
+    // An offer, not a choice made for them.
+    expect(screen.getByRole('radio', { name: /create a new account/i })).toBeChecked();
+
+    await user.click(within(offer).getByRole('button', { name: 'Import into it instead' }));
+    expect(screen.getByRole('radio', { name: /use an existing account/i })).toBeChecked();
+    expect((screen.getByLabelText('Select an existing account') as HTMLSelectElement).value).toBe('acct-hdfc');
+  });
+
+  it('does not offer an "Other bank" account for "Other bank", nor preselect one at staging', async () => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([existing({ id: 'acct-other', name: 'Old import', bank: { ...OTHER, supportedAccountTypes: [] } })]);
+    stage(unknownBank);
+    const user = await upload();
+
+    expect(screen.getByRole('radio', { name: /create a new account/i })).toBeChecked();
+    await user.selectOptions(bankField(), 'OTHER');
+    expect(screen.queryByTestId('import-same-bank-offer')).not.toBeInTheDocument();
+  });
+
+  it('never asks when importing into an existing account', async () => {
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([existing()]);
+    stage(unknownBank);
+    const user = await upload();
+
+    await user.click(screen.getByRole('radio', { name: /use an existing account/i }));
+    await user.selectOptions(screen.getByLabelText('Select an existing account'), 'acct-hdfc');
+    expect(confirmButton()).toBeEnabled();
+    expect(screen.queryByTestId('bank-gate')).not.toBeInTheDocument();
+  });
+
+  describe('on a statement with several accounts', () => {
+    function section(name: string, overrides: Partial<DetectedAccountInfo>): StagedAccountSection {
+      return {
+        detectedAccount: { ...unknownBank, suggestedName: name, ...overrides },
+        rows: [ONE_STAGED_ROW],
+        totalParsed: 1,
+        flaggedDuplicates: 0,
+        unparseableRows: [],
+      } as unknown as StagedAccountSection;
+    }
+
+    beforeEach(() => {
+      vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({ perAccount: [] } as never);
+      vi.mocked(importApi.stagePdf).mockReset().mockResolvedValue({
+        sessionId: 'session-multi-1',
+        multiAccount: true,
+        staging: null,
+        sections: [
+          section('Bank Statement Import', { suggestedAccountType: 'SAVINGS' }),
+          section('Bank Statement Import', { suggestedAccountType: 'CREDIT_CARD', detectedProduct: 'CREDIT_CARD' }),
+        ],
+      } as never);
+    });
+
+    it('asks per section, and holds the import until every new account has an answer', async () => {
+      const user = userEvent.setup();
+      renderImport();
+      await pickAndUploadPdf(user);
+      await screen.findByText(/this statement covers 2 accounts/i);
+      const confirmAll = () => screen.getByRole('button', { name: /confirm all 2 accounts/i });
+      const sectionBank = (i: number) => within(screen.getByTestId(`account-section-${i}`)).getByLabelText('Bank');
+
+      expect(confirmAll()).toBeDisabled();
+      expect(screen.getByTestId('multi-bank-gate')).toHaveTextContent(/Account 1 of 2 and Account 2 of 2/);
+
+      await waitFor(() => expect(within(sectionBank(0)).getByRole('option', { name: 'HDFC Bank' })).toBeInTheDocument());
+      await user.selectOptions(sectionBank(0), 'HDFC');
+      expect(confirmAll()).toBeDisabled();
+      expect(screen.getByTestId('multi-bank-gate')).toHaveTextContent('Account 2 of 2');
+      expect(screen.getByTestId('multi-bank-gate')).not.toHaveTextContent('Account 1 of 2');
+
+      await user.selectOptions(sectionBank(1), 'OTHER');
+      await user.type(within(screen.getByTestId('account-section-1')).getByLabelText('Amount owed today (₹)'), '100');
+      expect(confirmAll()).toBeEnabled();
+
+      await user.click(confirmAll());
+      await waitFor(() => expect(importApi.confirmMulti).toHaveBeenCalledTimes(1));
+      const sent = vi.mocked(importApi.confirmMulti).mock.calls[0][0].sections;
+      expect(sent[0].newAccount).toMatchObject({ bankId: 'HDFC', name: 'HDFC Bank' });
+      expect(sent[1].newAccount).toMatchObject({ bankId: 'OTHER' });
+    });
   });
 });

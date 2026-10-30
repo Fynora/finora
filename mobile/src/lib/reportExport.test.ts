@@ -326,7 +326,7 @@ describe('shareCsv / sharePdf clean up the cache file after sharing', () => {
   it('sharePdf deletes the file expo-print wrote after a successful share', async () => {
     const printed = new File(Paths.cache, 'printed-report.pdf');
     printed.create();
-    printed.write('%PDF-fake');
+    printed.writeSync('%PDF-fake');
     printToFileAsync.mockResolvedValue({ uri: printed.uri });
 
     await sharePdf(report);
@@ -337,7 +337,7 @@ describe('shareCsv / sharePdf clean up the cache file after sharing', () => {
   it('sharePdf still deletes the printed file when the share itself throws', async () => {
     const printed = new File(Paths.cache, 'printed-report-2.pdf');
     printed.create();
-    printed.write('%PDF-fake');
+    printed.writeSync('%PDF-fake');
     printToFileAsync.mockResolvedValue({ uri: printed.uri });
     shareAsync.mockRejectedValue(new Error('share sheet dismissed with an error'));
 

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, type ScrollViewInstance, type ViewInstance } from 'react-native';
 import { useScrollToTop } from '@react-navigation/native';
 import { AppAlert } from '../lib/appAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -87,7 +87,7 @@ export function MoreScreen({ navigation }: Props) {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   // A second tap on the More tab returns to this menu first (the stack pops), then scrolls it to the top.
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   useScrollToTop(scrollRef);
   const insets = useSafeAreaInsets();
   const { email, fullName, logout } = useAuth();
@@ -99,7 +99,7 @@ export function MoreScreen({ navigation }: Props) {
   const registerAccounts = useRegisterTourTarget('accounts');
   const registerBudgets = useRegisterTourTarget('budgets');
   const registerGoals = useRegisterTourTarget('goals');
-  const registerById: Partial<Record<string, (node: View | null) => void>> = {
+  const registerById: Partial<Record<string, (node: ViewInstance | null) => void>> = {
     accounts: registerAccounts,
     budgets: registerBudgets,
     goals: registerGoals,

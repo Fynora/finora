@@ -217,7 +217,7 @@ export function CategoryPickerModal({
                     {query.trim() ? `Create "${query.trim()}"` : 'New category'}
                   </Text>
                 </Pressable>
-              ) : null
+              ) : undefined
             }
             renderItem={({ item }) => {
               const isSelected = item.name === selectedName;
@@ -280,7 +280,7 @@ export function CategoryPickerModal({
               );
             }}
             ListEmptyComponent={
-              categoriesQ.isLoading ? null : (
+              categoriesQ.isLoading ? undefined : (
                 <Text style={[styles.notice, { color: c.muted }]}>No categories match &quot;{query}&quot;.</Text>
               )
             }

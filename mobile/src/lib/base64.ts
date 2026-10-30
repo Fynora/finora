@@ -10,7 +10,7 @@ const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
  * intermediate string nor an undeclared global is worth it when the encoder is fifteen lines and
  * can be tested directly.
  *
- * Used by statementImportsApi.downloadFile: expo-file-system's write() takes a string, and axios
+ * Used by statementImportsApi.downloadFile: expo-file-system's writeSync() takes a string, and axios
  * on React Native hands back an ArrayBuffer with no Blob to convert through.
  */
 export function encodeBase64(buffer: ArrayBuffer): string {

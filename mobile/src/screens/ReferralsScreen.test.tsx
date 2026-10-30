@@ -48,7 +48,7 @@ const api = referralsApi as jest.Mocked<typeof referralsApi>;
 const clipboard = Clipboard as jest.Mocked<typeof Clipboard>;
 
 const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
-const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction });
+const shareSpy = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.sharedAction, activityType: undefined });
 const reduceMotionSpy = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
 
 function renderScreen() {

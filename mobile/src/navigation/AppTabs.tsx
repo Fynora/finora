@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewInstance } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
@@ -134,7 +134,7 @@ const TAB_ICON: Record<keyof AppTabParamList, { active: string; inactive: string
   More: { active: 'menu', inactive: 'menu-outline' },
 };
 
-function ImportFabButton({ onPress, register }: { onPress: () => void; register: (node: View | null) => void }) {
+function ImportFabButton({ onPress, register }: { onPress: () => void; register: (node: ViewInstance | null) => void }) {
   const c = useTheme();
   return (
     <View style={styles.fabWrap} pointerEvents="box-none">
@@ -183,7 +183,7 @@ export function AppTabs() {
   // (which moved the other way) -- now it spotlights this tab's icon directly, same as
   // Home/Transactions above.
   const registerInsights = useRegisterTourTarget('insights');
-  const registerByTab: Partial<Record<keyof AppTabParamList, (node: View | null) => void>> = {
+  const registerByTab: Partial<Record<keyof AppTabParamList, (node: ViewInstance | null) => void>> = {
     Home: registerHome,
     Transactions: registerTransactions,
     Insights: registerInsights,

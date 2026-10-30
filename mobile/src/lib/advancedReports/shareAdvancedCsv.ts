@@ -18,7 +18,7 @@ export async function shareAdvancedCsv(report: AdvancedReport): Promise<void> {
   // A previous export of the same period leaves the file behind, and create() won't overwrite.
   if (file.exists) file.delete();
   file.create();
-  file.write(advancedCsv(report));
+  file.writeSync(advancedCsv(report));
   await shareFileAndCleanUp(file, {
     mimeType: 'text/csv', UTI: 'public.comma-separated-values-text', dialogTitle: name,
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassSurface, useGlassSurfaceStyle } from '../GlassSurface';
 import { hapticSelectionIfChanged } from '../../lib/haptics';
@@ -24,7 +24,7 @@ interface SearchProps {
   /** The text to search for, once typing has paused for `settleMs`. */
   onKeywordSettled: (text: string) => void;
   settleMs: number;
-  searchRef: RefObject<TextInput | null>;
+  searchRef: RefObject<TextInputInstance | null>;
 }
 
 /**

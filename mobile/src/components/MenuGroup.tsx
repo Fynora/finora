@@ -1,5 +1,5 @@
 import { Children, Fragment, type ComponentProps, type ReactNode, type Ref } from 'react';
-import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type AccessibilityRole } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type AccessibilityRole, type ViewInstance } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from './Card';
 import { radius, spacing, useTheme } from '../theme';
@@ -66,7 +66,7 @@ export function MenuRow({
   onPress: () => void;
   accessibilityRole?: AccessibilityRole;
   accessibilityLabel?: string;
-  ref?: Ref<View>;
+  ref?: Ref<ViewInstance>;
 }) {
   const c = useTheme();
   // Reactive, so the row re-lays-out if the system text size changes while the app is open.

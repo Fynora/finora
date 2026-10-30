@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View,
+  Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type ScrollViewInstance,
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -109,7 +109,7 @@ export function DashboardScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   // A second tap on the Home tab scrolls this screen back to the top.
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   useScrollToTop(scrollRef);
   const largeText = useLargeFontScale();
   const insets = useSafeAreaInsets();

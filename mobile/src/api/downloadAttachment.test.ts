@@ -13,7 +13,7 @@ jest.mock('expo-file-system', () => ({
     exists: false,
     delete: jest.fn(),
     create: jest.fn(),
-    write: jest.fn(),
+    writeSync: jest.fn(),
     uri: 'file:///mock/attachment.pdf',
   })),
   Paths: { cache: 'mock-cache-dir' },

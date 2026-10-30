@@ -79,7 +79,9 @@ const config: ExpoConfig = {
   // version moves in the same commit as the native modules -- glassMigration.test.ts guards it.
   // 1.1.1: the next store build after 1.1.0 (Android build 36) went live, so an update meant for
   // the live 1.1.0 never reaches this binary (Sid, 2026-10-26).
-  version: '1.1.1',
+  // 1.2.0: Expo SDK 58 (React Native 0.88). Every native module changes with the SDK, so a bundle
+  // built from SDK 58 must never reach a 1.1.x binary -- sdkVersionGuard.test.ts guards it.
+  version: '1.2.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
@@ -290,6 +292,10 @@ const config: ExpoConfig = {
     // App.tsx calls useFonts() (from expo-font) at runtime and Expo's installer requires the
     // plugin registered for that.
     'expo-font',
+    // SDK 58 gave expo-status-bar a config plugin, and `expo install` asks for it to be listed.
+    // Without options it changes nothing in the native projects (it only writes values for
+    // `style`/`hidden` when given); the app sets its status bar at runtime instead.
+    'expo-status-bar',
     '@react-native-community/datetimepicker',
     '@react-native-firebase/app',
     '@react-native-firebase/auth',

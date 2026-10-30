@@ -174,10 +174,12 @@ It costs about 1.4MB of bundle (2.7MB → 4.1MB on Android).
 SecureStore is backed by a real in-memory map so `AuthContext`'s actual persistence and async
 behavior is exercised rather than stubbed.
 
-**`@testing-library/react-native` is pinned to 13.3.3, and `react-test-renderer` to 19.2.3.** Both
-are exact, not ranges. RNTL 14 with its `test-renderer` v1 peer does not work under jest-expo 57 —
-`render` silently returns an empty object rather than failing loudly. `react-test-renderer` must
-match React's exact version, which Expo pins at 19.2.3.
+**`@testing-library/react-native` is pinned to 13.3.3, and `react-test-renderer` to React's exact
+version (19.3.1 today).** Both are exact, not ranges. RNTL 14 with its `test-renderer` v1 peer did
+not work under jest-expo 57 — `render` silently returned an empty object rather than failing
+loudly — and has not been re-tried on jest-expo 58. `react-test-renderer` must match `react`
+exactly. React runs ahead of the Expo SDK pin (SDK 58 pins 19.3.0), so `react` is listed in
+`expo.install.exclude` in `mobile/package.json` and `expo install --fix` leaves it alone.
 
 What's covered today: validation and paste-sanitization (regression tests for both paste bugs
 above), chart geometry including every degenerate case, `toUserMessage` across transport

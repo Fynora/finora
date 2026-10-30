@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { Dimensions, Platform, StyleSheet, type View } from 'react-native';
+import { Dimensions, Platform, StyleSheet, type ViewInstance } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { MenuGroup, MenuRow } from './MenuGroup';
 
@@ -95,7 +95,7 @@ test('defaults to a button, and takes the role it is given', () => {
 });
 
 test('hands its ref to the pressable row, so a caller can measure it', () => {
-  const ref = createRef<View>();
+  const ref = createRef<ViewInstance>();
   render(<MenuGroup><MenuRow ref={ref} icon="wallet-outline" label="Accounts" onPress={noop} /></MenuGroup>);
   expect(ref.current).not.toBeNull();
 });

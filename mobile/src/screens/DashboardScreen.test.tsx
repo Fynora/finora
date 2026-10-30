@@ -422,7 +422,9 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     transactions.search.mockResolvedValue({
       content: [{
         id: 't1', accountId: 'a1', categoryId: 'c1', categoryName: 'Shopping', date: '2026-08-01',
-        description: LONG_DESCRIPTION, merchant: 'Greenfield Grocers', paymentMethod: 'CARD',
+        // No short name, so the row's title is the narration itself -- the longest a title gets,
+        // which is what these truncation tests are about.
+        description: LONG_DESCRIPTION, merchant: null, paymentMethod: 'CARD',
         amount: 1200, type: 'EXPENSE', tags: [], notes: null, reconciliationStatus: 'OK',
         recurring: false, needsCategoryReview: false, categoryManuallySet: false,
       }],
@@ -459,6 +461,24 @@ describe('large Dynamic Type support (mobile design review, iOS VoiceOver/Dynami
     expect(await screen.findByText(/2 Sep\b/)).toBeTruthy();
     expect(await screen.findByText(/expected around 1 Sep\b/)).toBeTruthy();
     expect(screen.queryByText(/Sept/)).toBeNull();
+  });
+
+  it('titles a recent transaction by its short name, as the Ledger does, not the bank narration', async () => {
+    transactions.search.mockResolvedValue({
+      content: [{
+        id: 't9', accountId: 'a1', categoryId: 'c1', categoryName: 'Investments', date: '2026-08-02',
+        description: 'NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//HDFCH00000000001/ACME SECURITIES PVT LT',
+        merchant: 'acme securities pvt lt', paymentMethod: 'NEFT', amount: 5000, type: 'INCOME', tags: [],
+        notes: null, reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+        categoryManuallySet: false,
+      }],
+      page: 0, size: 5, totalElements: 1, totalPages: 1,
+    } as never);
+    dashboard.summary.mockResolvedValue(summaryWithDuplicate());
+    renderScreen();
+
+    expect(await screen.findByText(/acme securities pvt lt/i)).toBeOnTheScreen();
+    expect(screen.queryByText(/NEFT_IN:/)).not.toBeOnTheScreen();
   });
 
   it('truncates the transaction description, goal name, and merchant names to one line at the default text size', async () => {
@@ -1756,7 +1776,7 @@ describe('Recent Transactions rows (card redesign)', () => {
 
   it('marks each row with a direction icon: money in on the success wash, money out on the neutral one', async () => {
     renderScreen();
-    await screen.findByText('Salary credit');
+    await screen.findByText('Employer');
     const well = (id: string) => StyleSheet.flatten(screen.getByTestId(id, { includeHiddenElements: true }).props.style);
     expect(well('txn-icon-t1').backgroundColor).toBe(light.successBg);
     expect(well('txn-icon-t2').backgroundColor).not.toBe(light.successBg);
@@ -1764,7 +1784,7 @@ describe('Recent Transactions rows (card redesign)', () => {
 
   it('separates rows with a line between them, never after the last one', async () => {
     renderScreen();
-    await screen.findByText('Salary credit');
+    await screen.findByText('Employer');
     const row = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
     expect(row('txn-row-t1').borderTopWidth).toBeUndefined();
     expect(row('txn-row-t2').borderTopWidth).toBe(StyleSheet.hairlineWidth);
@@ -1789,7 +1809,7 @@ describe('Recent Transactions rows (card redesign)', () => {
   it('drops the direction icon under large Dynamic Type so the text keeps the width it had', async () => {
     dimensionsGetSpy.mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.3 });
     renderScreen();
-    await screen.findByText('Salary credit');
+    await screen.findByText('Employer');
     expect(screen.queryByTestId('txn-icon-t1', { includeHiddenElements: true })).toBeNull();
     expect(screen.getByText('+₹1,45,000')).toHaveStyle({ color: light.successInk });
   });

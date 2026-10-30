@@ -312,6 +312,19 @@ public class PdfTableLocator {
             "(?i)^\\s*need\\s+help\\?\\s+contact\\s+our\\s+support\\b"
                     + "|(?i)^\\s*generated\\s+on\\s+\\d{1,2}\\s+[a-z]{3,9}\\s+'?\\d{2,4}\\s*$");
 
+    // Same capability as PAGE_FOOTER (PAGE_BOUNDARY_ISOLATION): a Punjab National Bank statement
+    // ends every page with the time it was printed and the page number -- "Date: <dd/mm/yyyy>
+    // <hh:mm:ss>" at the left and "Page N" at the far right. The page number sits outside the
+    // table's columns, so the table-scoped line the other footer checks read is the stamp alone, and
+    // it was appended to the last transaction of every page. Matched on the row's WHOLE physical line,
+    // stamp and page number together, so a narration that merely contains a date is never dropped.
+    private static final Pattern PRINT_TIME_FOOTER = Pattern.compile(
+            "(?i)^\\s*date\\s*:\\s*\\d{1,2}/\\d{1,2}/\\d{4}\\s+\\d{1,2}:\\d{2}(?::\\d{2})?\\s+page\\s*\\d{1,3}\\s*$");
+
+    private boolean isPrintTimeFooter(List<PositionedText> row) {
+        return PRINT_TIME_FOOTER.matcher(lineOf(row)).matches();
+    }
+
     // Same capability as PAGE_FOOTER (PAGE_BOUNDARY_ISOLATION): a page counter with no word at all.
     // The real slice small finance bank statement prints "1/2" and "2/2" at the top right of its
     // pages, under the period line. On page 1 that is above the header; on page 2 it opened the page
@@ -2175,6 +2188,7 @@ public class PdfTableLocator {
                 }
                 continue;
             } else if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isPrintTimeFooter(row)
                     || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)
                     || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()
                     || PAGE_BANNER.matcher(rowLine).find() || pageNumberBesideTheTable(row, tableRuns)) {
@@ -8032,6 +8046,7 @@ public class PdfTableLocator {
             List<PositionedText> row = allRows.get(rowIndex);
             String rowLine = lineOf(row);
             if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isPrintTimeFooter(row)
                     || isBarePageNumber(rowLine, row, pageCount) || isOwnPageCounter(rowLine, row, pageCount)) continue;
             // Every TRAILING_CONTENT_TRIGGERS marker, not just STATEMENT_CLOSING_MARKER alone --
             // this headerless path used to check only that one trigger, so a document that falls
@@ -8879,6 +8894,7 @@ public class PdfTableLocator {
         while (rowIndex < rows.size()) {
             String rowLine = lineOf(rows.get(rowIndex));
             if (PAGE_FOOTER.matcher(rowLine).find() || PAGE_FOOTER_SENTENCE.matcher(rowLine).find()
+                    || isPrintTimeFooter(rows.get(rowIndex))
                     || isOwnPageCounter(rowLine, rows.get(rowIndex), pageCount)
                     || STATEMENT_CLOSING_MARKER.matcher(rowLine).find()) {
                 rowIndex++;

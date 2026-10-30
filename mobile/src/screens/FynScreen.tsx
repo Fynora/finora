@@ -250,7 +250,7 @@ function FynChat() {
       // behavior={Platform.OS === 'ios' ? 'padding' : undefined} pattern relies on Android's OS-level
       // windowSoftInputMode="resize" (RN/Expo's default) to push content up when the keyboard opens,
       // leaving KeyboardAvoidingView itself a deliberate no-op there. Expo SDK 57 forces edge-to-edge
-      // display on Android, which is documented to make that OS-level resize unreliable -- confirmed
+      // display on Android (SDK 58 still does: edgeToEdgeEnabled=true in the generated gradle.properties), which is documented to make that OS-level resize unreliable -- confirmed
       // here directly: with `undefined`, tapping the input made it (and the whole bottom row) vanish
       // completely behind the keyboard; switching to 'padding' unconditionally made it reappear right
       // above the keyboard, on the same device/build. See RN's KeyboardAvoidingView source -- the

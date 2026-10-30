@@ -57,7 +57,7 @@ repository deliberately holds both. Do not "resolve" the difference by downgradi
 | What | Java | Why |
 | --- | --- | --- |
 | `backend/` (Maven, Spring Boot) | **25** | Shipped in `chore/java-25-runtime-upgrade`; the backend's own toolchain |
-| `mobile/android` (Gradle, AGP, CMake) | **21** | React Native 0.86's native modules do not configure under 25 today — see below |
+| `mobile/android` (Gradle, AGP, CMake) | **21** | React Native 0.86's native modules did not configure under 25 — see below; not re-measured on RN 0.88 (Expo SDK 58, #2413), so keep 21 until someone does |
 
 ### What actually happens on Java 25
 

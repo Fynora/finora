@@ -108,7 +108,7 @@ describe('FynScreen', () => {
     // KeyboardAvoidingView a no-op on Android (it relies entirely on the OS's own
     // windowSoftInputMode="resize" instead). Confirmed on a real Android emulator that this
     // no-op left the message input completely hidden behind the keyboard -- Expo SDK 57 forces
-    // edge-to-edge display on Android, which is documented to make that OS-level resize
+    // edge-to-edge display on Android (SDK 58 still does), which is documented to make that OS-level resize
     // unreliable. `behavior="padding"` works identically on both platforms (RN's own formula
     // for it is not iOS-specific), so this is set unconditionally now, not per-Platform.OS.
     //

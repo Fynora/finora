@@ -2486,10 +2486,32 @@ describe('typing a search', () => {
 
     expect(screen.getByText('Grocery run')).toBeTruthy();
     expect(screen.queryAllByLabelText('Loading')).toHaveLength(0);
+    // The kept rows' count belongs to the previous search, so the count waits for the new one.
+    expect(screen.queryByText('1 transaction')).toBeNull();
 
-    await act(async () => resolveSearch(page([txn({ id: 't-2', description: 'Rent October' })])));
+    await act(async () => resolveSearch(page([
+      txn({ id: 't-2', description: 'Rent October' }),
+      txn({ id: 't-3', description: 'Rent September' }),
+    ])));
     expect(await screen.findByText('Rent October')).toBeTruthy();
     expect(screen.queryByText('Grocery run')).toBeNull();
+    expect(screen.getByText('2 transactions')).toBeTruthy();
+  });
+
+  it('does not keep a search that found nothing: the next one loads instead of showing its empty state', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    transactions.search.mockResolvedValue(page([]) as never);
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'zzz');
+    await screen.findByText('No transactions match these filters.');
+    transactions.search.mockReturnValue(never());
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'zz');
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'zz' })));
+
+    expect(screen.queryByText('No transactions match these filters.')).toBeNull();
+    expectSkeletonNotSpinner();
   });
 
   it('still shows the loading state for any change other than the typed search', async () => {

@@ -352,10 +352,12 @@ export function LedgerScreen() {
     // While a newly typed search loads, the rows already on screen stay, as the web Ledger's do. The
     // list used to drop to its loading state and then build every row again once the results came,
     // a long stall on a slow phone each time typing paused. Only a change of the typed search keeps
-    // them: see differsOnlyInKeyword.
+    // them: see differsOnlyInKeyword. And only rows: a search that found nothing is not kept, or
+    // its empty state ("No transactions yet") would stand in for a list that has not loaded yet.
     placeholderData: (previous, previousQuery) => {
       const previousFilters = previousQuery?.queryKey[1] as TransactionFilters | undefined;
-      return previousFilters && differsOnlyInKeyword(previousFilters, filters) ? previous : undefined;
+      const hadRows = previous?.pages.some((page) => page.content.length > 0) ?? false;
+      return hadRows && previousFilters && differsOnlyInKeyword(previousFilters, filters) ? previous : undefined;
     },
     // The backend's PagedResponse carries a real totalPages, so "is there more" is answered by
     // the server rather than inferred from whether a page came back full.
@@ -521,8 +523,10 @@ export function LedgerScreen() {
   // Blank while the first load runs and when it failed with nothing on screen. totalElements falls
   // back to 0 when there are no pages, so a cold failure would otherwise print a confident zero
   // directly above "Couldn't load your transactions." -- a request that failed is not an answer of
-  // zero. A failed REFETCH keeps the previous pages and so still shows their real count.
-  const countLabel = isLoading || (isError && txns.length === 0)
+  // zero. A failed REFETCH keeps the previous pages and so still shows their real count. Blank too
+  // while the rows are the previous search's, kept on screen as a new one loads: their count is not
+  // the new search's.
+  const countLabel = isLoading || isPlaceholderData || (isError && txns.length === 0)
     ? ''
     : `${totalElements.toLocaleString('en-IN')} ${totalElements === 1 ? 'transaction' : 'transactions'}`;
 

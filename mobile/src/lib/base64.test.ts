@@ -1,4 +1,4 @@
-import { encodeBase64 } from './base64';
+import { decodeBase64, encodeBase64 } from './base64';
 
 function bytes(...values: number[]): ArrayBuffer {
   return new Uint8Array(values).buffer;
@@ -40,5 +40,38 @@ describe('encodeBase64', () => {
     const decoded = Buffer.from(encodeBase64(all.buffer), 'base64');
 
     expect(Uint8Array.from(decoded)).toEqual(all);
+  });
+});
+
+describe('decodeBase64', () => {
+  it('decodes the RFC 4648 vectors, padded and unpadded', () => {
+    const text = (b: Uint8Array) => String.fromCharCode(...b);
+    expect(text(decodeBase64(''))).toBe('');
+    expect(text(decodeBase64('Zg=='))).toBe('f');
+    expect(text(decodeBase64('Zm8='))).toBe('fo');
+    expect(text(decodeBase64('Zm9v'))).toBe('foo');
+    expect(text(decodeBase64('Zm9vYg=='))).toBe('foob');
+    expect(text(decodeBase64('Zm9vYmE='))).toBe('fooba');
+    expect(text(decodeBase64('Zm9vYmFy'))).toBe('foobar');
+    expect(text(decodeBase64('Zm9vYg'))).toBe('foob');
+  });
+
+  it('agrees with the platform encoder for every byte value', () => {
+    const all = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) all[i] = i;
+
+    expect(decodeBase64(Buffer.from(all).toString('base64'))).toEqual(all);
+  });
+
+  it('round-trips encodeBase64 at lengths around the 3-byte boundary', () => {
+    for (let n = 0; n < 10; n++) {
+      const input = new Uint8Array(n).map((_, i) => (i * 37 + 11) & 0xff);
+      expect(decodeBase64(encodeBase64(input.buffer))).toEqual(input);
+    }
+  });
+
+  it('throws on a character outside the alphabet instead of decoding garbage', () => {
+    expect(() => decodeBase64('Zm9v!A==')).toThrow();
+    expect(() => decodeBase64('Zm9 v')).toThrow();
   });
 });

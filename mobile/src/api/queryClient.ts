@@ -7,7 +7,7 @@ import {
   persistQueryClientRestore,
   persistQueryClientSubscribe,
 } from '@tanstack/react-query-persist-client';
-import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery } from './queryPersistence';
+import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery, trimForPersistence } from './queryPersistence';
 import { decryptFromStorage, encryptForStorage } from '../lib/queryCacheCipher';
 import { GatedQueryClient } from '../lib/changeSync';
 import { shouldRefetchOnFocus } from '../lib/changeWatch';
@@ -176,7 +176,12 @@ const storage = {
   },
 };
 
-const basePersister = createAsyncStoragePersister({ storage, key: PERSIST_KEY });
+const basePersister = createAsyncStoragePersister({
+  storage,
+  key: PERSIST_KEY,
+  // Only the Ledger list's first page goes to disk (see trimForPersistence); memory keeps them all.
+  serialize: (client) => JSON.stringify(trimForPersistence(client)),
+});
 
 // TanStack's persistence contract: a query garbage-collected out of the in-memory cache is also
 // dropped from the next persisted write, so gcTime shorter than the persister's maxAge quietly

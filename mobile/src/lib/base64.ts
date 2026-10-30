@@ -31,3 +31,40 @@ export function encodeBase64(buffer: ArrayBuffer): string {
 
   return out;
 }
+
+const DECODE_TABLE = (() => {
+  const table = new Int16Array(128).fill(-1);
+  for (let i = 0; i < ALPHABET.length; i++) table[ALPHABET.charCodeAt(i)] = i;
+  return table;
+})();
+
+/**
+ * Decodes standard base64 (padding optional) into raw bytes: encodeBase64's inverse, written out
+ * for the same reasons. Throws on any character outside the alphabet rather than decoding garbage.
+ *
+ * Used by queryCacheCipher.ts: the cache is stored as base64 text, but on Android expo-crypto's
+ * AESSealedData.fromCombined only accepts bytes. Passing it the text is what made every restore
+ * fail there.
+ */
+export function decodeBase64(text: string): Uint8Array {
+  let end = text.length;
+  while (end > 0 && text.charCodeAt(end - 1) === 0x3d /* '=' */) end -= 1;
+  if (end % 4 === 1) throw new Error('decodeBase64: invalid length');
+
+  const out = new Uint8Array(Math.floor((end * 3) / 4));
+  let o = 0;
+  let buffer = 0;
+  let bits = 0;
+  for (let i = 0; i < end; i++) {
+    const code = text.charCodeAt(i);
+    const value = code < 128 ? DECODE_TABLE[code] : -1;
+    if (value < 0) throw new Error(`decodeBase64: invalid character at ${i}`);
+    buffer = ((buffer << 6) | value) & 0xffffff;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out[o++] = (buffer >> bits) & 0xff;
+    }
+  }
+  return out;
+}

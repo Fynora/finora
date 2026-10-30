@@ -1,5 +1,7 @@
-import { QueryClient } from '@tanstack/react-query';
-import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery } from './queryPersistence';
+import { QueryClient, dehydrate } from '@tanstack/react-query';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
+import { DEFAULT_LEDGER_FILTERS } from '../lib/ledgerDefaults';
+import { PERSISTED_QUERY_KEY_PREFIXES, shouldPersistQuery, trimForPersistence } from './queryPersistence';
 
 /**
  * This file creates ~20 throwaway QueryClients (one per assertion below), each cleared via
@@ -33,12 +35,32 @@ function pendingQuery(queryKey: unknown[]) {
 }
 
 describe('shouldPersistQuery', () => {
-  it.each(PERSISTED_QUERY_KEY_PREFIXES)('allows a successful "%s" query', (prefix) => {
+  it.each(PERSISTED_QUERY_KEY_PREFIXES.filter((p) => p !== 'transactions'))('allows a successful "%s" query', (prefix) => {
     expect(shouldPersistQuery(successfulQuery([prefix]))).toBe(true);
   });
 
-  it('allows a transactions query with its filter object as part of the key', () => {
-    expect(shouldPersistQuery(successfulQuery(['transactions', { page: 0, size: 20 }]))).toBe(true);
+  it('allows the Ledger list as it opens: transactions under the default filters', () => {
+    expect(shouldPersistQuery(successfulQuery(['transactions', DEFAULT_LEDGER_FILTERS]))).toBe(true);
+  });
+
+  it('matches the default Ledger key the way the screen builds it, with the unset filters present as undefined', () => {
+    const asTheScreenBuildsIt = { ...DEFAULT_LEDGER_FILTERS, keyword: undefined, type: undefined, status: undefined, dateFrom: undefined };
+    expect(shouldPersistQuery(successfulQuery(['transactions', asTheScreenBuildsIt]))).toBe(true);
+  });
+
+  // Each debounced search keyword and each filter is its own cache entry. Saving them made the
+  // persisted blob grow with every search and every save slower (measured 2026-10-30).
+  it.each([
+    ['a search keyword', { ...DEFAULT_LEDGER_FILTERS, keyword: 'zomato' }],
+    ['a type filter', { ...DEFAULT_LEDGER_FILTERS, type: 'EXPENSE' }],
+    ['a date range', { ...DEFAULT_LEDGER_FILTERS, dateFrom: '2026-10-01', dateTo: '2026-10-31' }],
+    ['an account drill-through', { ...DEFAULT_LEDGER_FILTERS, accountId: 'acc-1' }],
+  ])('excludes transactions under %s', (_label, filters) => {
+    expect(shouldPersistQuery(successfulQuery(['transactions', filters]))).toBe(false);
+  });
+
+  it('excludes a transactions query with no filter object', () => {
+    expect(shouldPersistQuery(successfulQuery(['transactions']))).toBe(false);
   });
 
   it.each([
@@ -58,5 +80,54 @@ describe('shouldPersistQuery', () => {
 
   it('excludes an allowlisted key that has not resolved yet', () => {
     expect(shouldPersistQuery(pendingQuery(['dashboard-summary']))).toBe(false);
+  });
+});
+
+describe('trimForPersistence', () => {
+  function persistedClientWith(setup: (qc: QueryClient) => void): PersistedClient {
+    const qc = new QueryClient();
+    setup(qc);
+    const clientState = dehydrate(qc);
+    qc.clear();
+    return { timestamp: 1, buster: '1', clientState };
+  }
+
+  const page = (n: number) => ({ content: [{ id: `t-${n}` }], page: n, totalPages: 5 });
+
+  it('keeps only the first page of the Ledger list', () => {
+    const client = persistedClientWith((qc) => {
+      qc.setQueryData(['transactions', DEFAULT_LEDGER_FILTERS], {
+        pages: [page(0), page(1), page(2)],
+        pageParams: [0, 1, 2],
+      });
+    });
+
+    const trimmed = trimForPersistence(client);
+
+    expect(trimmed.clientState.queries[0].state.data).toEqual({ pages: [page(0)], pageParams: [0] });
+  });
+
+  it('leaves every other query, and the input object, untouched', () => {
+    const client = persistedClientWith((qc) => {
+      qc.setQueryData(['transactions', DEFAULT_LEDGER_FILTERS], { pages: [page(0), page(1)], pageParams: [0, 1] });
+      qc.setQueryData(['dashboard-summary'], { pages: ['not', 'an', 'infinite', 'query'] });
+      qc.setQueryData(['report', '2026-10'], { total: 5 });
+    });
+    const before = JSON.stringify(client);
+
+    const trimmed = trimForPersistence(client);
+
+    expect(JSON.stringify(client)).toBe(before);
+    const byHead = Object.fromEntries(trimmed.clientState.queries.map((q) => [String(q.queryKey[0]), q.state.data]));
+    expect(byHead['dashboard-summary']).toEqual({ pages: ['not', 'an', 'infinite', 'query'] });
+    expect(byHead.report).toEqual({ total: 5 });
+  });
+
+  it('leaves a one-page Ledger list as it is', () => {
+    const client = persistedClientWith((qc) => {
+      qc.setQueryData(['transactions', DEFAULT_LEDGER_FILTERS], { pages: [page(0)], pageParams: [0] });
+    });
+
+    expect(trimForPersistence(client).clientState.queries[0].state.data).toEqual({ pages: [page(0)], pageParams: [0] });
   });
 });

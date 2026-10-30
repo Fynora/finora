@@ -3,6 +3,7 @@ package com.finora.transactions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
+import com.finora.entity.Transaction;
 import com.finora.entity.User;
 import com.finora.repository.AccountRepository;
 import com.finora.repository.CategoryRepository;
@@ -207,5 +208,46 @@ class TransactionsBreaksIT extends AbstractIntegrationTest {
 
         JsonNode history = ok(send(HttpMethod.GET, "/api/v1/transactions/" + row + "/correction-history", null, user));
         assertThat(history.get("data")).isEmpty();
+    }
+
+    // Found testing the screens: both edit dialogs send the category with every save, so changing
+    // only the amount pinned the engine's category as the user's choice and cleared "Needs review".
+    @Test
+    void anEditThatLeavesTheCategoryAlone_keepsItsSourceAndReviewFlag() throws Exception {
+        User user = createUser();
+        UUID acc = account(user);
+        UUID row = txn(user, acc, today(user), "40", "sample shop", null);
+        Transaction before = transactionRepository.findById(row).orElseThrow();
+        before.setNeedsCategoryReview(true);
+        transactionRepository.save(before);
+        String current = categoryRepository.findById(before.getCategoryId()).orElseThrow().getName();
+
+        ok(send(HttpMethod.PUT, "/api/v1/transactions/" + row,
+                "{\"amount\":45,\"merchant\":\"Sample Shop\",\"categoryName\":\"" + current + "\"}", user));
+
+        Transaction kept = transactionRepository.findById(row).orElseThrow();
+        assertThat(kept.getAmount()).isEqualByComparingTo("45");
+        assertThat(kept.isCategoryManuallySet()).isFalse();
+        assertThat(kept.isNeedsCategoryReview()).isTrue();
+
+        ok(send(HttpMethod.PUT, "/api/v1/transactions/" + row, "{\"categoryName\":\"Groceries\"}", user));
+
+        Transaction chosen = transactionRepository.findById(row).orElseThrow();
+        assertThat(chosen.isCategoryManuallySet()).isTrue();
+        assertThat(chosen.isNeedsCategoryReview()).isFalse();
+    }
+
+    // Found testing the screens: the narration rule stripped "Transfer" from a typed entry, so every
+    // screen titled it "from icici".
+    @Test
+    void aTypedEntryKeepsEveryWordOfItsName_whileAPastedNarrationIsStillRead() throws Exception {
+        User user = createUser();
+        UUID acc = account(user);
+        UUID typed = txn(user, acc, today(user), "50", "Transfer from ICICI", "Other");
+        UUID pasted = txn(user, acc, today(user), "60",
+                "UPI/DR/100000000001/SAMPLE STORE/HDFC/samplestore@okhdfc", "Other");
+
+        assertThat(transactionRepository.findById(typed).orElseThrow().getMerchant()).isEqualTo("transfer from icici");
+        assertThat(transactionRepository.findById(pasted).orElseThrow().getMerchant()).isEqualTo("sample store");
     }
 }

@@ -43,4 +43,19 @@ class PayeeLabelTest {
         t.setMerchant("Sample Merchant"); // synthetic-ok
         assertThat(PayeeLabel.of(t, "Unknown")).isEqualTo("Sample Merchant");
     }
+
+    // Found testing the screens: Quick sort titled a NEFT credit with its whole narration.
+    @Test
+    void aNarrationWithNoPayeeSlotShowsTheShortName_withCapitals() {
+        Transaction t = new Transaction();
+        t.setDescription("NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//HD FCH00000000001/SAMPLE SECURITIES PVT LT"); // synthetic-ok
+        t.setMerchant("sample securities pvt lt");
+        assertThat(PayeeLabel.of(t, "Unknown")).isEqualTo("Sample Securities Pvt Lt");
+        t.setMerchant("neft refund sample");
+        assertThat(PayeeLabel.of(t, "Unknown")).isEqualTo("NEFT Refund Sample");
+        t.setMerchant("Typed Name");
+        assertThat(PayeeLabel.of(t, "Unknown")).isEqualTo("Typed Name");
+        t.setMerchant(null);
+        assertThat(PayeeLabel.of(t, "Unknown")).startsWith("NEFT_IN:");
+    }
 }

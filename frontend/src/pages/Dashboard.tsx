@@ -40,6 +40,7 @@ import type { Account, DashboardRangeType, DashboardSummary, SavingsRateGateReas
 import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { withSep } from '../utils/date';
+import { rowTitle } from '../lib/rowTitle';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -1428,7 +1429,7 @@ export default function Dashboard() {
                   <div className="min-w-0 flex-1">
                     {/* The short name first, as the Ledger shows it; the bank's full narration
                         (reference numbers, handles, a timestamp) only when there is none. */}
-                    <p className="text-sm font-medium text-ink truncate">{t.merchant || t.description}</p>
+                    <p className="text-sm font-medium text-ink truncate">{rowTitle(t)}</p>
                     <p className="text-xs text-muted">{t.date}</p>
                   </div>
                   <span className={`text-sm font-semibold flex-shrink-0 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>

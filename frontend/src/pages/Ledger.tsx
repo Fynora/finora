@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import transactionsHero from '../assets/hero/transactions-hero.webp';
 import {
-  transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi,
+  transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi, dashboardApi,
   type TransactionFilters, type UpdateTransactionPayload, type TransactionExplanation, type CategoryScope,
 } from '../api/endpoints';
 import { AskOnceCard } from '../components/AskOnceCard';
@@ -22,6 +22,7 @@ import { MerchantLogo } from '../components/MerchantLogo';
 import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
+import { rowTitle } from '../lib/rowTitle';
 import {
   NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
 } from '../lib/ledgerPaging';
@@ -38,6 +39,13 @@ import { BillPickerModal } from '../components/people/BillPickerModal';
 import { PeopleModal, qualifiesForPeople } from '../components/people/PeopleModal';
 import { personPath } from '../components/people/WithPeopleCard';
 import { latestTransactionDate, withSep } from '../utils/date';
+
+// Money that left the account but was not spent: a transfer between the user's own accounts, an
+// investment, a duplicate of another row, a row a newer statement replaced. The dashboard and
+// reports leave these out (FlowClassifier, ReportRows); counting them in Total Spent showed ₹5,000
+// above the dashboard's spend for the same month the moment a transfer was marked.
+const NOT_SPENDING: ReadonlySet<string> = new Set(['TRANSFER', 'INVESTMENT_TRANSFER', 'DUPLICATE', 'SUPERSEDED']);
+const isSpending = (t: Transaction) => t.type === 'EXPENSE' && !NOT_SPENDING.has(t.reconciliationStatus);
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 // Bounds the client-side aggregation the KPI row and category chips are built from (see
@@ -443,6 +451,12 @@ export default function Ledger() {
   const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
 
   const { data: budgets, isLoading: budgetsLoading } = useQuery({ queryKey: ['budgets'], queryFn: () => budgetsApi.list() });
+  // This Month is the month's spending as the dashboard counts it. It used to be the spending in
+  // budgeted categories only, so a user without a budget read "₹0 · 0% of budget" in a month they
+  // had spent in.
+  const { data: monthSummary } = useQuery({ queryKey: ['dashboard-summary'], queryFn: () => dashboardApi.summary() });
+  const monthSpend = monthSummary?.reportingMonthIsCurrent ? monthSummary.monthlyExpense ?? 0 : 0;
+  const hasBudgets = (budgets ?? []).length > 0;
   const budgetSpend = (budgets ?? []).reduce((s, b) => s + b.spentThisMonth, 0);
   const budgetLimit = (budgets ?? []).reduce((s, b) => s + b.monthlyLimit, 0);
   // Bug fix: the bar's width must stay capped at 100% (nothing to gain from a fill wider than
@@ -462,7 +476,7 @@ export default function Ledger() {
     for (const t of statsTxns) {
       const cur = totals.get(t.categoryId) ?? { id: t.categoryId, name: t.categoryName, count: 0, spend: 0 };
       cur.count += 1;
-      if (t.type === 'EXPENSE') {
+      if (isSpending(t)) {
         cur.spend += t.amount;
         spend += t.amount;
       }
@@ -474,7 +488,7 @@ export default function Ledger() {
       // SAME data the cards' big numbers already summarize, not a separate claim about the past.
       const dayCur = byDate.get(t.date) ?? { spend: 0, count: 0 };
       dayCur.count += 1;
-      if (t.type === 'EXPENSE') dayCur.spend += t.amount;
+      if (isSpending(t)) dayCur.spend += t.amount;
       byDate.set(t.date, dayCur);
     }
     // The currently-selected chip must always be present, even at zero count in this window --
@@ -646,17 +660,24 @@ export default function Ledger() {
           <KpiEntrance index={3} reduceMotion={prefersReducedMotion}>
             <KpiCard
               label="This Month"
-              value={fmt(budgetSpend)}
+              value={fmt(monthSpend)}
               icon={PiggyBank}
               iconBg="bg-accent-blue-bg"
               iconColor="text-accent-blue"
               footer={
-                <div className="mt-2">
-                  <div className="h-1.5 bg-black/10 rounded-full overflow-hidden mb-1">
-                    <div className="h-full bg-primary" style={{ width: `${budgetPct}%` }} />
+                hasBudgets ? (
+                  <div className="mt-2">
+                    <div className="h-1.5 bg-black/10 rounded-full overflow-hidden mb-1">
+                      <div className="h-full bg-primary" style={{ width: `${budgetPct}%` }} />
+                    </div>
+                    <p className="text-xs text-muted">{rawBudgetPct}% of budget</p>
                   </div>
-                  <p className="text-xs text-muted">{rawBudgetPct}% of budget</p>
-                </div>
+                ) : (
+                  <button type="button" onClick={() => navigate('/app/budgets')}
+                    className="mt-2 text-xs text-muted underline hover:text-ink">
+                    No budget set
+                  </button>
+                )
               }
             />
           </KpiEntrance>
@@ -867,7 +888,7 @@ export default function Ledger() {
                       <div className="flex items-start gap-2">
                         <MerchantLogo merchant={t.merchant} domain={t.logoDomain} size={28} />
                         <div className="min-w-0">
-                          <p className="text-ink font-medium truncate">{t.merchant || t.description}</p>
+                          <p className="text-ink font-medium truncate">{rowTitle(t)}</p>
                           <p className="text-muted text-xs truncate">
                             {t.description && t.description !== t.merchant ? t.description : null}
                           </p>
@@ -920,7 +941,10 @@ export default function Ledger() {
                         <div className="flex items-center gap-2">
                           <BankLogo bank={account.bank} size={20} />
                           <div className="min-w-0">
-                            <p className="text-ink text-xs font-medium truncate">{account.bank.shortName}</p>
+                            {/* The account's own name ("HDFC Savings"): the bank's short name alone read
+                                "Bank" for every account with no bank set, and could not tell two
+                                accounts at one bank apart. */}
+                            <p className="text-ink text-xs font-medium truncate">{account.name || account.bank.shortName}</p>
                             {/* accountNumberMasked is already the safe form to show outright --
                                 CsvParser.maskAccountNumber produces "••••" + only the last 4 real
                                 digits (fewer if the source number itself was shorter); there's no
@@ -1028,7 +1052,7 @@ export default function Ledger() {
                           <IconButton
                             size="sm"
                             icon={<Users size={13} />}
-                            aria-label={`Money with people: ${t.merchant || t.description}`}
+                            aria-label={`Money with people: ${rowTitle(t)}`}
                             title="Shared with people, lent or paid back"
                             onClick={() => setPeopleFor(t)}
                           />
@@ -1156,7 +1180,7 @@ export default function Ledger() {
 
       {pickingShare && (() => {
         const t = pickingShare.transaction;
-        const payment = { txnId: t.id, label: t.merchant || t.description, amount: Math.abs(t.amount), date: t.date };
+        const payment = { txnId: t.id, label: rowTitle(t), amount: Math.abs(t.amount), date: t.date };
         const close = () => { setPickingShare(null); invalidateEverything(); };
         return pickingShare.mode === 'bill'
           ? <BillPickerModal mode="bill" credit={payment} options={null} onClose={close} />
@@ -1416,7 +1440,11 @@ function MarkTransferModal({
   const candidates = (results?.content ?? [])
     // A one-sided own-account transfer (no partner yet) is exactly what the user may be looking
     // for here; a transfer that already has its pair is not.
-    .filter((c) => c.id !== transaction.id && (c.reconciliationStatus !== 'TRANSFER' || c.awaitingTransferPartner === true));
+    // The other side of a transfer is on another account and goes the other way; the server refuses
+    // anything else ("A transfer must be between two different accounts", "one income and one
+    // expense leg"), so offering it only led to an error.
+    .filter((c) => c.id !== transaction.id && c.accountId !== transaction.accountId && c.type !== transaction.type
+      && (c.reconciliationStatus !== 'TRANSFER' || c.awaitingTransferPartner === true));
 
   async function pick(candidate: Transaction) {
     setMarking(true);
@@ -1445,7 +1473,7 @@ function MarkTransferModal({
           </div>
 
           <p className="text-xs text-muted mb-1">
-            {transaction.merchant || transaction.description} · {fmt(transaction.amount)} ·{' '}
+            {rowTitle(transaction)} · {fmt(transaction.amount)} ·{' '}
             {transaction.type === 'INCOME' ? 'Income' : 'Expense'}
           </p>
           <p className="text-xs text-muted mb-3">
@@ -1481,7 +1509,7 @@ function MarkTransferModal({
                       className="w-full text-left px-2 py-2 rounded-lg hover:bg-black/[0.03] disabled:opacity-50 flex items-center justify-between gap-2"
                     >
                       <span className="min-w-0">
-                        <span className="block text-ink text-sm truncate">{c.merchant || c.description}</span>
+                        <span className="block text-ink text-sm truncate">{rowTitle(c)}</span>
                         <span className="block text-muted text-2xs">{c.date}</span>
                       </span>
                       <span className={`text-sm font-medium whitespace-nowrap ${c.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>

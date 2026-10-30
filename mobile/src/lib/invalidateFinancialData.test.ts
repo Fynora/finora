@@ -125,6 +125,11 @@ const NON_FINANCIAL_KEYS = new Set([
   // webhook lands a charge -- never as a side effect of a transaction, account or import write.
   // Same reasoning as 'my-subscription' above.
   'billing-history',
+  // A live Plus offer (lib/planOffer.ts): Google Play's first-month price, and the backend's
+  // campaign name and end date. Set in Play Console and the billing_offers table -- never moved by
+  // a transaction, account or import write.
+  'play-intro-offer',
+  'billing-offers',
 ]);
 
 function sourceFiles(dir: string): string[] {

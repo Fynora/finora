@@ -112,6 +112,10 @@ jest.mock('../context/AuthContext', () => ({
   useAuth: () => ({ fullName: 'Test User' }),
 }));
 
+// The Plus offer pop-up has its own tests (components/OfferPopup.test.tsx); here it would need Play,
+// the offers endpoint and screen focus, none of which these tests are about.
+jest.mock('../components/OfferPopup', () => ({ OfferPopup: () => null }));
+
 const dashboard = dashboardApi as jest.Mocked<typeof dashboardApi>;
 const accounts = accountsApi as jest.Mocked<typeof accountsApi>;
 const transactions = transactionsApi as jest.Mocked<typeof transactionsApi>;

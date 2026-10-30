@@ -5,6 +5,7 @@ import { billingApi } from '../api/endpoints';
 import { BillingHistorySection } from '../components/BillingHistorySection';
 import { purchasePlan } from '../lib/revenueCat';
 import { isPlanVisible } from '../lib/planDisplay';
+import { usePlusOffer } from '../lib/planOffer';
 import { useTheme } from '../theme';
 import { GlassScreen } from '../components/GlassScreen';
 import { GlassSurface } from '../components/GlassSurface';
@@ -59,6 +60,9 @@ export function PaywallScreen() {
     queryKey: ['my-subscription'],
     queryFn: () => billingApi.mySubscription(),
   });
+  // Play's own first-month price (e.g. the Diwali offer), only when Play would charge it to this
+  // customer -- see usePlusOffer. Subscribe buys the same option, so the price shown is the one paid.
+  const plusOffer = usePlusOffer();
 
   if (subscription?.hasBillingSubscription) {
     return null; // design spec §6.3/§6.4 -- caller (SubscriptionScreen) routes to MySubscriptionScreen instead
@@ -99,7 +103,21 @@ export function PaywallScreen() {
       {PLANS.filter((plan) => isPlanVisible(plan.code)).map((plan) => (
         <GlassSurface key={plan.code} style={styles.card}>
           <Text style={[styles.planName, { color: c.ink }]}>{plan.name}</Text>
-          <Text style={[styles.planPrice, { color: c.muted }]}>{plan.price}</Text>
+          {plan.code === 'PLUS' && plusOffer ? (
+            <>
+              {plusOffer.label && (
+                <Text testID="plan-offer-plus" style={[styles.offerBadge, { color: c.warningInk }]}>
+                  {plusOffer.lastDay ? `${plusOffer.label} · ends ${plusOffer.lastDay}` : plusOffer.label}
+                </Text>
+              )}
+              <Text testID="plan-price-plus" style={[styles.offerPrice, { color: c.ink }]}>
+                {plusOffer.offerPrice} for your first month
+              </Text>
+              <Text style={[styles.planPrice, { color: c.muted }]}>then {plusOffer.regularPrice}/mo</Text>
+            </>
+          ) : (
+            <Text style={[styles.planPrice, { color: c.muted }]}>{plan.price}</Text>
+          )}
           <Pressable accessibilityRole="button"
             disabled={purchasing !== null || activatingPlanCode !== null}
             onPress={() => handlePurchase(plan.code)}
@@ -130,6 +148,8 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 16, padding: 20, gap: 8 },
   planName: { fontSize: 18, fontWeight: '700' },
   planPrice: { fontSize: 14 },
+  offerBadge: { fontSize: 12, fontWeight: '700' },
+  offerPrice: { fontSize: 16, fontWeight: '700' },
   button: { marginTop: 12, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
   buttonText: { fontWeight: '600' },
 });

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
-import Purchases, { type PurchasesPackage } from 'react-native-purchases';
+import Purchases, { type Price, type PurchasesPackage } from 'react-native-purchases';
+import { fmtCurrency } from './format';
 
 // Apple and Google issue separate "Platform Store API Keys" once real App Store Connect / Google
 // Play Console apps are linked in the RevenueCat dashboard -- there is no single key that works
@@ -64,6 +65,64 @@ export async function purchasePlan(planCode: 'PLUS' | 'PREMIUM', billingCycle: '
     throw new Error(`No RevenueCat offering package found for ${target}.`);
   }
   await Purchases.purchasePackage(pkg);
+}
+
+/** A first-period price Google Play will charge this customer for a plan, from a Play Console offer
+ *  (e.g. Plus monthly's "diwali2026": ₹125 for the first month, then ₹249). */
+export interface PlayIntroOffer {
+  /** What the first month costs, e.g. "₹125". */
+  offerPrice: string;
+  /** What every month after it costs, e.g. "₹249". */
+  regularPrice: string;
+}
+
+/** Whole-rupee INR amounts read like the rest of the app ("₹125"); anything else keeps Play's own
+ *  formatting, so a price is never rounded into something Play does not charge. */
+function playPrice(price: Price): string {
+  return price.currencyCode === 'INR' && price.amountMicros % 1_000_000 === 0
+    ? fmtCurrency(price.amountMicros / 1_000_000)
+    : price.formatted;
+}
+
+/**
+ * The introductory price Google Play would charge for this plan right now, or null.
+ *
+ * Reads the option purchasePlan() buys. RevenueCat's docs (subscription offers): passing a Package
+ * to a purchase "automatically applies an available free trial or introductory offer", choosing
+ * the longest free trial, else the cheapest introductory period the customer is eligible for, else
+ * the base plan -- and `defaultOption` is that same choice. Play only lists a "new customer
+ * acquisition" offer to a customer it finds eligible, so a null here also covers "has had Plus
+ * before".
+ *
+ * Only a paid, one-month first period is reported -- the one shape this app can describe in words
+ * ("₹125 for your first month"). A free trial, several discounted months, or anything else returns
+ * null, and the screen keeps the regular price; Play's own purchase sheet still states the exact
+ * terms before anyone pays.
+ *
+ * Never throws: an unconfigured SDK, iOS (no Play options), a network failure or a missing package
+ * all mean "no offer to show".
+ */
+export async function playIntroOffer(
+  planCode: 'PLUS' | 'PREMIUM', billingCycle: 'MONTHLY' | 'YEARLY',
+): Promise<PlayIntroOffer | null> {
+  if (!configured || Platform.OS !== 'android') return null;
+  try {
+    const offerings = await Purchases.getOfferings();
+    const target = packageIdentifierFor(planCode, billingCycle);
+    const pkg = offerings.current?.availablePackages.find(
+      (p: PurchasesPackage) => p.identifier === target || p.product.identifier === target
+    );
+    const option = pkg?.product.defaultOption;
+    if (!option || option.isBasePlan || option.freePhase) return null;
+    const intro = option.introPhase;
+    const regular = option.fullPricePhase;
+    if (!intro || !regular) return null;
+    const oneMonth = intro.billingPeriod.iso8601 === 'P1M' && (intro.billingCycleCount ?? 1) === 1;
+    if (!oneMonth || intro.price.amountMicros >= regular.price.amountMicros) return null;
+    return { offerPrice: playPrice(intro.price), regularPrice: playPrice(regular.price) };
+  } catch {
+    return null;
+  }
 }
 
 export async function restorePurchases(): Promise<void> {

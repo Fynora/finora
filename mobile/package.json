@@ -68,7 +68,6 @@
     "eslint": "^9.0.0",
     "eslint-config-expo": "~58.0.4",
     "eslint-plugin-react-native-a11y": "^3.5.1",
-    "expo-modules-core": "~58.0.28",
     "jest": "~30.5.2",
     "jest-expo": "~58.0.13",
     "patch-package": "^8.0.1",
@@ -118,6 +117,11 @@
     "decode-uri-component": "^0.5.0",
     "eslint-plugin-react-native-a11y": {
       "eslint": "$eslint"
+    },
+    "react-native-notify-kit": {
+      "@expo/require-utils": {
+        "typescript": "$typescript"
+      }
     },
     "@grpc/grpc-js": "^1.14.5",
     "zod": "^4.6.6"

@@ -10,6 +10,7 @@ import {
   parseRedirects,
   spaShellHtml,
 } from './spaShell.mjs';
+import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -30,7 +31,12 @@ const robots = read('public/robots.txt');
 const prerenderSource = read('scripts/prerender.mjs');
 const routeTags = appSource.match(/<Route\b/g) ?? [];
 const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*');
-const prerenderedPaths = [...prerenderSource.matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',?\s*$/gm)].map((m) => m[1]);
+const fixedPrerenderedPaths = [...prerenderSource.matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',?\s*$/gm)].map((m) => m[1]);
+// The Help answers: one file each, written by prerender.mjs's loop over ssr-entry's helpArticlePages
+// (seoFiles.test.tsx holds that loop and that list to HELP_ARTICLES). App.tsx serves them through a
+// single pattern route, HELP_ARTICLE_ROUTE.
+const helpPaths = HELP_ARTICLES.map(helpArticlePath);
+const prerenderedPaths = [...fixedPrerenderedPaths, ...helpPaths];
 const notFoundFile = prerenderSource.match(/^const NOT_FOUND_FILE = '([^']+)';$/m)?.[1];
 
 const disallowRules = robots
@@ -51,7 +57,9 @@ describe('the lists this file reads', () => {
     expect(routePaths).toContain('/app/imports/:jobId');
     expect(prerenderedPaths).toContain('/');
     expect(prerenderedPaths).toContain('/privacy');
-    expect(prerenderedPaths.length).toBeGreaterThanOrEqual(12);
+    expect(fixedPrerenderedPaths.length).toBeGreaterThanOrEqual(12);
+    expect(routePaths).toContain(HELP_ARTICLE_ROUTE);
+    expect(helpPaths.length).toBeGreaterThanOrEqual(30);
   });
 
   it('reads every <Route> in App.tsx: each has a literal, absolute path this file can check', () => {
@@ -103,7 +111,8 @@ describe('public/_redirects', () => {
   });
 
   it('sends every route that is not prerendered to the shell, with or without a trailing slash', () => {
-    const browserOnly = routePaths.filter((p) => !prerenderedPaths.includes(p));
+    // The Help article route is not browser-only: every address it serves has its own file.
+    const browserOnly = routePaths.filter((p) => !prerenderedPaths.includes(p) && p !== HELP_ARTICLE_ROUTE);
     expect(browserOnly.length).toBeGreaterThan(0);
     for (const route of browserOnly) {
       for (const address of [concrete(route), `${concrete(route)}/`]) {
@@ -116,7 +125,16 @@ describe('public/_redirects', () => {
   });
 
   it('gives every prerendered page a route, so no file is served for an address the app does not know', () => {
-    for (const page of prerenderedPaths) expect(routePaths, page).toContain(page);
+    for (const page of fixedPrerenderedPaths) expect(routePaths, page).toContain(page);
+    for (const page of helpPaths) expect(page.startsWith('/help/'), `${page} is outside ${HELP_ARTICLE_ROUTE}`).toBe(true);
+  });
+
+  it('leaves a Help answer that does not exist to the 404 page, like any unknown address', () => {
+    // No rule may cover /help/<anything>: it would replace every prerendered answer with the blank
+    // shell, and turn an unknown slug into a soft 404.
+    for (const address of ['/help/no-such-answer', '/help/no-such-answer/', '/help/x']) {
+      expect(matchRedirect(rules, address), address).toBeUndefined();
+    }
   });
 
   it('has no exact rule left over for a route that is gone', () => {

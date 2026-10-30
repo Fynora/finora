@@ -204,6 +204,18 @@ export function withRobotsNoindex(templateHtml) {
   return templateHtml.replace('</head>', () => '<meta name="robots" content="noindex" />\n</head>');
 }
 
+/**
+ * Where a Help article's page is written: '/help/<slug>' -> 'help/<slug>.html' under dist/.
+ * Cloudflare Pages serves that file at the extensionless /help/<slug>. Throws for anything that is
+ * not one lower-case slug under /help/, so a bad slug fails the build instead of writing a file
+ * somewhere else in dist/ (a '..' or a second '/' would).
+ */
+export function helpArticleOutputFile(route) {
+  const match = /^\/help\/([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(route);
+  if (!match) throw new Error(`prerender: ${JSON.stringify(route)} is not a Help article address (/help/<lower-case-slug>)`);
+  return `help/${match[1]}.html`;
+}
+
 // The three kinds of document prerender.mjs writes from the one shared template, each with the
 // address tags it should have and no others. (The fourth document, the blank shell, is
 // spaShellHtml in spaShell.mjs.) They are here, not inline in prerender.mjs, so seoFiles.test.tsx

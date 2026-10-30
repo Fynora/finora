@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Search, Mail } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Search } from 'lucide-react';
 import { PublicLayout } from '../components/PublicLayout';
-import { SUPPORT_MAILTO } from '../lib/contact';
-import { HELP_ARTICLES, HELP_CATEGORIES } from './helpArticles';
+import { HelpContactCard } from './HelpContactCard';
+import { HELP_ARTICLES, HELP_CATEGORIES, helpArticlePath } from './helpArticles';
 
 
 export default function Help() {
@@ -72,9 +73,14 @@ export default function Help() {
             <section key={category} className="mb-8">
               <h2 className="text-2xs uppercase tracking-wide text-primary font-semibold mb-3">{category}</h2>
               <div className="space-y-3">
+                {/* Each question links to its own page (/help/<slug>), which is the address search
+                    results and the structured data point at; this index keeps every answer
+                    readable in place as well. */}
                 {articles.map((a) => (
-                  <div key={a.question} className="bg-card border border-border rounded-xl p-5">
-                    <h3 className="font-semibold text-ink text-sm mb-1.5">{a.question}</h3>
+                  <div key={a.slug} className="bg-card border border-border rounded-xl p-5">
+                    <h3 className="font-semibold text-ink text-sm mb-1.5">
+                      <Link to={helpArticlePath(a)} className="hover:text-primary hover:underline">{a.question}</Link>
+                    </h3>
                     <p className="text-xs text-muted leading-relaxed">{a.answer}</p>
                   </div>
                 ))}
@@ -84,15 +90,7 @@ export default function Help() {
         </div>
       )}
 
-      <div className="bg-card border border-border rounded-xl p-6 flex items-center gap-4 flex-wrap justify-between">
-        <div>
-          <p className="text-sm font-semibold text-ink mb-1">Still need help?</p>
-          <p className="text-xs text-muted">Our support team is happy to help with anything not covered above.</p>
-        </div>
-        <a href={SUPPORT_MAILTO} className="bg-primary hover:bg-primary-dark text-on-primary text-xs font-semibold rounded-lg px-4 py-2.5 flex items-center gap-1.5 flex-shrink-0">
-          <Mail size={14} /> Contact Support
-        </a>
-      </div>
+      <HelpContactCard />
     </PublicLayout>
   );
 }

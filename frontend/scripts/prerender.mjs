@@ -13,6 +13,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {
   decodeEntities,
+  helpArticleOutputFile,
   heroFontAsset,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
@@ -93,7 +94,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, helpArticlePages, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -107,8 +108,16 @@ async function main() {
 
   const heroFontHref = '/assets/' + heroFontAsset(fs.readdirSync(path.join(distDir, 'assets')));
 
-  for (const [route, fileName] of Object.entries(OUTPUT_FILES)) {
-    const renderRoute = routes[route];
+  // The fixed pages, then one file per Help answer (dist/help/<slug>.html, which Cloudflare Pages
+  // serves at /help/<slug>). The article files need no line in public/_redirects: like every page
+  // here they are real files, and an unknown slug has none, so it gets 404.html with a 404.
+  const pages = [
+    ...Object.entries(OUTPUT_FILES).map(([route, fileName]) => [route, fileName, routes[route]]),
+    ...Object.entries(helpArticlePages).map(([route, render]) => [route, helpArticleOutputFile(route), render]),
+  ];
+  fs.mkdirSync(path.join(distDir, 'help'), { recursive: true });
+
+  for (const [route, fileName, renderRoute] of pages) {
     const appHtml = renderRoute();
     // Every route but the homepage gets its own <title> and description (see prerenderTitle.mjs).
     // The homepage keeps index.html's own -- its <h1> is the hero headline, not a page name. A page

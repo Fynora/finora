@@ -12,6 +12,9 @@ import {
   withRobotsNoindex,
 } from './prerenderTitle.mjs';
 import { spaShellHtml } from './spaShell.mjs';
+import { helpArticleOutputFile } from './prerenderTitle.mjs';
+import { helpArticlePages } from './ssr-entry';
+import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -32,6 +35,16 @@ function isDisallowed(p: string): boolean {
 
 const sitemapPaths = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].replace(SITE_ORIGIN, ''));
 const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*');
+
+// Every Help answer's address. App.tsx has one pattern route for them (/help/:slug); these are the
+// addresses it actually serves, each prerendered to its own file.
+const helpPaths = HELP_ARTICLES.map(helpArticlePath);
+
+/** The addresses a route stands for: itself, or every Help answer for the /help/:slug pattern. */
+function addressesOf(route: string): string[] {
+  return route === HELP_ARTICLE_ROUTE ? helpPaths : [route];
+}
+const routeAddresses = routePaths.flatMap(addressesOf);
 
 describe('the one indexed host', () => {
   it('is the same in the app and in the build script', () => {
@@ -86,8 +99,9 @@ describe('sitemap.xml', () => {
   });
 
   it('lists only real routes that robots.txt lets crawlers fetch', () => {
+    expect(routePaths).toContain(HELP_ARTICLE_ROUTE);
     for (const p of sitemapPaths) {
-      expect(routePaths, `${p} is in the sitemap but is not a route in App.tsx`).toContain(p);
+      expect(routeAddresses, `${p} is in the sitemap but is not a route in App.tsx (or a Help article)`).toContain(p);
       expect(isDisallowed(p), `${p} is in the sitemap but disallowed by robots.txt`).toBe(false);
     }
   });
@@ -95,10 +109,15 @@ describe('sitemap.xml', () => {
   it('forces a decision for every route: each is either in the sitemap or disallowed', () => {
     // A new public route must be added to the sitemap; a new private one to robots.txt. Redirects
     // (/login, /register) are disallowed already. Failing here is the point.
-    for (const p of routePaths) {
+    for (const p of routeAddresses) {
       const listed = sitemapPaths.includes(p);
       expect(listed || isDisallowed(p), `${p} is neither in sitemap.xml nor disallowed in robots.txt`).toBe(true);
     }
+  });
+
+  it('lists every Help answer once, in helpArticles.ts order, and no address under /help/ that is not one', () => {
+    expect(helpPaths.length).toBeGreaterThanOrEqual(30);
+    expect(sitemapPaths.filter((p) => p.startsWith('/help/'))).toEqual(helpPaths);
   });
 
   it('is served as its own prerendered page, never the homepage fallback', () => {
@@ -106,9 +125,29 @@ describe('sitemap.xml', () => {
     // that does not run JavaScript was handed the HOMEPAGE (title, h1 and all) at each of them.
     const ssrRoutes = [...read('scripts/ssr-entry.tsx').matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     const outputFiles = [...read('scripts/prerender.mjs').matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',/gm)].map((m) => m[1]);
+    // The Help answers are rendered by ssr-entry's helpArticlePages, built from HELP_ARTICLES, and
+    // written by prerender.mjs's loop over it, each to helpArticleOutputFile(route).
+    const helpPages = Object.keys(helpArticlePages);
+    expect(read('scripts/prerender.mjs')).toContain(
+      '...Object.entries(helpArticlePages).map(([route, render]) => [route, helpArticleOutputFile(route), render]),',
+    );
     for (const p of sitemapPaths) {
+      if (p.startsWith('/help/')) {
+        expect(helpPages, `${p} is in the sitemap but ssr-entry's helpArticlePages does not render it`).toContain(p);
+        continue;
+      }
       expect(ssrRoutes, `${p} is in the sitemap but scripts/ssr-entry.tsx does not render it`).toContain(p);
       expect(outputFiles, `${p} is in the sitemap but scripts/prerender.mjs does not write it`).toContain(p);
+    }
+  });
+
+  it('renders each Help answer as its own page: its question as the <h1>, its answer in the body', () => {
+    expect(Object.keys(helpArticlePages)).toEqual(helpPaths);
+    for (const article of HELP_ARTICLES) {
+      const html = helpArticlePages[helpArticlePath(article)]();
+      const decoded = html.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+      expect(/<h1[^>]*>([^<]*)<\/h1>/.exec(decoded)?.[1], article.slug).toBe(article.question);
+      expect(decoded, article.slug).toContain(article.answer);
     }
   });
 
@@ -126,7 +165,7 @@ describe('sitemap.xml', () => {
     const ssr = read('scripts/ssr-entry.tsx');
     const prerendered = [...ssr.matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     expect(prerendered.length).toBeGreaterThan(0);
-    for (const p of prerendered) expect(sitemapPaths, p).toContain(p);
+    for (const p of [...prerendered, ...Object.keys(helpArticlePages)]) expect(sitemapPaths, p).toContain(p);
   });
 });
 
@@ -196,7 +235,7 @@ describe('the address each built document names', () => {
   });
 
   it('every other prerendered page: exactly one of each, for its own route', () => {
-    const pages = outputRoutes.filter((route) => route !== '/');
+    const pages = [...outputRoutes.filter((route) => route !== '/'), ...helpPaths];
     expect(pages.length).toBeGreaterThan(0);
     expect(outputRoutes).toContain('/');
     for (const route of pages) {
@@ -238,5 +277,18 @@ describe('the address each built document names', () => {
     expect(prerenderSource).toContain('const pageTemplate = templateForNotFound(template, { title, description });');
     // No address tag is added anywhere else in the script.
     expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta)\(/);
+  });
+});
+
+describe('helpArticleOutputFile', () => {
+  it('writes /help/<slug> to help/<slug>.html, which Cloudflare Pages serves at the extensionless address', () => {
+    expect(helpArticleOutputFile('/help/plans-and-prices')).toBe('help/plans-and-prices.html');
+    for (const path of helpPaths) expect(helpArticleOutputFile(path)).toBe(`${path.slice(1)}.html`);
+  });
+
+  it('refuses anything that is not one lower-case slug under /help/, rather than write elsewhere in dist/', () => {
+    for (const bad of ['/help', '/help/', '/help/a/b', '/help/../index', '/help/Plans', '/help/a_b', '/help/-a', '/terms', 'help/a']) {
+      expect(() => helpArticleOutputFile(bad), bad).toThrow(/not a Help article address/);
+    }
   });
 });

@@ -1,13 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The public, indexable pages only: the routes in src/App.tsx that are not behind login and not
      an auth flow. seoFiles.test.tsx fails if a URL here stops being a real route, or is disallowed
-     by robots.txt. No <lastmod>: a hand-typed date goes stale and a wrong one is worse than none. -->
+     by robots.txt. The /help/<slug> lines are the Help answers in src/pages/helpArticles.ts, one
+     each, in that file's order; seoFiles.test.tsx fails if one is missing or left over.
+     No <lastmod>: a hand-typed date goes stale and a wrong one is worse than none. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://app.fynora.net/</loc></url>
   <url><loc>https://app.fynora.net/about</loc></url>
   <url><loc>https://app.fynora.net/careers</loc></url>
   <url><loc>https://app.fynora.net/contact</loc></url>
   <url><loc>https://app.fynora.net/help</loc></url>
+  <url><loc>https://app.fynora.net/help/what-is-fynora</loc></url>
+  <url><loc>https://app.fynora.net/help/do-i-need-to-connect-my-bank-account</loc></url>
+  <url><loc>https://app.fynora.net/help/what-do-i-need-to-sign-up</loc></url>
+  <url><loc>https://app.fynora.net/help/same-email-or-phone-on-two-accounts</loc></url>
+  <url><loc>https://app.fynora.net/help/log-in-with-phone-number</loc></url>
+  <url><loc>https://app.fynora.net/help/too-many-wrong-passwords</loc></url>
+  <url><loc>https://app.fynora.net/help/why-verify-phone-number</loc></url>
+  <url><loc>https://app.fynora.net/help/supported-file-formats</loc></url>
+  <url><loc>https://app.fynora.net/help/import-statement-from-email</loc></url>
+  <url><loc>https://app.fynora.net/help/import-statements-for-multiple-accounts</loc></url>
+  <url><loc>https://app.fynora.net/help/importing-the-same-statement-twice</loc></url>
+  <url><loc>https://app.fynora.net/help/add-account-manually</loc></url>
+  <url><loc>https://app.fynora.net/help/how-account-numbers-are-displayed</loc></url>
+  <url><loc>https://app.fynora.net/help/edit-imported-transaction</loc></url>
+  <url><loc>https://app.fynora.net/help/wrong-transaction-category</loc></url>
+  <url><loc>https://app.fynora.net/help/deleting-a-transaction-updates-dashboard</loc></url>
+  <url><loc>https://app.fynora.net/help/set-a-budget</loc></url>
+  <url><loc>https://app.fynora.net/help/over-budget-warning</loc></url>
+  <url><loc>https://app.fynora.net/help/track-a-savings-goal</loc></url>
+  <url><loc>https://app.fynora.net/help/track-investments</loc></url>
+  <url><loc>https://app.fynora.net/help/spending-trends-over-months</loc></url>
+  <url><loc>https://app.fynora.net/help/plans-and-prices</loc></url>
+  <url><loc>https://app.fynora.net/help/upgrade-downgrade-or-switch-billing-cycle</loc></url>
+  <url><loc>https://app.fynora.net/help/cancel-subscription</loc></url>
+  <url><loc>https://app.fynora.net/help/pause-subscription</loc></url>
+  <url><loc>https://app.fynora.net/help/payment-invoice</loc></url>
+  <url><loc>https://app.fynora.net/help/card-details-storage</loc></url>
+  <url><loc>https://app.fynora.net/help/app-store-or-google-play-subscription</loc></url>
+  <url><loc>https://app.fynora.net/help/how-ai-insights-work</loc></url>
+  <url><loc>https://app.fynora.net/help/past-imports</loc></url>
+  <url><loc>https://app.fynora.net/help/delete-account-with-statements</loc></url>
+  <url><loc>https://app.fynora.net/help/zero-transactions-found</loc></url>
+  <url><loc>https://app.fynora.net/help/re-import-into-deleted-account</loc></url>
+  <url><loc>https://app.fynora.net/help/contact-support</loc></url>
+  <url><loc>https://app.fynora.net/help/support-ticket-status</loc></url>
+  <url><loc>https://app.fynora.net/help/support-ticket-vs-feedback</loc></url>
   <url><loc>https://app.fynora.net/trust</loc></url>
   <url><loc>https://app.fynora.net/your-data</loc></url>
   <url><loc>https://app.fynora.net/privacy</loc></url>

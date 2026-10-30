@@ -9,6 +9,8 @@ import Contact from '../src/pages/Contact';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Help from '../src/pages/Help';
+import { HelpArticleView } from '../src/pages/HelpArticle';
+import { HELP_ARTICLES, helpArticlePath } from '../src/pages/helpArticles';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
@@ -48,6 +50,19 @@ export const routes: Record<string, () => string> = {
   '/trust': page('/trust', TrustSecurity),
   '/your-data': page('/your-data', DataPromise),
 };
+
+/**
+ * One page per Help answer, at /help/<slug>, written to dist/help/<slug>.html by
+ * scripts/prerender.mjs. Built from HELP_ARTICLES rather than listed by hand, so an article added
+ * there is prerendered without a second edit. Kept apart from `routes` because those are written
+ * to the file names prerender.mjs lists; these are written under dist/help/.
+ */
+export const helpArticlePages: Record<string, () => string> = Object.fromEntries(
+  HELP_ARTICLES.map((article) => {
+    const route = helpArticlePath(article);
+    return [route, page(route, () => <HelpArticleView article={article} />)];
+  }),
+);
 
 /**
  * The not-found page, written to dist/404.html. Deliberately NOT an entry in `routes`: those are

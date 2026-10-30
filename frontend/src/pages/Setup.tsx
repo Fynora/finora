@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   UploadCloud, User, CreditCard, Landmark, Wallet, Calendar, CheckCircle2,
-  MoreVertical, Pencil, Trash2, FileText, Plus,
+  MoreVertical, Pencil, Trash2, FileText, Plus, X,
 } from 'lucide-react';
 import { accountsApi, banksApi } from '../api/endpoints';
 import { BankLogo } from '../components/BankLogo';
@@ -16,6 +16,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AddAmountOwedDialog, AmountOwedNotKnown } from '../components/AddAmountOwedDialog';
 import { isAmountOwedUnknown } from '../lib/amountOwed';
 import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
+import { EditAccountDialog } from '../components/EditAccountDialog';
+import { rememberWhichBankAnswered, shouldAskWhichBank } from '../lib/whichBankPrompt';
 
 const TYPE_LABEL: Record<Account['accountType'], string> = {
   SAVINGS: 'Savings Account',
@@ -70,8 +72,10 @@ export default function Setup() {
   const [saving, setSaving] = useState(false);
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  // The account whose Edit account dialog is open, and whether "Which bank is this?" opened it.
+  const [editing, setEditing] = useState<{ account: Account; answeringWhichBank: boolean } | null>(null);
+  // Bumped when a "Which bank is this?" prompt is answered or dismissed, so the cards re-read it.
+  const [, setWhichBankAnswers] = useState(0);
   // The card whose "How much do you owe on this card today?" dialog is open (AddAmountOwedDialog).
   const [addingAmountFor, setAddingAmountFor] = useState<Account | null>(null);
   const queryClient = useQueryClient();
@@ -137,37 +141,22 @@ export default function Setup() {
     }
   }
 
-  function startRename(a: Account) {
+  function startEdit(a: Account, answeringWhichBank = false) {
     setMenuOpenFor(null);
-    setRenamingId(a.id);
-    setRenameValue(a.name);
+    setEditing({ account: a, answeringWhichBank });
   }
 
-  // Removing a focused element from the DOM (exactly what happens the instant setRenamingId(null)
-  // swaps the input back to plain text) makes the browser fire a native blur on it -- which would
-  // otherwise still reach this input's onBlur and silently re-commit the rename right after the
-  // user explicitly pressed Escape to cancel it. This ref is set immediately before that
-  // unmount so submitRename can tell "real blur" (commit) apart from "blur caused by Escape's own
-  // unmount" (must not commit) and skip the latter.
-  const cancellingRename = useRef(false);
-
-  function cancelRename() {
-    cancellingRename.current = true;
-    setRenamingId(null);
+  function dismissWhichBank(accountId: string) {
+    rememberWhichBankAnswered(accountId);
+    setWhichBankAnswers((n) => n + 1);
   }
 
-  async function submitRename(id: string) {
-    if (cancellingRename.current) { cancellingRename.current = false; return; }
-    const trimmed = renameValue.trim();
-    if (!trimmed) { setRenamingId(null); return; }
-    try {
-      await accountsApi.update(id, { name: trimmed, accountType: accounts.find((a) => a.id === id)!.accountType });
-      setRenamingId(null);
-      load();
-    } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Could not rename this account. Try again.');
-      setRenamingId(null);
-    }
+  /** A name or bank shows across the app (logos, account pickers, the ledger), not just here. */
+  function accountEdited() {
+    if (editing?.answeringWhichBank) dismissWhichBank(editing.account.id);
+    setEditing(null);
+    load();
+    void queryClient.invalidateQueries({ queryKey: ['accounts'] });
   }
 
   return (
@@ -236,27 +225,14 @@ export default function Setup() {
                 <div className="p-5 flex items-center gap-4 flex-wrap border-b border-border">
                   <BankLogo bank={a.bank} size={44} />
                   <div className="flex-1 min-w-0">
-                    {renamingId === a.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => submitRename(a.id)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') void submitRename(a.id); if (e.key === 'Escape') cancelRename(); }}
-                        className="bg-card text-ink border border-primary/40 rounded-lg px-2 py-1 text-sm font-semibold w-full max-w-xs"
-                      />
-                    ) : (
-                      <>
-                        {/* Nickname on top, official bank name underneath -- exactly the
-                            "Salary Account / Punjab National Bank" layout from the brief, so
-                            accounts sharing a bank are still easy to tell apart at a glance. The
-                            bank line is skipped when it's just the same text as the nickname
-                            (a brand-new account nobody's renamed yet) or unrecognized (OTHER). */}
-                        <h3 className="font-semibold text-ink truncate">{a.name}</h3>
-                        {a.bank.officialName && a.bank.officialName !== a.name && (
-                          <p className="text-xs text-muted truncate">{a.bank.officialName}</p>
-                        )}
-                      </>
+                    {/* Nickname on top, official bank name underneath -- exactly the
+                        "Salary Account / Punjab National Bank" layout from the brief, so
+                        accounts sharing a bank are still easy to tell apart at a glance. The
+                        bank line is skipped when it's just the same text as the nickname
+                        (a brand-new account nobody's renamed yet) or unrecognized (OTHER). */}
+                    <h3 className="font-semibold text-ink truncate">{a.name}</h3>
+                    {a.bank.officialName && a.bank.officialName !== a.name && (
+                      <p className="text-xs text-muted truncate">{a.bank.officialName}</p>
                     )}
                     <p className="text-xs text-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="text-2xs uppercase tracking-wide bg-bg text-muted px-2 py-0.5 rounded-full border border-border">
@@ -297,8 +273,8 @@ export default function Setup() {
                               menu item) left it open indefinitely. */}
                           <div className="fixed inset-0 z-10" onClick={() => setMenuOpenFor(null)} />
                           <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-card z-20 w-40 py-1">
-                            <button onClick={() => startRename(a)} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
-                              <Pencil size={13} /> Rename Account
+                            <button onClick={() => startEdit(a)} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
+                              <Pencil size={13} /> Edit Account
                             </button>
                             <Link to="/app/statements" onClick={() => { trackNavigation('statement-history', 'contextual'); setMenuOpenFor(null); }} className="w-full text-left px-3 py-2 text-xs text-ink hover:bg-bg flex items-center gap-2">
                               <FileText size={13} /> View Statements
@@ -312,6 +288,30 @@ export default function Setup() {
                     </div>
                   </div>
                 </div>
+
+                {shouldAskWhichBank(a) && (
+                  <div
+                    role="note"
+                    aria-label={`Which bank is ${a.name}?`}
+                    className="px-5 py-3 bg-primary-light border-b border-border flex items-center gap-3 flex-wrap"
+                  >
+                    <p className="text-sm text-ink flex-1 min-w-0">
+                      Which bank is this? Fynora couldn't tell from the statement.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(a, true)}
+                      className="text-primary text-sm font-medium hover:underline"
+                    >
+                      Choose bank
+                    </button>
+                    <IconButton
+                      onClick={() => dismissWhichBank(a.id)}
+                      icon={<X size={14} />}
+                      aria-label="Don't ask again"
+                    />
+                  </div>
+                )}
 
                 <div className="p-5 grid sm:grid-cols-3 gap-4">
                   <InfoField icon={User} label="Account Holder Name">
@@ -445,6 +445,15 @@ export default function Setup() {
           account={addingAmountFor}
           onClose={() => setAddingAmountFor(null)}
           onSaved={amountOwedSaved}
+        />
+      )}
+
+      {editing && (
+        <EditAccountDialog
+          account={editing.account}
+          answeringWhichBank={editing.answeringWhichBank}
+          onClose={() => setEditing(null)}
+          onSaved={accountEdited}
         />
       )}
 

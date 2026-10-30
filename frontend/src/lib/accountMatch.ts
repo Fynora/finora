@@ -49,12 +49,15 @@ export function matchExistingAccount(
   // Exception (Plan 4, the outage escape hatch): a stale AA-linked account IS eligible, since the
   // backend guard itself allows manual import into one -- excluding it here would make the picker
   // stricter than what the backend will actually accept.
-  const eligibleAccounts = accounts.filter(
-    (a) => a.primarySource !== 'ACCOUNT_AGGREGATOR' || a.aaSyncStale,
-  );
+  const eligibleAccounts = importableAccounts(accounts);
   if (eligibleAccounts.length === 0) return null;
 
-  const sameBank = eligibleAccounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
+  // "Other bank" is not a bank. Two accounts that are both OTHER have no institution in common: a
+  // user with one "Other bank" savings account would otherwise get every unknown-bank savings
+  // statement preselected into it, whatever bank it really came from. The backend's ProductIdentity
+  // refuses OTHER matching OTHER for the same reason.
+  if (!isRealBank(detected.bank?.id)) return null;
+  const sameBank = eligibleAccounts.filter((a) => a.bank?.id === detected.bank.id);
   if (sameBank.length === 0) return null;
 
   const detectedDigits = trailingDigits(detected.accountNumberMasked);
@@ -81,6 +84,43 @@ export function matchExistingAccount(
 
   const sameType = sameBank.filter((a) => a.accountType === detected.suggestedAccountType);
   return sameType.length === 1 ? sameType[0] : null;
+}
+
+/**
+ * The accounts a user could import this statement into instead, once they have chosen a bank for a
+ * new account on the review: same bank, same type. Offered as a one-line hint, never preselected --
+ * the user picked a bank, not an account, and a wrong merge is worse than a duplicate.
+ *
+ * An account whose number is known to differ from the statement's is left out: it is a different
+ * account, the same veto matchExistingAccount applies.
+ */
+export function sameBankAccounts(
+  bankId: string,
+  accountType: Account['accountType'],
+  accounts: Account[],
+  statementNumberMasked: string | null = null,
+): Account[] {
+  if (!isRealBank(bankId)) return [];
+  const statementDigits = trailingDigits(statementNumberMasked);
+  return importableAccounts(accounts).filter((a) => {
+    if (a.bank?.id !== bankId || a.accountType !== accountType) return false;
+    const accountDigits = trailingDigits(a.accountNumberMasked);
+    return !statementDigits || !accountDigits || digitsMatch(statementDigits, accountDigits);
+  });
+}
+
+/** A bank id that names a bank: not empty and not OTHER. */
+function isRealBank(bankId: string | null | undefined): bankId is string {
+  return !!bankId && bankId !== 'OTHER';
+}
+
+/**
+ * An AA-linked account is never a candidate: the account picker disables it, and a preselection or
+ * an offer would bypass that and only hit AccountAggregatorGuard's 409 at confirm. A stale one is
+ * (Plan 4's outage escape hatch), since the backend guard accepts a manual import into it.
+ */
+function importableAccounts(accounts: Account[]): Account[] {
+  return accounts.filter((a) => a.primarySource !== 'ACCOUNT_AGGREGATOR' || a.aaSyncStale);
 }
 
 /**

@@ -585,6 +585,10 @@ export interface DetectedAccountInfo {
   branchName: string | null;
   ifscCode: string | null;
   bank: BankInfo;
+  // Where `bank` came from: the file itself (FILE), the layout's profile when the file named none
+  // (PROFILE), or nowhere (NONE, the user is asked). Null or missing on a session staged before the
+  // server sent it -- lib/importBank.ts's bankSourceOf reads that case.
+  bankSource?: 'FILE' | 'PROFILE' | 'NONE' | null;
 
   // Financial Product Discovery (backend: com.finora.imports.product). What this section actually
   // IS, as opposed to what to prefill the account-type field with. The two are different questions:

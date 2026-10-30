@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
-import { passwordChangeApi, accountLifecycleApi, type DeletionReason } from '../api/endpoints';
+import { passwordChangeApi, accountLifecycleApi, type DeletionReason, type SignInMethod } from '../api/endpoints';
 import { DELETION_REASONS, DELETION_REASON_QUESTION } from '../lib/activationQuestions';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode, resetPhoneVerification } from '../lib/phoneAuth';
+import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import type { ConfirmationResult } from 'firebase/auth';
 import { useDialogA11y } from '../design-system';
@@ -42,7 +43,7 @@ type Step = 'password' | 'otp' | 'confirm';
 export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
   onClose: () => void;
   onDeleted: () => void;
-  signInMethod: 'PASSWORD' | 'GOOGLE';
+  signInMethod: SignInMethod;
 }) {
   const [step, setStep] = useState<Step>('password');
   const [submitting, setSubmitting] = useState(false);
@@ -63,14 +64,16 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
 
   const otpValid = /^\d{6}$/.test(otp);
 
-  // Shared by both re-auth paths -- see ChangePasswordModal's identical startWithCredential,
-  // including its identical reasoning for the submitting guard below.
-  async function startWithCredential(currentPasswordArg: string | null, googleIdToken: string | null) {
+  // Shared by every re-auth path -- see ChangePasswordModal's identical startWithCredential,
+  // including its identical reasoning for the submitting guard below. Exactly one is non-null.
+  async function startWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken);
+      const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken);
       setSessionId(res.sessionId);
       setMaskedPhone(res.maskedPhone);
       const result = await sendPhoneVerificationCode(res.phoneNumber, RECAPTCHA_CONTAINER_ID);
@@ -88,7 +91,7 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
 
   function submitCurrentPassword() {
     if (currentPassword.length === 0 || submitting) return;
-    void startWithCredential(currentPassword, null);
+    void startWithCredential(currentPassword, null, null);
   }
 
   async function submitOtp() {
@@ -148,13 +151,20 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
             not just inside the 'otp' step's JSX. */}
         <div id={RECAPTCHA_CONTAINER_ID} />
 
-        {step === 'password' && signInMethod === 'GOOGLE' && (
+        {step === 'password' && signInMethod !== 'PASSWORD' && (
           <div className="space-y-3">
             <p className="text-xs text-muted">Deleting your account is permanent and cannot be undone.</p>
-            <GoogleReauthPrompt
-              onCredential={(idToken) => startWithCredential(null, idToken)}
-              onError={setError}
-            />
+            {signInMethod === 'GOOGLE' ? (
+              <GoogleReauthPrompt
+                onCredential={(idToken) => startWithCredential(null, idToken, null)}
+                onError={setError}
+              />
+            ) : (
+              <AppleReauthPrompt
+                onCredential={(idToken) => startWithCredential(null, null, idToken)}
+                onError={setError}
+              />
+            )}
             {error && <p className="text-danger text-xs">{error}</p>}
             <div className="flex items-center justify-end pt-3 border-t border-border">
               <button onClick={onClose} className="text-muted hover:text-ink text-xs uppercase font-medium px-3 py-2">

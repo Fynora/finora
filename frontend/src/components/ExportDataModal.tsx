@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { accountLifecycleApi } from '../api/endpoints';
+import { accountLifecycleApi, type SignInMethod } from '../api/endpoints';
+import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import { useDialogA11y } from '../design-system';
 
@@ -17,20 +18,22 @@ import { useDialogA11y } from '../design-system';
  */
 export function ExportDataModal({ onClose, signInMethod }: {
   onClose: () => void;
-  signInMethod: 'PASSWORD' | 'GOOGLE';
+  signInMethod: SignInMethod;
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Shared by both re-auth paths -- see ChangePasswordModal's identical startWithCredential,
-  // including its identical reasoning for the submitting guard below.
-  async function submitWithCredential(currentPasswordArg: string | null, googleIdToken: string | null) {
+  // Shared by every re-auth path -- see ChangePasswordModal's identical startWithCredential,
+  // including its identical reasoning for the submitting guard below. Exactly one is non-null.
+  async function submitWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      await accountLifecycleApi.exportData(currentPasswordArg, googleIdToken);
+      await accountLifecycleApi.exportData(currentPasswordArg, googleIdToken, appleIdToken);
       onClose();
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Could not prepare your export. Please try again.');
@@ -40,8 +43,11 @@ export function ExportDataModal({ onClose, signInMethod }: {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // A GOOGLE or APPLE account exports through the reauth prompt's own callback; there is no
+    // password field to validate here.
+    if (signInMethod !== 'PASSWORD') return;
     if (currentPassword.length === 0) { setError('Enter your current password.'); return; }
-    void submitWithCredential(currentPassword, null);
+    void submitWithCredential(currentPassword, null, null);
   }
 
   const panelRef = useDialogA11y({ onClose, closeDisabled: submitting });
@@ -61,7 +67,9 @@ export function ExportDataModal({ onClose, signInMethod }: {
             Downloads a ZIP of everything in your account — accounts, transactions, budgets,
             goals, and your original bank statement files — along with a manifest explaining
             exactly what's included.
-            {signInMethod === 'PASSWORD' ? ' Enter your current password to confirm.' : ' Verify with Google to confirm.'}
+            {signInMethod === 'PASSWORD'
+              ? ' Enter your current password to confirm.'
+              : ` Verify with ${signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} to confirm.`}
           </p>
 
           {signInMethod === 'PASSWORD' && (
@@ -83,7 +91,14 @@ export function ExportDataModal({ onClose, signInMethod }: {
 
           {signInMethod === 'GOOGLE' && (
             <GoogleReauthPrompt
-              onCredential={(idToken) => submitWithCredential(null, idToken)}
+              onCredential={(idToken) => submitWithCredential(null, idToken, null)}
+              onError={setError}
+            />
+          )}
+
+          {signInMethod === 'APPLE' && (
+            <AppleReauthPrompt
+              onCredential={(idToken) => submitWithCredential(null, null, idToken)}
               onError={setError}
             />
           )}

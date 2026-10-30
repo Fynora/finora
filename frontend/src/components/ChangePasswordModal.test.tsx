@@ -2,11 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChangePasswordModal } from './ChangePasswordModal';
-import { passwordChangeApi } from '../api/endpoints';
+import { passwordChangeApi, type SignInMethod } from '../api/endpoints';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
+import { isAppleLoginConfigured, loadAppleIdServices } from '../lib/appleIdentity';
 
 vi.mock('../api/endpoints', () => ({
   passwordChangeApi: { start: vi.fn(), verifyOtp: vi.fn(), complete: vi.fn() },
+}));
+
+// Mocked wholesale, as in AppleSignInButton.test.tsx.
+vi.mock('../lib/appleIdentity', () => ({
+  isAppleLoginConfigured: vi.fn(),
+  loadAppleIdServices: vi.fn(),
 }));
 
 vi.mock('../lib/phoneAuth', () => ({
@@ -17,7 +24,7 @@ vi.mock('../lib/phoneAuth', () => ({
 
 const FAKE_CONFIRMATION = { confirm: vi.fn() } as any;
 
-function renderModal(onClose = vi.fn(), onSuccess = vi.fn(), signInMethod: 'PASSWORD' | 'GOOGLE' = 'PASSWORD') {
+function renderModal(onClose = vi.fn(), onSuccess = vi.fn(), signInMethod: SignInMethod = 'PASSWORD') {
   return { onClose, onSuccess, ...render(<ChangePasswordModal onClose={onClose} onSuccess={onSuccess} signInMethod={signInMethod} />) };
 }
 
@@ -67,7 +74,7 @@ describe('ChangePasswordModal', () => {
 
       await advanceToOtpStep(user);
 
-      expect(passwordChangeApi.start).toHaveBeenCalledWith('OldPass123!', null);
+      expect(passwordChangeApi.start).toHaveBeenCalledWith('OldPass123!', null, null);
       expect(sendPhoneVerificationCode).toHaveBeenCalledWith('+919876543705', expect.any(String));
       expect(screen.getByText(/\+•••••••••705/)).toBeInTheDocument();
     });
@@ -116,6 +123,27 @@ describe('ChangePasswordModal', () => {
       await user.click(screen.getByRole('button', { name: /cancel/i }));
 
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('Step 1 -- an Apple Sign-In account', () => {
+    beforeEach(() => {
+      vi.mocked(isAppleLoginConfigured).mockReturnValue(true);
+      vi.mocked(loadAppleIdServices).mockResolvedValue({
+        init: vi.fn(),
+        signIn: vi.fn().mockResolvedValue({ authorization: { id_token: 'fresh-apple-id-token' } }),
+      } as any);
+    });
+
+    it('starts the session with a fresh Apple credential, with no password field', async () => {
+      const user = userEvent.setup();
+      render(<ChangePasswordModal onClose={vi.fn()} signInMethod="APPLE" />);
+      expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /sign in with apple/i }));
+
+      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith(null, null, 'fresh-apple-id-token'));
+      expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
     });
   });
 

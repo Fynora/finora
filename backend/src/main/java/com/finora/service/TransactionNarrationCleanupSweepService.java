@@ -232,7 +232,8 @@ public class TransactionNarrationCleanupSweepService {
         }
         String name = merchant;
         if (cleaned != null && !editedFields.contains(Transaction.EditableField.MERCHANT.name()) && looksBroken(merchant)) {
-            Transaction.Type type = "INCOME".equals(txnType) ? Transaction.Type.INCOME : Transaction.Type.EXPENSE;
+            // The stored direction, as an import passes it (a bad value throws, and planOf keeps the row).
+            Transaction.Type type = Transaction.Type.valueOf(txnType);
             String fresh = CategoryRules.extractMerchantLabel(cleaned, type);
             if (fresh != null && !looksBroken(fresh) && fresh.length() <= MAX_MERCHANT_LENGTH) name = fresh;
         }

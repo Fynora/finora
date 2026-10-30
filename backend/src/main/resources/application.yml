@@ -409,6 +409,11 @@ app:
     # for the full rollout order and the break-glass procedure for a sole admin who has lost both
     # their authenticator and their recovery codes.
     enforced: ${ADMIN_MFA_ENFORCED:false}
+  phone-identity-sweep:
+    # PhoneIdentitySweepService: once a day, deletes the Firebase phone users whose number is on no
+    # account that has not been deleted (an old number after a phone change, a verification never
+    # used). A no-op where Firebase is not configured. Off switch for an incident, not a rollout flag.
+    enabled: ${PHONE_IDENTITY_SWEEP_ENABLED:true}
   account-purge:
     sweep:
       # AccountPurgeSweepService. Deletion is instant now (UserAccountLifecycleService.

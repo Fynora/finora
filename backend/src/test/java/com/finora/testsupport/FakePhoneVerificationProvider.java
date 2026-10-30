@@ -53,4 +53,20 @@ public class FakePhoneVerificationProvider implements PhoneVerificationProvider 
     public java.util.List<String> deletedIdentities() {
         return java.util.List.copyOf(deletedIdentities);
     }
+
+    private final java.util.Map<String, java.time.Instant> identities = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Adds a provider-side record for listPhoneIdentities to return until it is deleted. */
+    public void addIdentity(String e164PhoneNumber, java.time.Instant lastActiveAt) {
+        identities.put(e164PhoneNumber, lastActiveAt);
+    }
+
+    /** The records added and not yet deleted. */
+    @Override
+    public java.util.List<PhoneIdentity> listPhoneIdentities() {
+        return identities.entrySet().stream()
+                .filter(e -> !deletedIdentities.contains(e.getKey()))
+                .map(e -> new PhoneIdentity(e.getKey(), e.getValue()))
+                .toList();
+    }
 }

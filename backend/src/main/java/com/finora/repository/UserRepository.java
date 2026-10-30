@@ -22,6 +22,16 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT u FROM User u WHERE u.id = :id")
     Optional<User> lockById(@Param("id") UUID id);
+
+    /** Every phone number on an account that has not been deleted, as stored (some rows predate
+     *  E.164 normalisation). Read by PhoneIdentitySweepService to tell which of the phone provider's
+     *  records still belong to someone.
+     *
+     *  <p>Deliberately across both portals, and not an identity lookup (so not named like one, see
+     *  ScopedIdentityLookupTest): one Firebase record serves a number in the user app and the admin
+     *  portal alike, so it belongs to someone while either portal's account holds it. */
+    @Query("SELECT u.phoneNumber FROM User u WHERE u.phoneNumber IS NOT NULL AND u.status <> 'DELETED'")
+    List<String> listContactNumbersInBothPortals();
     // --- Identity lookups ------------------------------------------------------------------------
     //
     // Since V52 an email and a phone number identify a user only WITHIN a portal scope: the same

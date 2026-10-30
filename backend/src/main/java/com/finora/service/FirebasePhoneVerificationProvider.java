@@ -3,6 +3,7 @@ package com.finora.service;
 import com.finora.exception.ApiException;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.auth.AuthErrorCode;
+import com.google.firebase.auth.ExportedUserRecord;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
@@ -95,5 +96,27 @@ public class FirebasePhoneVerificationProvider implements PhoneVerificationProvi
             throw new IllegalStateException("Could not delete the phone number's Firebase user: " + e.getMessage(), e);
         }
         return true;
+    }
+
+    @Override
+    public java.util.List<PhoneIdentity> listPhoneIdentities() {
+        if (firebaseApp.isEmpty()) {
+            throw new IllegalStateException("Phone verification is not configured on this server.");
+        }
+        java.util.List<PhoneIdentity> identities = new java.util.ArrayList<>();
+        try {
+            for (ExportedUserRecord user : FirebaseAuth.getInstance(firebaseApp.get()).listUsers(null).iterateAll()) {
+                if (user.getPhoneNumber() == null || user.getEmail() != null) {
+                    continue;
+                }
+                long created = user.getUserMetadata().getCreationTimestamp();
+                long lastSignIn = user.getUserMetadata().getLastSignInTimestamp();
+                identities.add(new PhoneIdentity(user.getPhoneNumber(),
+                        java.time.Instant.ofEpochMilli(Math.max(created, lastSignIn))));
+            }
+        } catch (FirebaseAuthException e) {
+            throw new IllegalStateException("Could not list Firebase users: " + e.getMessage(), e);
+        }
+        return identities;
     }
 }

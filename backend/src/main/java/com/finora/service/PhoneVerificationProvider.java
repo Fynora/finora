@@ -33,4 +33,17 @@ public interface PhoneVerificationProvider {
      * @throws RuntimeException if the provider could not be asked or refused; nothing is deleted then
      */
     boolean deleteIdentityForPhoneNumber(String e164PhoneNumber);
+
+    /** One phone-only record the provider holds: the number, and the later of when it was created
+     *  and when it was last signed in with. */
+    record PhoneIdentity(String e164PhoneNumber, java.time.Instant lastActiveAt) {}
+
+    /**
+     * Every phone-only record the provider holds. A record that also carries anything other than a
+     * phone number (an email, say) is left out: Fynora's phone verification never creates one, so
+     * it is not this service's to judge.
+     *
+     * @throws RuntimeException if the provider could not be read
+     */
+    java.util.List<PhoneIdentity> listPhoneIdentities();
 }

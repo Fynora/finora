@@ -10,8 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -87,7 +87,7 @@ public class StatementRowOrderRepairSweepService {
 
     public record Result(int statementsRead, int statementsRepaired, int rowsMoved) {}
 
-    private record SavedRow(UUID id, UUID userId, LocalDate date, Integer position, int ordinal, Timestamp createdAt,
+    private record SavedRow(UUID id, UUID userId, LocalDate date, Integer position, int ordinal, OffsetDateTime createdAt,
                             BigDecimal signedAmount, BigDecimal balanceAfter) {}
 
     /** Every PDF statement with a day of more than one live row: repaired when {@code write}, else counted. */
@@ -121,7 +121,7 @@ public class StatementRowOrderRepairSweepService {
                 FROM transactions
                 WHERE statement_import_id = ? AND deleted_at IS NULL AND row_ordinal IS NOT NULL
                 """, (rs, n) -> new SavedRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getObject(3, LocalDate.class), (Integer) rs.getObject(4), rs.getInt(5), rs.getTimestamp(6),
+                        rs.getObject(3, LocalDate.class), (Integer) rs.getObject(4), rs.getInt(5), rs.getObject(6, OffsetDateTime.class),
                         rs.getBigDecimal(7), rs.getBigDecimal(8)), statement);
         if (rows.isEmpty() || rows.stream().anyMatch(r -> r.position() == null)) return 0;
         List<SavedRow> printed = rows.stream().sorted(Comparator.comparingInt(SavedRow::position)).toList();
@@ -131,16 +131,16 @@ public class StatementRowOrderRepairSweepService {
 
         Map<LocalDate, List<SavedRow>> days = new LinkedHashMap<>();
         for (SavedRow row : rows) days.computeIfAbsent(row.date(), d -> new ArrayList<>()).add(row);
-        record Move(SavedRow row, int ordinal, Timestamp createdAt) {}
+        record Move(SavedRow row, int ordinal, OffsetDateTime createdAt) {}
         List<Move> moves = new ArrayList<>();
         for (List<SavedRow> day : days.values()) {
             if (day.size() < 2) continue;
             List<SavedRow> target = day.stream().sorted(Comparator.comparingInt(SavedRow::position).reversed()).toList();
             List<Integer> ordinals = day.stream().map(SavedRow::ordinal).sorted().toList();
-            List<Timestamp> createdAts = day.stream().map(SavedRow::createdAt).sorted().toList();
+            List<OffsetDateTime> createdAts = day.stream().map(SavedRow::createdAt).sorted().toList();
             for (int k = 0; k < target.size(); k++) {
                 SavedRow row = target.get(k);
-                if (row.ordinal() != ordinals.get(k) || !row.createdAt().equals(createdAts.get(k))) {
+                if (row.ordinal() != ordinals.get(k) || !row.createdAt().isEqual(createdAts.get(k))) {
                     moves.add(new Move(row, ordinals.get(k), createdAts.get(k)));
                 }
             }

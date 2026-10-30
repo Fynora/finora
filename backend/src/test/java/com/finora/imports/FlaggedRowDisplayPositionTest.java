@@ -93,8 +93,9 @@ class FlaggedRowDisplayPositionTest {
     void aNewestFirstPdfSaysWhereEachFlaggedRowIsShown() throws Exception {
         StagingResponse response = viaPdf(newestFirst(sameDayStatement()));
 
-        // The display sort keeps the same-day group in the order the document printed it.
-        assertThat(labels(response.rows())).containsExactly("A", "B", "E", "D", "C", "F", "G");
+        // A newest-first document prints each day newest-first too, so it is reversed before the
+        // date sort: the same-day group comes out as it happened, exactly as the oldest-first print.
+        assertThat(labels(response.rows())).containsExactly("A", "B", "C", "D", "E", "F", "G");
 
         assertThat(balanceDisplayIndexes(response)).containsExactly(shownAt(response, "ROW C"));
         assertThat(outlierDisplayIndexes(response)).containsExactly(shownAt(response, "ROW B"));

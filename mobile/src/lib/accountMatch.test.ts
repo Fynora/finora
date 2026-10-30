@@ -1,4 +1,4 @@
-import { matchExistingAccount } from './accountMatch';
+import { matchExistingAccount, sameBankAccounts } from './accountMatch';
 import type { Account, DetectedAccountInfo } from '../types';
 
 // Ported from frontend/src/lib/accountMatch.test.ts alongside the implementation itself (A3,
@@ -12,6 +12,7 @@ const KOTAK = {
   supportedAccountTypes: ['SAVINGS'],
 };
 const HDFC = { ...KOTAK, id: 'bank-hdfc', shortName: 'HDFC', ifscPrefix: 'HDFC' };
+const OTHER = { ...KOTAK, id: 'OTHER', officialName: null, shortName: 'Other', ifscPrefix: null };
 
 function account(over: Partial<Account>): Account {
   return {
@@ -161,5 +162,48 @@ describe('matchExistingAccount', () => {
     const statement = detected({ suggestedAccountType: 'SAVINGS' });
 
     expect(matchExistingAccount(statement, [aaLinked])).toBeNull();
+  });
+
+  it('never treats "Other bank" as the same bank as "Other bank"', () => {
+    // Spec 2026-10-22, section 5. Before: one "Other bank" savings account got every unknown-bank
+    // savings statement preselected into it, whatever bank it came from -- by the single-same-type
+    // rule, and by the number rule too when two unrelated banks' accounts end in the same digits.
+    const otherBankAccount = account({ id: 'acc-other', bank: OTHER, accountType: 'SAVINGS' });
+    expect(matchExistingAccount(detected({ bank: OTHER }), [otherBankAccount])).toBeNull();
+
+    const numbered = account({ id: 'acc-other', bank: OTHER, accountNumberMasked: '••••1234' });
+    expect(matchExistingAccount(detected({ bank: OTHER, accountNumberMasked: '••••1234' }), [numbered])).toBeNull();
+  });
+
+  it('does not match a known bank to an "Other bank" account', () => {
+    const otherBankAccount = account({ id: 'acc-other', bank: OTHER, accountType: 'SAVINGS' });
+    expect(matchExistingAccount(detected({ bank: KOTAK }), [otherBankAccount])).toBeNull();
+  });
+});
+
+describe('sameBankAccounts', () => {
+  it('lists accounts at the chosen bank of the same type', () => {
+    const kotak = account({ id: 'acc-kotak', accountType: 'SAVINGS' });
+    const kotakCard = account({ id: 'acc-card', accountType: 'CREDIT_CARD' });
+    const hdfc = account({ id: 'acc-hdfc', bank: HDFC, accountType: 'SAVINGS' });
+
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', null, [kotak, kotakCard, hdfc]).map((a) => a.id))
+      .toEqual(['acc-kotak']);
+  });
+
+  it('offers nothing for "Other bank" or no bank', () => {
+    const otherBankAccount = account({ id: 'acc-other', bank: OTHER });
+    expect(sameBankAccounts('OTHER', 'SAVINGS', null, [otherBankAccount])).toEqual([]);
+    expect(sameBankAccounts(null, 'SAVINGS', null, [otherBankAccount])).toEqual([]);
+  });
+
+  it('leaves out Account Aggregator accounts and accounts the statement number rules out', () => {
+    const aa = account({ id: 'acc-aa', primarySource: 'ACCOUNT_AGGREGATOR' });
+    const differentNumber = account({ id: 'acc-9921', accountNumberMasked: 'XXXXXX9921' });
+    const sameNumber = account({ id: 'acc-4587', accountNumberMasked: 'XX4587' });
+    const noNumber = account({ id: 'acc-none', accountNumberMasked: null });
+
+    expect(sameBankAccounts(KOTAK.id, 'SAVINGS', 'XXXXXX4587', [aa, differentNumber, sameNumber, noNumber])
+      .map((a) => a.id)).toEqual(['acc-4587', 'acc-none']);
   });
 });

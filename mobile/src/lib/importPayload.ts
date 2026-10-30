@@ -1,5 +1,6 @@
 import type { ConfirmedRowPayload, NewAccountPayload } from '../api/endpoints';
 import type { Account, DetectedAccountInfo, StagedRow } from '../types';
+import { initialBankChoice } from './bankChoice';
 import { isUnderReview, type RowReview } from './importReview';
 
 /**
@@ -18,6 +19,12 @@ export interface NewAccountForm {
   openingBalance: string;
   creditLimit: string;
   dueDate: string;
+  /**
+   * The bank the person settled on for the new account: pre-filled when the statement or its
+   * layout's profile named one, otherwise null until they choose a bank or "Other bank" (OTHER).
+   * Null blocks the import (canConfirmImport's `newAccountBankMissing`).
+   */
+  bankId: string | null;
 }
 
 /**
@@ -112,9 +119,11 @@ export function buildNewAccountPayload(
 
     accountHolderName: detected?.accountHolderName ?? null,
     accountNumberMasked: detected?.accountNumberMasked ?? null,
-    // Keeps the new account's logo and colour correct even if the user renames it away from the
-    // bank's official name.
-    bankId: detected?.bank.id ?? null,
+    // The person's final choice, not the detected value (spec 2026-10-22, section 3). Keeps the new
+    // account's logo and colour correct even if they rename it away from the bank's official name.
+    // When it differs from the staged bank the backend drops productIdentityHash below itself
+    // (NewAccountRequest.keyedOnlyFor), since that key was built for the staged bank.
+    bankId: form.bankId,
     branchName: detected?.branchName ?? null,
     ifscCode: detected?.ifscCode ?? null,
 
@@ -189,5 +198,6 @@ export function initialAccountForm(detected: DetectedAccountInfo | null, rows: S
     openingBalance: openingBalance != null ? String(openingBalance) : '',
     creditLimit: detected?.creditLimit != null ? String(detected.creditLimit) : '',
     dueDate: detected?.paymentDueDate ?? '',
+    bankId: initialBankChoice(detected)?.id ?? null,
   };
 }

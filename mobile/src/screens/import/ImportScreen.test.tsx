@@ -23,6 +23,13 @@ jest.mock('../../api/endpoints', () => ({
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
   },
   accountsApi: { list: jest.fn() },
+  // The new-account Bank field's list (GET /banks). Two banks are enough to search and pick.
+  banksApi: {
+    list: jest.fn().mockResolvedValue([
+      { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#004c8f', initials: 'H', logoPath: '', category: 'PRIVATE', websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: [] },
+      { id: 'ICICI', officialName: 'ICICI Bank', shortName: 'ICICI', colorHex: '#b02a30', initials: 'I', logoPath: '', category: 'PRIVATE', websiteUrl: null, ifscPrefix: 'ICIC', supportedAccountTypes: [] },
+    ]),
+  },
   categoriesApi: { list: jest.fn() },
   importApi: {
     listSessions: jest.fn(),
@@ -418,7 +425,11 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
 // which unconditionally reads `detected?.bank.id` -- safe only because DetectedAccountInfo.bank is
 // a required field on every real staging response. The bare `{}` stub is fine for the reimport
 // tests above (they never reach buildNewAccountPayload), but would throw here.
-const detectedWithBank = { bank: { id: 'OTHER' } } as DetectedAccountInfo;
+// A statement that named its bank. Tests of other new-account fields stage this so the required
+// Bank field (spec 2026-10-22, section 3) is already answered; the bank tests below stage OTHER.
+const detectedWithBank = {
+  bank: { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' }, bankSource: 'FILE',
+} as DetectedAccountInfo;
 
 describe('ImportScreen — new-account credit limit and due date fields', () => {
   beforeEach(() => {
@@ -770,10 +781,9 @@ describe('ImportScreen — new-account opening balance field', () => {
         rows: [stagedRow('Groceries')],
         totalParsed: 1,
         flaggedDuplicates: 0,
-        // Unlike the shared empty `detected` fixture above, buildNewAccountPayload (only reached
-        // once a fresh-upload confirm actually goes through, which no other test in this file
-        // does) dereferences `.bank.id` unconditionally, so this path needs a real bank object.
-        detectedAccount: { bank: { id: 'OTHER' } } as DetectedAccountInfo,
+        // Unlike the shared empty `detected` fixture above, a new account can only be confirmed
+        // once its bank is known (the required Bank field), so this path stages a named bank.
+        detectedAccount: detectedWithBank,
         unparseableRows: [],
       },
     } as never);
@@ -826,7 +836,7 @@ describe('ImportScreen — new-account opening balance field', () => {
         rows: [stagedRow('Groceries')],
         totalParsed: 1,
         flaggedDuplicates: 0,
-        detectedAccount: { bank: { id: 'OTHER' }, openingBalance: 1200 } as DetectedAccountInfo,
+        detectedAccount: { ...detectedWithBank, openingBalance: 1200 } as DetectedAccountInfo,
         unparseableRows: [],
       },
     } as never);
@@ -867,7 +877,7 @@ describe('ImportScreen — new-account opening balance field', () => {
         rows: [stagedRow('Groceries')],
         totalParsed: 1,
         flaggedDuplicates: 0,
-        detectedAccount: { bank: { id: 'OTHER' }, accountHolderName: 'Test User' } as DetectedAccountInfo,
+        detectedAccount: { ...detectedWithBank, accountHolderName: 'Test User' } as DetectedAccountInfo,
         unparseableRows: [],
       },
     } as never);
@@ -2733,5 +2743,209 @@ describe('ImportScreen — what stopped you', () => {
     await settle();
     expect(screen.queryByText('What will you do now?')).not.toBeOnTheScreen();
     expect(screen.queryByText('What made you stop?')).not.toBeOnTheScreen();
+  });
+});
+
+/**
+ * The new account's bank (docs/superpowers/specs/2026-10-22-bank-from-profile-and-required-bank-
+ * design.md, sections 3 and 5). Sid: a wrong bank is worse than no bank, so a statement that names
+ * no bank leaves the field empty and Import waits until the person picks a bank or "Other bank".
+ */
+describe('ImportScreen — the new account\'s bank', () => {
+  const OTHER_BANK = { id: 'OTHER', officialName: null, shortName: 'Other' };
+  const HDFC = { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' };
+  const ICICI = { id: 'ICICI', officialName: 'ICICI Bank', shortName: 'ICICI' };
+
+  const summary = {
+    imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+    accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+    account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+    statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+    importDurationMs: 1, source: 'fresh',
+  };
+
+  function stage(detectedAccount: Partial<DetectedAccountInfo>) {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-bank',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: { suggestedName: 'Bank Statement Import', ...detectedAccount } as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.confirm.mockReset().mockResolvedValue(summary as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  async function reachReview() {
+    render(tree());
+    // The account list has to be in before the file is picked: the review's existing-account
+    // default is decided from the list the screen held when staging finished. Without this wait the
+    // OTHER-never-matches-OTHER test below passed against the old matcher too (a probe showed it
+    // matching against 0 accounts).
+    await waitFor(() => expect(api.accounts.list).toHaveBeenCalled());
+    await settle();
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  function importButtonDisabled() {
+    return screen.getByRole('button', { name: /^Import \d+ transaction/ }).props.accessibilityState?.disabled;
+  }
+
+  function sentNewAccount() {
+    expect(api.import.confirm).toHaveBeenCalledTimes(1);
+    return api.import.confirm.mock.calls[0][0].newAccount;
+  }
+
+  it('holds Import until a bank is chosen when the statement named none', async () => {
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE' });
+    await reachReview();
+
+    expect(importButtonDisabled()).toBe(true);
+    expect(screen.getByTestId('import-bank-value')).toHaveTextContent('Not chosen yet');
+    expect(screen.getByTestId('import-bank-hint')).toHaveTextContent(/doesn't say which bank/);
+    expect(screen.getByTestId('import-bank-gate-notice')).toBeOnTheScreen();
+
+    await pressImport();
+    expect(api.import.confirm).not.toHaveBeenCalled();
+  });
+
+  it('lets "Other bank" answer the question, and sends OTHER', async () => {
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE' });
+    await reachReview();
+
+    fireEvent.press(await screen.findByTestId('import-bank-option-OTHER'));
+
+    expect(importButtonDisabled()).toBe(false);
+    expect(screen.queryByTestId('import-bank-gate-notice')).not.toBeOnTheScreen();
+    expect(screen.getByTestId('import-bank-value')).toHaveTextContent('Other bank');
+    await pressImport();
+    expect(sentNewAccount()).toMatchObject({ bankId: 'OTHER', name: 'Bank Statement Import' });
+  });
+
+  it('names the account after a searched-for bank, and sends that bank', async () => {
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE' });
+    await reachReview();
+
+    fireEvent.changeText(screen.getByLabelText('Search banks'), 'icic');
+    expect(screen.queryByTestId('import-bank-option-HDFC')).not.toBeOnTheScreen();
+    fireEvent.press(await screen.findByTestId('import-bank-option-ICICI'));
+
+    expect(screen.getByLabelText('Account name').props.value).toBe('ICICI Bank');
+    await pressImport();
+    expect(sentNewAccount()).toMatchObject({ bankId: 'ICICI', name: 'ICICI Bank' });
+  });
+
+  it('keeps a name the person typed when they then choose a bank', async () => {
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE' });
+    await reachReview();
+
+    fireEvent.changeText(screen.getByLabelText('Account name'), 'Salary account');
+    fireEvent.press(await screen.findByTestId('import-bank-option-ICICI'));
+
+    expect(screen.getByLabelText('Account name').props.value).toBe('Salary account');
+  });
+
+  it('pre-fills a bank the statement named, says so, and lets Import go', async () => {
+    stage({ bank: HDFC as never, bankSource: 'FILE', suggestedName: 'HDFC Bank' });
+    await reachReview();
+
+    expect(screen.getByTestId('import-bank-value')).toHaveTextContent('HDFC Bank');
+    expect(screen.getByTestId('import-bank-hint')).toHaveTextContent('Detected from this statement.');
+    expect(importButtonDisabled()).toBe(false);
+    await pressImport();
+    expect(sentNewAccount()).toMatchObject({ bankId: 'HDFC' });
+  });
+
+  it("says a bank filled from the statement's format came from there", async () => {
+    stage({ bank: HDFC as never, bankSource: 'PROFILE', suggestedName: 'HDFC Bank' });
+    await reachReview();
+
+    expect(screen.getByTestId('import-bank-hint')).toHaveTextContent("Recognised from this statement's format.");
+    expect(importButtonDisabled()).toBe(false);
+  });
+
+  it('sends the bank the person changed a pre-filled one to', async () => {
+    stage({ bank: HDFC as never, bankSource: 'FILE', suggestedName: 'HDFC Bank' });
+    await reachReview();
+
+    fireEvent.press(screen.getByTestId('import-bank-change'));
+    fireEvent.press(await screen.findByTestId('import-bank-option-ICICI'));
+
+    expect(screen.queryByTestId('import-bank-hint')).not.toBeOnTheScreen();
+    await pressImport();
+    expect(sentNewAccount()).toMatchObject({ bankId: 'ICICI', name: 'ICICI Bank' });
+  });
+
+  it('reads a session staged before bankSource existed by its bank', async () => {
+    // bankSource is null on sessions staged before #2316.
+    stage({ bank: HDFC as never, bankSource: null, suggestedName: 'HDFC Bank' });
+    await reachReview();
+    expect(screen.getByTestId('import-bank-hint')).toHaveTextContent('Detected from this statement.');
+    expect(importButtonDisabled()).toBe(false);
+  });
+
+  it('still asks when a session staged before bankSource existed has no bank', async () => {
+    stage({ bank: OTHER_BANK as never, bankSource: null });
+    await reachReview();
+    expect(importButtonDisabled()).toBe(true);
+  });
+
+  it('does not file an unknown-bank statement into the person\'s "Other bank" account', async () => {
+    // OTHER never matches OTHER (spec section 5): the sole "Other bank" savings account used to be
+    // preselected for every bankless savings statement.
+    api.accounts.list.mockReset().mockResolvedValue([
+      { id: 'acc-other', name: 'Bank Statement Import', accountType: 'SAVINGS', balance: 0, bank: OTHER_BANK, primarySource: 'MANUAL' } as never,
+    ]);
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE', suggestedAccountType: 'SAVINGS' });
+    await reachReview();
+
+    expect(screen.getByTestId('import-bank-value')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'A new account' }).props.accessibilityState?.selected).toBe(true);
+  });
+
+  it('offers an account the person already has at the bank they pick, without choosing it for them', async () => {
+    api.accounts.list.mockReset().mockResolvedValue([
+      { id: 'acc-icici', name: 'ICICI Savings', accountType: 'SAVINGS', balance: 0, bank: ICICI, primarySource: 'MANUAL' } as never,
+    ]);
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE', suggestedAccountType: 'SAVINGS' });
+    await reachReview();
+
+    fireEvent.press(await screen.findByTestId('import-bank-option-ICICI'));
+
+    expect(screen.getByTestId('import-same-bank-hint')).toHaveTextContent(/You already have ICICI Savings with this bank/);
+    // Nothing preselected: still a new account until they say otherwise.
+    expect(screen.getByRole('button', { name: 'A new account' }).props.accessibilityState?.selected).toBe(true);
+
+    fireEvent.press(screen.getByText('Use ICICI Savings'));
+    await pressImport();
+    expect(api.import.confirm.mock.calls[0][0]).toMatchObject({ existingAccountId: 'acc-icici', newAccount: null });
+  });
+
+  it('still offers "Other bank" when the bank list fails to load', async () => {
+    const { banksApi } = jest.requireMock('../../api/endpoints') as { banksApi: { list: jest.Mock } };
+    banksApi.list.mockRejectedValueOnce(new Error('offline'));
+    stage({ bank: OTHER_BANK as never, bankSource: 'NONE' });
+    await reachReview();
+
+    expect(await screen.findByText(/Couldn't load the bank list/)).toBeOnTheScreen();
+    fireEvent.press(screen.getByTestId('import-bank-option-OTHER'));
+    expect(importButtonDisabled()).toBe(false);
   });
 });

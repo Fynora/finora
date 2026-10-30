@@ -23,6 +23,7 @@ import { BankLogo } from '../components/BankLogo';
 import type { Transaction } from '../types';
 import { counterpartyLabel } from '../lib/counterpartyLabel';
 import { rowTitle } from '../lib/rowTitle';
+import { trackNavigation } from '../lib/trackNavigation';
 import {
   NO_ANCHORS, asWholeListPage, pagingSignature, rememberAnchors, requestFor, type PageAnchors,
 } from '../lib/ledgerPaging';
@@ -673,7 +674,7 @@ export default function Ledger() {
                     <p className="text-xs text-muted">{rawBudgetPct}% of budget</p>
                   </div>
                 ) : (
-                  <button type="button" onClick={() => navigate('/app/budgets')}
+                  <button type="button" onClick={() => { trackNavigation('budgets', 'contextual'); void navigate('/app/budgets'); }}
                     className="mt-2 text-xs text-muted underline hover:text-ink">
                     No budget set
                   </button>

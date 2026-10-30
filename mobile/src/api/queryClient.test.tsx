@@ -190,6 +190,28 @@ describe('startQueryPersistence', () => {
     queryClient.getMutationCache().clear();
   });
 
+  it('writes only the first page of the Ledger list and none of its search results to disk', async () => {
+    const { DEFAULT_LEDGER_FILTERS } = require('../lib/ledgerDefaults');
+    stopPersistence = startQueryPersistence();
+    await waitFor(() => expect(queryClient.getQueryData(['dashboard-summary'])).toBeUndefined());
+
+    const page = (n: number) => ({ content: [{ id: `t-${n}` }], page: n, totalPages: 3 });
+    queryClient.setQueryData(['transactions', DEFAULT_LEDGER_FILTERS], { pages: [page(0), page(1), page(2)], pageParams: [0, 1, 2] });
+    queryClient.setQueryData(['transactions', { ...DEFAULT_LEDGER_FILTERS, keyword: 'zomato' }], { pages: [page(0)], pageParams: [0] });
+    queryClient.setQueryData(['dashboard-summary'], { currentBalance: 42 });
+
+    await waitFor(async () => {
+      const raw = await AsyncStorage.getItem(PERSIST_KEY);
+      expect(raw && JSON.parse(raw).clientState.queries.length).toBe(2);
+    });
+    const persisted = JSON.parse((await AsyncStorage.getItem(PERSIST_KEY)) as string);
+    const ledger = persisted.clientState.queries.find((q: { queryKey: unknown[] }) => q.queryKey[0] === 'transactions');
+    expect(ledger.queryKey).toEqual(['transactions', DEFAULT_LEDGER_FILTERS]);
+    expect(ledger.state.data).toEqual({ pages: [page(0)], pageParams: [0] });
+    // Memory is untouched: the screen keeps every page it loaded.
+    expect(queryClient.getQueryData(['transactions', DEFAULT_LEDGER_FILTERS])).toEqual({ pages: [page(0), page(1), page(2)], pageParams: [0, 1, 2] });
+  });
+
   it('undoes a stale restore that resolves after a logout/session-expiry clear raced it mid-restore', async () => {
     await AsyncStorage.setItem(PERSIST_KEY, blob(seededDehydratedState(['dashboard-summary'], { currentBalance: 42 })));
 

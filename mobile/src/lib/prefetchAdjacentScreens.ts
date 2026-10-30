@@ -13,7 +13,8 @@ import { useOnline } from '../components/OfflineBanner';
  * real data on the first frame instead of that screen's own loading spinner.
  *
  * Every key/query function below is the SAME one the target screen's own useQuery/useInfiniteQuery
- * uses (see LedgerScreen's own comment on DEFAULT_LEDGER_FILTERS/getLedgerNextPageParam) -- a
+ * uses (see the comments on DEFAULT_LEDGER_FILTERS in lib/ledgerDefaults.ts and on
+ * getLedgerNextPageParam in LedgerScreen) -- a
  * prefetch under a key nothing else reads is a wasted network call, not a warm cache.
  *
  * prefetchQuery/prefetchInfiniteQuery/fetchQuery already no-op and skip the network entirely when

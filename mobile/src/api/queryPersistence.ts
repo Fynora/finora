@@ -1,4 +1,6 @@
-import { defaultShouldDehydrateQuery, type Query } from '@tanstack/react-query';
+import { defaultShouldDehydrateQuery, hashKey, type Query } from '@tanstack/react-query';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
+import { DEFAULT_LEDGER_FILTERS } from '../lib/ledgerDefaults';
 
 /**
  * Locked-down allowlist for what's allowed to survive an app restart in plaintext AsyncStorage --
@@ -27,6 +29,9 @@ export const PERSISTED_QUERY_KEY_PREFIXES = [
   'categories',
 ] as const;
 
+/** The cache hash of the Ledger list as it opens: the one transactions query that is persisted. */
+const DEFAULT_LEDGER_QUERY_HASH = hashKey(['transactions', DEFAULT_LEDGER_FILTERS]);
+
 /**
  * Passed as dehydrateOptions.shouldDehydrateQuery to persistQueryClient (queryClient.ts). Starts
  * from the library's own default -- only ever persist a query that actually SUCCEEDED, since an
@@ -36,5 +41,35 @@ export const PERSISTED_QUERY_KEY_PREFIXES = [
 export function shouldPersistQuery(query: Query): boolean {
   if (!defaultShouldDehydrateQuery(query)) return false;
   const [prefix] = query.queryKey;
-  return typeof prefix === 'string' && (PERSISTED_QUERY_KEY_PREFIXES as readonly string[]).includes(prefix);
+  if (typeof prefix !== 'string' || !(PERSISTED_QUERY_KEY_PREFIXES as readonly string[]).includes(prefix)) return false;
+  // Of the transactions queries, only the Ledger list as it opens. Every debounced search keyword
+  // and every filter is its own cache entry; saving them all made the blob grow with each search
+  // and each save slower (measured 2026-10-30). A cold start only needs the list a user lands on.
+  // Compared by query hash, which ignores undefined fields the same way the cache itself does.
+  if (prefix === 'transactions') return query.queryHash === DEFAULT_LEDGER_QUERY_HASH;
+  return true;
+}
+
+/**
+ * Keeps only the first page of the persisted Ledger list. Every page the user scrolled through
+ * used to be written on every save -- about 14 KB a page, rewritten within a second of each new
+ * page arriving -- for a list that only needs its first screen on a cold start. More pages load
+ * as the user scrolls, as they do on a first visit. Returns a new object; the input is untouched.
+ */
+export function trimForPersistence(client: PersistedClient): PersistedClient {
+  return {
+    ...client,
+    clientState: {
+      ...client.clientState,
+      queries: client.clientState.queries.map((query) => {
+        if (query.queryHash !== DEFAULT_LEDGER_QUERY_HASH) return query;
+        const data = query.state.data as { pages?: unknown[]; pageParams?: unknown[] } | undefined;
+        if (!data?.pages || !data.pageParams || data.pages.length <= 1) return query;
+        return {
+          ...query,
+          state: { ...query.state, data: { ...data, pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } },
+        };
+      }),
+    },
+  };
 }

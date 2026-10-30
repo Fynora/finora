@@ -17,7 +17,13 @@
  * raw bytes, not a JS string, for the JSON payload being encrypted before it reaches AsyncStorage.
  */
 export function encodeUtf8(str: string): Uint8Array {
-  const bytes: number[] = [];
+  // Written straight into a byte array sized for the worst case (3 bytes per UTF-16 unit; a
+  // surrogate pair is 2 units and 4 bytes), then trimmed. The earlier version pushed every byte
+  // onto a JS array and copied it at the end; on the persisted query cache (~350K characters) that
+  // took 97-256 ms of the JS thread per save on a 2-core Android emulator, which is what froze
+  // typing in Ledger search.
+  const bytes = new Uint8Array(str.length * 3);
+  let n = 0;
 
   for (let i = 0; i < str.length; i++) {
     let codePoint = str.charCodeAt(i);
@@ -33,27 +39,31 @@ export function encodeUtf8(str: string): Uint8Array {
     }
 
     if (codePoint < 0x80) {
-      bytes.push(codePoint);
+      bytes[n++] = codePoint;
     } else if (codePoint < 0x800) {
-      bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f));
+      bytes[n++] = 0xc0 | (codePoint >> 6);
+      bytes[n++] = 0x80 | (codePoint & 0x3f);
     } else if (codePoint < 0x10000) {
-      bytes.push(
-        0xe0 | (codePoint >> 12),
-        0x80 | ((codePoint >> 6) & 0x3f),
-        0x80 | (codePoint & 0x3f)
-      );
+      bytes[n++] = 0xe0 | (codePoint >> 12);
+      bytes[n++] = 0x80 | ((codePoint >> 6) & 0x3f);
+      bytes[n++] = 0x80 | (codePoint & 0x3f);
     } else {
-      bytes.push(
-        0xf0 | (codePoint >> 18),
-        0x80 | ((codePoint >> 12) & 0x3f),
-        0x80 | ((codePoint >> 6) & 0x3f),
-        0x80 | (codePoint & 0x3f)
-      );
+      bytes[n++] = 0xf0 | (codePoint >> 18);
+      bytes[n++] = 0x80 | ((codePoint >> 12) & 0x3f);
+      bytes[n++] = 0x80 | ((codePoint >> 6) & 0x3f);
+      bytes[n++] = 0x80 | (codePoint & 0x3f);
     }
   }
 
-  return Uint8Array.from(bytes);
+  // A copy, not a subarray: callers hand this to native code, which should not see the unused
+  // tail of the worst-case buffer through .buffer.
+  return bytes.slice(0, n);
 }
+
+// Code units are collected into chunks and turned into a string a chunk at a time. Building the
+// string one `+=` per character was the restore-side cost on large inputs. 8192 stays well under
+// any engine's argument-count limit for String.fromCharCode.apply.
+const DECODE_CHUNK = 8192;
 
 /**
  * Bug found in review (Track D/D4): queryCacheCipher.ts calls this with `someUint8Array.buffer`,
@@ -70,32 +80,37 @@ export function decodeUtf8(input: ArrayBufferLike | ArrayBufferView): string {
   const bytes = ArrayBuffer.isView(input)
     ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
     : new Uint8Array(input);
-  let out = '';
+  const parts: string[] = [];
+  let units: number[] = [];
   let i = 0;
 
   while (i < bytes.length) {
     const b0 = bytes[i];
 
     if (b0 < 0x80) {
-      out += String.fromCharCode(b0);
+      units.push(b0);
       i += 1;
     } else if (b0 >> 5 === 0b110) {
-      const cp = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
-      out += String.fromCharCode(cp);
+      units.push(((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f));
       i += 2;
     } else if (b0 >> 4 === 0b1110) {
-      const cp = ((b0 & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f);
-      out += String.fromCharCode(cp);
+      units.push(((b0 & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f));
       i += 3;
     } else {
       // 4-byte sequence -- decodes to a codepoint above the BMP, which JS strings represent as a
-      // UTF-16 surrogate pair rather than one `String.fromCharCode` call.
+      // UTF-16 surrogate pair rather than one code unit.
       const cp = ((b0 & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f);
       const adjusted = cp - 0x10000;
-      out += String.fromCharCode(0xd800 + (adjusted >> 10), 0xdc00 + (adjusted & 0x3ff));
+      units.push(0xd800 + (adjusted >> 10), 0xdc00 + (adjusted & 0x3ff));
       i += 4;
+    }
+
+    if (units.length >= DECODE_CHUNK) {
+      parts.push(String.fromCharCode.apply(null, units));
+      units = [];
     }
   }
 
-  return out;
+  if (units.length > 0) parts.push(String.fromCharCode.apply(null, units));
+  return parts.join('');
 }

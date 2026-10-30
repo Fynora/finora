@@ -47,19 +47,10 @@ import type { AppTabParamList, LedgerDrillThroughFilters } from '../navigation/t
 import type { Transaction } from '../types';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
-export const LEDGER_PAGE_SIZE = 20;
-/**
- * The exact filters this screen's own useInfiniteQuery below sends on a fresh mount (no search
- * keyword typed, no type filter chosen). Exported so Dashboard's prefetch-on-focus hook
- * (usePrefetchAdjacentScreens) can warm ['transactions', DEFAULT_LEDGER_FILTERS] under this EXACT
- * key -- a prefetch built from a near-identical object is a cache miss with extra network calls,
- * not a warm cache.
- */
-export const DEFAULT_LEDGER_FILTERS: TransactionFilters = {
-  size: LEDGER_PAGE_SIZE,
-  sortField: 'date',
-  sortDir: 'desc',
-};
+// Defined in lib/ledgerDefaults.ts (see its doc comment); re-exported so existing imports from
+// this screen keep working.
+import { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE } from '../lib/ledgerDefaults';
+export { DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE };
 
 /**
  * What one page request is identified by. The first page is the number 0. Every later page names

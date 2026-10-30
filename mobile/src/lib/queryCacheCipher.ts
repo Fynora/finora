@@ -1,4 +1,5 @@
 import { AESEncryptionKey, AESKeySize, AESSealedData, aesDecryptAsync, aesEncryptAsync } from 'expo-crypto';
+import { decodeBase64 } from './base64';
 import { safeStorage } from './safeStorage';
 import { decodeUtf8, encodeUtf8 } from './utf8';
 
@@ -72,7 +73,11 @@ export async function encryptForStorage(plaintext: string): Promise<string | nul
 export async function decryptFromStorage(ciphertext: string): Promise<string | null> {
   try {
     const key = await getOrCreateKey();
-    const sealed = AESSealedData.fromCombined(ciphertext);
+    // Bytes, not the stored base64 text. expo-crypto types fromCombined as taking a string too, and
+    // iOS accepts one, but Android's native side takes a ByteArray only and throws on a string --
+    // so until this decoded first, no Android device ever restored its cache (measured on a release
+    // build, 2026-10-30). The stored format itself is unchanged: base64 of the combined bytes.
+    const sealed = AESSealedData.fromCombined(decodeBase64(ciphertext));
     const bytes = await aesDecryptAsync(sealed, key, { output: 'bytes' });
     // Bug found in review (Track D/D4): decodeUtf8 now reads the Uint8Array view's own
     // byteOffset/byteLength directly -- see its own doc comment for why passing `bytes.buffer`

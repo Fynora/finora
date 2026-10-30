@@ -39,11 +39,16 @@ jest.mock('expo-crypto', () => {
     constructor(payload: string) {
       this.payload = payload;
     }
-    static fromCombined(combined: string): FakeSealedData {
-      return new FakeSealedData(combined);
+    // Mirrors Android, the strictest platform: its native fromCombined takes a ByteArray only and
+    // rejects a string with this message (expo-crypto AesCryptoModule.kt). The old fake accepted a
+    // string, which is how restore broke on every Android device with every test still passing.
+    static fromCombined(combined: unknown): FakeSealedData {
+      if (!(combined instanceof Uint8Array)) throw new Error("[fromCombined] Cannot convert '...' to ByteArray");
+      return new FakeSealedData(Buffer.from(combined).toString('latin1'));
     }
-    async combined(): Promise<string> {
-      return this.payload;
+    async combined(encoding?: 'bytes' | 'base64'): Promise<Uint8Array | string> {
+      const bytes = new Uint8Array(Buffer.from(this.payload, 'latin1'));
+      return encoding === 'base64' ? Buffer.from(bytes).toString('base64') : bytes;
     }
   }
 
@@ -142,11 +147,40 @@ describe('encryptForStorage / decryptFromStorage', () => {
 
   it('returns null rather than throwing when the stored value is not valid ciphertext at all', async () => {
     // The pre-encryption plaintext-JSON case: a real scenario the first read after upgrading to
-    // this fix will hit for whatever was already on disk.
+    // this fix will hit for whatever was already on disk. It is not even base64.
+    const { decryptFromStorage } = await import('./queryCacheCipher');
+
+    expect(await decryptFromStorage('{"plain":"json","from":"before encryption existed"}')).toBeNull();
+  });
+
+  it('returns null rather than throwing when valid base64 fails to decrypt', async () => {
     const { decryptFromStorage } = await import('./queryCacheCipher');
     mockAesDecryptAsync.mockRejectedValueOnce(new Error('not valid sealed data'));
 
-    expect(await decryptFromStorage('{"plain":"json","from":"before encryption existed"}')).toBeNull();
+    expect(await decryptFromStorage(Buffer.from('not sealed data').toString('base64'))).toBeNull();
+  });
+
+  it('hands fromCombined bytes, never the stored base64 text', async () => {
+    const { AESSealedData } = require('expo-crypto') as { AESSealedData: { fromCombined: (c: unknown) => unknown } };
+    const spy = jest.spyOn(AESSealedData, 'fromCombined');
+    const { encryptForStorage, decryptFromStorage } = await import('./queryCacheCipher');
+
+    const ciphertext = await encryptForStorage('{"a":1}');
+    await decryptFromStorage(ciphertext as string);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBeInstanceOf(Uint8Array);
+    spy.mockRestore();
+  });
+
+  it('reads back a value written in the stored format before this fix (base64 of the combined bytes)', async () => {
+    // What every device already has on disk: sealed.combined('base64'). It has to restore, not be
+    // thrown away, now that reading it works.
+    const { encryptForStorage, decryptFromStorage } = await import('./queryCacheCipher');
+    const ciphertext = (await encryptForStorage('{"kept":true}')) as string;
+
+    expect(Buffer.from(ciphertext, 'base64').toString('base64')).toBe(ciphertext);
+    expect(await decryptFromStorage(ciphertext)).toBe('{"kept":true}');
   });
 
   it('falls back to generating a fresh key rather than failing forever when the stored key is corrupted', async () => {

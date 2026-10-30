@@ -62,4 +62,36 @@ describe('encodeUtf8', () => {
     const json = JSON.stringify({ merchant: 'Café Nero', note: '日本語 receipt 🎉', amount: -450 });
     expect(decodeUtf8(encodeUtf8(json).buffer)).toBe(json);
   });
+
+  it('returns a buffer exactly as long as the encoded bytes, with no worst-case tail', () => {
+    const encoded = encodeUtf8('aé日🎉');
+    expect(encoded.length).toBe(Buffer.byteLength('aé日🎉', 'utf8'));
+    expect(encoded.buffer.byteLength).toBe(encoded.length);
+  });
+
+  it('keeps encoding a lone surrogate as its 3-byte form, as before', () => {
+    expect(Array.from(encodeUtf8('\ud800'))).toEqual([0xed, 0xa0, 0x80]);
+    expect(Array.from(encodeUtf8('a\udc00'))).toEqual([0x61, 0xed, 0xb0, 0x80]);
+  });
+});
+
+describe('large payloads (the persisted query cache is ~350K characters)', () => {
+  // Mixed scripts so every branch runs, emoji so surrogate pairs land on and across the decoder's
+  // 8192-unit chunk boundary.
+  const big = Array.from({ length: 9000 }, (_, i) => `{"id":${i},"m":"Café 日本 🎉"}`).join(',');
+
+  it('encodes exactly like Node', () => {
+    expect(Buffer.from(encodeUtf8(big)).equals(Buffer.from(big, 'utf8'))).toBe(true);
+  });
+
+  it('decodes exactly like Node', () => {
+    expect(decodeUtf8(new Uint8Array(Buffer.from(big, 'utf8')))).toBe(big);
+  });
+
+  it('decodes a surrogate pair that straddles a chunk boundary', () => {
+    for (const pad of [8190, 8191, 8192, 8193]) {
+      const text = `${'a'.repeat(pad)}🎉b`;
+      expect(decodeUtf8(new Uint8Array(Buffer.from(text, 'utf8')))).toBe(text);
+    }
+  });
 });

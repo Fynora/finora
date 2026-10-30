@@ -1091,6 +1091,17 @@ export interface BillingOfferAdmin {
   createdAt: string;
 }
 
+/**
+ * Mirrors backend BillingOfferEndResultDto. `checkoutsCancelled`: checkouts customers still had open
+ * under the offer, cancelled on Razorpay. `checkoutsNotCancelled`: ones that could not be (logged on
+ * the server); those stay payable at the offer price until the offer's original end.
+ */
+export interface BillingOfferEndResult {
+  offer: BillingOfferAdmin;
+  checkoutsCancelled: number;
+  checkoutsNotCancelled: number;
+}
+
 /** Mirrors backend BillingOfferPlanOptionDto: a paid plan and cycle an offer can be made for. */
 export interface BillingOfferPlanOption {
   planCode: string;

@@ -9699,6 +9699,25 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        ApiResponseBillingOfferEndResultDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BillingOfferEndResultDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BillingOfferEndResultDto: {
+            offer?: components["schemas"]["BillingOfferAdminDto"];
+            /** Format: int32 */
+            checkoutsCancelled?: number;
+            /** Format: int32 */
+            checkoutsNotCancelled?: number;
+        };
         BankCreateRequest: {
             id: string;
             officialName: string;
@@ -20252,7 +20271,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponseBillingOfferAdminDto"];
+                    "*/*": components["schemas"]["ApiResponseBillingOfferEndResultDto"];
                 };
             };
         };

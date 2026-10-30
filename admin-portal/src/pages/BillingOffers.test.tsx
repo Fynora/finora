@@ -185,18 +185,36 @@ describe('BillingOffers', () => {
   it('ends a live offer after confirming, then reloads the list', async () => {
     const user = userEvent.setup();
     mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
-    api.endNow.mockResolvedValue({ ...LIVE, state: 'ENDED' });
+    api.endNow.mockResolvedValue({ offer: { ...LIVE, state: 'ENDED' }, checkoutsCancelled: 2, checkoutsNotCancelled: 0 });
     renderPage();
     const live = (await screen.findByText('Diwali offer')).closest('tr')!;
     await user.click(within(live).getByRole('button', { name: 'End now' }));
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('Checkouts started from now on pay the regular price');
+    expect(dialog).toHaveTextContent('not yet paid at the offer price are cancelled');
     await user.click(within(dialog).getByRole('button', { name: 'End now' }));
 
     await waitFor(() => expect(api.endNow).toHaveBeenCalledWith('o1'));
-    expect(await screen.findByText('Ended “Diwali offer” (DIWALI2026). New checkouts get the regular price.')).toBeInTheDocument();
+    expect(await screen.findByText(
+      'Ended “Diwali offer” (DIWALI2026). New checkouts get the regular price. Cancelled 2 open checkouts at the offer price.',
+    )).toBeInTheDocument();
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+  });
+
+  it('says when open checkouts could not be cancelled, and until when they stay payable', async () => {
+    const user = userEvent.setup();
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
+    api.endNow.mockResolvedValue({ offer: { ...LIVE, state: 'ENDED' }, checkoutsCancelled: 0, checkoutsNotCancelled: 1 });
+    renderPage();
+    const live = (await screen.findByText('Diwali offer')).closest('tr')!;
+    await user.click(within(live).getByRole('button', { name: 'End now' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'End now' }));
+
+    expect(await screen.findByText(
+      'Ended “Diwali offer” (DIWALI2026). New checkouts get the regular price. 1 open checkout could not be cancelled '
+        + 'and can still be paid at the offer price until 08 Nov 2026, 00:00 IST; the server log has the details.',
+    )).toBeInTheDocument();
   });
 
   it("shows the server's message when ending is refused", async () => {

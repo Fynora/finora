@@ -42,6 +42,20 @@ public final class BillingOfferAdminDtos {
     }
 
     /**
+     * What "end now" did. {@code checkoutsCancelled} is how many checkouts customers still had open
+     * under the offer were cancelled on Razorpay, so they can no longer be paid at the offer price.
+     * {@code checkoutsNotCancelled} is how many could not be, for any reason (Razorpay unreachable or
+     * not configured, the cancel refused, or a payment landing while it was being cancelled); each
+     * is logged. Those can still be paid at the offer price until the offer's original end.
+     * Checkouts already paid are not counted: they are the customer's, and the webhook completes them.
+     */
+    public record BillingOfferEndResultDto(
+            BillingOfferAdminDto offer,
+            int checkoutsCancelled,
+            int checkoutsNotCancelled) {
+    }
+
+    /**
      * A plan and cycle an offer can be made for: a paid plan with an active price. {@code checkoutReady}
      * is false when that price has no Razorpay plan id, which checkout needs, so an offer on it is
      * refused.

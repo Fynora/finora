@@ -3,9 +3,11 @@ package com.finora.controller;
 import com.finora.dto.ApiResponse;
 import com.finora.dto.BillingOfferAdminDtos.BillingOfferAdminDto;
 import com.finora.dto.BillingOfferAdminDtos.BillingOfferCreateRequest;
+import com.finora.dto.BillingOfferAdminDtos.BillingOfferEndResultDto;
 import com.finora.dto.BillingOfferAdminDtos.BillingOfferPlanOptionDto;
 import com.finora.security.CurrentUser;
 import com.finora.service.BillingOfferAdminService;
+import com.finora.service.OfferCheckoutCanceller;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,10 +27,13 @@ import java.util.UUID;
 public class AdminBillingOfferController {
 
     private final BillingOfferAdminService service;
+    private final OfferCheckoutCanceller checkoutCanceller;
     private final CurrentUser currentUser;
 
-    public AdminBillingOfferController(BillingOfferAdminService service, CurrentUser currentUser) {
+    public AdminBillingOfferController(BillingOfferAdminService service, OfferCheckoutCanceller checkoutCanceller,
+                                       CurrentUser currentUser) {
         this.service = service;
+        this.checkoutCanceller = checkoutCanceller;
         this.currentUser = currentUser;
     }
 
@@ -53,10 +58,16 @@ public class AdminBillingOfferController {
         return ApiResponse.ok(service.create(currentUser.id(), request));
     }
 
-    /** Ends a live or upcoming offer now. Checkouts started after this get the regular price. */
+    /**
+     * Ends a live or upcoming offer now. Checkouts started after this get the regular price, and
+     * checkouts customers still have open under it are cancelled on Razorpay. Two steps on purpose:
+     * the end is committed first, then the Razorpay calls run outside any transaction.
+     */
     @PostMapping("/{id}/end")
     @PreAuthorize("hasAuthority('SUBSCRIPTION_MANAGEMENT_MANAGE')")
-    public ApiResponse<BillingOfferAdminDto> endBillingOffer(@PathVariable UUID id) {
-        return ApiResponse.ok(service.endNow(currentUser.id(), id));
+    public ApiResponse<BillingOfferEndResultDto> endBillingOffer(@PathVariable UUID id) {
+        BillingOfferAdminDto ended = service.endNow(currentUser.id(), id);
+        OfferCheckoutCanceller.Result result = checkoutCanceller.cancelOpenCheckouts(currentUser.id(), id);
+        return ApiResponse.ok(new BillingOfferEndResultDto(ended, result.cancelled(), result.notCancelled()));
     }
 }

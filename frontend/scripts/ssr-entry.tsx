@@ -20,6 +20,8 @@ import NotFound from '../src/pages/NotFound';
 // Re-exported so scripts/prerender.mjs (plain Node, no TypeScript) can reach them through this
 // bundle: the JSON-LD each route's HTML carries, built from the pages' own data.
 export { jsonLdScripts, structuredDataFor } from '../src/lib/structuredData';
+// llms.txt and llms-full.txt, built from the site's own copy (see src/lib/llmsTxt.ts).
+export { llmsFullTxt, llmsTxt } from '../src/lib/llmsTxt';
 
 /**
  * Bundled by scripts/prerender.mjs via Vite's SSR build, then imported from plain Node -- this is

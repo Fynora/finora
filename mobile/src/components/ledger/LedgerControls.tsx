@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassSurface, useGlassSurfaceStyle } from '../GlassSurface';
@@ -14,16 +14,90 @@ const TYPES: { value: TypeFilter; label: string; spoken: string }[] = [
   { value: 'EXPENSE', label: 'Expense', spoken: 'expense' },
 ];
 
+/** What the search field needs from the screen. */
+interface SearchProps {
+  /** Read once, when the field mounts. To put a different search in the box (one arriving from
+   *  another screen, or Clear filters) the screen remounts the controls with a new `key`. */
+  initialKeyword: string;
+  /** Every keystroke, as it happens. */
+  onKeywordChange: (text: string) => void;
+  /** The text to search for, once typing has paused for `settleMs`. */
+  onKeywordSettled: (text: string) => void;
+  settleMs: number;
+  searchRef: RefObject<TextInput | null>;
+}
+
+/**
+ * The search field. It holds what is typed itself, so a keystroke renders this field and nothing
+ * else: held by the screen, every keystroke rendered the whole Ledger, its list and its sheets, and
+ * typing stalled on a slow phone. It also waits for typing to pause before handing the screen the
+ * search to run, so a request is not fired per keystroke. Unmounting drops a search still waiting.
+ */
+function SearchField({ initialKeyword, onKeywordChange, onKeywordSettled, settleMs, searchRef }: SearchProps) {
+  const c = useTheme();
+  const bodyM = typography.bodyM;
+  const [keyword, setKeyword] = useState(initialKeyword);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+  }, []);
+  function change(text: string) {
+    setKeyword(text);
+    onKeywordChange(text);
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      settleTimer.current = null;
+      onKeywordSettled(text);
+    }, settleMs);
+  }
+
+  return (
+    <GlassSurface variant="row" style={styles.search}>
+      <Ionicons name="search" size={18} color={c.muted} />
+      <TextInput
+        ref={searchRef}
+        value={keyword}
+        onChangeText={change}
+        placeholder="Search description, merchant, bank…"
+        placeholderTextColor={c.muted}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Search transactions"
+        returnKeyType="search"
+        // The type ramp's font and size without its line height: a fixed line height on an
+        // iOS text field pushes the text to the bottom of the field, and at large text sizes
+        // cut it off.
+        style={[
+          styles.searchInput,
+          { fontFamily: bodyM.fontFamily, fontWeight: bodyM.fontWeight, fontSize: bodyM.fontSize, color: c.ink },
+        ]}
+      />
+      {/* Clearing a long search otherwise meant holding backspace. Its own button, on both
+          platforms: iOS's built-in clear button has no Android counterpart. */}
+      {keyword ? (
+        <Pressable
+          onPress={() => change('')}
+          // A 28 by 28 box plus 8 on every side is a 44 by 44 target.
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+          style={styles.searchClear}
+        >
+          <Ionicons name="close-circle" size={18} color={c.muted} />
+        </Pressable>
+      ) : null}
+    </GlassSurface>
+  );
+}
+
 /**
  * The Transactions tab's controls: search, the All / Income / Expense switch, the one Filters
  * button that opens the rarely used filters, and a chip for every filter that is on.
  */
 export function LedgerControls({
-  keyword, onKeywordChange, searchRef, typeFilter, onTypeFilter, filtersOn, onOpenFilters, chips, stacked,
-}: {
-  keyword: string;
-  onKeywordChange: (text: string) => void;
-  searchRef: RefObject<TextInput | null>;
+  initialKeyword, onKeywordChange, onKeywordSettled, settleMs, searchRef, typeFilter, onTypeFilter, filtersOn,
+  onOpenFilters, chips, stacked,
+}: SearchProps & {
   typeFilter: TypeFilter;
   onTypeFilter: (t: TypeFilter) => void;
   filtersOn: number;
@@ -34,45 +108,16 @@ export function LedgerControls({
   const c = useTheme();
   // The Filters button is a Pressable, so it takes the glass fill and edge as a style.
   const glass = useGlassSurfaceStyle();
-  const bodyM = typography.bodyM;
 
   return (
     <View style={styles.wrap}>
-      <GlassSurface variant="row" style={styles.search}>
-        <Ionicons name="search" size={18} color={c.muted} />
-        <TextInput
-          ref={searchRef}
-          value={keyword}
-          onChangeText={onKeywordChange}
-          placeholder="Search description, merchant, bank…"
-          placeholderTextColor={c.muted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          accessibilityLabel="Search transactions"
-          returnKeyType="search"
-          // The type ramp's font and size without its line height: a fixed line height on an
-          // iOS text field pushes the text to the bottom of the field, and at large text sizes
-          // cut it off.
-          style={[
-            styles.searchInput,
-            { fontFamily: bodyM.fontFamily, fontWeight: bodyM.fontWeight, fontSize: bodyM.fontSize, color: c.ink },
-          ]}
-        />
-        {/* Clearing a long search otherwise meant holding backspace. Its own button, on both
-            platforms: iOS's built-in clear button has no Android counterpart. */}
-        {keyword ? (
-          <Pressable
-            onPress={() => onKeywordChange('')}
-            // A 28 by 28 box plus 8 on every side is a 44 by 44 target.
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Clear search"
-            style={styles.searchClear}
-          >
-            <Ionicons name="close-circle" size={18} color={c.muted} />
-          </Pressable>
-        ) : null}
-      </GlassSurface>
+      <SearchField
+        initialKeyword={initialKeyword}
+        onKeywordChange={onKeywordChange}
+        onKeywordSettled={onKeywordSettled}
+        settleMs={settleMs}
+        searchRef={searchRef}
+      />
 
       <View testID="ledger-controls-row" style={stacked ? styles.controlsStacked : styles.controls}>
         <GlassSurface variant="row" style={[styles.track, !stacked && styles.grow]}>

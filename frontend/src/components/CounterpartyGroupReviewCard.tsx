@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Wallet, Check, ChevronDown } from 'lucide-react';
 import { transactionsApi } from '../api/endpoints';
+import { formatDate } from '../utils/date';
 import { CategoryCombobox } from './CategoryCombobox';
 import { CategoryCreateEditPanel } from './CategoryCreateEditPanel';
 import { ReviewCardSkeleton } from './ReviewCardSkeleton';
@@ -176,10 +177,11 @@ export function CounterpartyGroupReviewCard() {
                         className="mt-3 pt-3 border-t border-border space-y-1.5 overflow-hidden"
                       >
                         {g.transactions.map((t) => (
-                          <li key={t.id} className="flex items-center gap-3 text-xs">
-                            <span className="text-muted flex-shrink-0 w-20">{t.date}</span>
-                            <span className="text-ink truncate flex-1 min-w-0">{t.description}</span>
-                            <span className={`flex-shrink-0 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
+                          // Date and amount only: the group's title already names who was paid, and
+                          // the bank's narration only repeated it with card digits and bank codes.
+                          <li key={t.id} className="flex items-center justify-between gap-3 text-xs max-w-sm">
+                            <span className="text-ink">{formatDate(t.date)}</span>
+                            <span className={`flex-shrink-0 tabular-nums font-medium ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>
                               {t.type === 'INCOME' ? '+' : '-'}{fmt(t.amount)}
                             </span>
                           </li>

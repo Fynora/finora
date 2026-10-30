@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CounterpartyGroupReviewCard } from './CounterpartyGroupReviewCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
+import { formatDate } from '../utils/date';
 import type { CounterpartyGroup } from '../types';
 
 vi.mock('../api/endpoints', () => ({
@@ -176,7 +177,7 @@ describe('CounterpartyGroupReviewCard — expand to preview', () => {
 
     await screen.findByText('UPI to Sunil');
 
-    expect(screen.queryByText('transfer 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('-₹100')).not.toBeInTheDocument();
   });
 
   it('shows each transaction in the group once expanded', async () => {
@@ -187,10 +188,12 @@ describe('CounterpartyGroupReviewCard — expand to preview', () => {
     await screen.findByText('UPI to Sunil');
     await user.click(screen.getByRole('button', { name: /show the 2 transactions for upi to sunil/i }));
 
-    expect(await screen.findByText('transfer 1')).toBeInTheDocument();
-    expect(screen.getByText('transfer 2')).toBeInTheDocument();
+    expect(await screen.findByText(formatDate('2026-08-10'))).toBeInTheDocument();
+    expect(screen.getByText(formatDate('2026-08-11'))).toBeInTheDocument();
     expect(screen.getByText('-₹100')).toBeInTheDocument();
     expect(screen.getByText('-₹200')).toBeInTheDocument();
+    // Not the bank's narration: the group's title already names who was paid (the owner's choice).
+    expect(screen.queryByText('transfer 1')).not.toBeInTheDocument();
   });
 
   it('still shows credits with the same sign convention as the Ledger table', async () => {

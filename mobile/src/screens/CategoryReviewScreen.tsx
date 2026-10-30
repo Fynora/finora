@@ -22,7 +22,7 @@ import { hapticError, hapticSuccess } from '../lib/haptics';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { spacing, useTheme } from '../theme';
-import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
+import type { CounterpartyGroup, MerchantGroup, MerchantGroupTransaction, Transaction } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
@@ -53,8 +53,9 @@ export function CategoryReviewScreen() {
 
   const [target, setTarget] = useState<PickerTarget | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  // Person groups whose payments are shown in the row.
-  const [openCounterparties, setOpenCounterparties] = useState(() => new Set<string>());
+  // Groups whose payments are shown in the row, merchant groups by "m:" + merchantId and person
+  // groups by "c:" + counterpartyKey.
+  const [openGroups, setOpenGroups] = useState(() => new Set<string>());
   // Rows the user has already resolved this visit, HIDDEN rather than removed from the query
   // cache -- see apply() for why that distinction is the whole fix.
   const [resolvedTxnIds, setResolvedTxnIds] = useState(() => new Set());
@@ -237,13 +238,63 @@ export function CategoryReviewScreen() {
     + groups.reduce((n, g) => n + g.transactionIds.length, 0)
     + counterpartyGroups.reduce((n, g) => n + g.transactionIds.length, 0);
 
-  function toggleCounterparty(key: string) {
-    setOpenCounterparties((prev) => {
+  function toggleGroup(key: string) {
+    setOpenGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
+  }
+
+  // The payments a group already carries, so they can be seen before one category is chosen for
+  // all of them: each one's date and amount. Not the bank's narration: the group's own title already
+  // names the merchant or person, and the narration only repeated it with card digits and bank
+  // codes (the owner's choice). Its own button, a sibling of the row's: a tap here opens the list,
+  // not the picker, and a screen reader reaches both.
+  function paymentsBlock(key: string, payments: MerchantGroupTransaction[] | undefined, total: number) {
+    if (!payments || payments.length === 0) return null;
+    const open = openGroups.has(key);
+    return (
+      <View style={{ marginLeft: largeText ? 0 : LOGO_SIZE + spacing.sm }}>
+        <Pressable
+          onPress={() => toggleGroup(key)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          style={styles.showPayments}
+        >
+          <Text style={[styles.showPaymentsText, { color: c.primary }]}>
+            {open ? 'Hide payments' : `Show ${payments.length} ${payments.length === 1 ? 'payment' : 'payments'}`}
+          </Text>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={c.primary} />
+        </Pressable>
+        {open ? (
+          // A small inset list, read like the Ledger: date on the left, the amount on the right in
+          // the money-in/money-out colour.
+          <View style={[styles.payments, { borderColor: c.border }]}>
+            {payments.map((p, i) => (
+              <View
+                key={p.id}
+                style={[styles.payment, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
+              >
+                <Text style={[styles.paymentDate, { color: c.ink }]}>{fmtDate(p.date) ?? p.date}</Text>
+                <Text style={[styles.paymentAmount, { color: p.type === 'INCOME' ? c.successInk : c.dangerInk }]}>
+                  {signedAmount(p)}
+                </Text>
+              </View>
+            ))}
+            {total > payments.length ? (
+              <Text
+                style={[styles.paymentsMore, { color: c.mutedInk, borderTopColor: c.border }]}
+              >
+                and {total - payments.length} more
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+    );
   }
 
   // A logo, as the Ledger's rows have. Left out at large text sizes, as there, to give the words
@@ -307,26 +358,31 @@ export function CategoryReviewScreen() {
                 One choice covers every transaction from that merchant.
               </Text>
               {groups.map((g) => (
-                <Pressable
-                  key={g.merchantId}
-                  onPress={() => setTarget({ kind: 'group', group: g })}
-                  style={[styles.row, { borderBottomColor: c.border }]}
-                  android_ripple={{ color: c.border }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${g.merchantName}, ${g.transactionIds.length} transactions`}
-                  accessibilityHint="Opens the category picker for every transaction from this merchant"
-                >
-                  {logo(g.merchantName, g.logoDomain)}
-                  <View style={styles.rowMain}>
-                    <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                      {g.merchantName}
-                    </Text>
-                    <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                      {g.transactionIds.length} transactions
-                    </Text>
-                  </View>
-                  {chevron}
-                </Pressable>
+                // As the person groups below: the row's button and "Show payments" are siblings.
+                // The web review has always listed a merchant group's payments; mobile showed only
+                // "4 transactions", so a group could be filed without seeing what was in it.
+                <View key={g.merchantId} style={[styles.rowGroup, { borderBottomColor: c.border }]}>
+                  <Pressable
+                    onPress={() => setTarget({ kind: 'group', group: g })}
+                    style={styles.rowInGroup}
+                    android_ripple={{ color: c.border }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${g.merchantName}, ${g.transactionIds.length} transactions`}
+                    accessibilityHint="Opens the category picker for every transaction from this merchant"
+                  >
+                    {logo(g.merchantName, g.logoDomain)}
+                    <View style={styles.rowMain}>
+                      <Text style={[styles.rowTitle, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
+                        {g.merchantName}
+                      </Text>
+                      <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+                        {g.transactionIds.length} transactions
+                      </Text>
+                    </View>
+                    {chevron}
+                  </Pressable>
+                  {paymentsBlock(`m:${g.merchantId}`, g.transactions, g.transactionIds.length)}
+                </View>
               ))}
             </Card>
           ) : null}
@@ -388,40 +444,7 @@ export function CategoryReviewScreen() {
                     {chevron}
                   </Pressable>
                   {/* Lined up under the title, past the logo when there is one. */}
-                  <View style={{ marginLeft: largeText ? 0 : LOGO_SIZE + spacing.sm }}>
-                    {/* The payments themselves, which the group already carries, so they can be
-                        seen before one category is chosen for all of them. Its own button: a tap
-                        here opens the list, not the picker. */}
-                    {g.transactions.length > 0 ? (
-                      <Pressable
-                        onPress={() => toggleCounterparty(g.counterpartyKey)}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityState={{ expanded: openCounterparties.has(g.counterpartyKey) }}
-                        style={styles.showPayments}
-                      >
-                        <Text style={[styles.showPaymentsText, { color: c.primary }]}>
-                          {openCounterparties.has(g.counterpartyKey)
-                            ? 'Hide payments'
-                            : `Show ${g.transactions.length} ${g.transactions.length === 1 ? 'payment' : 'payments'}`}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    {openCounterparties.has(g.counterpartyKey) ? (
-                      <View style={styles.payments}>
-                        {g.transactions.map((p) => (
-                          <Text key={p.id} style={[styles.rowMeta, { color: c.mutedInk }]}>
-                            {fmtDate(p.date) ?? p.date} · {signedAmount(p)}
-                          </Text>
-                        ))}
-                        {g.transactionIds.length > g.transactions.length ? (
-                          <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-                            and {g.transactionIds.length - g.transactions.length} more
-                          </Text>
-                        ) : null}
-                      </View>
-                    ) : null}
-                  </View>
+                  {paymentsBlock(`c:${g.counterpartyKey}`, g.transactions, g.transactionIds.length)}
                 </View>
               ))}
             </Card>
@@ -576,9 +599,20 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3,
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden',
   },
-  showPayments: { alignSelf: 'flex-start', marginTop: 6 },
+  showPayments: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
   showPaymentsText: { fontSize: 12, fontWeight: '600' },
-  payments: { marginTop: 4 },
+  payments: {
+    marginTop: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  // Wraps rather than squeezing: at large text sizes the amount drops under the date.
+  payment: {
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: spacing.sm,
+    paddingVertical: 8,
+  },
+  paymentDate: { fontSize: 13, fontWeight: '500' },
+  paymentAmount: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  paymentsMore: { fontSize: 12, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth },
   error: { fontSize: 13, marginBottom: spacing.sm },
   warning: { fontSize: 12, marginBottom: spacing.sm },
   retry: { fontSize: 13, fontWeight: '600' },

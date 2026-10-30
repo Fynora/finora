@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AskOnceCard } from './AskOnceCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
 import type { Transaction } from '../types';
+import { formatDate } from '../utils/date';
 
 vi.mock('../api/endpoints', () => ({
   transactionsApi: { needsReview: vi.fn(), updateCategory: vi.fn(), similar: vi.fn() },
@@ -34,6 +35,29 @@ function renderCard() {
     </QueryClientProvider>
   );
 }
+
+// It printed the API's ISO date and an unsigned amount ("2026-07-01 · ₹100"), where the group cards
+// and the mobile list show a readable date and a signed, coloured amount.
+describe('AskOnceCard row details', () => {
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockResolvedValue([] as any);
+    vi.mocked(categoriesApi.options).mockResolvedValue({ icons: [], colors: [] } as any);
+  });
+
+  it('shows a readable date and a signed, coloured amount', async () => {
+    vi.mocked(transactionsApi.needsReview).mockResolvedValue([
+      txn('t-out', 'Card purchase'),
+      { ...txn('t-in', 'Card refund'), type: 'INCOME', amount: 250 },
+    ]);
+    renderCard();
+
+    await screen.findByText('Card purchase');
+    expect(screen.queryByText(/2026-07-01/)).not.toBeInTheDocument();
+    expect(screen.getAllByText(new RegExp(formatDate('2026-07-01')))).toHaveLength(2);
+    expect(screen.getByText('-₹100')).toHaveClass('text-danger');
+    expect(screen.getByText('+₹250')).toHaveClass('text-success');
+  });
+});
 
 describe('AskOnceCard pagination', () => {
   beforeEach(() => {

@@ -1,9 +1,9 @@
 import { File, Paths } from 'expo-file-system';
-import * as Print from 'expo-print';
 import type { ReportData } from '../api/endpoints';
 import { fmtCurrency, monthLabelLong } from './format';
 import { comparisonGateNote, comparisonMonthName, deltaPhrase, netChangePhrase } from './reportSections/comparison';
 import { methodBreakdown } from './reportSections/methodBreakdown';
+import { printToPdfFile } from './printPdf';
 import { shareFileAndCleanUp } from './shareFile';
 
 /**
@@ -246,7 +246,7 @@ export async function shareCsv(report: ReportData): Promise<void> {
 }
 
 export async function sharePdf(report: ReportData): Promise<void> {
-  const { uri } = await Print.printToFileAsync({ html: toPrintableHtml(report) });
+  const uri = await printToPdfFile({ html: toPrintableHtml(report) });
   const name = `fynora-report-${report.month}.pdf`;
   await shareFileAndCleanUp(new File(uri), { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: name });
 }

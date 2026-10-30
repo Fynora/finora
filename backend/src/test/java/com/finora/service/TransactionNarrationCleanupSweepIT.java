@@ -78,6 +78,25 @@ class TransactionNarrationCleanupSweepIT extends AbstractIntegrationTest {
                 });
     }
 
+    // A card payment's short name carried the masked card number until the label learnt to drop it
+    // (CategoryRules.MASKED_CARD): measured in production 2026-10-30, 4 rows of 4 users. A deploy of
+    // that fix starts a fresh pass, which re-reads these names. Synthetic card numbers.
+    @Test
+    void aShortNameCarryingAMaskedCardNumberIsReRead() {
+        UUID pos = expense("POS 400000XXXXXX0001 SAMPLE KITCHEN STORE", "pos 400000xxxxxx0001 sample kitchen");
+        UUID mandate = expense("ME DC SI 400000XXXXXX0001 SAMPLE STREAMING CO", "me dc si 400000xxxxxx0001");
+        UUID edited = expense("POS 400000XXXXXX0001 SAMPLE CAFE", "400000xxxxxx0001 sample cafe");
+        mark(edited, Transaction.EditableField.MERCHANT);
+
+        runWholePass();
+
+        assertThat(row(pos).get("merchant")).isEqualTo("sample kitchen store");
+        assertThat(row(mandate).get("merchant")).isEqualTo("sample streaming co");
+        assertThat(row(edited).get("merchant")).isEqualTo("400000xxxxxx0001 sample cafe");
+        // The narration itself is the bank's text and is never changed here.
+        assertThat(row(pos).get("description")).isEqualTo("POS 400000XXXXXX0001 SAMPLE KITCHEN STORE");
+    }
+
     @Test
     void aStampedRowWithACleanNameLosesOnlyTheStamp() {
         UUID id = expense("UPI/DR/100000000001/SAMPLE STORE/HDFC/samplestore@okhdfc" + STAMP, "sample store");

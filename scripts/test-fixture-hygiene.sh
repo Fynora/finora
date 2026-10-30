@@ -256,5 +256,47 @@ else
 fi
 cd "$REPO" || exit 1; rm -rf "$D"
 
+# ------------------------------- 9. an Action pinned to a commit is not read as a card number
+
+# Dependabot bumps "uses: owner/action@<40 hex> # v1.2.3" in workflow files. A commit hash is random
+# hex, and one that happens to hold ten or more digits in a row was blocked as an account number (a
+# CodeQL action bump, 2026-10-30). Dependabot cannot add a synthetic-ok marker, so the pin itself is
+# removed before the scan -- and only the pin, and only under .github/. The hash below is invented.
+PIN_SHA="7183920465abcdef0123456789abcdef01234567"   # synthetic-ok
+
+new_repo
+mkdir -p .github/workflows
+commit_file .github/workflows/x.yml "      - uses: owner/action@$PIN_SHA # v1.2.3" "pin an action"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  ok "an Action pinned to a commit hash is allowed in a workflow"
+else
+  bad "an Action pinned to a commit hash is allowed in a workflow"
+fi
+
+# Narrow, not a hole: the same hash in a doc is still read as what it looks like.
+commit_file note.md "uses owner/action@$PIN_SHA" "the same hash in a doc"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  bad "the same hash outside .github/ is still read"
+else
+  ok "the same hash outside .github/ is still read"
+fi
+
+# A number on the pin's own line is not hidden by the pin.
+commit_file .github/workflows/y.yml "      - uses: owner/action@$PIN_SHA # account $FAKE_ACCOUNT" "a number beside a pin"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  bad "a number on the same line as a pin is still read"
+else
+  ok "a number on the same line as a pin is still read"
+fi
+
+# And a bare number elsewhere in a workflow is still read.
+commit_file .github/workflows/z.yml "      ACCOUNT: $FAKE_ACCOUNT" "a number in a workflow"
+if sh "$SCRIPT" --each HEAD^ HEAD >/dev/null 2>&1; then
+  bad "a number elsewhere in a workflow is still read"
+else
+  ok "a number elsewhere in a workflow is still read"
+fi
+cd "$REPO" || exit 1; rm -rf "$D"
+
 printf '\n  %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

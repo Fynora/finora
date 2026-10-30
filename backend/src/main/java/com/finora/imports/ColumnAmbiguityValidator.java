@@ -191,8 +191,7 @@ public class ColumnAmbiguityValidator {
             if (dateOrder != null) {
                 String dateCell = TransactionNormalizer.dateCellOf(row);
                 if (dateOrder.leavesUnsettled(dateCell)) {
-                    found.add(new Ambiguity(shownAt, DATE_ORDER_NOT_SETTLED, dateColumnOf(row, dateCell),
-                            dateCell.trim()));
+                    found.add(new Ambiguity(shownAt, DATE_ORDER_NOT_SETTLED, dateColumnOf(row), dateCell.trim()));
                 }
             }
             String creditColumn = null, debitColumn = null;
@@ -342,11 +341,9 @@ public class ColumnAmbiguityValidator {
     }
 
     /** The header the date cell sits under, as the file printed it. */
-    private static String dateColumnOf(Map<String, String> row, String dateCell) {
-        for (Map.Entry<String, String> e : row.entrySet()) {
-            if (e.getValue() == dateCell) return e.getKey();
-        }
-        return "Date";
+    private static String dateColumnOf(Map<String, String> row) {
+        String column = TransactionNormalizer.dateColumnOf(row);
+        return column != null ? column : "Date";
     }
 
     private static int countAmounts(String value) {

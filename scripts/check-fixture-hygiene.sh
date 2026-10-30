@@ -269,6 +269,16 @@ printf '%s\n' "$targets" | while IFS= read -r f; do
     old=$(printf '%s\n' "$renames" | awk -F '\t' -v n="$f" '$3 == n { print $2; exit }')
     added=$(git diff $DIFF_ARGS -- ${old:+"$old"} "$f" | grep -E '^\+' | grep -vE '^\+\+\+ (a/|b/|/dev/null)' | grep -v 'synthetic-ok' | cut -c2-)
   fi
+  # A GitHub Action pinned to a commit ("uses: owner/action@<40 hex characters> # v1.2.3") is a
+  # 40-character random hex string, and some contain a run of ten or more digits (seen 2026-10-30:
+  # a CodeQL action bump on a Dependabot pull request failed this check on ten digits in a row
+  # inside its new hash). Dependabot cannot add a synthetic-ok marker, so the exception for this one shape
+  # has to live here. Only the `@<40 hex>` token is removed, and only under
+  # .github/: a real number, email or phone number added anywhere else in a workflow, or on the same
+  # line as a pin, is still read, and the same pin in a doc or a fixture is still read too.
+  case "$f" in
+    .github/*) added=$(printf '%s\n' "$added" | sed -E 's/@[0-9a-f]{40}/@/g') ;;
+  esac
   [ -z "$added" ] && continue
 
   # BLOCKS, and it used to only warn. That was the defect that actually let a real 14-digit account

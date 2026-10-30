@@ -17,17 +17,13 @@ vi.mock('../../api/endpoints', () => ({
   transactionsApi: { search: vi.fn(), updateCategory: vi.fn() },
 }));
 // The UPI request names the user; every page sits inside AuthProvider in the app.
-vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));;
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
 
 const shareCheck: PeopleSuggestion = {
   kind: 'SHARE_CHECK', ackKey: 'c-1', txnId: 'c-1', relatedTxnId: null, personKey: 'vpa:flatmate.a', label: 'Flatmate A',
   amount: 9000, date: '2026-09-04', category: 'Rent', owed: null,
   bills: [{ billId: 'b-1', category: 'Rent', payeeLabel: 'Sample Owner', date: '2026-09-01', amount: 36000, remaining: 36000 }],
 };
-const lentCheck: PeopleSuggestion = {
-  ...shareCheck, kind: 'LENT_CHECK', ackKey: 'd-1', txnId: 'd-1', label: 'Friend K', amount: 2000, date: '2026-08-03', category: null, bills: [],
-};
-
 function Where() {
   const location = useLocation();
   return <p data-testid="where">{location.pathname + location.search}</p>;

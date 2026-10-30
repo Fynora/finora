@@ -559,4 +559,55 @@ class CsvParserTest {
         assertThat(CsvParser.parseNumeric("2.5e-2")).isNull();
         assertThat(CsvParser.parseNumeric("1.23457E+11")).isNull();
     }
+
+    @Test
+    void digitsToInt_readsDigitsAndNeverThrowsOnWhatDoesNotFit() {
+        assertThat(CsvParser.digitsToInt("07")).isEqualTo(7);
+        assertThat(CsvParser.digitsToInt("2026")).isEqualTo(2026);
+        // Too big for an int, empty, and not digits at all: -1, which is no year, month or day.
+        assertThat(CsvParser.digitsToInt("99999999999")).isEqualTo(-1);
+        assertThat(CsvParser.digitsToInt("")).isEqualTo(-1);
+        assertThat(CsvParser.digitsToInt("ab")).isEqualTo(-1);
+    }
+
+    @Test
+    void aNumericDateCellWithAbsurdDigitRunsIsNotADateAndNeverThrows() {
+        for (CsvDateOrder.Order order : CsvDateOrder.Order.values()) {
+            assertThat(CsvParser.parseDate("99999999999/01/2026", order)).isNull();
+            assertThat(CsvParser.parseDate("01/99999999999/2026", order)).isNull();
+            assertThat(CsvParser.parseDate("01/01/99999999999", order)).isNull();
+            assertThat(CsvParser.parseDate("99999999999-01-01", order)).isNull();
+            assertThat(CsvParser.parseDate("2026-99999999999-01", order)).isNull();
+            assertThat(CsvParser.parseDate("99999999999999", order)).isNull();
+        }
+        assertThat(CsvDateOrder.numericFields("99999999999/01/2026")).isNull();
+        assertThat(CsvDateOrder.readingsDiffer("99999999999/01/2026")).isFalse();
+    }
+
+    @Test
+    void firstNonBlankKey_namesTheColumnRead_evenWhenTwoCellsAreTheSameString() {
+        // Two cells holding the very same String object: comparing a value's identity cannot tell
+        // them apart, the column name can.
+        String shared = "07/01/2026";
+        Map<String, String> row = new java.util.LinkedHashMap<>();
+        row.put("Value Date", shared);
+        row.put("Date", shared);
+        row.put("Narration", "SYNTHETIC RENT");
+
+        assertThat(CsvParser.firstNonBlankKey(row, "date", "value date")).isEqualTo("Date");
+        assertThat(CsvParser.firstNonBlank(row, "date", "value date")).isEqualTo(shared);
+        assertThat(TransactionNormalizer.dateColumnOf(row)).isEqualTo("Date");
+        assertThat(CsvParser.firstNonBlankKey(row, "balance")).isNull();
+    }
+
+    @Test
+    void firstNonBlankKey_skipsABlankCellAndReadsTheNextColumn() {
+        Map<String, String> row = new java.util.LinkedHashMap<>();
+        row.put("Date", "   ");
+        row.put("Value Date", "07/01/2026");
+
+        assertThat(TransactionNormalizer.dateColumnOf(row)).isEqualTo("Value Date");
+        assertThat(TransactionNormalizer.dateCellOf(row)).isEqualTo("07/01/2026");
+        assertThat(TransactionNormalizer.dateColumnOf(Map.of("Narration", "x"))).isNull();
+    }
 }

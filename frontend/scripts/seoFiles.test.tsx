@@ -12,8 +12,8 @@ import {
   withRobotsNoindex,
 } from './prerenderTitle.mjs';
 import { spaShellHtml } from './spaShell.mjs';
-import { helpArticleOutputFile } from './prerenderTitle.mjs';
-import { helpArticlePages } from './ssr-entry';
+import { collectionPageFile } from './prerenderTitle.mjs';
+import { helpArticlePages, pageCollections } from './ssr-entry';
 import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -40,11 +40,15 @@ const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => 
 // addresses it actually serves, each prerendered to its own file.
 const helpPaths = HELP_ARTICLES.map(helpArticlePath);
 
-/** The addresses a route stands for: itself, or every Help answer for the /help/:slug pattern. */
+// A collection's pattern route (/help/:slug) stands for the addresses of its pages, every one a
+// prerendered file (ssr-entry's pageCollections). Any other route stands for itself.
+const collectionByRoute = new Map(pageCollections.map((c) => [c.route, Object.keys(c.pages)]));
 function addressesOf(route: string): string[] {
-  return route === HELP_ARTICLE_ROUTE ? helpPaths : [route];
+  return collectionByRoute.get(route) ?? [route];
 }
 const routeAddresses = routePaths.flatMap(addressesOf);
+/** '/help/:slug' -> '/help/'. */
+const sectionOf = (route: string) => route.replace(/:slug$/, '');
 
 describe('the one indexed host', () => {
   it('is the same in the app and in the build script', () => {
@@ -120,20 +124,34 @@ describe('sitemap.xml', () => {
     expect(sitemapPaths.filter((p) => p.startsWith('/help/'))).toEqual(helpPaths);
   });
 
+  it('lists every page of every collection once, in order, and nothing else under its section', () => {
+    expect(pageCollections.map((c) => c.route)).toContain(HELP_ARTICLE_ROUTE);
+    for (const collection of pageCollections) {
+      // The one shape prerender.mjs knows how to write: /<section>/:slug, a route in App.tsx.
+      expect(collection.route, collection.route).toMatch(/^\/[a-z0-9]+(-[a-z0-9]+)*\/:slug$/);
+      expect(routePaths, `${collection.route} is in pageCollections but not a <Route> in App.tsx`).toContain(collection.route);
+      const section = sectionOf(collection.route);
+      const pages = Object.keys(collection.pages);
+      expect(pages.length, collection.route).toBeGreaterThan(0);
+      for (const page of pages) expect(page.startsWith(section), `${page} is outside ${collection.route}`).toBe(true);
+      expect(sitemapPaths.filter((p) => p.startsWith(section)), collection.route).toEqual(pages);
+    }
+  });
+
   it('is served as its own prerendered page, never the homepage fallback', () => {
     // /trust, /your-data and /cookie-policy were in the sitemap but not prerendered, so a crawler
     // that does not run JavaScript was handed the HOMEPAGE (title, h1 and all) at each of them.
     const ssrRoutes = [...read('scripts/ssr-entry.tsx').matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     const outputFiles = [...read('scripts/prerender.mjs').matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',/gm)].map((m) => m[1]);
-    // The Help answers are rendered by ssr-entry's helpArticlePages, built from HELP_ARTICLES, and
-    // written by prerender.mjs's loop over it, each to helpArticleOutputFile(route).
-    const helpPages = Object.keys(helpArticlePages);
+    // Collection pages (the Help answers) are rendered by ssr-entry's pageCollections and written by
+    // prerender.mjs's loop over every collection, each to collectionPageFile(route).
+    const collectionPages = pageCollections.flatMap((c) => Object.keys(c.pages));
     expect(read('scripts/prerender.mjs')).toContain(
-      '...Object.entries(helpArticlePages).map(([route, render]) => [route, helpArticleOutputFile(route), render]),',
+      'Object.entries(collection.pages).map(([route, render]) => [route, collectionPageFile(route), render])),',
     );
     for (const p of sitemapPaths) {
-      if (p.startsWith('/help/')) {
-        expect(helpPages, `${p} is in the sitemap but ssr-entry's helpArticlePages does not render it`).toContain(p);
+      if (pageCollections.some((c) => p.startsWith(sectionOf(c.route)))) {
+        expect(collectionPages, `${p} is in the sitemap but no collection in ssr-entry's pageCollections renders it`).toContain(p);
         continue;
       }
       expect(ssrRoutes, `${p} is in the sitemap but scripts/ssr-entry.tsx does not render it`).toContain(p);
@@ -165,7 +183,7 @@ describe('sitemap.xml', () => {
     const ssr = read('scripts/ssr-entry.tsx');
     const prerendered = [...ssr.matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     expect(prerendered.length).toBeGreaterThan(0);
-    for (const p of [...prerendered, ...Object.keys(helpArticlePages)]) expect(sitemapPaths, p).toContain(p);
+    for (const p of [...prerendered, ...pageCollections.flatMap((c) => Object.keys(c.pages))]) expect(sitemapPaths, p).toContain(p);
   });
 });
 
@@ -280,15 +298,18 @@ describe('the address each built document names', () => {
   });
 });
 
-describe('helpArticleOutputFile', () => {
-  it('writes /help/<slug> to help/<slug>.html, which Cloudflare Pages serves at the extensionless address', () => {
-    expect(helpArticleOutputFile('/help/plans-and-prices')).toBe('help/plans-and-prices.html');
-    for (const path of helpPaths) expect(helpArticleOutputFile(path)).toBe(`${path.slice(1)}.html`);
+describe('collectionPageFile', () => {
+  it('writes /<section>/<slug> to <section>/<slug>.html, which Cloudflare Pages serves at the extensionless address', () => {
+    expect(collectionPageFile('/help/plans-and-prices')).toBe('help/plans-and-prices.html');
+    expect(collectionPageFile('/banks/some-bank-statement')).toBe('banks/some-bank-statement.html');
+    for (const collection of pageCollections) {
+      for (const path of Object.keys(collection.pages)) expect(collectionPageFile(path)).toBe(`${path.slice(1)}.html`);
+    }
   });
 
-  it('refuses anything that is not one lower-case slug under /help/, rather than write elsewhere in dist/', () => {
-    for (const bad of ['/help', '/help/', '/help/a/b', '/help/../index', '/help/Plans', '/help/a_b', '/help/-a', '/terms', 'help/a']) {
-      expect(() => helpArticleOutputFile(bad), bad).toThrow(/not a Help article address/);
+  it('refuses anything that is not exactly /<section>/<slug> in lower case, rather than write elsewhere in dist/', () => {
+    for (const bad of ['/help', '/help/', '/help/a/b', '/help/../index', '/../a', '/help/Plans', '/help/a_b', '/help/-a', '/terms', 'help/a', '/Help/a']) {
+      expect(() => collectionPageFile(bad), bad).toThrow(/not a \/<section>\/<slug> address/);
     }
   });
 });

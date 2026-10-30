@@ -350,7 +350,7 @@ production on some of this and disagree on the rest, with no warning.
 | Path | Served | How |
 |---|---|---|
 | `/` and the pages listed in `scripts/prerender.mjs` (`/privacy`, `/terms`, ...) | that page's prerendered HTML | a file in `dist/` (`index.html`, `privacy.html`, ...) |
-| `/help/<slug>`, one per Help answer in `src/pages/helpArticles.ts` | that answer's prerendered HTML | a file in `dist/help/` (`help/<slug>.html`); an unknown slug has no file, so it is "any other path" below |
+| `/<section>/<slug>`, one per page of a collection in `scripts/ssr-entry.tsx` `pageCollections` (today `/help/<slug>`, one per Help answer in `src/pages/helpArticles.ts`) | that page's prerendered HTML | a file in `dist/<section>/` (`help/<slug>.html`); an unknown slug has no file, so it is "any other path" below. How to add a collection: the comment above `pageCollections` |
 | `/auth`, `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/verify-phone`, `/email-change-verify`, `/app`, `/app/...` | the blank shell, `dist/spa-shell.html` | a `200` rewrite in `public/_redirects` |
 | any other path | the not-found page, `dist/404.html`, with a `404` | Pages' answer for an unmatched path when the build has a top-level `404.html` |
 | a missing file under `/assets/` | `404`, plain text | `functions/assets/[[path]].ts`, which replaces the not-found page Pages would send |

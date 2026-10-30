@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 /**
  * The human-readable "who" for a payment: the name printed in the rail's payee slot when the
  * narration has one of the shapes OwnAccountEvidence reads, else the narration itself -- the same
- * fallback TransactionGroupingService's counterparty groups use. Never the counterparty key, which
+ * fallback TransactionGroupingService's counterparty groups use, after the row's short name. Never the counterparty key, which
  * for a name: key is a guess and for a vpa:/cut: key is an id, not a name (CounterpartyIdentity).
  */
 public final class PayeeLabel {
@@ -24,14 +24,43 @@ public final class PayeeLabel {
      */
     private static final Pattern NAME_THEN_UPI_ID = Pattern.compile("(?i)(?:^|\\s)UPI/([^/@]{2,60})/[^/\\s]*@");
 
-    /** @param fallback shown when the row has neither a narration nor a merchant name */
+    /**
+     * @param fallback shown when the row has neither a narration nor a merchant name
+     *
+     * <p>When the narration has none of those shapes, the row's short name comes before the whole
+     * narration: "NEFT_IN:&lt;ref&gt;&lt;IFSC&gt;//&lt;ref&gt;/PAYEE" has no payee slot those shapes read,
+     * and Quick sort, the people screens and the money-in review list showed the entire narration as
+     * the payer's name while the Ledger row showed the short name. The short name is stored in lower
+     * case, so it is given capitals here (see {@link #capitalised}).
+     */
     public static String of(Transaction t, String fallback) {
         String description = t.getDescription();
         if (description != null && !description.isBlank()) {
             Matcher m = NAME_THEN_UPI_ID.matcher(description);
             if (m.find()) return m.group(1).trim();
-            return OwnAccountEvidence.counterpartySlot(description).map(String::trim).orElse(description.trim());
+            java.util.Optional<String> slot = OwnAccountEvidence.counterpartySlot(description).map(String::trim);
+            if (slot.isPresent()) return slot.get();
+            if (t.getMerchant() != null && !t.getMerchant().isBlank()) return capitalised(t.getMerchant().trim());
+            return description.trim();
         }
         return t.getMerchant() == null ? fallback : t.getMerchant();
+    }
+
+    /** Payment rails and banking terms kept in capitals, as the mobile row title keeps them. */
+    private static final java.util.Set<String> KEPT_IN_CAPITALS = java.util.Set.of(
+            "upi", "neft", "imps", "rtgs", "atm", "pos", "emi", "ecs", "nach", "gst", "tds", "sip");
+
+    /** A lower-case short name with each word capitalised ("sample securities pvt lt" reads "Sample
+     *  Securities Pvt Lt"), banking terms in capitals. A name that already has a capital is kept. */
+    static String capitalised(String name) {
+        if (!name.equals(name.toLowerCase(java.util.Locale.ROOT))) return name;
+        StringBuilder out = new StringBuilder(name.length());
+        for (String word : name.split(" ", -1)) {
+            if (out.length() > 0) out.append(' ');
+            if (word.isEmpty()) continue;
+            out.append(KEPT_IN_CAPITALS.contains(word) ? word.toUpperCase(java.util.Locale.ROOT)
+                    : Character.toUpperCase(word.charAt(0)) + word.substring(1));
+        }
+        return out.toString();
     }
 }

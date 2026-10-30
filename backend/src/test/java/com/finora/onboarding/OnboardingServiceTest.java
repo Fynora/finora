@@ -27,6 +27,7 @@ class OnboardingServiceTest {
     private ImportJobRepository importJobRepository;
     private BudgetRepository budgetRepository;
     private GoalRepository goalRepository;
+    private com.finora.repository.StatementImportRepository statementImportRepository;
     private OnboardingService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -39,8 +40,9 @@ class OnboardingServiceTest {
         importJobRepository = mock(ImportJobRepository.class);
         budgetRepository = mock(BudgetRepository.class);
         goalRepository = mock(GoalRepository.class);
+        statementImportRepository = mock(com.finora.repository.StatementImportRepository.class);
         service = new OnboardingService(userRepository, focusRepository, checklistEventRepository,
-                importJobRepository, budgetRepository, goalRepository);
+                importJobRepository, budgetRepository, goalRepository, statementImportRepository);
         when(userRepository.findById(userId)).thenReturn(Optional.of(new User()));
         when(importJobRepository.findByUserIdOrderByCreatedAtDesc(eq(userId), any())).thenReturn(List.of());
         when(budgetRepository.findByUserId(userId)).thenReturn(List.of());
@@ -240,6 +242,18 @@ class OnboardingServiceTest {
                 .filter(i -> i.key().equals("COMPLETE_PROFILE")).findFirst().orElseThrow().completed();
 
         assertThat(profileComplete).isFalse();
+    }
+
+    // The direct import path (stage, then confirm) leaves no ImportJob: 8 of 16 production users
+    // with a statement saw this step unticked.
+    @Test
+    void importStatementCompletedWhenAStatementWasImportedWithoutAJob() {
+        when(statementImportRepository.countByUserId(userId)).thenReturn(1L);
+
+        boolean completed = service.getChecklist(userId).items().stream()
+                .filter(i -> i.key().equals("IMPORT_STATEMENT")).findFirst().orElseThrow().completed();
+
+        assertThat(completed).isTrue();
     }
 
     @Test

@@ -41,6 +41,9 @@ class BillingControllerIT extends AbstractIntegrationTest {
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private SubscriptionRepository subscriptionRepository;
 
+    @Autowired private com.finora.repository.BillingOfferRepository billingOfferRepository;
+    @Autowired private com.finora.repository.SubscriptionOrderRepository subscriptionOrderRepository;
+
     @MockitoBean private RazorpaySubscriptionGateway gateway;
 
     private User createUser() {
@@ -354,6 +357,11 @@ class BillingControllerIT extends AbstractIntegrationTest {
                 .thenReturn(new RazorpaySubscriptionDto("sub_premium_attempt", "created"));
         when(gateway.createSubscription(eq(plusMonthly.getRazorpayPlanId()), any(), anyMap()))
                 .thenReturn(new RazorpaySubscriptionDto("sub_plus_attempt", "created"));
+        // V297 seeds a Plus offer live until 8 Nov 2026; a run inside that window checks out through
+        // the offer path. This test is about the pending-order guard, not the price, so both paths
+        // return the same subscription.
+        when(gateway.createSubscriptionWithFirstPeriod(eq(plusMonthly.getRazorpayPlanId()), any(), anyMap(), any()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_plus_attempt", "created"));
 
         restTemplate.postForEntity("/api/v1/billing/checkout",
                 new HttpEntity<>("{\"planCode\":\"PREMIUM\",\"billingCycle\":\"MONTHLY\"}", bearerFor(user)), String.class);
@@ -370,5 +378,93 @@ class BillingControllerIT extends AbstractIntegrationTest {
                 new HttpEntity<>("{\"planCode\":\"PLUS\",\"billingCycle\":\"MONTHLY\"}", bearerFor(user)), String.class);
         assertThat(retried.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(retried.getBody()).contains("sub_plus_attempt");
+    }
+
+    // --- Billing offers (V297) -----------------------------------------------------------------
+
+    @Test
+    void theDiwaliOfferIsSeededForPlusUntilTheEndOf7NovemberIndiaTime() {
+        // Fixed instants, so this holds whatever day the suite runs. 18:30 UTC is midnight in India.
+        java.util.List<com.finora.entity.BillingOffer> lastSecond = billingOfferRepository
+                .findLiveAt(java.time.Instant.parse("2026-11-07T18:29:59Z")).stream()
+                .filter(o -> "DIWALI2026".equals(o.getCode())).toList();
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        assertThat(lastSecond).hasSize(2).allMatch(o -> o.getPlanId().equals(plus.getId()));
+        assertThat(lastSecond).anySatisfy(o -> {
+            assertThat(o.getBillingCycle()).isEqualTo("MONTHLY");
+            assertThat(o.getFirstPeriodPrice()).isEqualByComparingTo("125.00");
+        });
+        assertThat(lastSecond).anySatisfy(o -> {
+            assertThat(o.getBillingCycle()).isEqualTo("YEARLY");
+            assertThat(o.getFirstPeriodPrice()).isEqualByComparingTo("999.00");
+        });
+
+        assertThat(billingOfferRepository.findLiveAt(java.time.Instant.parse("2026-11-07T18:30:00Z")))
+                .noneMatch(o -> "DIWALI2026".equals(o.getCode()));
+        assertThat(billingOfferRepository.findLiveAt(java.time.Instant.parse("2026-10-29T18:29:59Z")))
+                .noneMatch(o -> "DIWALI2026".equals(o.getCode()));
+    }
+
+    @Test
+    void offersAreReadableWithoutSigningIn() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/api/v1/billing/offers", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"data\":[");
+    }
+
+    /** End to end through HTTP with an offer live right now. Premium yearly, because no other test
+     *  checks out that plan and cycle, and the row is removed afterwards: the IT classes share one
+     *  database. */
+    @Test
+    void checkoutUnderALiveOfferChargesTheOfferPriceUpFront() {
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        BillingPrice premiumYearly = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), "YEARLY").orElseThrow();
+        premiumYearly.setRazorpayPlanId("plan_prem_y_" + UUID.randomUUID());
+        billingPriceRepository.save(premiumYearly);
+        com.finora.entity.BillingOffer offer = new com.finora.entity.BillingOffer();
+        offer.setCode("IT_" + UUID.randomUUID().toString().substring(0, 8));
+        offer.setPlanId(premium.getId());
+        offer.setBillingCycle("YEARLY");
+        offer.setFirstPeriodPrice(new BigDecimal("4000.00"));
+        offer.setLabel("Test offer");
+        offer.setStartsAt(java.time.Instant.now().minusSeconds(3600));
+        offer.setEndsAt(java.time.Instant.now().plusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
+        offer = billingOfferRepository.save(offer);
+        try {
+            String offerSubId = "sub_offer_" + UUID.randomUUID();
+            User user = createUser();
+            subscriptionService.provisionFreeSubscription(user.getId());
+            when(gateway.isConfigured()).thenReturn(true);
+            when(gateway.createSubscriptionWithFirstPeriod(eq(premiumYearly.getRazorpayPlanId()), eq("YEARLY"), anyMap(), any()))
+                    .thenReturn(new RazorpaySubscriptionDto(offerSubId, "created"));
+
+            ResponseEntity<String> offers = restTemplate.getForEntity("/api/v1/billing/offers", String.class);
+            assertThat(offers.getBody()).contains("\"code\":\"" + offer.getCode() + "\"")
+                    .contains("\"regularPrice\":8000");
+
+            ResponseEntity<String> response = restTemplate.postForEntity("/api/v1/billing/checkout",
+                    new HttpEntity<>("{\"planCode\":\"PREMIUM\",\"billingCycle\":\"YEARLY\"}", bearerFor(user)), String.class);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).contains(offerSubId);
+            org.mockito.ArgumentCaptor<RazorpaySubscriptionGateway.FirstPeriod> firstPeriod =
+                    org.mockito.ArgumentCaptor.forClass(RazorpaySubscriptionGateway.FirstPeriod.class);
+            verify(gateway).createSubscriptionWithFirstPeriod(eq(premiumYearly.getRazorpayPlanId()), eq("YEARLY"),
+                    anyMap(), firstPeriod.capture());
+            assertThat(firstPeriod.getValue().amountPaise()).isEqualTo(400000L);
+            assertThat(firstPeriod.getValue().payBy()).isEqualTo(offer.getEndsAt());
+            assertThat(firstPeriod.getValue().regularBillingStartsAt())
+                    .isAfter(java.time.Instant.now().plus(java.time.Duration.ofDays(364)));
+            verify(gateway, never()).createSubscription(eq(premiumYearly.getRazorpayPlanId()), any(), anyMap());
+
+            com.finora.entity.SubscriptionOrder order =
+                    subscriptionOrderRepository.findByRazorpaySubscriptionId(offerSubId).orElseThrow();
+            assertThat(order.getOfferCode()).isEqualTo(offer.getCode());
+            assertThat(order.getAmount()).isEqualByComparingTo("4000.00");
+        } finally {
+            billingOfferRepository.delete(offer);
+        }
     }
 }

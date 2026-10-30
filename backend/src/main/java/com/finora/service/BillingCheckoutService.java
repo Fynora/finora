@@ -4,6 +4,7 @@ import com.finora.dto.BillingDtos.CheckoutResponseDto;
 import com.finora.dto.BillingDtos.MySubscriptionDto;
 import com.finora.dto.BillingDtos.PendingOrderDto;
 import com.finora.dto.BillingDtos.PendingPlanChangeDto;
+import com.finora.entity.BillingOffer;
 import com.finora.entity.BillingPrice;
 import com.finora.entity.Plan;
 import com.finora.entity.PlanChange;
@@ -63,13 +64,16 @@ public class BillingCheckoutService {
     private final RazorpaySubscriptionGateway gateway;
     private final RazorpayProperties properties;
     private final TransactionTemplate transactionTemplate;
+    private final BillingOfferService billingOfferService;
 
     public BillingCheckoutService(PlanRepository planRepository, BillingPriceRepository billingPriceRepository,
                                    SubscriptionOrderRepository subscriptionOrderRepository,
                                    SubscriptionRepository subscriptionRepository,
                                    PlanChangeRepository planChangeRepository,
                                    RazorpaySubscriptionGateway gateway, RazorpayProperties properties,
-                                   TransactionTemplate transactionTemplate) {
+                                   TransactionTemplate transactionTemplate,
+                                   BillingOfferService billingOfferService) {
+        this.billingOfferService = billingOfferService;
         this.planRepository = planRepository;
         this.billingPriceRepository = billingPriceRepository;
         this.subscriptionOrderRepository = subscriptionOrderRepository;
@@ -119,7 +123,13 @@ public class BillingCheckoutService {
                     "This plan is not yet set up for checkout (missing Razorpay plan id).");
         }
 
-        CheckoutResponseDto resumable = resumableOrderOrGuard(userId, plan.getId(), billingCycle);
+        // A live billing offer (V297) changes what the first period costs. Read once, here, so the
+        // resume check, the Razorpay request and the order row all describe the same offer.
+        Instant now = Instant.now();
+        BillingOffer offer = billingOfferService.liveOffer(plan.getId(), billingCycle, now).orElse(null);
+        String offerCode = offer != null ? offer.getCode() : null;
+
+        CheckoutResponseDto resumable = resumableOrderOrGuard(userId, plan.getId(), billingCycle, offerCode);
         if (resumable != null) {
             return resumable;
         }
@@ -129,9 +139,25 @@ public class BillingCheckoutService {
         // user during this call's own round-trip would need a *different*, already-completed
         // checkout to activate via webhook in that window, not something this refactor newly
         // exposes -- that guard was never serialized against this method by DB locking either way.
-        RazorpaySubscriptionDto razorpaySubscription = gateway.createSubscription(
-                price.getRazorpayPlanId(), billingCycle,
+        Map<String, String> notes = new java.util.HashMap<>(
                 Map.of("fynoraUserId", userId.toString(), "planCode", planCode, "billingCycle", billingCycle));
+        RazorpaySubscriptionDto razorpaySubscription;
+        if (offer == null) {
+            razorpaySubscription = gateway.createSubscription(price.getRazorpayPlanId(), billingCycle, notes);
+        } else {
+            notes.put("offerCode", offer.getCode());
+            // The offer price is collected as an upfront amount in the authorisation payment, and
+            // the first plan charge moves one period out -- so the customer pays the offer price
+            // now and the regular price from the next period. The period is counted from now, not
+            // from when the customer authorises, because start_at is fixed at creation; a customer
+            // who opens checkout and pays days later gets a shorter first period.
+            razorpaySubscription = gateway.createSubscriptionWithFirstPeriod(price.getRazorpayPlanId(), billingCycle,
+                    notes, new RazorpaySubscriptionGateway.FirstPeriod(
+                            offer.getFirstPeriodPrice().movePointRight(2).longValueExact(),
+                            firstPeriodLabel(offer, billingCycle),
+                            BillingOfferService.regularBillingStart(now, billingCycle),
+                            offer.getEndsAt()));
+        }
 
         return transactionTemplate.execute(status -> {
             // Re-check resumableOrderOrGuard here too: the gateway round-trip above widened the
@@ -139,7 +165,7 @@ public class BillingCheckoutService {
             // (inserted its own pending order for this user), the Razorpay subscription just created
             // above is simply never referenced by any local row -- harmless, per
             // cancelPendingOrder's own doc: an unauthorized Razorpay subscription never charges.
-            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, plan.getId(), billingCycle);
+            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, plan.getId(), billingCycle, offerCode);
             if (stillResumable != null) {
                 return stillResumable;
             }
@@ -150,11 +176,17 @@ public class BillingCheckoutService {
             order.setBillingCycle(billingCycle);
             order.setRazorpaySubscriptionId(razorpaySubscription.id());
             order.setStatus(SubscriptionOrder.STATUS_PENDING);
-            order.setAmount(price.getPrice());
+            order.setAmount(offer != null ? offer.getFirstPeriodPrice() : price.getPrice());
+            order.setOfferCode(offerCode);
             subscriptionOrderRepository.save(order);
 
             return new CheckoutResponseDto(razorpaySubscription.id(), properties.getKeyId());
         });
+    }
+
+    /** The upfront amount's name, which Razorpay shows at checkout and on its own invoice. */
+    static String firstPeriodLabel(BillingOffer offer, String billingCycle) {
+        return offer.getLabel() + (BillingPrice.CYCLE_YEARLY.equals(billingCycle) ? " - first year" : " - first month");
     }
 
     /** Deliberately does NOT call the Razorpay gateway -- design spec at docs/superpowers/specs/
@@ -336,7 +368,7 @@ public class BillingCheckoutService {
      *  payment ({@code RazorpayWebhookDispatcher.handleActivated}, extended in Task 2 of this plan
      *  to also stop the old mandate at that point, not before). */
     private CheckoutResponseDto upgradeToNewSubscription(UUID userId, Plan newPlan, BillingPrice newPrice, String billingCycle) {
-        CheckoutResponseDto resumable = resumableOrderOrGuard(userId, newPlan.getId(), billingCycle);
+        CheckoutResponseDto resumable = resumableOrderOrGuard(userId, newPlan.getId(), billingCycle, null);
         if (resumable != null) {
             return resumable;
         }
@@ -349,7 +381,7 @@ public class BillingCheckoutService {
         return transactionTemplate.execute(status -> {
             // Re-check resumableOrderOrGuard here too, same double-submit-window reasoning as
             // checkout()'s own re-check just above this call's sibling.
-            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, newPlan.getId(), billingCycle);
+            CheckoutResponseDto stillResumable = resumableOrderOrGuard(userId, newPlan.getId(), billingCycle, null);
             if (stillResumable != null) {
                 return stillResumable;
             }
@@ -400,12 +432,24 @@ public class BillingCheckoutService {
      *  permanent lockout). A pending order for a DIFFERENT plan+cycle still blocks --
      *  {@code cancelPendingOrder} below is how the caller clears that to start over.
      *
+     *  <p>Billing offers (V297): a pending order for the same plan and cycle is resumed only when it
+     *  was made under the offer that applies now ({@code offerCode}, null for none). Otherwise its
+     *  Razorpay subscription charges a different first payment than the pricing page now shows --
+     *  the regular price after an offer started, or (until its {@code expire_by}) the offer price
+     *  after it ended. That order is marked ABANDONED, the same as {@link #cancelPendingOrder}
+     *  does, and {@code null} is returned so the caller creates one at today's price.
+     *
      *  @return an existing, resumable {@link CheckoutResponseDto} if one applies, or {@code null}
      *  if the caller should proceed to create a new Razorpay subscription. */
-    private CheckoutResponseDto resumableOrderOrGuard(UUID userId, UUID planId, String billingCycle) {
+    private CheckoutResponseDto resumableOrderOrGuard(UUID userId, UUID planId, String billingCycle, String offerCode) {
         return subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING)
                 .map(order -> {
                     if (order.getPlanId().equals(planId) && order.getBillingCycle().equals(billingCycle)) {
+                        if (!java.util.Objects.equals(order.getOfferCode(), offerCode)) {
+                            order.setStatus(SubscriptionOrder.STATUS_ABANDONED);
+                            subscriptionOrderRepository.save(order);
+                            return null;
+                        }
                         return new CheckoutResponseDto(order.getRazorpaySubscriptionId(), properties.getKeyId());
                     }
                     throw new ApiException(HttpStatus.CONFLICT,

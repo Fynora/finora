@@ -55,6 +55,12 @@ public class BillingDtos {
      *  Razorpay's public key -- safe to expose to a client, it authenticates nothing on its own. */
     public record CheckoutResponseDto(String razorpaySubscriptionId, String keyId) {}
 
+    /** GET /api/v1/billing/offers -- a live first-period offer (V297). {@code firstPeriodPrice} is
+     *  what a checkout started now pays for the first month or year; {@code regularPrice} is what
+     *  it pays every period after. Both include GST. The offer stops applying at {@code endsAt}. */
+    public record BillingOfferDto(String planCode, String billingCycle, String code, String label,
+                                  BigDecimal firstPeriodPrice, BigDecimal regularPrice, Instant endsAt) {}
+
     /** POST /api/v1/billing/change-plan (design spec §6.4/§6.5) -- user-initiated upgrade/downgrade,
      *  distinct from the admin-facing {@link ChangePlanRequest} above. */
     public record UserChangePlanRequest(

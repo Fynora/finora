@@ -6,6 +6,8 @@ import {
   priceForCycle, yearlySavingsPct, type BillingCycle,
 } from './plans';
 import { MagneticLink } from './MagneticLink';
+import { offerDisplay, offerFor, useBillingOffers } from './offers';
+import type { BillingOffer } from '../../api/endpoints';
 
 /**
  * Pricing, with a paid tier advertised but not pretended into existence.
@@ -55,8 +57,38 @@ const CYCLES: { code: BillingCycle; label: string }[] = [
   { code: 'yearly', label: 'Yearly' },
 ];
 
+/** A live offer where the price goes: the offer price, the regular price struck through, and
+ *  what it costs after the first period. Figures come from the backend (offers.ts), not plans.ts. */
+function OfferPriceBlock({ offer, includesGst }: { offer: BillingOffer; includesGst: boolean }) {
+  const shown = offerDisplay(offer);
+  return (
+    <>
+      <span
+        data-testid={`offer-badge-${offer.planCode.toLowerCase()}`}
+        className="self-start text-[10px] font-semibold px-2 py-0.5 rounded mb-2"
+        style={{ background: '#FEF3C7', color: '#92400E' }}
+      >
+        {shown.badge}
+      </span>
+      <p
+        className="text-3xl font-extrabold mb-1"
+        style={{ fontFamily: "'Manrope', Inter, sans-serif", color: 'var(--m-ink)' }}
+      >
+        {shown.amount}
+        <span className="text-base font-semibold line-through ml-2" style={{ color: 'var(--m-ink-3)' }}>
+          {shown.regular}
+        </span>
+        <span className="text-sm font-medium" style={{ color: 'var(--m-ink-3)' }}>{shown.cadence}</span>
+      </p>
+      <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>{shown.note}</p>
+      {includesGst && <p className="text-xs mb-1" style={{ color: 'var(--m-ink-3)' }}>Incl. GST</p>}
+    </>
+  );
+}
+
 export function Pricing() {
   const [cycle, setCycle] = useState<BillingCycle>('monthly');
+  const offers = useBillingOffers();
 
   useEffect(() => {
     try {
@@ -98,6 +130,7 @@ export function Pricing() {
       <div className="grid md:grid-cols-2 gap-5 max-w-3xl mx-auto">
         {PRICING_CARDS.map((plan, i) => {
           const price = priceForCycle(plan, cycle);
+          const offer = plan.availability === 'available' ? offerFor(offers, plan.id, cycle) : undefined;
           const savings = cycle === 'yearly' ? yearlySavingsPct(plan) : null;
           return (
             <Reveal key={plan.name} delayMs={i * 80}>
@@ -114,7 +147,9 @@ export function Pricing() {
                 </div>
 
                 {/* A status where the price goes, for anything that cannot be bought. */}
-                {plan.price ? (
+                {offer ? (
+                  <OfferPriceBlock offer={offer} includesGst={!!plan.priceIncludesGst} />
+                ) : plan.price ? (
                   <>
                     <p
                       className="text-3xl font-extrabold mb-1"

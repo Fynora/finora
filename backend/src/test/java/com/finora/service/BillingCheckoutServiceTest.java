@@ -44,6 +44,7 @@ class BillingCheckoutServiceTest {
     private final RazorpaySubscriptionGateway gateway = mock(RazorpaySubscriptionGateway.class);
     private final RazorpayProperties properties = new RazorpayProperties();
     private final TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+    private final BillingOfferService billingOfferService = mock(BillingOfferService.class);
     private BillingCheckoutService service;
 
     private final UUID userId = UUID.randomUUID();
@@ -67,7 +68,7 @@ class BillingCheckoutServiceTest {
 
         service = new BillingCheckoutService(planRepository, billingPriceRepository,
                 subscriptionOrderRepository, subscriptionRepository, planChangeRepository, gateway, properties,
-                transactionTemplate);
+                transactionTemplate, billingOfferService);
 
         // Plan.id has no public setter (@GeneratedValue) -- same reflection-based construction
         // EntitlementServiceTest already uses for the same reason.
@@ -104,6 +105,151 @@ class BillingCheckoutServiceTest {
         assertThat(saved.getStatus()).isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
         assertThat(saved.getRazorpaySubscriptionId()).isEqualTo("sub_razorpay_123");
         assertThat(saved.getAmount()).isEqualByComparingTo(new BigDecimal("799.00"));
+    }
+
+    // --- Billing offers (V297) ---------------------------------------------------------------
+
+    private BillingPrice monthlyPrice() {
+        BillingPrice price = new BillingPrice();
+        price.setPlanId(planId);
+        price.setBillingCycle(BillingPrice.CYCLE_MONTHLY);
+        price.setPrice(new BigDecimal("799.00"));
+        price.setRazorpayPlanId("plan_razorpay_123");
+        when(billingPriceRepository.findByPlanIdAndBillingCycleAndActiveTrue(eq(planId), eq("MONTHLY")))
+                .thenReturn(Optional.of(price));
+        return price;
+    }
+
+    private com.finora.entity.BillingOffer liveOffer(String code, String price, java.time.Instant endsAt) {
+        com.finora.entity.BillingOffer offer = new com.finora.entity.BillingOffer();
+        offer.setCode(code);
+        offer.setPlanId(planId);
+        offer.setBillingCycle("MONTHLY");
+        offer.setFirstPeriodPrice(new BigDecimal(price));
+        offer.setLabel("Diwali offer");
+        offer.setStartsAt(java.time.Instant.now().minusSeconds(3600));
+        offer.setEndsAt(endsAt);
+        when(billingOfferService.liveOffer(eq(planId), eq("MONTHLY"), any())).thenReturn(Optional.of(offer));
+        return offer;
+    }
+
+    @Test
+    void underALiveOfferChargesTheOfferPriceUpFrontAndStartsRegularBillingOnePeriodLater() {
+        monthlyPrice();
+        java.time.Instant endsAt = java.time.Instant.now().plus(java.time.Duration.ofDays(3));
+        liveOffer("DIWALI2026", "399.50", endsAt);
+        when(gateway.createSubscriptionWithFirstPeriod(eq("plan_razorpay_123"), eq("MONTHLY"), anyMap(), any()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_offer_1", "created"));
+
+        java.time.Instant before = java.time.Instant.now();
+        CheckoutResponseDto response = service.checkout(userId, "PREMIUM", "MONTHLY");
+        java.time.Instant after = java.time.Instant.now();
+
+        assertThat(response.razorpaySubscriptionId()).isEqualTo("sub_offer_1");
+        verify(gateway, never()).createSubscription(any(), any(), anyMap());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Map<String, String>> notes = ArgumentCaptor.forClass(java.util.Map.class);
+        ArgumentCaptor<RazorpaySubscriptionGateway.FirstPeriod> firstPeriod =
+                ArgumentCaptor.forClass(RazorpaySubscriptionGateway.FirstPeriod.class);
+        verify(gateway).createSubscriptionWithFirstPeriod(eq("plan_razorpay_123"), eq("MONTHLY"),
+                notes.capture(), firstPeriod.capture());
+        // Paise, exactly: 399.50 -> 39950, no rounding.
+        assertThat(firstPeriod.getValue().amountPaise()).isEqualTo(39950L);
+        assertThat(firstPeriod.getValue().label()).isEqualTo("Diwali offer - first month");
+        assertThat(firstPeriod.getValue().payBy()).isEqualTo(endsAt);
+        assertThat(firstPeriod.getValue().regularBillingStartsAt())
+                .isBetween(BillingOfferService.regularBillingStart(before, "MONTHLY"),
+                        BillingOfferService.regularBillingStart(after, "MONTHLY"));
+        assertThat(notes.getValue()).containsEntry("offerCode", "DIWALI2026")
+                .containsEntry("fynoraUserId", userId.toString());
+
+        ArgumentCaptor<com.finora.entity.SubscriptionOrder> order =
+                ArgumentCaptor.forClass(com.finora.entity.SubscriptionOrder.class);
+        verify(subscriptionOrderRepository).save(order.capture());
+        assertThat(order.getValue().getAmount()).isEqualByComparingTo("399.50");
+        assertThat(order.getValue().getOfferCode()).isEqualTo("DIWALI2026");
+    }
+
+    @Test
+    void withNoLiveOfferTheOrderCarriesNoOfferCode() {
+        monthlyPrice();
+        when(gateway.createSubscription(eq("plan_razorpay_123"), eq("MONTHLY"), anyMap()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_plain", "created"));
+
+        service.checkout(userId, "PREMIUM", "MONTHLY");
+
+        verify(gateway, never()).createSubscriptionWithFirstPeriod(any(), any(), anyMap(), any());
+        ArgumentCaptor<com.finora.entity.SubscriptionOrder> order =
+                ArgumentCaptor.forClass(com.finora.entity.SubscriptionOrder.class);
+        verify(subscriptionOrderRepository).save(order.capture());
+        assertThat(order.getValue().getOfferCode()).isNull();
+        assertThat(order.getValue().getAmount()).isEqualByComparingTo("799.00");
+    }
+
+    @Test
+    void aPendingRegularPriceOrderIsReplacedOnceAnOfferStarts() {
+        // Opened before the offer went live: its Razorpay subscription would charge the full price
+        // while the page now shows the offer price. It must not be resumed.
+        monthlyPrice();
+        liveOffer("DIWALI2026", "399.50", java.time.Instant.now().plus(java.time.Duration.ofDays(3)));
+        com.finora.entity.SubscriptionOrder stale = new com.finora.entity.SubscriptionOrder();
+        stale.setPlanId(planId);
+        stale.setBillingCycle("MONTHLY");
+        stale.setRazorpaySubscriptionId("sub_full_price");
+        stale.setStatus(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
+        when(subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                userId, com.finora.entity.SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(Optional.of(stale), Optional.empty());
+        when(gateway.createSubscriptionWithFirstPeriod(any(), any(), anyMap(), any()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_offer_2", "created"));
+
+        CheckoutResponseDto response = service.checkout(userId, "PREMIUM", "MONTHLY");
+
+        assertThat(response.razorpaySubscriptionId()).isEqualTo("sub_offer_2");
+        assertThat(stale.getStatus()).isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_ABANDONED);
+    }
+
+    @Test
+    void aPendingOfferOrderIsReplacedOnceTheOfferEnds() {
+        monthlyPrice();
+        com.finora.entity.SubscriptionOrder stale = new com.finora.entity.SubscriptionOrder();
+        stale.setPlanId(planId);
+        stale.setBillingCycle("MONTHLY");
+        stale.setRazorpaySubscriptionId("sub_offer_old");
+        stale.setOfferCode("DIWALI2026");
+        stale.setStatus(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
+        when(subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                userId, com.finora.entity.SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(Optional.of(stale), Optional.empty());
+        when(gateway.createSubscription(any(), any(), anyMap()))
+                .thenReturn(new RazorpaySubscriptionDto("sub_full_price_new", "created"));
+
+        CheckoutResponseDto response = service.checkout(userId, "PREMIUM", "MONTHLY");
+
+        assertThat(response.razorpaySubscriptionId()).isEqualTo("sub_full_price_new");
+        assertThat(stale.getStatus()).isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_ABANDONED);
+    }
+
+    @Test
+    void aPendingOrderUnderTheSameOfferIsResumed() {
+        monthlyPrice();
+        liveOffer("DIWALI2026", "399.50", java.time.Instant.now().plus(java.time.Duration.ofDays(3)));
+        com.finora.entity.SubscriptionOrder pending = new com.finora.entity.SubscriptionOrder();
+        pending.setPlanId(planId);
+        pending.setBillingCycle("MONTHLY");
+        pending.setRazorpaySubscriptionId("sub_offer_open");
+        pending.setOfferCode("DIWALI2026");
+        pending.setStatus(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
+        when(subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(
+                userId, com.finora.entity.SubscriptionOrder.STATUS_PENDING))
+                .thenReturn(Optional.of(pending));
+
+        CheckoutResponseDto response = service.checkout(userId, "PREMIUM", "MONTHLY");
+
+        assertThat(response.razorpaySubscriptionId()).isEqualTo("sub_offer_open");
+        verify(gateway, never()).createSubscriptionWithFirstPeriod(any(), any(), anyMap(), any());
+        assertThat(pending.getStatus()).isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
     }
 
     @Test

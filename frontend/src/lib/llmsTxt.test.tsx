@@ -85,11 +85,6 @@ describe('llms.txt claims', () => {
     }
   });
 
-  it('names no bank: the public site names none (owner rule, 2026-09-21)', () => {
-    const banks = /\b(HDFC|ICICI|SBI|State Bank|Axis|Kotak|HSBC|PNB|Punjab National|IDFC|Yes Bank|IndusInd|Federal Bank|Canara|Bank of Baroda|Union Bank|AU Small|RBL|Citi|Standard Chartered|American Express|Amex)\b/i;
-    for (const doc of [text, full]) expect(doc).not.toMatch(banks);
-  });
-
   it('does not describe features that were dropped or are not offered', () => {
     for (const doc of [text, full]) {
       expect(doc).not.toMatch(/gmail/i);

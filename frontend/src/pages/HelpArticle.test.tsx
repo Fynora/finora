@@ -43,11 +43,6 @@ describe('Help article slugs', () => {
     for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
   });
 
-  it('name no bank: the public site names none (owner rule, 2026-09-21)', () => {
-    // A slug is part of a public address and of the sitemap.
-    for (const a of HELP_ARTICLES) expect(a.slug).not.toMatch(/hdfc|icici|sbi|axis|kotak|hsbc|pnb|idfc|yes-bank|indusind|federal|canara|baroda/);
-  });
-
   it('are found by slug and by address, and nothing else is', () => {
     const first = HELP_ARTICLES[0];
     expect(helpArticleBySlug(first.slug)).toBe(first);

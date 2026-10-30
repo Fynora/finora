@@ -50,6 +50,19 @@ describe('offerHeadline', () => {
   it('is null with no offer on the plan', () => {
     expect(offerHeadline([monthly], 'PREMIUM', 'Premium')).toBeNull();
   });
+
+  it('announces the monthly offer alone when the yearly one is a different offer', () => {
+    // Offers are created per plan and cycle from the admin page, so the two cycles can carry
+    // different offers. One line has one name and one last day, so it must not merge them.
+    const otherCode = { ...yearly, code: 'HOLI2027', label: 'Holi offer' };
+    const otherEnd = { ...yearly, endsAt: '2026-11-15T18:30:00Z' };
+    for (const other of [otherCode, otherEnd]) {
+      const headline = offerHeadline([monthly, other], 'PLUS', 'Plus');
+      expect(headline?.text).toBe('Plus at ₹125 for your first month (then ₹249/month)');
+      expect(headline?.code).toBe(monthly.code);
+      expect(headline?.lastDay).toBe(offerLastDay(monthly));
+    }
+  });
 });
 
 describe('OfferBanner', () => {

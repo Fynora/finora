@@ -8204,6 +8204,85 @@
                 }
             }
         },
+        "/api/v1/admin/billing-offers": {
+            "get": {
+                "tags": [
+                    "admin-billing-offer-controller"
+                ],
+                "operationId": "listBillingOffers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBillingOfferAdminDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "admin-billing-offer-controller"
+                ],
+                "operationId": "createBillingOffer",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BillingOfferCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBillingOfferAdminDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/billing-offers/{id}/end": {
+            "post": {
+                "tags": [
+                    "admin-billing-offer-controller"
+                ],
+                "operationId": "endBillingOffer",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBillingOfferAdminDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/banks": {
             "get": {
                 "tags": [
@@ -13713,6 +13792,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseBlankedCopySwitchStatus"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/billing-offers/plans": {
+            "get": {
+                "tags": [
+                    "admin-billing-offer-controller"
+                ],
+                "operationId": "listBillingOfferPlans",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBillingOfferPlanOptionDto"
                                 }
                             }
                         }
@@ -23110,6 +23209,132 @@
                         "format": "date-time"
                     },
                     "heldAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "BillingOfferCreateRequest": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "maxLength": 40,
+                        "minLength": 0
+                    },
+                    "planCode": {
+                        "type": "string",
+                        "maxLength": 40,
+                        "minLength": 0
+                    },
+                    "billingCycle": {
+                        "type": "string",
+                        "maxLength": 10,
+                        "minLength": 0
+                    },
+                    "firstPeriodPrice": {
+                        "type": "number"
+                    },
+                    "label": {
+                        "type": "string",
+                        "maxLength": 80,
+                        "minLength": 0
+                    },
+                    "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "endsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "billingCycle",
+                    "code",
+                    "endsAt",
+                    "firstPeriodPrice",
+                    "label",
+                    "planCode",
+                    "startsAt"
+                ]
+            },
+            "ApiResponseBillingOfferAdminDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/BillingOfferAdminDto"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BillingOfferAdminDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "planCode": {
+                        "type": "string"
+                    },
+                    "planName": {
+                        "type": "string"
+                    },
+                    "billingCycle": {
+                        "type": "string"
+                    },
+                    "firstPeriodPrice": {
+                        "type": "number"
+                    },
+                    "regularPrice": {
+                        "type": "number"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "startsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "endsAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": [
+                            "UPCOMING",
+                            "LIVE",
+                            "ENDED"
+                        ]
+                    },
+                    "appliedAtCheckout": {
+                        "type": "boolean"
+                    },
+                    "createdAt": {
                         "type": "string",
                         "format": "date-time"
                     }
@@ -33920,6 +34145,88 @@
                 "type": "object",
                 "properties": {
                     "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseListBillingOfferAdminDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BillingOfferAdminDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "ApiResponseListBillingOfferPlanOptionDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BillingOfferPlanOptionDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BillingOfferPlanOptionDto": {
+                "type": "object",
+                "properties": {
+                    "planCode": {
+                        "type": "string"
+                    },
+                    "planName": {
+                        "type": "string"
+                    },
+                    "billingCycle": {
+                        "type": "string"
+                    },
+                    "regularPrice": {
+                        "type": "number"
+                    },
+                    "checkoutReady": {
                         "type": "boolean"
                     }
                 }

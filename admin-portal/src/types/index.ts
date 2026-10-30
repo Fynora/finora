@@ -1066,6 +1066,50 @@ export interface AppIconScheduleSaveRequest {
   expectedVersion?: number;
 }
 
+// --- Billing offers (AdminBillingOfferController) ---
+
+export type BillingOfferState = 'UPCOMING' | 'LIVE' | 'ENDED';
+
+/**
+ * Mirrors backend BillingOfferAdminDto. Prices are rupees, GST included. `regularPrice` is the plan
+ * and cycle's active price now (null if it has none). `appliedAtCheckout` is whether a checkout
+ * started now would charge this offer. The window is [startsAt, endsAt).
+ */
+export interface BillingOfferAdmin {
+  id: string;
+  code: string;
+  planCode: string | null;
+  planName: string | null;
+  billingCycle: 'MONTHLY' | 'YEARLY';
+  firstPeriodPrice: number;
+  regularPrice: number | null;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  state: BillingOfferState;
+  appliedAtCheckout: boolean;
+  createdAt: string;
+}
+
+/** Mirrors backend BillingOfferPlanOptionDto: a paid plan and cycle an offer can be made for. */
+export interface BillingOfferPlanOption {
+  planCode: string;
+  planName: string;
+  billingCycle: 'MONTHLY' | 'YEARLY';
+  regularPrice: number;
+  checkoutReady: boolean;
+}
+
+export interface BillingOfferCreateRequest {
+  code: string;
+  planCode: string;
+  billingCycle: 'MONTHLY' | 'YEARLY';
+  firstPeriodPrice: number;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+}
+
 /* ── Layout Studio ─────────────────────────────────────────────────────────────────────────────
  * The read side of statement_analysis_sessions: one row per upload ATTEMPT, successes and
  * failures alike. Distinct from the layout-intelligence types above, which are derived from

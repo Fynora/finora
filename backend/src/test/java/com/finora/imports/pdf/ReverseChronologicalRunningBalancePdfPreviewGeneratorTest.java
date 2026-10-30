@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,5 +96,53 @@ class ReverseChronologicalRunningBalancePdfPreviewGeneratorTest {
 
         assertThat(detected.suggestedAccountType()).isEqualTo("SAVINGS");
         assertThat(detected.bank().id()).isEqualTo("PNB");
+    }
+
+    // A real Bandhan and four real PNB statements print each day's transactions newest-first too.
+    // The display sort is stable, so on a newest-first statement it put the days oldest-first but
+    // left each day's rows newest-first -- and the import saves rows in exactly this order, so the
+    // ledger showed same-day transactions reversed, each beside a balance that did not follow.
+    @Test
+    void generate_ordersEachDaysRowsAsTheyHappened_soEveryRunningBalanceFollowsTheOneBefore() throws Exception {
+        List<StagedRow> rows = realGenerator().generate(UUID.randomUUID(), "statement.pdf",
+                PdfFixtureBuilder.buildChainedReverseChronologicalRunningBalanceSample()).rows();
+
+        assertThat(rows).extracting(StagedRow::amount).usingElementComparator(BigDecimal::compareTo)
+                .containsExactly(new BigDecimal("1057.0"), new BigDecimal("1600.0"), new BigDecimal("9.7"),
+                        new BigDecimal("145.0"), new BigDecimal("120.0"), new BigDecimal("377.71"));
+        assertEveryBalanceFollowsTheOneBefore(rows);
+    }
+
+    @Test
+    void generate_stagesTheSameSequence_whetherTheStatementIsPrintedNewestOrOldestFirst() throws Exception {
+        List<StagedRow> newestFirst = realGenerator().generate(UUID.randomUUID(), "statement.pdf",
+                PdfFixtureBuilder.buildChainedReverseChronologicalRunningBalanceSample()).rows();
+        List<StagedRow> oldestFirst = realGenerator().generate(UUID.randomUUID(), "statement.pdf",
+                PdfFixtureBuilder.buildChainedOldestFirstRunningBalanceSample()).rows();
+
+        // Compared by what each row did -- its date, amount and the balance after it.
+        assertThat(newestFirst).extracting(r -> r.date() + " " + r.amount() + " " + r.balanceAfter())
+                .containsExactlyElementsOf(oldestFirst.stream().map(r -> r.date() + " " + r.amount() + " " + r.balanceAfter()).toList());
+        assertEveryBalanceFollowsTheOneBefore(oldestFirst);
+    }
+
+    @Test
+    void generate_readsASingleDayStatementsDirectionFromItsRunningBalance() throws Exception {
+        List<StagedRow> rows = realGenerator().generate(UUID.randomUUID(), "statement.pdf",
+                PdfFixtureBuilder.buildSingleDayNewestFirstRunningBalanceSample()).rows();
+
+        assertThat(rows).extracting(StagedRow::amount).usingElementComparator(BigDecimal::compareTo)
+                .containsExactly(new BigDecimal("500.0"), new BigDecimal("145.0"), new BigDecimal("120.0"));
+        assertEveryBalanceFollowsTheOneBefore(rows);
+    }
+
+    private static void assertEveryBalanceFollowsTheOneBefore(List<StagedRow> rows) {
+        for (int i = 1; i < rows.size(); i++) {
+            StagedRow row = rows.get(i);
+            BigDecimal moved = "INCOME".equals(row.type()) ? row.amount() : row.amount().negate();
+            assertThat(row.balanceAfter().subtract(rows.get(i - 1).balanceAfter()))
+                    .as("row %d's balance follows row %d's", i, i - 1)
+                    .isEqualByComparingTo(moved);
+        }
     }
 }

@@ -825,19 +825,26 @@ public class PdfPreviewGenerator {
         // different class.
         List<StagedRow> documentOrder = List.copyOf(staged);
 
-        // Some real exports (PNB ONE) list transactions newest-first, which reads oddly in the
-        // review table. Purely presentational, and now provably so: everything order-sensitive
-        // reads documentOrder above.
+        // Some real exports (PNB ONE, Bandhan) list transactions newest-first. The review table
+        // shows them oldest-first, and this is also the order the import SAVES them in (row
+        // ordinal, then insert time, which is how the ledger orders a day's transactions). Every
+        // check that needs the document's own sequence reads documentOrder above.
+        //
+        // A newest-first document prints each DAY newest-first as well, so it is reversed before
+        // the stable date sort. Sorting it as printed put the days in order but kept each day's
+        // rows backwards: measured on five production statements (four PNB, one Bandhan), every
+        // same-day pair was saved reversed, and the ledger showed each beside a balance that did
+        // not follow from the one before. See PrintedOrder for how the direction is read.
         //
         // Sorted as positions rather than in place, so that where each row LANDS is known and not
         // just the result. The balance check names a row by number ("Row 13"), and that number is
         // counted down this sorted list by the person reading it, while the check itself runs along
         // documentOrder. Without the mapping the number was a position in a list the customer never
         // sees: wrong inside a same-day group of a newest-first statement, and wrong for any row
-        // whose date is out of sequence. Same comparator and the same stable sort as before, so the
-        // displayed order is unchanged.
+        // whose date is out of sequence.
+        boolean newestFirst = printedNewestFirst(documentOrder);
         Integer[] displayOrder = new Integer[documentOrder.size()];
-        for (int i = 0; i < displayOrder.length; i++) displayOrder[i] = i;
+        for (int i = 0; i < displayOrder.length; i++) displayOrder[i] = newestFirst ? displayOrder.length - 1 - i : i;
         java.util.Arrays.sort(displayOrder, Comparator.comparing(i -> documentOrder.get(i).date()));
         int[] displayedPositionOf = new int[displayOrder.length];
         staged.clear();
@@ -1658,5 +1665,14 @@ public class PdfPreviewGenerator {
         boolean creditLimitField = auxiliaryText.stream()
                 .anyMatch(line -> line != null && CREDIT_LIMIT_LABELLED_FIELD.matcher(line).find());
         return phraseSignals + (creditLimitField ? 1 : 0);
+    }
+
+    /** {@link com.finora.imports.PrintedOrder#newestFirst} over the document's own staged rows. */
+    static boolean printedNewestFirst(List<StagedRow> rows) {
+        return com.finora.imports.PrintedOrder.newestFirst(rows.stream()
+                .map(r -> new com.finora.imports.PrintedOrder.Row(r.date(),
+                        r.amount() == null ? null : "INCOME".equals(r.type()) ? r.amount() : r.amount().negate(),
+                        r.balanceAfter()))
+                .toList());
     }
 }

@@ -297,6 +297,7 @@ public class AccountPurgeSweepService {
     private final EmailProvider emailProvider;
     private final HeldItemAdminAlertService adminAlerts;
     private final NarrationCategoryMemory narrationCategoryMemory;
+    private final PhoneVerificationProvider phoneVerificationProvider;
 
     public AccountPurgeSweepService(UserRepository userRepository,
                                      GmailConnectionService gmailConnectionService,
@@ -377,8 +378,10 @@ public class AccountPurgeSweepService {
                                      EmailProvider emailProvider,
                                      HeldItemAdminAlertService adminAlerts,
                                      com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository,
-                                     NarrationCategoryMemory narrationCategoryMemory) {
+                                     NarrationCategoryMemory narrationCategoryMemory,
+                                     PhoneVerificationProvider phoneVerificationProvider) {
         this.narrationCategoryMemory = narrationCategoryMemory;
+        this.phoneVerificationProvider = phoneVerificationProvider;
         this.adminAlerts = adminAlerts;
         this.statementSendCodeRepository = statementSendCodeRepository;
         this.userRepository = userRepository;
@@ -793,6 +796,8 @@ public class AccountPurgeSweepService {
         // again on that retry.
         statementStorageSweepService.reclaimImportJobObjectsOf(userId);
 
+        deletePhoneIdentity(user, actingAdminId);
+
         transactionTemplate.executeWithoutResult(tx -> {
             transactionRepository.hardDeleteByUserId(userId);
             // Plan 2 (V233). The purge never deletes the users row, so no ON DELETE CASCADE could
@@ -1048,6 +1053,31 @@ public class AccountPurgeSweepService {
 
         auditService.record(userId, "ACCOUNT_PURGED", "User", userId,
                 Map.of("actorId", actingAdminId.toString()));
+    }
+
+    /**
+     * Removes the phone sign-in provider's record of this account's number (Firebase keeps one user
+     * per number verified through Fynora, and it would otherwise outlive the account).
+     *
+     * <p>Outside any transaction, like the other outbound calls in {@link #purgeOne}. Not
+     * best-effort: the number is read from the account, and the account's number is erased as the
+     * purge's last write, so once a purge finished without this nothing could find the provider's
+     * record again. A failure therefore fails the purge, which is retried whole on the next sweep
+     * with the number still in place; a record already deleted by an earlier attempt comes back as
+     * "none found". The audit row says whether a record existed and who acted, never the number.
+     *
+     * <p>Skipped when no provider is configured (a local or test boot; ProductionConfigValidator
+     * refuses to start production without one) or the account has no number.
+     */
+    private void deletePhoneIdentity(User user, UUID actingAdminId) {
+        String stored = user.getPhoneNumber();
+        if (stored == null || stored.isBlank() || !phoneVerificationProvider.isConfigured()) {
+            return;
+        }
+        boolean found = phoneVerificationProvider.deleteIdentityForPhoneNumber(
+                com.finora.util.PhoneNumbers.normalize(stored));
+        auditService.record(user.getId(), "PHONE_IDENTITY_DELETED", "User", user.getId(),
+                Map.of("found", found, "actorId", actingAdminId.toString()));
     }
 
     /** See {@link #MINIMUM_SAFETY_BUFFER}. */

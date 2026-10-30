@@ -38,4 +38,19 @@ public class FakePhoneVerificationProvider implements PhoneVerificationProvider 
         }
         return idToken.substring(PREFIX.length());
     }
+
+    private final java.util.List<String> deletedIdentities = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Records the number and reports a record found; a test reads {@link #deletedIdentities()}. */
+    @Override
+    public boolean deleteIdentityForPhoneNumber(String e164PhoneNumber) {
+        deletedIdentities.add(e164PhoneNumber);
+        return true;
+    }
+
+    /** Every number deleteIdentityForPhoneNumber was called with, in order. Shared by every test in
+     *  one Spring context, so a test looks for its own number rather than counting. */
+    public java.util.List<String> deletedIdentities() {
+        return java.util.List.copyOf(deletedIdentities);
+    }
 }

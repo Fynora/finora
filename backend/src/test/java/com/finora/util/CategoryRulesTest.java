@@ -62,6 +62,51 @@ class CategoryRulesTest {
                 .isEqualTo("sunil verma");
     }
 
+    // A card payment's narration carries the masked card number before the shop. It survived into the
+    // label (and the row's title), and as one of the label's four words it pushed the shop's last
+    // word out. Synthetic card numbers throughout.
+    @Test
+    void extractMerchantLabel_dropsAMaskedCardNumberAndKeepsTheShop() {
+        // The label is still the narration's first four words less the rail word ("pos"), as for any
+        // narration: before, it was "400000xxxxxx0001 sample kitchen".
+        assertThat(CategoryRules.extractMerchantLabel("POS 400000XXXXXX0001 SAMPLE KITCHEN STORE PUNE"))
+                .isEqualTo("sample kitchen store");
+        // Four masked digits, and asterisks instead of X.
+        assertThat(CategoryRules.extractMerchantLabel("POS 4000XXXX0001 SAMPLE STORE"))
+                .isEqualTo("sample store");
+        assertThat(CategoryRules.extractMerchantLabel("POS 400000******0001 SAMPLE STORE"))
+                .isEqualTo("sample store");
+    }
+
+    @Test
+    void extractMerchantLabel_skipsHdfcsStandingInstructionCodesBeforeTheCard() {
+        // Before: "me dc si 400000xxxxxx0001" -- four words, none of them the shop.
+        assertThat(CategoryRules.extractMerchantLabel("ME DC SI 400000XXXXXX0001 SAMPLE STREAMING SUBSCRIPTION"))
+                .isEqualTo("sample streaming subscription");
+    }
+
+    @Test
+    void extractMerchantLabel_isNullForANarrationThatIsOnlyACardNumber() {
+        assertThat(CategoryRules.extractMerchantLabel("400000XXXXXX0001")).isNull();
+    }
+
+    @Test
+    void extractMerchantLabel_leavesTheGroupingKeysInputAlone() {
+        // extractMerchant feeds the merchant grouping key, which reads the card number back from a
+        // stored name: it keeps the number.
+        assertThat(CategoryRules.extractMerchant("POS 400000XXXXXX0001 SAMPLE STORE"))
+                .isEqualTo("pos 400000xxxxxx0001 sample store");
+    }
+
+    @Test
+    void isMaskedCard_isTheMaskedNumberAndNothingElse() {
+        assertThat(CategoryRules.isMaskedCard("400000xxxxxx0001")).isTrue();
+        assertThat(CategoryRules.isMaskedCard("4000XXXX0001")).isTrue();
+        assertThat(CategoryRules.isMaskedCard("100000000001")).isFalse();
+        assertThat(CategoryRules.isMaskedCard("xxxxxx0001")).isFalse();
+        assertThat(CategoryRules.isMaskedCard("ref400000xxxxxx0001")).isFalse();
+    }
+
     @Test
     void extractMerchantLabel_keepsUnknownAsIs() {
         // "unknown" is extractMerchant()'s own empty-input fallback (see the test above), not a

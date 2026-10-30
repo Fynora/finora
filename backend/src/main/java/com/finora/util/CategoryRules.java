@@ -324,7 +324,17 @@ public final class CategoryRules {
             java.util.Optional<String> structured = payeeOfStructuredNarration(desc);
             if (structured != null) return structured.orElse(null);
         }
-        String merchant = extractMerchant(desc);
+        // A masked card number names nobody, and extractMerchant keeps it (see MASKED_CARD), where it
+        // also took one of the label's four words: the shop's name came after it. Removed first, so
+        // the four words are the shop's. extractMerchant itself is unchanged: the grouping key reads
+        // the number back from a stored merchant name (MerchantNames.forNarration).
+        // HDFC opens a card's standing instruction with "ME DC SI" before the card number: three
+        // codes, not a name, which took three of the four words. Label-only, like the card number.
+        String withoutCard = desc == null ? null
+                : CARD_STANDING_INSTRUCTION.matcher(MASKED_CARD.matcher(desc).replaceAll(" ")).replaceFirst(" ");
+        // Nothing but a card number names nobody. (An empty narration keeps extractMerchant's "unknown".)
+        if (withoutCard != null && withoutCard.isBlank() && !desc.isBlank()) return null;
+        String merchant = extractMerchant(withoutCard);
         String[] tokens = merchant.split(" ");
         for (int i = 0; i < tokens.length; i++) {
             // Plan 5: a leading rail word is dropped rather than kept as part of the name.
@@ -333,6 +343,24 @@ public final class CategoryRules {
             }
         }
         return null;
+    }
+
+    /**
+     * A masked card number as a bank prints it in a card payment's narration: the card's first four
+     * to six digits, a run of X (or *), and its last three or four ("POS 416021XXXXXX1234 SHOP").
+     * {@link #extractMerchant} strips a word of digits only, or digits with letters on one side, so
+     * this word -- digits on both sides of the letters -- survived into the label and the row's
+     * title. Measured in production 2026-10-30: 4 rows, one each for 4 users; in the statement
+     * corpus, 1 of 2,125 rows.
+     */
+    private static final Pattern MASKED_CARD = Pattern.compile("(?i)(?<![a-z0-9])\\d{4,6}[x*]{2,}\\d{3,4}(?![a-z0-9])");
+
+    /** HDFC's "ME DC SI" codes at the start of a card standing instruction's narration. */
+    private static final Pattern CARD_STANDING_INSTRUCTION = Pattern.compile("(?i)^\\s*ME\\s+DC\\s+SI\\b");
+
+    /** Whether this one word is a masked card number ({@link #MASKED_CARD}). */
+    public static boolean isMaskedCard(String word) {
+        return word != null && MASKED_CARD.matcher(word).matches();
     }
 
     /** The label {@link #extractMerchantLabel(String, com.finora.entity.Transaction.Type)} gives every interest

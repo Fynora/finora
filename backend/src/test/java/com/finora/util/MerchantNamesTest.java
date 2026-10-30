@@ -66,6 +66,28 @@ class MerchantNamesTest {
         assertThat(MerchantNames.forDisplay(MerchantNames.forNarration("UPI/DR/100000000001"))).isEqualTo("UPI payment");
     }
 
+    /**
+     * A card payment's stored name keeps the masked card number (the grouping key reads it), so it is
+     * hidden only where a person reads the name. A name opening with "pos" already hid it; HDFC's card
+     * standing instruction ("ME DC SI &lt;card&gt; &lt;shop&gt;") stores a name that does not open with a
+     * rail, and showed the number. Synthetic card numbers.
+     */
+    @Test
+    void aMaskedCardNumberIsNeverShownInAMerchantsName() {
+        assertThat(MerchantNames.forDisplay("pos 400000xxxxxx0001 sample store")).isEqualTo("sample store");
+        assertThat(MerchantNames.forDisplay("me dc si 400000xxxxxx0001")).isEqualTo("me dc si");
+        // With its payments at hand, the shop the stored name's four words cut off is shown.
+        assertThat(MerchantNames.forDisplay("me dc si 400000xxxxxx0001",
+                List.of("ME DC SI 400000XXXXXX0001 SAMPLE STREAMING", "ME DC SI 400000XXXXXX0001 SAMPLE STREAMING")))
+                .isEqualTo("Sample Streaming");
+        assertThat(MerchantNames.forDisplay("pos 400000xxxxxx0001 sample",
+                List.of("POS 400000XXXXXX0001 SAMPLE KITCHEN STORE")))
+                .isEqualTo("Sample Kitchen Store");
+        // The stored name, which feeds the grouping key, is unchanged.
+        assertThat(MerchantNames.forNarration("POS 400000XXXXXX0001 SAMPLE STORE"))
+                .isEqualTo("Pos 400000xxxxxx0001 Sample Store");
+    }
+
     @Test
     void aNarrationThatDoesNotStartWithARailKeepsEveryWord() {
         assertThat(MerchantNames.forNarration("SAMPLE CAFE 4471")).isEqualTo("Sample Cafe");
@@ -177,10 +199,11 @@ class MerchantNamesTest {
     @Test
     void aStoredNameThatDoesNotOpenWithARailIsShownAsStored() {
         for (String name : List.of("Sample Store", "Dr Sample Clinic", "Amazon", "Payment Sample Gateway",
-                "From Sample Sender", "HP", "sample UPI store", "Card payment", "Atm Wdl Sampletown",
-                "Atw 512345xxxxxx1234 Sampletown")) {
+                "From Sample Sender", "HP", "sample UPI store", "Card payment", "Atm Wdl Sampletown")) {
             assertThat(MerchantNames.forDisplay(name)).isEqualTo(name);
         }
+        // Except a masked card number, which is never shown (see aCardPurchaseIsShownWithoutItsMaskedCardNumber).
+        assertThat(MerchantNames.forDisplay("Atw 512345xxxxxx1234 Sampletown")).isEqualTo("Atw Sampletown");
         assertThat(MerchantNames.forDisplay(null)).isNull();
         assertThat(MerchantNames.forDisplay("")).isEmpty();
         assertThat(MerchantNames.forDisplay("  ")).isEqualTo("  ");

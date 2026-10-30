@@ -131,7 +131,16 @@ public class SubscriptionCancellationDispatchSweepService {
                 return false;
             }
 
-            gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), true);
+            // An offer checkout (V297) stays in Razorpay's "authenticated" state, with no billing
+            // cycle, until regular billing starts. Razorpay refuses cancel_at_cycle_end=true there
+            // ("Subscription cannot be cancelled since no billing cycle is going on", per its
+            // cancel API docs), so this would fail every sweep and the first regular charge would
+            // go through after the customer cancelled. Cancelling immediately stops that charge;
+            // the paid-for first period is still honoured locally, because handleCancelled keeps
+            // access until renewal_date, which for these is the first regular charge date.
+            var current = gateway.fetchSubscription(subscription.getRazorpaySubscriptionId());
+            boolean notStarted = current != null && "authenticated".equals(current.status());
+            gateway.cancelSubscription(subscription.getRazorpaySubscriptionId(), !notStarted);
             subscription.setCancellationDispatchedAt(Instant.now());
             subscriptionRepository.save(subscription);
 

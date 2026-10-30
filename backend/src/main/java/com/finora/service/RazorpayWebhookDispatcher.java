@@ -257,11 +257,22 @@ public class RazorpayWebhookDispatcher {
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
-        } else if (order.getOfferCode() != null && entity.get("charge_at") instanceof Number chargeAt) {
+        } else if (order.getOfferCode() != null) {
             // Offer checkout (V297): regular billing starts a period from now, so at authorisation
-            // Razorpay has no current period yet (current_end is null) -- the next charge, charge_at,
-            // is when the paid-for first period ends. subscription.charged corrects it from then on.
-            subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(chargeAt.longValue())));
+            // Razorpay has no current period yet (current_end is null) -- the next charge, charge_at
+            // (or start_at, the same moment for a subscription that has not started), is when the
+            // paid-for first period ends. subscription.charged corrects it from then on. This date
+            // matters beyond display: the cancellation sweep only dispatches a cancellation for a
+            // subscription with a renewal date, so without it a cancelled offer would still be
+            // charged at the first regular charge.
+            Object nextCharge = entity.get("charge_at") instanceof Number ? entity.get("charge_at") : entity.get("start_at");
+            if (nextCharge instanceof Number n) {
+                subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
+            } else {
+                log.error("Offer checkout {} activated with neither charge_at nor start_at -- renewal date left "
+                        + "unset, so a cancellation will not be dispatched for it automatically. Set it by hand.",
+                        LogSanitizer.sanitize(razorpaySubscriptionId));
+            }
         }
         applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
@@ -533,19 +544,35 @@ public class RazorpayWebhookDispatcher {
      *  one, otherwise from Razorpay's invoices for the subscription. Either way it is recorded under
      *  Razorpay's own payment id, the same key {@link #handleCharged} dedupes on, so a later
      *  {@code subscription.charged} for this same payment, or a re-run of this webhook, never
-     *  records it twice. If Razorpay has no paid invoice yet, the exception marks this webhook
-     *  FAILED so {@code WebhookEventRecoverySweepService} retries it -- the whole activation rolls
-     *  back with it, rather than activating with the payment missing. */
+     *  records it twice.
+     *
+     *  <p>Never allowed to stop the activation: the customer has paid, so they get Plus whatever
+     *  happens here. If the invoice lookup fails or finds nothing, the payment is left unrecorded
+     *  and logged as an error for a manual entry -- a missing invoice row is fixable later, a paying
+     *  customer left on Free is not. */
     private void recordOfferPayment(Subscription subscription, Plan plan, String razorpaySubscriptionId,
                                     Map<String, Object> paymentEntity) {
         String paymentId = asString(paymentEntity.get("id"));
         long amountPaise = paymentEntity.get("amount") instanceof Number n ? n.longValue() : 0L;
         if (paymentId == null || amountPaise <= 0) {
-            RazorpaySubscriptionGateway.AuthorisationPayment found = gateway.findAuthorisationPayment(razorpaySubscriptionId)
-                    .orElseThrow(() -> new IllegalStateException("Offer checkout " + LogSanitizer.sanitize(razorpaySubscriptionId)
-                            + " is authorised but Razorpay shows no paid invoice for it yet."));
-            paymentId = found.paymentId();
-            amountPaise = found.amountPaise();
+            Optional<RazorpaySubscriptionGateway.AuthorisationPayment> found;
+            try {
+                found = gateway.findAuthorisationPayment(razorpaySubscriptionId);
+            } catch (RuntimeException e) {
+                log.error("Offer checkout {} for user {} activated, but looking up its upfront payment failed -- "
+                        + "billing history and the invoice are missing it. Record it by hand from the Razorpay "
+                        + "dashboard.", LogSanitizer.sanitize(razorpaySubscriptionId), subscription.getUserId(), e);
+                return;
+            }
+            if (found.isEmpty()) {
+                log.error("Offer checkout {} for user {} activated, but Razorpay shows no paid invoice for it -- "
+                        + "billing history and the invoice are missing its upfront payment. Record it by hand "
+                        + "from the Razorpay dashboard.", LogSanitizer.sanitize(razorpaySubscriptionId),
+                        subscription.getUserId());
+                return;
+            }
+            paymentId = found.get().paymentId();
+            amountPaise = found.get().amountPaise();
         }
         if (paymentRepository.existsByProviderTransactionId(paymentId)) {
             return;

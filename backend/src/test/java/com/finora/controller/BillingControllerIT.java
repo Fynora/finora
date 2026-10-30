@@ -413,6 +413,59 @@ class BillingControllerIT extends AbstractIntegrationTest {
         assertThat(response.getBody()).contains("\"data\":[");
     }
 
+    /** A full-price checkout left unpaid before an offer started is replaced, not resumed, and the
+     *  replacement is saved despite V206's one-pending-order-per-user index -- a real Postgres
+     *  check the unit tests can't make. Premium yearly for the same isolation reason as below. */
+    @Test
+    void aFullPriceCheckoutLeftOpenBeforeAnOfferStartedIsReplacedByAnOfferCheckout() {
+        Plan premium = planRepository.findByCode("PREMIUM").orElseThrow();
+        BillingPrice premiumYearly = billingPriceRepository
+                .findByPlanIdAndBillingCycleAndActiveTrue(premium.getId(), "YEARLY").orElseThrow();
+        premiumYearly.setRazorpayPlanId("plan_prem_y_" + UUID.randomUUID());
+        billingPriceRepository.save(premiumYearly);
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        when(gateway.isConfigured()).thenReturn(true);
+        String fullPriceSubId = "sub_full_" + UUID.randomUUID();
+        String offerSubId = "sub_offer_" + UUID.randomUUID();
+        when(gateway.createSubscription(eq(premiumYearly.getRazorpayPlanId()), eq("YEARLY"), anyMap()))
+                .thenReturn(new RazorpaySubscriptionDto(fullPriceSubId, "created"));
+        when(gateway.createSubscriptionWithFirstPeriod(eq(premiumYearly.getRazorpayPlanId()), eq("YEARLY"), anyMap(), any()))
+                .thenReturn(new RazorpaySubscriptionDto(offerSubId, "created"));
+        HttpEntity<String> request = new HttpEntity<>(
+                "{\"planCode\":\"PREMIUM\",\"billingCycle\":\"YEARLY\"}", bearerFor(user));
+
+        ResponseEntity<String> before = restTemplate.postForEntity("/api/v1/billing/checkout", request, String.class);
+        assertThat(before.getBody()).contains(fullPriceSubId);
+
+        com.finora.entity.BillingOffer offer = new com.finora.entity.BillingOffer();
+        offer.setCode("IT_" + UUID.randomUUID().toString().substring(0, 8));
+        offer.setPlanId(premium.getId());
+        offer.setBillingCycle("YEARLY");
+        offer.setFirstPeriodPrice(new BigDecimal("4000.00"));
+        offer.setLabel("Test offer");
+        offer.setStartsAt(java.time.Instant.now().minusSeconds(60));
+        offer.setEndsAt(java.time.Instant.now().plusSeconds(3600));
+        offer = billingOfferRepository.save(offer);
+        try {
+            // The Billing page no longer offers the full-price checkout for resume...
+            ResponseEntity<String> mine = restTemplate.exchange(
+                    "/api/v1/billing/subscription", HttpMethod.GET, new HttpEntity<>(bearerFor(user)), String.class);
+            assertThat(mine.getBody()).contains("\"pendingOrder\":null");
+
+            // ...and checking out again creates the offer checkout instead of resuming it.
+            ResponseEntity<String> after = restTemplate.postForEntity("/api/v1/billing/checkout", request, String.class);
+            assertThat(after.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(after.getBody()).contains(offerSubId);
+            assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(fullPriceSubId).orElseThrow().getStatus())
+                    .isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_ABANDONED);
+            assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(offerSubId).orElseThrow().getStatus())
+                    .isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_PENDING);
+        } finally {
+            billingOfferRepository.delete(offer);
+        }
+    }
+
     /** End to end through HTTP with an offer live right now. Premium yearly, because no other test
      *  checks out that plan and cycle, and the row is removed afterwards: the IT classes share one
      *  database. */

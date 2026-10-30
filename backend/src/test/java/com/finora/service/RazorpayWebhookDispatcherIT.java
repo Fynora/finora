@@ -1466,21 +1466,50 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void offerAuthorisationWithNoPaidInvoiceYetFailsWithoutActivating() {
-        // The webhook is marked FAILED and retried by the recovery sweep; nothing is half-applied.
+    void aCustomerWhoPaidGetsPlusEvenWhenTheUpfrontPaymentCannotBeFound() {
+        // The customer has paid; a missing invoice row is logged for a manual fix, never a reason to
+        // leave them on Free.
         String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
         User user = offerCheckoutUser(razorpaySubscriptionId);
         when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> dispatcher.dispatch("subscription.authenticated",
-                authenticatedWithFutureStart(razorpaySubscriptionId)))
-                .isInstanceOf(IllegalStateException.class);
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
 
         assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow()
-                .getStatus()).isEqualTo(SubscriptionOrder.STATUS_PENDING);
-        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getRazorpaySubscriptionId())
-                .isNull();
+                .getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo(razorpaySubscriptionId);
+        assertThat(subscription.getPlanId()).isEqualTo(planRepository.findByCode("PLUS").orElseThrow().getId());
         assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
+    @Test
+    void aCustomerWhoPaidGetsPlusEvenWhenRazorpaysInvoiceLookupFails() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId))
+                .thenThrow(new IllegalStateException("Razorpay fetch invoices failed."));
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo(razorpaySubscriptionId);
+        assertThat(subscription.getRenewalDate()).isEqualTo(java.time.LocalDate.of(2030, 2, 2));
+    }
+
+    @Test
+    void theRenewalDateFallsBackToStartAtWhenChargeAtIsMissing() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.of(
+                new RazorpaySubscriptionGateway.AuthorisationPayment("pay_offer_" + UUID.randomUUID(), 12500)));
+        Map<String, Object> entity = futureStartEntity(razorpaySubscriptionId);
+        entity.put("charge_at", null);
+
+        dispatcher.dispatch("subscription.authenticated", Map.of("subscription", Map.of("entity", entity)));
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getRenewalDate())
+                .isEqualTo(java.time.LocalDate.of(2030, 2, 2));
     }
 
     @Test

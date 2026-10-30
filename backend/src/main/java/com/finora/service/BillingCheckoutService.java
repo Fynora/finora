@@ -56,6 +56,9 @@ public class BillingCheckoutService {
 
     private static final Logger log = LoggerFactory.getLogger(BillingCheckoutService.class);
 
+    private static final java.time.format.DateTimeFormatter PAUSE_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH);
+
     private final PlanRepository planRepository;
     private final BillingPriceRepository billingPriceRepository;
     private final SubscriptionOrderRepository subscriptionOrderRepository;
@@ -224,6 +227,18 @@ public class BillingCheckoutService {
                     "This subscription is already set to cancel -- resume auto-renewal first if you want to pause instead.");
         }
         UUID subscriptionId = subscription.getId();
+
+        // An offer checkout (V297) stays in Razorpay's "authenticated" state until its first regular
+        // charge. Razorpay's pause API docs: pausing an authenticated subscription moves it to
+        // "cancelled", not paused -- the customer would lose the mandate while this app showed them
+        // paused, and resume would then fail. Only an active subscription can be paused.
+        var current = gateway.fetchSubscription(subscription.getRazorpaySubscriptionId());
+        if (current != null && !"active".equals(current.status())) {
+            String from = subscription.getRenewalDate() != null
+                    ? " from " + subscription.getRenewalDate().format(PAUSE_DATE) : "";
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "You can pause once your regular billing starts" + from + ". You can cancel instead.");
+        }
 
         gateway.pauseSubscription(subscription.getRazorpaySubscriptionId());
 
@@ -444,12 +459,25 @@ public class BillingCheckoutService {
     private CheckoutResponseDto resumableOrderOrGuard(UUID userId, UUID planId, String billingCycle, String offerCode) {
         return subscriptionOrderRepository.findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING)
                 .map(order -> {
-                    if (order.getPlanId().equals(planId) && order.getBillingCycle().equals(billingCycle)) {
-                        if (!java.util.Objects.equals(order.getOfferCode(), offerCode)) {
-                            order.setStatus(SubscriptionOrder.STATUS_ABANDONED);
-                            subscriptionOrderRepository.save(order);
-                            return null;
-                        }
+                    boolean samePlan = order.getPlanId().equals(planId) && order.getBillingCycle().equals(billingCycle);
+                    // Stale for its own plan and cycle, whichever plan is being checked out now:
+                    // otherwise a stale order for another plan would block this checkout with a
+                    // CONFLICT while the Billing page (which hides stale orders) shows nothing to
+                    // cancel.
+                    boolean stale = samePlan
+                            ? !java.util.Objects.equals(order.getOfferCode(), offerCode)
+                                    || offerCheckoutTooOld(order, Instant.now())
+                            : isStale(order, Instant.now());
+                    if (stale) {
+                        order.setStatus(SubscriptionOrder.STATUS_ABANDONED);
+                        // Flushed now: when this runs inside checkout's write transaction, the new
+                        // PENDING order is inserted next, and Hibernate flushes inserts before
+                        // updates -- V206 allows one PENDING order per user, so the insert would
+                        // otherwise hit that index while this row still reads PENDING.
+                        subscriptionOrderRepository.saveAndFlush(order);
+                        return null;
+                    }
+                    if (samePlan) {
                         return new CheckoutResponseDto(order.getRazorpaySubscriptionId(), properties.getKeyId());
                     }
                     throw new ApiException(HttpStatus.CONFLICT,
@@ -457,6 +485,26 @@ public class BillingCheckoutService {
                             "Cancel it (POST /api/v1/billing/pending-order/cancel) before starting a new one.");
                 })
                 .orElse(null);
+    }
+
+    /** A pending order whose Razorpay subscription no longer charges what a checkout for its plan
+     *  and cycle would charge now: made before an offer started (full price while the page shows
+     *  the offer), or under an offer that has since ended (its link expired at the offer's end). */
+    private boolean isStale(SubscriptionOrder order, Instant now) {
+        String liveCode = billingOfferService.liveOffer(order.getPlanId(), order.getBillingCycle(), now)
+                .map(BillingOffer::getCode).orElse(null);
+        return !java.util.Objects.equals(order.getOfferCode(), liveCode) || offerCheckoutTooOld(order, now);
+    }
+
+    /** How long an unpaid offer checkout can be resumed. Its regular billing start (Razorpay's
+     *  start_at) was fixed one period after it was created, so resuming it days later would give
+     *  the customer a shorter first period for the offer price; a fresh checkout counts the period
+     *  from now. */
+    static final java.time.Duration OFFER_CHECKOUT_RESUMABLE_FOR = java.time.Duration.ofHours(1);
+
+    private static boolean offerCheckoutTooOld(SubscriptionOrder order, Instant now) {
+        return order.getOfferCode() != null && order.getCreatedAt() != null
+                && order.getCreatedAt().plus(OFFER_CHECKOUT_RESUMABLE_FOR).isBefore(now);
     }
 
     /** Gives {@code SubscriptionOrder.STATUS_ABANDONED} its first real writer. Without this, a
@@ -510,8 +558,12 @@ public class BillingCheckoutService {
                 })
                 .orElse(null);
 
+        // A stale order (isStale) is not offered for resume: its Razorpay subscription would charge
+        // a price the page no longer shows, or has expired. The next checkout abandons it.
+        Instant now = Instant.now();
         PendingOrderDto pendingOrder = subscriptionOrderRepository
                 .findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, SubscriptionOrder.STATUS_PENDING)
+                .filter(order -> !isStale(order, now))
                 .map(order -> {
                     Plan orderPlan = planRepository.findById(order.getPlanId()).orElse(null);
                     return new PendingOrderDto(

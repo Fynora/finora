@@ -7,7 +7,7 @@ import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { FormPanel } from '../components/FormPanel';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { adminBillingOffersApi } from '../api/endpoints';
-import type { BillingOfferAdmin, BillingOfferPlanOption, BillingOfferState } from '../types';
+import type { BillingOfferAdmin, BillingOfferEndResult, BillingOfferPlanOption, BillingOfferState } from '../types';
 import { endOfIstDay, formatIst, formatIstDate, isoToIstInput, istInputToIso, lastIstDayBefore } from '../lib/istTime';
 
 const CODE_MAX = 40;
@@ -47,6 +47,23 @@ function cycleWord(cycle: string): string {
 
 function optionKey(o: { planCode: string; billingCycle: string }): string {
   return `${o.planCode}/${o.billingCycle}`;
+}
+
+function checkouts(n: number): string {
+  return n === 1 ? '1 open checkout' : `${n} open checkouts`;
+}
+
+/** What ending an offer did, including the checkouts customers still had open at the offer price. */
+function endedNotice(offer: BillingOfferAdmin, result: BillingOfferEndResult): string {
+  let text = `Ended “${offer.label}” (${offer.code}). New checkouts get the regular price.`;
+  if (result.checkoutsCancelled > 0) {
+    text += ` Cancelled ${checkouts(result.checkoutsCancelled)} at the offer price.`;
+  }
+  if (result.checkoutsNotCancelled > 0) {
+    text += ` ${checkouts(result.checkoutsNotCancelled)} could not be cancelled and can still be paid at the offer `
+      + `price until ${formatIst(offer.endsAt)}; the server log has the details.`;
+  }
+  return text;
 }
 
 /** "08 Nov 2026, 00:00 IST (last day 07 Nov 2026)" for an end on an IST midnight; the exact time otherwise. */
@@ -235,9 +252,9 @@ function BillingOffersContent() {
 
   const endNow = useMutation({
     mutationFn: (offer: BillingOfferAdmin) => adminBillingOffersApi.endNow(offer.id),
-    onSuccess: (_, offer) => {
+    onSuccess: (result, offer) => {
       setEnding(null);
-      setNotice(`Ended “${offer.label}” (${offer.code}). New checkouts get the regular price.`);
+      setNotice(endedNotice(offer, result));
       refresh();
     },
     onError: (err) => {
@@ -354,7 +371,8 @@ function BillingOffersContent() {
           title="End this offer now?"
           message={
             ending.state === 'LIVE'
-              ? `“${ending.label}” (${ending.code}) stops now. Checkouts started from now on pay the regular price. ` +
+              ? `“${ending.label}” (${ending.code}) stops now. Checkouts started from now on pay the regular price, ` +
+                'and checkouts customers have open but not yet paid at the offer price are cancelled. ' +
                 'This cannot be undone; to run it again, create a new offer with a new code.'
               : `“${ending.label}” (${ending.code}) has not started yet. Ending it now means it never goes live. ` +
                 'This cannot be undone.'

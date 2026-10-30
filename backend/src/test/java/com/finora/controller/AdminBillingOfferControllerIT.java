@@ -242,10 +242,20 @@ class AdminBillingOfferControllerIT extends AbstractIntegrationTest {
         assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(list.getBody()).contains("\"code\":\"" + code + "\"").contains("\"code\":\"DIWALI2026\"");
 
-        // End now: off the pricing card, never deleted, and a second end is refused.
+        // End now: the customer's checkout, still unpaid on Razorpay, is cancelled there and
+        // abandoned here, so it can no longer be paid at the offer price.
+        when(gateway.fetchSubscription(subId)).thenReturn(new RazorpaySubscriptionDto(subId, "created"));
+        when(gateway.findAuthorisationPayment(subId)).thenReturn(java.util.Optional.empty());
         ResponseEntity<String> ended = endNow(adminHeaders, id);
         assertThat(ended.getStatusCode()).as(ended.getBody()).isEqualTo(HttpStatus.OK);
-        assertThat(data(ended).get("state").asText()).isEqualTo("ENDED");
+        assertThat(data(ended).get("offer").get("state").asText()).isEqualTo("ENDED");
+        assertThat(data(ended).get("checkoutsCancelled").asInt()).isEqualTo(1);
+        assertThat(data(ended).get("checkoutsNotCancelled").asInt()).isZero();
+        verify(gateway).cancelSubscription(subId, false);
+        assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(subId).orElseThrow().getStatus())
+                .isEqualTo(com.finora.entity.SubscriptionOrder.STATUS_ABANDONED);
+
+        // Off the pricing card, never deleted, and a second end is refused.
         assertThat(restTemplate.getForEntity("/api/v1/billing/offers", String.class).getBody()).doesNotContain(code);
         BillingOffer stored = billingOfferRepository.findById(UUID.fromString(id)).orElseThrow();
         assertThat(stored.getStartsAt()).isEqualTo(start);
@@ -253,7 +263,9 @@ class AdminBillingOfferControllerIT extends AbstractIntegrationTest {
         assertThat(endNow(adminHeaders, id).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
         List<AuditLog> audit = auditLogRepository.findByEntityIdOrderByCreatedAtAsc(UUID.fromString(id));
-        assertThat(audit).extracting(AuditLog::getAction).containsExactly("BILLING_OFFER_CREATED", "BILLING_OFFER_ENDED");
+        assertThat(audit).extracting(AuditLog::getAction)
+                .containsExactly("BILLING_OFFER_CREATED", "BILLING_OFFER_ENDED", "BILLING_OFFER_CHECKOUTS_CANCELLED");
+        assertThat(audit.get(2).getMetadata()).containsEntry("cancelled", 1).containsEntry("openCheckouts", 1);
         assertThat(audit).allSatisfy(a -> assertThat(a.getUserId()).isEqualTo(adminUser.getId()));
         assertThat(audit.get(0).getMetadata()).containsEntry("code", code).containsEntry("planCode", "PREMIUM");
         assertThat(audit.get(1).getMetadata().get("before").toString()).contains(end.toString());

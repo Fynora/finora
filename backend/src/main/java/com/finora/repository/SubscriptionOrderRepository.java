@@ -20,6 +20,11 @@ public interface SubscriptionOrderRepository extends JpaRepository<SubscriptionO
      *  createdAt desc is defensive, not load-bearing. */
     Optional<SubscriptionOrder> findFirstByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, String status);
 
+    /** Ending a billing offer early: the checkouts still open under it, whose Razorpay
+     *  subscriptions would otherwise stay payable at the offer price until its original end. */
+    List<SubscriptionOrder> findByStatusAndOfferCodeAndPlanIdAndBillingCycle(String status, String offerCode,
+                                                                             UUID planId, String billingCycle);
+
     /** DataExportService -- every checkout this user started, for {@code subscription_orders.json}. */
     List<SubscriptionOrder> findByUserIdOrderByCreatedAtDesc(UUID userId);
 

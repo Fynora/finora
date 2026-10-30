@@ -3,7 +3,7 @@ import { downloadBlob } from '../lib/download';
 import type { components } from './generated-types';
 import type {
 
-  AccountDto, ActivationFunnelDto, BillingOfferAdmin, BillingOfferCreateRequest, BillingOfferPlanOption, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
+  AccountDto, ActivationFunnelDto, BillingOfferAdmin, BillingOfferCreateRequest, BillingOfferEndResult, BillingOfferPlanOption, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
@@ -351,7 +351,7 @@ export const adminBillingOffersApi = {
   plans: () => api.get<BillingOfferPlanOption[]>('/admin/billing-offers/plans').then((r) => r.data),
   create: (body: BillingOfferCreateRequest) =>
     api.post<BillingOfferAdmin>('/admin/billing-offers', body).then((r) => r.data),
-  endNow: (id: string) => api.post<BillingOfferAdmin>(`/admin/billing-offers/${id}/end`).then((r) => r.data),
+  endNow: (id: string) => api.post<BillingOfferEndResult>(`/admin/billing-offers/${id}/end`).then((r) => r.data),
 };
 
 export interface AuditLogFilters {

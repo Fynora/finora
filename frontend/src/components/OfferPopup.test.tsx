@@ -37,7 +37,8 @@ function renderAt(path: string) {
           <Route path="*" element={<OfferPopup />} />
         </Routes>
         <Routes>
-          <Route path="/billing" element={<p>Billing page</p>} />
+          {/* The real Billing route (App.tsx). */}
+          <Route path="/app/billing" element={<p>Billing page</p>} />
           <Route path="*" element={null} />
         </Routes>
       </MemoryRouter>
@@ -56,7 +57,7 @@ describe('OfferPopup', () => {
   afterEach(() => resetBillingOffersCache());
 
   it('shows a Free user the offer, with both prices and the last day', async () => {
-    renderAt('/dashboard');
+    renderAt('/app');
 
     const dialog = await screen.findByRole('dialog', { name: 'Diwali offer' });
     expect(dialog).toHaveTextContent(
@@ -65,7 +66,7 @@ describe('OfferPopup', () => {
 
   it('closes on the cross and stays closed for this offer', async () => {
     const user = userEvent.setup();
-    const first = renderAt('/dashboard');
+    const first = renderAt('/app');
     await screen.findByRole('dialog');
 
     await user.click(screen.getByRole('button', { name: 'Close' }));
@@ -73,14 +74,14 @@ describe('OfferPopup', () => {
     expect(localStorage.getItem(OFFER_POPUP_DISMISSED_PREFIX + 'DIWALI2026')).not.toBeNull();
 
     first.unmount();
-    renderAt('/dashboard');
+    renderAt('/app');
     await waitFor(() => expect(billingApi.mySubscription).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('closes on Escape', async () => {
     const user = userEvent.setup();
-    renderAt('/dashboard');
+    renderAt('/app');
     await screen.findByRole('dialog');
 
     await user.keyboard('{Escape}');
@@ -90,14 +91,14 @@ describe('OfferPopup', () => {
   it('shows again for a different, later offer', async () => {
     localStorage.setItem(OFFER_POPUP_DISMISSED_PREFIX + 'DIWALI2026', '2026-11-01T00:00:00Z');
     vi.mocked(billingApi.offers).mockResolvedValue([{ ...monthly, code: 'HOLI2027', label: 'Holi offer' }]);
-    renderAt('/dashboard');
+    renderAt('/app');
 
     expect(await screen.findByRole('dialog', { name: 'Holi offer' })).toBeInTheDocument();
   });
 
   it('Get Plus goes to Billing and closes it', async () => {
     const user = userEvent.setup();
-    renderAt('/dashboard');
+    renderAt('/app');
     await screen.findByRole('dialog');
 
     await user.click(screen.getByRole('button', { name: 'Get Plus' }));
@@ -110,23 +111,25 @@ describe('OfferPopup', () => {
     ['a complimentary Plus grant', subscription({ planCode: 'PLUS', hasBillingSubscription: false })],
   ])('is never shown to %s', async (_who, sub) => {
     vi.mocked(billingApi.mySubscription).mockResolvedValue(sub);
-    renderAt('/dashboard');
+    renderAt('/app');
 
     await waitFor(() => expect(billingApi.mySubscription).toHaveBeenCalled());
     await waitFor(() => expect(billingApi.offers).toHaveBeenCalled());
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('is not shown on the Billing page, which already carries the offer', async () => {
-    renderAt('/billing');
+  it.each(['/app/billing', '/app/import', '/app/transactions'])(
+    'is not shown off the dashboard, mid-task (%s)', async (path) => {
+      renderAt(path);
 
-    await waitFor(() => expect(billingApi.offers).toHaveBeenCalled());
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
+      await waitFor(() => expect(billingApi.offers).toHaveBeenCalled());
+      await waitFor(() => expect(billingApi.mySubscription).toHaveBeenCalled());
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
 
   it('waits until onboarding is finished', async () => {
     vi.mocked(useAuth).mockReturnValue({ onboardingCompleted: false } as ReturnType<typeof useAuth>);
-    renderAt('/dashboard');
+    renderAt('/app');
 
     await waitFor(() => expect(billingApi.offers).toHaveBeenCalled());
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -134,7 +137,7 @@ describe('OfferPopup', () => {
 
   it('shows nothing when no offer is live', async () => {
     vi.mocked(billingApi.offers).mockResolvedValue([]);
-    renderAt('/dashboard');
+    renderAt('/app');
 
     await waitFor(() => expect(billingApi.mySubscription).toHaveBeenCalled());
     expect(screen.queryByRole('dialog')).toBeNull();

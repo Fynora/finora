@@ -95,6 +95,11 @@ export const test = base.extend<Fixtures>({
   /** The user app, signed in, watched. */
   userPage: async ({ page, user, consoleErrors }, use) => {
     watch(page, consoleErrors);
+    // A live billing offer (backend billing_offers, e.g. the seeded Diwali 2026 one) opens a modal
+    // on a Free user's dashboard, and whether one is live depends on the day the suite runs. No
+    // test here is about offers (the frontend's own tests cover them), so the app sees none.
+    await page.route('**/api/v1/billing/offers', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [] }) }));
 
     await signIn(page, USER_APP, user.email, user.password);
     await use(page);

@@ -42,11 +42,11 @@ function rememberDismissed(code: string) {
 }
 
 /**
- * Announces a live Plus offer (backend V297) once, when a Free user opens the app. Shown only to
- * someone who can take it: the offer applies to a first paid checkout, so anyone already on a paid
- * plan -- through billing or a complimentary grant -- never sees it. Not on the Billing page, which
- * already shows the offer on the Plus card. Closing it (the cross, Escape, the backdrop or the
- * button) remembers that for this offer.
+ * Announces a live Plus offer (backend V297) once, when a Free user opens the app -- on the
+ * dashboard only. Shown only to someone who can take it: the offer applies to a first paid
+ * checkout, so anyone already on a paid plan -- through billing or a complimentary grant -- never
+ * sees it. Closing it (the cross, Escape, the backdrop or the button) remembers that for this
+ * offer.
  */
 export function OfferPopup() {
   const offers = useBillingOffers();
@@ -61,7 +61,10 @@ export function OfferPopup() {
 
   const headline = offerHeadline(offers, 'PLUS', 'Plus');
   const eligible = subscription != null && subscription.planCode === 'FREE' && !subscription.hasBillingSubscription;
-  if (!headline || !eligible || !onboardingCompleted || location.pathname.startsWith('/billing')) return null;
+  // Only on the dashboard, where opening the app lands: anywhere else the customer is in the middle
+  // of something (an import, a form), and a modal over it gets in their way.
+  const onDashboard = location.pathname === '/app' || location.pathname === '/app/';
+  if (!headline || !eligible || !onboardingCompleted || !onDashboard) return null;
   if (closedCode === headline.code || wasDismissed(headline.code)) return null;
 
   return (
@@ -113,7 +116,7 @@ function OfferDialog({ label, text, lastDay, onClose }: {
             type="button"
             onClick={() => {
               onClose();
-              void navigate('/billing');
+              void navigate('/app/billing');
             }}
             className="mt-5 w-full text-sm font-semibold rounded-lg px-4 py-2.5 bg-primary text-on-primary"
           >

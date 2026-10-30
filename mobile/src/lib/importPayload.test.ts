@@ -87,6 +87,7 @@ const form: NewAccountForm = {
   openingBalance: '1000',
   creditLimit: '',
   dueDate: '',
+  bankId: 'hdfc',
 };
 
 describe('buildRowPayload', () => {
@@ -231,7 +232,15 @@ describe('buildNewAccountPayload', () => {
     expect(out.productIdentityHash).toBe('hash-abc'); // identity is still echoed
   });
 
-  it('keeps bank, holder, branch and IFSC from detection', () => {
+  it('sends the bank the person settled on, not the detected one', () => {
+    // Spec 2026-10-22, section 3: "The bank sent with the new account is the user's final
+    // choice, not the detected value." The backend drops the identity key itself when they differ.
+    expect(buildNewAccountPayload({ ...form, bankId: 'icici' }, detected()).bankId).toBe('icici');
+    expect(buildNewAccountPayload({ ...form, bankId: 'OTHER' }, detected()).bankId).toBe('OTHER');
+    expect(buildNewAccountPayload({ ...form, bankId: 'icici' }, detected()).productIdentityHash).toBe('hash-abc');
+  });
+
+  it('keeps holder, branch and IFSC from detection', () => {
     const out = buildNewAccountPayload(form, detected());
     expect(out.bankId).toBe('hdfc');
     expect(out.accountHolderName).toBe('A Holder');
@@ -321,7 +330,7 @@ describe('buildNewAccountPayload', () => {
   });
 
   it('survives having no detected account at all', () => {
-    const out = buildNewAccountPayload(form, null);
+    const out = buildNewAccountPayload({ ...form, bankId: null }, null);
     expect(out.bankId).toBeNull();
     expect(out.detectedProduct).toBeNull();
     expect(out.principalAmount).toBeNull();
@@ -356,7 +365,24 @@ describe('initial review state', () => {
       openingBalance: '',
       creditLimit: '',
       dueDate: '',
+      bankId: null,
     });
+  });
+
+  it('pre-fills the bank when the statement named it, or its format did', () => {
+    expect(initialAccountForm(detected({ bankSource: 'FILE' })).bankId).toBe('hdfc');
+    expect(initialAccountForm(detected({ bankSource: 'PROFILE' })).bankId).toBe('hdfc');
+  });
+
+  it('leaves the bank unchosen when nothing named it', () => {
+    expect(initialAccountForm(detected({ bank: { id: 'OTHER' } as never, bankSource: 'NONE' })).bankId).toBeNull();
+  });
+
+  it('reads a session staged before bankSource existed by its bank', () => {
+    // bankSource is null on sessions staged before #2316: a real bank can only have come from
+    // the file then, and OTHER means nothing named one.
+    expect(initialAccountForm(detected({ bankSource: null })).bankId).toBe('hdfc');
+    expect(initialAccountForm(detected({ bank: { id: 'OTHER' } as never, bankSource: null })).bankId).toBeNull();
   });
 
   it('estimates opening balance from the detected total due when a credit card has no detected '

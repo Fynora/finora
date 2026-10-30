@@ -26,7 +26,7 @@ export type ReconciliationStatus = NonNullable<components['schemas']['Transactio
 // logoPath points at a real SVG file that may not exist yet -- see BankLogo.tsx's own comment
 // for why (no bundled/licensed logo assets in this build) -- the component tries to load it and
 // falls back to the initials badge on error, so this is safe to render unconditionally.
-interface BankInfo {
+export interface BankInfo {
   id: string;
   officialName: string | null;
   shortName: string;
@@ -559,6 +559,10 @@ export interface DetectedAccountInfo {
   branchName: string | null;
   ifscCode: string | null;
   bank: BankInfo;
+  // Where `bank` came from (ImportDto.DetectedAccountInfo.bankSource): the statement itself
+  // (FILE), its layout's profile (PROFILE), or nowhere (NONE, bank is OTHER). Null on sessions
+  // staged before the backend sent it; lib/bankChoice.ts's bankSourceOf reads that case.
+  bankSource?: 'FILE' | 'PROFILE' | 'NONE' | null;
 
   // Financial Product Discovery (backend: com.finora.imports.product). What this section actually
   // IS, as opposed to what to prefill the account-type field with. The two are different questions:

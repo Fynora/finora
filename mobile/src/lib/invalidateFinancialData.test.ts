@@ -29,6 +29,9 @@ const NON_FINANCIAL_KEYS = new Set([
   // reference data, only more so: this genuinely never changes at all, for any user, ever. No
   // transaction/account/import write (or category write, for that matter) can move it.
   'category-options',
+  // Every bank a person can pick (GET /banks, BankField). Changes only when an admin adds a bank;
+  // no transaction, account or import write can move it.
+  'banks',
   // The user's own profile/preferences.
   'user-settings',
   // The Insights rows a user marked "Got it" (V277). Only a "Got it" tap writes it -- the screen

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation, MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Ledger from './Ledger';
-import { peopleApi, transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi } from '../api/endpoints';
+import { peopleApi, transactionsApi, categoriesApi, accountsApi, budgetsApi, onboardingApi, dashboardApi } from '../api/endpoints';
 import type { Transaction } from '../types';
 
 // Ledger has no prior test file -- this covers only what this change adds (the "Why this
@@ -27,6 +27,8 @@ vi.mock('../api/endpoints', () => ({
   // through these two, on top of the transactions/categories calls this file already mocked.
   accountsApi: { list: vi.fn() },
   budgetsApi: { list: vi.fn() },
+  // "This Month" is the month's spending from the same summary the dashboard shows.
+  dashboardApi: { summary: vi.fn() },
   // Getting-started checklist dwell timer (D-onboarding) -- default to "no REVIEW_TRANSACTIONS
   // item in the response" so it never fires in tests that don't care about it; the dwell-timer's
   // own test overrides this.
@@ -58,6 +60,7 @@ vi.mock('../api/endpoints', () => ({
 beforeEach(() => {
   vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
   vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+  vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue({ monthlyExpense: 0, reportingMonthIsCurrent: true } as never);
 });
 
 // Real MerchantGroupReviewCard calls transactionsApi.groupsNeedsReview, which the mock above
@@ -389,7 +392,7 @@ describe('Ledger — what the statement printed beside a row', () => {
   it('shows neither when the statement printed neither', async () => {
     showing(txn({ referenceNumber: null, balanceAfter: null }));
 
-    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(await screen.findByText('Amazon Pay')).toBeInTheDocument();
     expect(screen.queryByText(/^Ref /)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Bal /)).not.toBeInTheDocument();
   });
@@ -958,6 +961,48 @@ describe('Ledger — KPI row and category chips', () => {
     );
   });
 
+  // Found testing the screens: a marked transfer stayed in Total Spent, ₹5,000 above the dashboard's
+  // spend for the same month. Only spending counts, as on the dashboard and in reports.
+  it('leaves transfers, investments, duplicates and replaced rows out of Total Spent', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [
+        txn({ id: 't1', amount: 1000, type: 'EXPENSE', reconciliationStatus: 'OK' }),
+        txn({ id: 't2', amount: 500, type: 'EXPENSE', reconciliationStatus: 'TRANSFER' }),
+        txn({ id: 't3', amount: 300, type: 'EXPENSE', reconciliationStatus: 'DUPLICATE' }),
+        txn({ id: 't4', amount: 200, type: 'EXPENSE', reconciliationStatus: 'INVESTMENT_TRANSFER' }),
+        txn({ id: 't5', amount: 100, type: 'EXPENSE', reconciliationStatus: 'SUPERSEDED' }),
+      ],
+      page: 0, size: 10, totalElements: 5, totalPages: 1,
+    });
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    renderLedger();
+
+    expect(await screen.findByText('₹1,000')).toBeInTheDocument();
+    expect(screen.queryByText('₹2,100')).not.toBeInTheDocument();
+  });
+
+  // Found testing the screens: with no budget the card read "₹0 · 0% of budget" in a month with spending.
+  it("shows This Month as the month's spending, and says when there is no budget", async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({ content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 });
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue({ monthlyExpense: 28445.5, reportingMonthIsCurrent: true } as never);
+    renderLedger();
+
+    expect(await screen.findByText('₹28,446')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No budget set' })).toBeInTheDocument();
+    expect(screen.queryByText('0% of budget')).not.toBeInTheDocument();
+  });
+
+  it('shows ₹0 for This Month when the latest month with activity is not this one', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({ content: [], page: 0, size: 10, totalElements: 0, totalPages: 0 });
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue({ monthlyExpense: 9000, reportingMonthIsCurrent: false } as never);
+    renderLedger();
+
+    expect(await screen.findByRole('button', { name: 'No budget set' })).toBeInTheDocument();
+    expect(screen.queryByText('₹9,000')).not.toBeInTheDocument();
+  });
+
   // Bug fix: the KPI stats query (statsFilters) never includes categoryId -- a chip's own count
   // must answer "how many rows in each category," which only works if selecting one doesn't
   // change what the others are counted against. The label must stay honest about that: it must
@@ -1117,7 +1162,9 @@ describe('Ledger — account column', () => {
     ]);
     renderLedger();
 
-    expect(await screen.findByText('HDFC Bank')).toBeInTheDocument();
+    // The account's own name, not the bank's: "Bank" for every account with no bank set, and two
+    // accounts at one bank indistinguishable, were what the bank's short name alone showed.
+    expect(await screen.findByText('My HDFC')).toBeInTheDocument();
     // Shown directly, no click needed -- see the describe block's own comment for why.
     expect(screen.getByText('••••4582')).toBeInTheDocument();
   });
@@ -1357,7 +1404,7 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
   it('offers Mark as transfer for an OK row, and finds+picks a candidate to pair it with', async () => {
     const user = userEvent.setup();
     mockSearchByKeywordPresence([
-      txn({ id: 'txn-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' }),
+      txn({ id: 'txn-2', accountId: 'acc-2', merchant: 'Savings Account', description: 'Own transfer', amount: 1299, type: 'INCOME' }),
     ]);
     vi.mocked(transactionsApi.markTransfer).mockResolvedValue(txn({ id: 'txn-1', reconciliationStatus: 'TRANSFER' }));
     renderLedger();
@@ -1374,8 +1421,8 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     const user = userEvent.setup();
     mockSearchByKeywordPresence([
       txn({ id: 'txn-1', merchant: 'Self' }), // the transaction being marked -- must not offer itself
-      txn({ id: 'txn-2', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER' }),
-      txn({ id: 'txn-3', merchant: 'Valid Candidate' }),
+      txn({ id: 'txn-2', accountId: 'acc-2', type: 'INCOME', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER' }),
+      txn({ id: 'txn-3', accountId: 'acc-2', type: 'INCOME', merchant: 'Valid Candidate' }),
     ]);
     renderLedger();
 
@@ -1387,12 +1434,31 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     expect(screen.queryByText('Already Paired')).not.toBeInTheDocument();
   });
 
+  // Found testing the screens: the picker offered expenses on the very account being marked, which
+  // the server always refuses (two different accounts, one income and one expense leg).
+  it('offers only rows on another account that go the other way', async () => {
+    const user = userEvent.setup();
+    mockSearchByKeywordPresence([
+      txn({ id: 'txn-2', accountId: 'acc-1', type: 'INCOME', merchant: 'Same Account' }),
+      txn({ id: 'txn-3', accountId: 'acc-2', type: 'EXPENSE', merchant: 'Same Direction' }),
+      txn({ id: 'txn-4', accountId: 'acc-2', type: 'INCOME', merchant: 'Other Side' }),
+    ]);
+    renderLedger();
+
+    await user.click(await screen.findByTitle('Mark as transfer'));
+    await user.type(screen.getByPlaceholderText(/search by description/i), 'a');
+
+    expect(await screen.findByText('Other Side')).toBeInTheDocument();
+    expect(screen.queryByText('Same Account')).not.toBeInTheDocument();
+    expect(screen.queryByText('Same Direction')).not.toBeInTheDocument();
+  });
+
   it('offers a one-sided transfer still awaiting its other leg as a picker candidate', async () => {
     const user = userEvent.setup();
     mockSearchByKeywordPresence([
       txn({ id: 'txn-1', merchant: 'Self' }),
-      txn({ id: 'txn-2', merchant: 'Awaiting Partner', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: true }),
-      txn({ id: 'txn-3', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: false }),
+      txn({ id: 'txn-2', accountId: 'acc-2', type: 'INCOME', merchant: 'Awaiting Partner', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: true }),
+      txn({ id: 'txn-3', accountId: 'acc-2', type: 'INCOME', merchant: 'Already Paired', reconciliationStatus: 'TRANSFER', awaitingTransferPartner: false }),
     ]);
     renderLedger();
 
@@ -1432,7 +1498,7 @@ describe('Ledger — Mark/Unmark as transfer (Phase 6)', () => {
     });
     renderLedger();
 
-    await screen.findByText('Amazon');
+    await screen.findByText('Amazon Pay');
     expect(screen.queryByTitle('Mark as transfer')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Unmark as transfer')).not.toBeInTheDocument();
   });
@@ -1482,18 +1548,18 @@ describe('Ledger — a link from Reports (category and date range)', () => {
     await waitFor(() => expect(categoriesApi.list).toHaveBeenCalled());
     expect(listRequests()).toHaveLength(0);
     expect(container.querySelector('tbody')).toHaveAttribute('aria-busy', 'true');
-    expect(screen.queryByText('Amazon')).not.toBeInTheDocument();
+    expect(screen.queryByText('Amazon Pay')).not.toBeInTheDocument();
 
     resolveCategories([food] as never);
     await waitFor(() => expect(listRequests()).toContainEqual(expect.objectContaining({ categoryId: 'cat-food' })));
-    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(await screen.findByText('Amazon Pay')).toBeInTheDocument();
   });
 
   it('still loads the list, for the month, when the categories cannot be had', async () => {
     vi.mocked(categoriesApi.list).mockReset().mockRejectedValue(new Error('down'));
     renderLedger('/app/transactions?category=Food%20%26%20Dining&from=2026-09-01&to=2026-09-30');
 
-    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(await screen.findByText('Amazon Pay')).toBeInTheDocument();
     expect(listRequests().length).toBeGreaterThan(0);
     expect(listRequests().every((r) => r.categoryId === undefined && r.dateFrom === '2026-09-01')).toBe(true);
   });
@@ -1503,7 +1569,7 @@ describe('Ledger — a link from Reports (category and date range)', () => {
     vi.mocked(categoriesApi.list).mockReset().mockReturnValue(new Promise((res) => { resolveCategories = res as never; }));
     renderLedger('/app/transactions?from=2026-09-14&to=2026-09-14');
 
-    expect(await screen.findByText('Amazon')).toBeInTheDocument();
+    expect(await screen.findByText('Amazon Pay')).toBeInTheDocument();
     expect(listRequests()[0]).toMatchObject({ dateFrom: '2026-09-14', dateTo: '2026-09-14' });
     resolveCategories([] as never);
   });
@@ -1588,7 +1654,7 @@ describe('Ledger — money with people', () => {
       content: [txn({ reconciliationStatus: 'TRANSFER' })], page: 0, size: 10, totalElements: 1, totalPages: 1,
     });
     renderWithWhere();
-    await screen.findByText('Amazon');
+    await screen.findByText('Amazon Pay');
     expect(screen.queryByRole('button', { name: /^Money with people/ })).toBeNull();
   });
 });

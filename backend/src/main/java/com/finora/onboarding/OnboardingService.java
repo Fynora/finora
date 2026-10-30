@@ -5,6 +5,7 @@ import com.finora.exception.ApiException;
 import com.finora.goals.GoalRepository;
 import com.finora.repository.BudgetRepository;
 import com.finora.repository.ImportJobRepository;
+import com.finora.repository.StatementImportRepository;
 import com.finora.repository.UserRepository;
 import com.finora.util.EnumParsing;
 import org.springframework.data.domain.PageRequest;
@@ -30,17 +31,19 @@ public class OnboardingService {
     private final ImportJobRepository importJobRepository;
     private final BudgetRepository budgetRepository;
     private final GoalRepository goalRepository;
+    private final StatementImportRepository statementImportRepository;
 
     public OnboardingService(UserRepository userRepository, UserFinancialFocusRepository focusRepository,
                               UserChecklistEventRepository checklistEventRepository,
                               ImportJobRepository importJobRepository, BudgetRepository budgetRepository,
-                              GoalRepository goalRepository) {
+                              GoalRepository goalRepository, StatementImportRepository statementImportRepository) {
         this.userRepository = userRepository;
         this.focusRepository = focusRepository;
         this.checklistEventRepository = checklistEventRepository;
         this.importJobRepository = importJobRepository;
         this.budgetRepository = budgetRepository;
         this.goalRepository = goalRepository;
+        this.statementImportRepository = statementImportRepository;
     }
 
     private User requireUser(UUID userId) {
@@ -134,8 +137,13 @@ public class OnboardingService {
         boolean profileComplete = user.getFullName() != null && !user.getFullName().isBlank()
                 && user.isEmailVerified()
                 && (user.getPhoneNumber() == null || user.isPhoneVerified());
+        // Either import path counts: the background job leaves an ImportJob, the direct one
+        // (/import/csv/stage then confirm, which the apps also use) only the statement itself.
+        // Measured in production (2026-10-30): 8 of the 16 users with a statement had no ImportJob,
+        // so their "Start with one statement" step stayed unticked after they had done it.
         boolean importedStatement = !importJobRepository
-                .findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, 1)).isEmpty();
+                .findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, 1)).isEmpty()
+                || statementImportRepository.countByUserId(userId) > 0;
         boolean createdBudget = !budgetRepository.findByUserId(userId).isEmpty();
         boolean createdGoal = !goalRepository.findByUserId(userId).isEmpty();
 

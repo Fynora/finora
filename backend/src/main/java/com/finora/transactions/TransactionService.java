@@ -258,6 +258,37 @@ public class TransactionService {
      * divides balance by creditLimit and expects both to be positive magnitudes — so a purchase
      * (EXPENSE) increases what's owed and a payment/credit (INCOME) reduces it.
      */
+    /** Widest value transactions.merchant holds (V1). */
+    private static final int MAX_MERCHANT_LENGTH = 255;
+
+    /** A bank narration's marks: a separator a statement prints between fields, or a reference. */
+    private static final java.util.regex.Pattern NARRATION_MARKS = java.util.regex.Pattern.compile("[/:]|\\d{4,}");
+
+    /**
+     * The short name of a transaction someone typed in. Plain words are the user's own name for it
+     * and keep every word: the narration rule strips rail words, so "Transfer from ICICI" was saved
+     * as "from icici" and every screen showed that. Lower case, as every short name is (refund
+     * matching and recurring detection compare them); the apps take the capitals back from the
+     * description. A pasted bank narration (a separator or a reference number in it) still goes
+     * through the rule, as does interest, which keeps its one label ({@link CategoryRules#INTEREST_LABEL}).
+     */
+    static String manualEntryLabel(String description, Transaction.Type type) {
+        String label = CategoryRules.extractMerchantLabel(description, type);
+        if (description == null || description.isBlank() || CategoryRules.INTEREST_LABEL.equals(label)
+                || NARRATION_MARKS.matcher(description).find()) {
+            return label;
+        }
+        String typed = description.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+        return typed.length() <= MAX_MERCHANT_LENGTH ? typed : typed.substring(0, MAX_MERCHANT_LENGTH).trim();
+    }
+
+    /** Whether {@code categoryName} names the category the row already has. */
+    private boolean isCurrentCategory(UUID userId, Transaction t, String categoryName) {
+        if (t.getCategoryId() == null || categoryName == null) return false;
+        String current = categoryNamesById(userId).get(t.getCategoryId());
+        return current != null && current.equalsIgnoreCase(categoryName.trim());
+    }
+
     private BigDecimal balanceDelta(Account account, Transaction.Type type, BigDecimal amount) {
         // Delegates to AccountBalanceConvention, which now owns this rule. It used to live here as
         // a private method, which is precisely why ImportService could not reuse it and shipped
@@ -362,7 +393,7 @@ public class TransactionService {
         requireAmountWithinBounds(req.amount());
         t.setAmount(req.amount());
         t.setTxnType(com.finora.util.EnumParsing.parse(Transaction.Type.class, req.type(), "type"));
-        t.setMerchant(CategoryRules.extractMerchantLabel(req.description(), t.getTxnType()));
+        t.setMerchant(manualEntryLabel(req.description(), t.getTxnType()));
         t.setTags(req.tags());
         t.setSource(Transaction.Source.MANUAL);
         t.setIdempotencyKey(idempotencyKey);
@@ -682,7 +713,10 @@ public class TransactionService {
 
         Category category = null;
         List<Transaction> similar = List.of();
-        if (req.categoryName() != null) {
+        // The edit dialogs send the category with every save. Only a category the user changed (or
+        // asked to apply to similar rows) is their choice: an untouched one keeps its source and
+        // its review flag, instead of an amount correction pinning the engine's guess as chosen.
+        if (req.categoryName() != null && (req.applyTo() != null || !isCurrentCategory(userId, t, req.categoryName()))) {
             category = categorizationService.resolveOrCreateCategory(userId, req.categoryName());
             similar = applyChosenCategory(userId, t, category, req.applyTo());
         }

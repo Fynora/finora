@@ -702,9 +702,10 @@ describe('Dashboard — Recent Transactions icon/color', () => {
     } as any);
     renderDashboard();
 
-    expect(await screen.findByText('acme securities pvt lt')).toBeInTheDocument();
+    // Titled as mobile titles it: the payee as printed, capitals softened.
+    expect(await screen.findByText('Acme Securities Pvt Lt')).toBeInTheDocument();
     expect(screen.queryByText(/NEFT_IN:/)).not.toBeInTheDocument();
-    expect(screen.getByText('CASH DEPOSIT AT BRANCH')).toBeInTheDocument();
+    expect(screen.getByText('Cash Deposit At Branch')).toBeInTheDocument();
   });
 
   it('colors an INCOME row from the theme-reactive success token, not a fixed literal', async () => {

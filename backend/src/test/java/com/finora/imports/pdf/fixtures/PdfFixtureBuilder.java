@@ -493,6 +493,52 @@ public final class PdfFixtureBuilder {
     }
 
     /**
+     * {@link #buildChainedReverseChronologicalRunningBalanceSample}'s rows printed oldest-first, as
+     * most banks print them: the same transactions, so both must stage the same sequence.
+     */
+    public static byte[] buildChainedOldestFirstRunningBalanceSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 230f, 320f, 400f, 480f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Branch Name: SAMPLETOWN,MAIN BAZAR")
+                .line("IFSC: PUNB0999999")
+                .blankLine()
+                .row(col, "Date", "Instrument ID", "Amount(INR)", "Type (DR/CR)", "Balance", "Remarks")
+                .row(col, "18/07/2026", "", "1057.0", "CR", "12747.27", "UPI/CR/Aman Kum")
+                .row(col, "19/07/2026", "", "1600.0", "DR", "11147.27", "UPI/DR/Devarshi")
+                .row(col, "25/07/2026", "", "9.7", "DR", "11137.57", "UPI/DR/Indian R")
+                .row(col, "25/07/2026", "", "145.0", "DR", "10992.57", "UPI/DR/Mohd Ali")
+                .row(col, "25/07/2026", "", "120.0", "DR", "10872.57", "UPI/DR/Mr Aman")
+                .row(col, "26/07/2026", "", "377.71", "DR", "10494.86", "UPI/DR/Lonkar P")
+                .blankLine()
+                .line("***Generated through PNB ONE***");
+
+        return render(List.of(page));
+    }
+
+    /**
+     * A newest-first statement whose every transaction falls on ONE day: no change of date says which
+     * way it is printed, so only its running balance can. Printed newest-first, the balance after
+     * each row is the balance BEFORE the row printed above it.
+     */
+    public static byte[] buildSingleDayNewestFirstRunningBalanceSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 130f, 230f, 320f, 400f, 480f};
+
+        PageBuilder page = new PageBuilder();
+        page.line("Branch Name: SAMPLETOWN,MAIN BAZAR")
+                .line("IFSC: PUNB0999999")
+                .blankLine()
+                .row(col, "Date", "Instrument ID", "Amount(INR)", "Type (DR/CR)", "Balance", "Remarks")
+                .row(col, "25/07/2026", "", "120.0", "DR", "10872.57", "UPI/DR/Mr Aman")
+                .row(col, "25/07/2026", "", "145.0", "DR", "10992.57", "UPI/DR/Mohd Ali")
+                .row(col, "25/07/2026", "", "500.0", "CR", "11137.57", "UPI/CR/Sample Payer")
+                .blankLine()
+                .line("***Generated through PNB ONE***");
+
+        return render(List.of(page));
+    }
+
+    /**
      * A savings-account statement layout with both a running balance AND a populated reference
      * number column on every row -- Phase 1 "capture facts"
      * (docs/engineering/financial-document-intelligence-principles.md), modeled on a real Canara

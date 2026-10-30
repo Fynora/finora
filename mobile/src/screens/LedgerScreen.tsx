@@ -36,7 +36,6 @@ import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { hapticError, hapticImpact, hapticSuccess } from '../lib/haptics';
 import { useDashboardKpis } from '../lib/useDashboardKpis';
-import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
 import { buildDayPieces, mergePagesById, rowTitle, type DayPiece } from '../lib/ledgerRows';
 import { useToast } from '../context/ToastContext';
@@ -120,6 +119,24 @@ export function statusBadges(t: Transaction): { label: string; tone: 'warning' |
 // and this screen's own tests keep their import.
 export { groupTransactionsByDay } from '../lib/ledgerRows';
 
+/** How long typing has to pause before the list searches for what was typed. */
+export const SEARCH_DEBOUNCE_MS = 300;
+
+/**
+ * Whether two Ledger searches ask for the same thing apart from the typed search. While a newly
+ * typed search loads, the list keeps the results it already shows only when this holds; any other
+ * change (a type, a status, a date range, a filter arriving from another screen) is a different
+ * list, so it shows its loading state rather than the old rows.
+ */
+export function differsOnlyInKeyword(a: TransactionFilters, b: TransactionFilters): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof TransactionFilters)[]);
+  keys.delete('keyword');
+  for (const key of keys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 export function LedgerScreen() {
   // D3 (Track D security cleanup). Every row here is a real transaction description and amount --
   // the same screenshot/screen-recording exposure Dashboard, Accounts, and Statement History
@@ -139,8 +156,21 @@ export function LedgerScreen() {
   // scrolled. The error used to be a line in the list's header, out of sight by the time a row far
   // down the list was changed, and a change that worked said nothing.
   const { showToast } = useToast();
-  const [keywordInput, setKeywordInput] = useState('');
-  const debouncedKeyword = useDebouncedValue(keywordInput, 300);
+  // The search box holds what is typed (LedgerControls' SearchField), so a keystroke renders the
+  // box alone: held here, every keystroke rendered this whole screen, its list and its sheets, and
+  // typing stalled on a slow phone (measured on a 2-core Android emulator). This screen keeps only
+  // the search to run, which the box hands over once typing pauses, so a request is not fired per
+  // keystroke either.
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  // What the search box shows when it is set from here rather than typed: a search arriving from
+  // another screen, or a clear. A new version remounts the controls with that text, which also
+  // drops any typing still waiting to be searched.
+  const [keywordSeed, setKeywordSeed] = useState({ text: '', version: 0 });
+  /** Puts `text` in the search box and searches for it at once. */
+  function setKeyword(text: string) {
+    setKeywordSeed((seed) => ({ text, version: seed.version + 1 }));
+    setDebouncedKeyword(text);
+  }
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   // Phase 4 -- backs the server's own `status` search param (TransactionController.search),
   // unused by any client until now. 'ALL' means no filter, same convention as typeFilter above.
@@ -221,15 +251,12 @@ export function LedgerScreen() {
   // screen's, to clear), and the stale params would simply reapply on the next render.
   const [activeDrillThrough, setActiveDrillThrough] = useState<LedgerDrillThroughFilters | null>(null);
   const [consumedNonce, setConsumedNonce] = useState<number | null>(null);
-  // A keyword arriving via drill-through (Insights' Top Merchant) must filter immediately, not
-  // wait out useDebouncedValue's 300ms delay below -- that delay exists to avoid firing a
-  // request per keystroke while a human types, which doesn't apply to a single programmatic set.
-  // Without this, the search box would show the new keyword instantly (keywordInput updates
-  // synchronously) while the actual results stayed unfiltered for up to 300ms -- "the filter says
-  // one thing, the results say another", the exact bug class the drill-through reset just below
-  // already exists to prevent for manualDateFrom/manualDateTo. Wins over the debounced value only
-  // until the user edits the search box by hand (cleared in LedgerControls' onKeywordChange below),
-  // same "wins until superseded" shape as manualDateFrom/manualDateTo.
+  // A keyword arriving via drill-through (Insights' Top Merchant). It filters at once, with no
+  // typing pause to wait for (setKeyword applies it immediately too): the search box and the
+  // results must never say different things. Wins over the typed search only until the user edits
+  // the search box by hand (cleared in onKeywordChange below), same "wins until superseded" shape
+  // as manualDateFrom/manualDateTo, and marks the box as still holding the arrived search, which
+  // clearing the arrived filter then clears too.
   const [drillThroughKeyword, setDrillThroughKeyword] = useState<string | null>(null);
   const incomingFilters = route.params?.filters;
   // Adjusted during render, not in an effect -- React's documented pattern for "reset state when
@@ -256,7 +283,7 @@ export function LedgerScreen() {
     // would otherwise silently AND itself onto a fresh, unrelated category/account drill-through,
     // narrowing the results to something that looks broken (e.g. "Dining" plus a leftover
     // merchant keyword matching almost nothing) instead of showing what was actually asked for.
-    setKeywordInput(incomingFilters.keyword ?? '');
+    setKeyword(incomingFilters.keyword ?? '');
     setDrillThroughKeyword(incomingFilters.keyword ?? null);
   }
 
@@ -316,11 +343,20 @@ export function LedgerScreen() {
    */
   const {
     data, isLoading: searchLoading, isError, isFetching, isFetchingNextPage, hasNextPage, fetchNextPage, refetch,
+    isPlaceholderData,
   } = useInfiniteQuery({
     queryKey: ['transactions', filters],
     queryFn: ({ pageParam }) => transactionsApi.search({ ...filters, ...ledgerPageRequest(pageParam) }),
     enabled: !waitingForCategory,
     initialPageParam: 0 as LedgerPageParam,
+    // While a newly typed search loads, the rows already on screen stay, as the web Ledger's do. The
+    // list used to drop to its loading state and then build every row again once the results came,
+    // a long stall on a slow phone each time typing paused. Only a change of the typed search keeps
+    // them: see differsOnlyInKeyword.
+    placeholderData: (previous, previousQuery) => {
+      const previousFilters = previousQuery?.queryKey[1] as TransactionFilters | undefined;
+      return previousFilters && differsOnlyInKeyword(previousFilters, filters) ? previous : undefined;
+    },
     // The backend's PagedResponse carries a real totalPages, so "is there more" is answered by
     // the server rather than inferred from whether a page came back full.
     getNextPageParam: getLedgerNextPageParam,
@@ -472,7 +508,7 @@ export function LedgerScreen() {
 
   /** The empty state's "Clear filters": every filter off, the arrived one and the search included. */
   function clearAllFilters() {
-    setKeywordInput('');
+    setKeyword('');
     setDrillThroughKeyword(null);
     setTypeFilter('ALL');
     setStatusFilter('ALL');
@@ -510,9 +546,21 @@ export function LedgerScreen() {
     // (drillThroughKeyword is nulled the moment the person types over it): their own typing is
     // never cleared by this.
     if (drillThroughKeyword !== null) {
-      setKeywordInput('');
+      setKeyword('');
       setDrillThroughKeyword(null);
     }
+  }
+
+  // Each keystroke in the search box. It renders this screen only when it replaces a search that
+  // arrived from another screen; the typed search itself comes in through onKeywordSettled.
+  function onKeywordChange() {
+    // Real typing supersedes a keyword that arrived from another screen the moment it happens --
+    // same "wins until superseded" shape as the manual date range.
+    if (drillThroughKeyword !== null) setDrillThroughKeyword(null);
+    // An arrived filter that carried a search ("Swiggy · 12 Oct") is named by its chip; once the
+    // search is changed or cleared the chip no longer describes the list, so it goes too. One that
+    // carried none (a category, a month) still holds and stays.
+    if (activeDrillThrough?.keyword) setActiveDrillThrough(null);
   }
 
   // One chip per filter that is on and not visible in the controls themselves. An arriving filter
@@ -563,7 +611,9 @@ export function LedgerScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         onEndReached={() => {
-          if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+          // Not while the rows are the previous search's, kept on screen while a new one loads:
+          // their next page belongs to that search.
+          if (hasNextPage && !isFetchingNextPage && !isPlaceholderData) void fetchNextPage();
         }}
         onEndReachedThreshold={0.4}
         refreshControl={<AppRefreshControl refreshing={isFetching && !isFetchingNextPage} onRefresh={() => void refetch()} tintColor={c.primary} />}
@@ -582,17 +632,11 @@ export function LedgerScreen() {
               />
             ) : null}
             <LedgerControls
-              keyword={keywordInput}
-              onKeywordChange={(text) => {
-                setKeywordInput(text);
-                // Real typing supersedes a keyword that arrived from another screen the moment it
-                // happens -- same "wins until superseded" shape as the manual date range.
-                setDrillThroughKeyword(null);
-                // An arrived filter that carried a search ("Swiggy · 12 Oct") is named by its chip;
-                // once the search is changed or cleared the chip no longer describes the list, so
-                // it goes too. One that carried none (a category, a month) still holds and stays.
-                if (activeDrillThrough?.keyword) setActiveDrillThrough(null);
-              }}
+              key={keywordSeed.version}
+              initialKeyword={keywordSeed.text}
+              onKeywordChange={onKeywordChange}
+              onKeywordSettled={setDebouncedKeyword}
+              settleMs={SEARCH_DEBOUNCE_MS}
               searchRef={searchRef}
               typeFilter={typeFilter}
               onTypeFilter={setTypeFilter}

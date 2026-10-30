@@ -5,9 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import {
-  DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, getLedgerNextPageParam, groupTransactionsByDay,
-  ledgerPageRequest,
+  DEFAULT_LEDGER_FILTERS, LEDGER_PAGE_SIZE, LedgerScreen, SEARCH_DEBOUNCE_MS, differsOnlyInKeyword,
+  getLedgerNextPageParam, groupTransactionsByDay, ledgerPageRequest,
 } from './LedgerScreen';
+import * as titleBar from '../components/ledger/LedgerTitleBar';
 import { categoriesApi, dashboardApi, onboardingApi, peopleApi, transactionsApi } from '../api/endpoints';
 import { expectHaptics } from '../test/haptics';
 import { dayHeading } from '../lib/ledgerRows';
@@ -2439,5 +2440,114 @@ describe('empty states that offer the next step', () => {
     fireEvent.press(screen.getByLabelText('Filter: expense'));
     await screen.findByText('No transactions match these filters.');
     expect(screen.queryByRole('button', { name: 'Import a statement' })).toBeNull();
+  });
+});
+
+// Typing in the search box stalled a slow Android phone for 100-400 ms a keystroke: each keystroke
+// rendered this whole screen, and each pause in typing dropped the list to its loading state and
+// built every row again when the results came.
+describe('typing a search', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('renders only the search box on a keystroke, and the screen once typing pauses', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    const titleRenders = jest.spyOn(titleBar, 'LedgerTitleBlock');
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    transactions.search.mockClear();
+
+    const box = screen.getByLabelText('Search transactions');
+    fireEvent.changeText(box, 'g');
+    fireEvent.changeText(box, 'gr');
+    fireEvent.changeText(box, 'gro');
+
+    expect(screen.getByDisplayValue('gro')).toBeTruthy();
+    expect(titleRenders).not.toHaveBeenCalled();
+    await act(async () => { await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS - 1); });
+    expect(transactions.search).not.toHaveBeenCalled();
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(1); });
+    expect(titleRenders).toHaveBeenCalled();
+    expect(transactions.search).toHaveBeenCalledTimes(1);
+    expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'gro' }));
+    titleRenders.mockRestore();
+  });
+
+  it('keeps the rows on screen while a typed search loads, then shows its results', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    let resolveSearch: (value: unknown) => void = () => {};
+    transactions.search.mockReturnValue(new Promise((resolve) => { resolveSearch = resolve as typeof resolveSearch; }));
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'rent');
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'rent' })));
+
+    expect(screen.getByText('Grocery run')).toBeTruthy();
+    expect(screen.queryAllByLabelText('Loading')).toHaveLength(0);
+
+    await act(async () => resolveSearch(page([txn({ id: 't-2', description: 'Rent October' })])));
+    expect(await screen.findByText('Rent October')).toBeTruthy();
+    expect(screen.queryByText('Grocery run')).toBeNull();
+  });
+
+  it('still shows the loading state for any change other than the typed search', async () => {
+    transactions.search.mockResolvedValue(page([txn()]) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    transactions.search.mockReturnValue(never());
+
+    fireEvent.press(screen.getByLabelText('Filter: income'));
+
+    await waitFor(() => expect(screen.queryByText('Grocery run')).toBeNull());
+    expectSkeletonNotSpinner();
+  });
+
+  it('does not page on from rows kept from the previous search', async () => {
+    transactions.search.mockResolvedValue(page([txn()], { totalPages: 3, totalElements: 60 }) as never);
+    renderScreen();
+    await screen.findByText('Grocery run');
+    transactions.search.mockReturnValue(never());
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'rent');
+    await waitFor(() => expect(transactions.search).toHaveBeenCalledWith(expect.objectContaining({ keyword: 'rent' })));
+    transactions.search.mockClear();
+
+    fireEvent(screen.getByTestId('ledger-list'), 'onEndReached', { distanceFromEnd: 0 });
+
+    expect(transactions.search).not.toHaveBeenCalled();
+  });
+
+  it('searches for a cleared box at once when Clear filters is pressed, with no typing still waiting', async () => {
+    transactions.search.mockResolvedValue(page([]) as never);
+    renderScreen();
+    await screen.findByText('No transactions yet. Import a statement to get started.');
+    fireEvent.press(screen.getByLabelText('Filter: expense'));
+    await screen.findByText('No transactions match these filters.');
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'rent');
+    transactions.search.mockClear();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Clear filters' }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS * 2); });
+
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+    expect(transactions.search).toHaveBeenCalled();
+    for (const [request] of transactions.search.mock.calls) {
+      expect(request).toEqual(expect.objectContaining({ keyword: undefined, type: undefined }));
+    }
+  });
+});
+
+describe('differsOnlyInKeyword', () => {
+  const base = { ...DEFAULT_LEDGER_FILTERS, type: 'EXPENSE' };
+  it('holds when only the typed search differs', () => {
+    expect(differsOnlyInKeyword({ ...base, keyword: 'a' }, { ...base, keyword: 'ab' })).toBe(true);
+    expect(differsOnlyInKeyword(base, { ...base, keyword: 'ab' })).toBe(true);
+  });
+  it('fails for any other difference, including one filter present on one side only', () => {
+    expect(differsOnlyInKeyword(base, { ...base, type: 'INCOME' })).toBe(false);
+    expect(differsOnlyInKeyword(base, { ...base, categoryId: 'c-1' })).toBe(false);
+    expect(differsOnlyInKeyword({ ...base, dateFrom: '2026-10-01' }, base)).toBe(false);
   });
 });

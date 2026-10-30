@@ -5,12 +5,15 @@ import { LedgerControls, type ActiveFilterChip } from './LedgerControls';
 import { ThemeProvider } from '../../theme';
 import { expectHaptics } from '../../test/haptics';
 
-const handlers = { onKeywordChange: jest.fn(), onTypeFilter: jest.fn(), onOpenFilters: jest.fn() };
+const handlers = {
+  onKeywordChange: jest.fn(), onKeywordSettled: jest.fn(), onTypeFilter: jest.fn(), onOpenFilters: jest.fn(),
+};
 function show(over: Partial<Parameters<typeof LedgerControls>[0]> = {}) {
   return render(
     <ThemeProvider>
       <LedgerControls
-        keyword=""
+        initialKeyword=""
+        settleMs={300}
         searchRef={createRef<TextInput>()}
         typeFilter="ALL"
         filtersOn={0}
@@ -26,12 +29,50 @@ beforeEach(() => jest.clearAllMocks());
 
 describe('LedgerControls', () => {
   it('keeps the search field, its placeholder and its spoken name', () => {
-    show({ keyword: 'rent' });
+    show({ initialKeyword: 'rent' });
     const field = screen.getByLabelText('Search transactions');
     expect(field.props.value).toBe('rent');
     expect(field.props.placeholder).toBe('Search description, merchant, bank…');
     fireEvent.changeText(field, 'rent 2');
     expect(handlers.onKeywordChange).toHaveBeenCalledWith('rent 2');
+  });
+
+  it('hands over the search once typing pauses, once, with what was typed last', () => {
+    jest.useFakeTimers();
+    show();
+    const field = screen.getByLabelText('Search transactions');
+    fireEvent.changeText(field, 'r');
+    fireEvent.changeText(field, 're');
+    jest.advanceTimersByTime(299);
+    fireEvent.changeText(field, 'ren');
+    jest.advanceTimersByTime(299);
+    expect(handlers.onKeywordSettled).not.toHaveBeenCalled();
+    expect(handlers.onKeywordChange).toHaveBeenCalledTimes(3);
+
+    jest.advanceTimersByTime(1);
+    expect(handlers.onKeywordSettled).toHaveBeenCalledTimes(1);
+    expect(handlers.onKeywordSettled).toHaveBeenCalledWith('ren');
+    jest.useRealTimers();
+  });
+
+  it('hands over an emptied box once the clear button is pressed', () => {
+    jest.useFakeTimers();
+    show({ initialKeyword: 'rent' });
+    fireEvent.press(screen.getByLabelText('Clear search'));
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+    jest.advanceTimersByTime(300);
+    expect(handlers.onKeywordSettled).toHaveBeenCalledWith('');
+    jest.useRealTimers();
+  });
+
+  it('drops a search still waiting when the controls go away', () => {
+    jest.useFakeTimers();
+    const view = show();
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'rent');
+    view.unmount();
+    jest.advanceTimersByTime(1000);
+    expect(handlers.onKeywordSettled).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('offers All, Income and Expense as one switch, saying which is selected', () => {

@@ -305,7 +305,9 @@ export interface DashboardSummary {
   // response shape.
   healthScore: number | null;
   healthLabel: string | null;
-  healthBreakdown: Record<string, number>;
+  /** Each part's 0-100 score; null for a part that cannot be measured yet (left out of
+   *  healthScore -- healthBreakdownDetail says why). */
+  healthBreakdown: Record<string, number | null>;
   // The real quantity behind each healthBreakdown entry (web only so far, same reason as
   // healthScore above). Mirrors frontend/src/types/index.ts.
   healthBreakdownDetail: Record<string, string>;

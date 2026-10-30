@@ -21,6 +21,11 @@ public record DashboardSummaryDto(
         Double netDeltaPct,
         Integer healthScore,
         String healthLabel,
+        /** Each part's 0-100 score, or null for a part that cannot be measured yet (Spend
+         *  Consistency needs two full calendar months, Cash Flow Stability one, the Savings Rate
+         *  counted income, the Emergency Fund recorded expenses). A null part is left out of
+         *  healthScore and its weight shared among the measured parts; healthBreakdownDetail says
+         *  why it is missing. */
         Map<String, Double> healthBreakdown,
         /*
          * The real quantity behind each entry in healthBreakdown, keyed by the same component

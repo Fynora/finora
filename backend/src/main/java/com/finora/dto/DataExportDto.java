@@ -205,8 +205,8 @@ public final class DataExportDto {
      *  about them, not just what the live Health Score card currently displays). */
     public record HealthScoreSnapshotExportDto(
             UUID id, String yearMonth, int overallScore, String label,
-            double savingsRateScore, double debtScore, double emergencyFundScore,
-            double spendConsistencyScore, double cashFlowStabilityScore, Instant computedAt
+            Double savingsRateScore, double debtScore, Double emergencyFundScore,
+            Double spendConsistencyScore, Double cashFlowStabilityScore, Instant computedAt
     ) {
         public static HealthScoreSnapshotExportDto from(HealthScoreSnapshot s) {
             return new HealthScoreSnapshotExportDto(s.getId(), s.getYearMonth(), s.getOverallScore(), s.getLabel(),

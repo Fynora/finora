@@ -305,7 +305,8 @@ class DashboardServiceTest {
 
         DashboardSummaryDto result = dashboardService.summarize(userId);
 
-        assertThat(result.healthBreakdown().values()).allMatch(v -> v >= 80);
+        // One day of data: consistency and cash flow cannot be measured (null); every part that can clears 80.
+        assertThat(result.healthBreakdown().values()).allMatch(v -> v == null || v >= 80);
         assertThat(result.healthTopOpportunityFactor()).isNull();
         assertThat(result.healthTopOpportunityPotentialGain()).isNull();
     }
@@ -1299,8 +1300,8 @@ class DashboardServiceTest {
         // were compared as if both were full months, the sliver's tiny total vs. July's much larger
         // total reads as wildly inconsistent (this is exactly how the bug produced an 8% Spend
         // Consistency score for genuinely steady spending). With the partial boundary months
-        // excluded from the comparison, only 0 full months remain, so both scores fall through to
-        // their neutral thin-data defaults (100) rather than judge on the lopsided partial buckets.
+        // excluded from the comparison, only 0 full months remain, so neither can be measured: both
+        // are left out of the score (null) rather than judged on the lopsided partial buckets.
         List<Transaction> txns = new java.util.ArrayList<>();
         LocalDate date = LocalDate.of(2026, 6, 26);
         LocalDate end = LocalDate.of(2026, 7, 26);
@@ -1313,8 +1314,8 @@ class DashboardServiceTest {
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
-        assertThat(summary.healthBreakdown().get("Spend Consistency")).isEqualTo(100.0);
-        assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isEqualTo(100.0);
+        assertThat(summary.healthBreakdown().get("Spend Consistency")).isNull();
+        assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isNull();
     }
 
     @Test
@@ -1341,12 +1342,12 @@ class DashboardServiceTest {
     }
 
     @Test
-    @DisplayName("a single PARTIAL calendar month (all data in one bucket) scores neutral, not on the partial data")
-    void summarize_onePartialMonth_scoresNeutral() {
+    @DisplayName("a single PARTIAL calendar month leaves consistency and cash flow unmeasured, out of the score")
+    void summarize_onePartialMonth_leavesConsistencyAndCashFlowUnmeasured() {
         // All of the user's history falls inside one calendar month, but doesn't span it fully
         // (starts on the 10th, not the 1st) -- e.g. someone who signed up mid-month. There's no full
-        // month to compare against, so both scores must fall through to the neutral default rather
-        // than judge on a fragment.
+        // month to compare against, so neither is measured: both are left out of the score (null)
+        // rather than judged on a fragment -- or, as they used to be, scored a free 100.
         List<Transaction> txns = new java.util.ArrayList<>();
         for (LocalDate d = LocalDate.of(2026, 7, 10); !d.isAfter(LocalDate.of(2026, 7, 20)); d = d.plusDays(1)) {
             txns.add(txn(new BigDecimal("5000.00"), Transaction.Type.EXPENSE, d, Transaction.ReconciliationStatus.OK));
@@ -1355,15 +1356,21 @@ class DashboardServiceTest {
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
-        assertThat(summary.healthBreakdown().get("Spend Consistency")).isEqualTo(100.0);
-        assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isEqualTo(100.0);
+        assertThat(summary.healthBreakdown().get("Spend Consistency")).isNull();
+        assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isNull();
+        // No income at all: the savings rate cannot be measured either, so the score is the
+        // weighted average of the two parts that can -- Debt Score and the Emergency Fund.
+        assertThat(summary.healthBreakdown().get("Savings Rate")).isNull();
+        double debt = summary.healthBreakdown().get("Debt Score");
+        double emergency = summary.healthBreakdown().get("Emergency Fund");
+        assertThat(summary.healthScore()).isEqualTo((int) Math.round((debt * 0.20 + emergency * 0.25) / 0.45));
     }
 
     @Test
-    @DisplayName("a single FULL calendar month gets a real (non-neutral) cash-flow reading, and a neutral consistency reading")
+    @DisplayName("a single FULL calendar month gets a real cash-flow reading, and leaves consistency unmeasured")
     void summarize_oneFullMonth_cashFlowIsRealButConsistencyIsNeutral() {
         // One data point can't say anything about MONTH-TO-MONTH consistency (that needs at least
-        // two full months to compare), so consistencyScore stays at the neutral default. But cash
+        // two full months to compare), so consistency is left out of the score (null). But cash
         // flow for that one full month is a directly known fact, not a guess -- if the whole month's
         // income covered its expenses, that's real, verified information, not a thin-data artifact.
         // So unlike consistency, cashFlowScore for a single full month is NOT forced to neutral --
@@ -1377,7 +1384,7 @@ class DashboardServiceTest {
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
-        assertThat(summary.healthBreakdown().get("Spend Consistency")).isEqualTo(100.0);
+        assertThat(summary.healthBreakdown().get("Spend Consistency")).isNull();
         assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isEqualTo(100.0); // income > expense all July
     }
 
@@ -1401,8 +1408,9 @@ class DashboardServiceTest {
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
         // If July's partial overspend leaked in, consistency/cash-flow would collapse. It doesn't:
-        // June alone (steady, income > expense) still reads as a single full, positive month.
-        assertThat(summary.healthBreakdown().get("Spend Consistency")).isEqualTo(100.0);
+        // June alone (steady, income > expense) still reads as a single full, positive month, and
+        // one full month is not enough to measure consistency.
+        assertThat(summary.healthBreakdown().get("Spend Consistency")).isNull();
         assertThat(summary.healthBreakdown().get("Cash Flow Stability")).isEqualTo(100.0);
     }
 

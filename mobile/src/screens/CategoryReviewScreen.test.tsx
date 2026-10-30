@@ -8,6 +8,7 @@ import { categoriesApi, transactionsApi } from '../api/endpoints';
 import { ToastProvider } from '../context/ToastContext';
 import { fmtDate } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
+import { light } from '../theme/palette';
 import type { CounterpartyGroup, MerchantGroup, Transaction } from '../types';
 
 jest.mock('../api/endpoints', () => ({
@@ -777,6 +778,69 @@ describe('what a save says', () => {
   });
 });
 
+// The web review has always listed a merchant group's payments; mobile showed only "3 transactions",
+// so a whole merchant was filed without seeing which payments were in it.
+describe("a merchant's payments", () => {
+  const withPayments = () => group({
+    transactionIds: ['t-9', 't-8', 't-7'],
+    transactions: [
+      { id: 't-9', date: '2026-08-02', description: 'UPI/DR/100000000001/SWIGGY/YESB/swiggy@ybl', amount: 450, type: 'EXPENSE' },
+      { id: 't-8', date: '2026-08-09', description: 'UPI/DR/100000000002/SWIGGY/YESB/swiggy@ybl', amount: 320, type: 'EXPENSE' },
+    ],
+  });
+
+  it('shows and hides each payment\'s date and amount, without opening the picker', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([withPayments()]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Show 2 payments'));
+    expect(screen.getByText(fmtDate('2026-08-02') ?? '')).toBeTruthy();
+    expect(screen.getByText('-₹450')).toBeTruthy();
+    expect(screen.getByText(fmtDate('2026-08-09') ?? '')).toBeTruthy();
+    expect(screen.getByText('-₹320')).toBeTruthy();
+    // Not the bank's narration: the group's title already names the merchant, and the narration
+    // only repeated it with card digits and bank codes (the owner's choice).
+    expect(screen.queryByText('UPI/DR/100000000001/SWIGGY/YESB/swiggy@ybl')).toBeNull();
+    // The group has three; the server sends a preview of two.
+    expect(screen.getByText('and 1 more')).toBeTruthy();
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(false);
+    fireEvent.press(screen.getByText('Hide payments'));
+    expect(screen.queryByText(fmtDate('2026-08-02') ?? '')).toBeNull();
+  });
+
+  it('keeps "Show payments" outside the row button, and the row still opens the picker', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([withPayments()]);
+    renderScreen();
+    const showButton = await screen.findByRole('button', { name: 'Show 2 payments' });
+    const rowButton = screen.getByLabelText('Swiggy, 3 transactions');
+    expect(within(rowButton).queryByText('Show 2 payments')).toBeNull();
+    fireEvent.press(showButton);
+    expect(within(rowButton).queryByText(fmtDate('2026-08-02') ?? '')).toBeNull();
+    fireEvent.press(rowButton);
+    expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(true);
+  });
+
+  it('colours each amount as money out or money in, as the Ledger does', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group({
+      transactionIds: ['t-9', 't-8'],
+      transactions: [
+        { id: 't-9', date: '2026-08-02', description: 'Card purchase', amount: 450, type: 'EXPENSE' },
+        { id: 't-8', date: '2026-08-09', description: 'Card refund', amount: 120, type: 'INCOME' },
+      ],
+    })]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Show 2 payments'));
+    expect(screen.getByText('-₹450')).toHaveStyle({ color: light.dangerInk });
+    expect(screen.getByText('+₹120')).toHaveStyle({ color: light.successInk });
+  });
+
+  it('offers no "Show payments" when the group carries none', async () => {
+    transactions.needsReviewGroups.mockResolvedValue([group()]);
+    renderScreen();
+    await screen.findByText('Swiggy');
+    expect(screen.queryByText(/Show \d+ payment/)).toBeNull();
+  });
+});
+
 // "Ravi Kumar · 2 payments" names no payment. The group already carries them, so they can be seen
 // before a category is chosen for all of them.
 describe("a person's payments", () => {
@@ -784,11 +848,15 @@ describe("a person's payments", () => {
     transactions.needsReviewByCounterparty.mockResolvedValue([counterpartyGroup()]);
     renderScreen();
     fireEvent.press(await screen.findByText('Show 2 payments'));
-    expect(screen.getByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeTruthy();
-    expect(screen.getByText(`${fmtDate('2026-08-05')} · -₹1,500`)).toBeTruthy();
+    expect(screen.getByText(fmtDate('2026-08-01') ?? '')).toBeTruthy();
+    expect(screen.getByText('-₹3,000')).toBeTruthy();
+    expect(screen.getByText(fmtDate('2026-08-05') ?? '')).toBeTruthy();
+    expect(screen.getByText('-₹1,500')).toBeTruthy();
+    // The title already names the person; the bank's narration is not repeated under each payment.
+    expect(screen.queryByText('UPI to Ravi')).toBeNull();
     expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(false);
     fireEvent.press(screen.getByText('Hide payments'));
-    expect(screen.queryByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeNull();
+    expect(screen.queryByText(fmtDate('2026-08-01') ?? '')).toBeNull();
   });
 
   // An accessible element hides what is inside it from VoiceOver and TalkBack, which read it as one
@@ -801,8 +869,9 @@ describe("a person's payments", () => {
     const rowButton = screen.getByLabelText(/^Ravi Kumar, /);
     expect(within(rowButton).queryByText('Show 2 payments')).toBeNull();
     fireEvent.press(showButton);
-    expect(within(rowButton).queryByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeNull();
-    expect(screen.getByText(`${fmtDate('2026-08-01')} · -₹3,000`)).toBeTruthy();
+    expect(within(rowButton).queryByText(fmtDate('2026-08-01') ?? '')).toBeNull();
+    expect(screen.getByText(fmtDate('2026-08-01') ?? '')).toBeTruthy();
+    expect(screen.getByText('-₹3,000')).toBeTruthy();
     // The row itself still opens the picker.
     fireEvent.press(rowButton);
     expect(screen.UNSAFE_getByType(CategoryPickerModal).props.visible).toBe(true);

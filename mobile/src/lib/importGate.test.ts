@@ -75,4 +75,16 @@ describe('canConfirmImport', () => {
     expect(canConfirmImport(state({ isReimport: true, includedCount: 0 }))).toBe(false);
     expect(canConfirmImport(state({ isReimport: true, outstanding: 2 }))).toBe(false);
   });
+
+  it('blocks a new account whose bank nobody has chosen yet', () => {
+    // Option B (spec 2026-10-22, section 3): the statement and its format named no bank, so the
+    // person picks one, or "Other bank", before anything is created.
+    expect(canConfirmImport(state({ accountChoice: 'new', newAccountBankMissing: true }))).toBe(false);
+    expect(canConfirmImport(state({ accountChoice: 'new', newAccountBankMissing: false }))).toBe(true);
+  });
+
+  it('never holds an existing account or a re-import on the new account\'s bank', () => {
+    expect(canConfirmImport(state({ accountChoice: 'existing', newAccountBankMissing: true }))).toBe(true);
+    expect(canConfirmImport(state({ isReimport: true, accountChoice: 'new', newAccountBankMissing: true }))).toBe(true);
+  });
 });

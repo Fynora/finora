@@ -18,6 +18,7 @@ import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { fmtCurrency, fmtDate } from '../lib/format';
 import { useLargeFontScale } from '../lib/useLargeFontScale';
+import { useWhichBankPrompt } from '../lib/useWhichBankPrompt';
 import { radius, spacing, useTheme } from '../theme';
 import type { Account } from '../types';
 import { GlassScreen } from '../components/GlassScreen';
@@ -58,6 +59,8 @@ export function AccountsScreen() {
   const remaskTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const [formTarget, setFormTarget] = useState<Account | 'new' | null>(null);
+  // The edit sheet was opened from the "Which bank is this?" prompt: its bank list opens at once.
+  const [formFocusBank, setFormFocusBank] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +69,17 @@ export function AccountsScreen() {
     queryFn: () => accountsApi.list(),
   });
 
-  function onFormSaved() {
+  const whichBank = useWhichBankPrompt(accounts);
+
+  function openEdit(a: Account, focusBank: boolean) {
+    setFormFocusBank(focusBank);
+    setFormTarget(a);
+  }
+
+  function onFormSaved(result?: { bankAnswered: boolean }) {
+    // Picking a bank answers the prompt for good, "Other bank" again included (spec 2026-10-22,
+    // section 7). A real bank hides it anyway; OTHER needs the answer remembered.
+    if (result?.bankAnswered && formTarget && formTarget !== 'new') whichBank.markDone(formTarget.id);
     setFormTarget(null);
     invalidateFinancialData(queryClient);
   }
@@ -164,7 +177,7 @@ export function AccountsScreen() {
     >
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: c.ink }]}>Accounts</Text>
-        <Button label="Add Account" variant="link" onPress={() => setFormTarget('new')} />
+        <Button label="Add Account" variant="link" onPress={() => { setFormFocusBank(false); setFormTarget('new'); }} />
       </View>
 
       {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
@@ -240,6 +253,36 @@ export function AccountsScreen() {
                 <Text style={[styles.detail, { color: c.muted }]}>{a.accountHolderName}</Text>
               ) : null}
 
+              {whichBank.shouldShow(a) ? (
+                <View
+                  style={[styles.whichBank, { borderColor: c.border, backgroundColor: c.primaryLight }]}
+                  testID={`which-bank-${a.id}`}
+                >
+                  <Text style={[styles.whichBankTitle, { color: c.ink }]}>Which bank is this?</Text>
+                  <Text style={[styles.detail, { color: c.muted }]}>
+                    The statement didn&apos;t say. Choosing the bank shows its name and logo on this account.
+                  </Text>
+                  <View style={styles.whichBankActions}>
+                    <Pressable
+                      onPress={() => openEdit(a, true)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Choose the bank for ${a.name}`}
+                    >
+                      <Text style={[styles.actionText, { color: c.primary }]}>Choose bank</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => whichBank.markDone(a.id)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Don't ask which bank ${a.name} is`}
+                    >
+                      <Text style={[styles.actionText, { color: c.muted }]}>Don&apos;t ask again</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
               <View style={[styles.statsRow, { borderTopColor: c.border }]}>
                 <Text style={[styles.stat, { color: c.muted }]}>
                   {a.transactionsCount.toLocaleString('en-IN')} transactions
@@ -255,7 +298,7 @@ export function AccountsScreen() {
                 ) : (
                   <>
                     <Pressable
-                      onPress={() => setFormTarget(a)}
+                      onPress={() => openEdit(a, false)}
                       hitSlop={8}
                       accessibilityRole="button"
                       accessibilityLabel={`Edit ${a.name}`}
@@ -289,6 +332,7 @@ export function AccountsScreen() {
       {formTarget ? (
         <AccountFormSheet
           account={formTarget === 'new' ? null : formTarget}
+          focusBank={formTarget !== 'new' && formFocusBank}
           onClose={() => setFormTarget(null)}
           onSaved={onFormSaved}
         />
@@ -348,5 +392,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   actionText: { fontSize: 13, fontWeight: '600' },
+  whichBank: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  whichBankTitle: { fontSize: 13, fontWeight: '600' },
+  whichBankActions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
   note: { fontSize: 11, textAlign: 'center', marginTop: spacing.sm },
 });

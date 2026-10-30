@@ -54,7 +54,11 @@ import {
   applyDecisionToSimilar, beginReview, decide, EMPTY_REVIEW, isUnderReview, setIncluded,
   unresolvedCount, type DuplicateDecision, type RowReview,
 } from '../../lib/importReview';
-import { matchExistingAccount } from '../../lib/accountMatch';
+import { matchExistingAccount, sameBankAccounts } from '../../lib/accountMatch';
+import {
+  bankSourceOf, importBankHint, initialBankChoice, nameAfterBankChoice, type BankOption,
+} from '../../lib/bankChoice';
+import { BankField } from '../../components/BankField';
 import { canConfirmImport } from '../../lib/importGate';
 import { amountOwedToSend, isAmountOwedUnknown, readAmountOwed, shouldAskAmountOwed } from '../../lib/amountOwed';
 import { AmountOwedQuestion } from './AmountOwedQuestion';
@@ -264,6 +268,12 @@ export function ImportScreen() {
   const [accountChoice, setAccountChoice] = useState<AccountChoice>('new');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [accountForm, setAccountForm] = useState<NewAccountForm>(initialAccountForm(null));
+  // The new account's bank as shown (id and name); accountForm.bankId carries the id to confirm.
+  // Null until the statement, its layout's profile, or the person names one (lib/bankChoice.ts).
+  const [newAccountBank, setNewAccountBank] = useState<BankOption | null>(null);
+  // Whether the person typed the account name themselves. Until they do, choosing a bank renames
+  // the account after it (nameAfterBankChoice).
+  const [nameEdited, setNameEdited] = useState(false);
   // "How much do you owe on this card today?" (lib/amountOwed.ts).
   const [amountOwed, setAmountOwed] = useState('');
   const [amountOwedSkipped, setAmountOwedSkipped] = useState(false);
@@ -463,6 +473,8 @@ export function ImportScreen() {
     setLimitOverridden(false);
     setSummary(null);
     setAccountForm(initialAccountForm(null));
+    setNewAccountBank(null);
+    setNameEdited(false);
     setAmountOwed('');
     setAmountOwedSkipped(false);
     // Cleared here as well as being set explicitly on every successful upload: leaving the
@@ -537,6 +549,8 @@ export function ImportScreen() {
     setDetected(staging.detectedAccount);
     setVerification(staging.verification ?? null);
     setAccountForm(initialAccountForm(staging.detectedAccount, staging.rows));
+    setNewAccountBank(initialBankChoice(staging.detectedAccount));
+    setNameEdited(false);
     setAmountOwed('');
     setAmountOwedSkipped(false);
 
@@ -909,6 +923,22 @@ export function ImportScreen() {
     newOpeningBalance: accountChoice === 'new' ? accountForm.openingBalance : null,
   });
   const amountOwedInvalid = askAmountOwed && !amountOwedSkipped && readAmountOwed(amountOwed).state === 'invalid';
+
+  // The new account's bank (spec 2026-10-22-bank-from-profile-and-required-bank-design.md, sec. 3).
+  const stagedBankSource = bankSourceOf(detected);
+  const prefilledBank = initialBankChoice(detected);
+  const newAccountBankMissing = !reimport && accountChoice === 'new' && accountForm.bankId === null;
+  // Accounts the person already has at a bank THEY picked (not one the statement named, which
+  // matchExistingAccount has already weighed), offered in a hint and never preselected (sec. 5).
+  const bankPickedByPerson = newAccountBank !== null && newAccountBank.id !== prefilledBank?.id;
+  const sameBankHint = !reimport && accountChoice === 'new' && bankPickedByPerson
+    ? sameBankAccounts(accountForm.bankId, accountForm.accountType, detected?.accountNumberMasked, existingAccounts)
+    : [];
+
+  function chooseNewAccountBank(bank: BankOption) {
+    setNewAccountBank(bank);
+    setAccountForm((f) => ({ ...f, bankId: bank.id, name: nameAfterBankChoice(f.name, nameEdited, bank) }));
+  }
 
   async function runConfirm() {
     setConfirming(true);
@@ -1571,10 +1601,37 @@ export function ImportScreen() {
                 })
               ) : (
                 <View>
-                  <Text style={[styles.fieldLabel, { color: c.muted }]}>Account name</Text>
+                  <BankField
+                    // A fresh field per staged statement, so the list opens again for the next
+                    // one whose bank is unknown.
+                    key={sessionId ?? 'no-session'}
+                    value={newAccountBank}
+                    onChange={chooseNewAccountBank}
+                    hint={importBankHint(stagedBankSource, newAccountBank, prefilledBank)}
+                    hintIsWarning={newAccountBank === null}
+                    testID="import-bank"
+                  />
+                  {sameBankHint.length > 0 ? (
+                    <View style={[styles.sameBankHint, { borderColor: c.border }]} testID="import-same-bank-hint">
+                      <Text style={[styles.helpText, { color: c.ink }]}>
+                        {sameBankHint.length === 1
+                          ? `You already have ${sameBankHint[0].name} with this bank. Import into it instead?`
+                          : `You already have ${sameBankHint.length} accounts like this with this bank. Import into one of them instead?`}
+                      </Text>
+                      <Button
+                        label={sameBankHint.length === 1 ? `Use ${sameBankHint[0].name}` : 'Choose one'}
+                        variant="link"
+                        onPress={() => {
+                          setAccountChoice('existing');
+                          setSelectedAccountId(sameBankHint.length === 1 ? sameBankHint[0].id : '');
+                        }}
+                      />
+                    </View>
+                  ) : null}
+                  <Text style={[styles.fieldLabel, { color: c.muted, marginTop: spacing.sm }]}>Account name</Text>
                   <TextInput
                     value={accountForm.name}
-                    onChangeText={(name) => setAccountForm((f) => ({ ...f, name }))}
+                    onChangeText={(name) => { setNameEdited(true); setAccountForm((f) => ({ ...f, name })); }}
                     placeholder="Imported Account"
                     placeholderTextColor={c.muted}
                     accessibilityLabel="Account name"
@@ -1738,6 +1795,14 @@ export function ImportScreen() {
                   {outstanding === 1 ? 's' : ''} an answer above before this can be imported.
                 </Text>
               ) : null}
+              {newAccountBankMissing ? (
+                <Text
+                  style={[styles.gateNotice, { color: c.warningInk, backgroundColor: c.warningBg }]}
+                  testID="import-bank-gate-notice"
+                >
+                  Choose the new account&apos;s bank above, or Other bank, before this can be imported.
+                </Text>
+              ) : null}
               <Button
                 label={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
                 onPress={confirmImport}
@@ -1753,6 +1818,7 @@ export function ImportScreen() {
                     selectedAccountId,
                     freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
                     amountOwedInvalid,
+                    newAccountBankMissing,
                   })
                 }
               />
@@ -1882,6 +1948,12 @@ const styles = StyleSheet.create({
   },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
   creditCardFields: { marginTop: spacing.sm },
+  sameBankHint: {
+    marginTop: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
   typeChip: {
     borderWidth: 1,
     borderRadius: 999,

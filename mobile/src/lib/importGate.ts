@@ -35,6 +35,12 @@ export type ImportGateState = {
    * means nothing is held.
    */
   amountOwedInvalid?: boolean;
+  /**
+   * "A new account" is chosen and its bank is still unknown: the statement named none, its layout's
+   * profile had none, and the person has not yet picked a bank or "Other bank" (spec 2026-10-22,
+   * section 3, option B). Optional: absent means a bank is set.
+   */
+  newAccountBankMissing?: boolean;
 };
 
 export function canConfirmImport(state: ImportGateState): boolean {
@@ -51,5 +57,8 @@ export function canConfirmImport(state: ImportGateState): boolean {
   // which has no picker and posts its own pinned account id instead.
   if (!state.isReimport && state.accountChoice === 'existing' && !state.selectedAccountId) return false;
   if (state.amountOwedInvalid) return false;
+  // A new account with no bank confirmed. Never applies to a re-import (no new account) or to
+  // "an existing account" (that account already has its bank).
+  if (!state.isReimport && state.accountChoice === 'new' && state.newAccountBankMissing) return false;
   return true;
 }

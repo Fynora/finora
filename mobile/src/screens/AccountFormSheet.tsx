@@ -16,6 +16,8 @@ import { useSingleFlight } from '../lib/useSingleFlight';
 import { radius, spacing, useTheme } from '../theme';
 import { GlassSurface } from '../components/GlassSurface';
 import { isAmountOwedUnknown } from '../lib/amountOwed';
+import { BankField } from '../components/BankField';
+import { OTHER_BANK_ID, OTHER_BANK_OPTION, toBankOption, type BankOption } from '../lib/bankChoice';
 
 const ACCOUNT_TYPES = ['SAVINGS', 'CREDIT_CARD', 'WALLET', 'INVESTMENT'] as const;
 type AccountType = (typeof ACCOUNT_TYPES)[number];
@@ -27,8 +29,12 @@ const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
 interface Props {
   /** Present = editing that account. Absent = adding a new one. */
   account?: Account | null;
+  /** Edit mode only: open the bank list straight away (the "Which bank is this?" prompt). */
+  focusBank?: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  /** `bankAnswered`: the person picked a bank in this edit, even the one already set ("Other
+   *  bank" again counts as an answer to the prompt, spec 2026-10-22 section 7). */
+  onSaved: (result?: { bankAnswered: boolean }) => void;
 }
 
 /**
@@ -46,8 +52,16 @@ interface Props {
  * comment -- it simply never calls a.setAccountType(...)). The type chips are only interactive in
  * add mode; editing an existing account shows the type as a plain, non-interactive label instead
  * of a picker that would silently do nothing.
+ *
+ * Edit mode also changes the account's bank (spec 2026-10-22-bank-from-profile-and-required-bank-
+ * design.md, section 4): an import whose statement named no bank leaves "Other bank", and this is
+ * where the person fixes it. Add mode is unchanged. An Account Aggregator account's bank is shown
+ * but not editable: AA sets it once at link time from the bank's own IFSC
+ * (AccountAggregatorIdentityResolutionService.detectBankId), and a later re-link finds the account
+ * again by its stored bank (ProductIdentityResolver.storedIdentityOf), so a hand-changed bank would
+ * stop the sync recognising its own account and create a second one.
  */
-export function AccountFormSheet({ account, onClose, onSaved }: Props) {
+export function AccountFormSheet({ account, focusBank, onClose, onSaved }: Props) {
   const c = useTheme();
   const insets = useSafeAreaInsets();
   const singleFlight = useSingleFlight();
@@ -65,6 +79,12 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
     account?.creditLimit != null ? String(account.creditLimit) : ''
   );
   const [dueDate, setDueDate] = useState<string | null>(account?.dueDate ?? null);
+  const syncedByAa = account?.primarySource === 'ACCOUNT_AGGREGATOR';
+  const originalBankId = account?.bank?.id || OTHER_BANK_ID;
+  const [bank, setBank] = useState<BankOption>(
+    account?.bank ? toBankOption(account.bank) : OTHER_BANK_OPTION
+  );
+  const [bankAnswered, setBankAnswered] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,13 +130,15 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
           if (balanceNum !== undefined && (amountOwedUnknown || balanceNum !== account.balance)) {
             body.balance = balanceNum;
           }
+          // Only a real change is sent, and never for an AA account (see this component's doc).
+          if (!syncedByAa && bank.id !== originalBankId) body.bankId = bank.id;
           await accountsApi.update(account.id, body);
         } else {
           body.balance = balanceNum;
           await accountsApi.create(body);
         }
         hapticSuccess();
-        onSaved();
+        onSaved({ bankAnswered: isEdit && !syncedByAa && bankAnswered });
       } catch (e) {
         hapticError();
         reportTransportFailure(e, isEdit ? 'account-form:update' : 'account-form:create', startedAt);
@@ -146,6 +168,28 @@ export function AccountFormSheet({ account, onClose, onSaved }: Props) {
               onChangeText={setName}
               placeholder="e.g. HDFC Savings"
             />
+
+            {isEdit ? (
+              syncedByAa ? (
+                <View testID="account-form-bank-readonly">
+                  <Text style={[styles.sectionLabel, { color: c.muted }]}>Bank</Text>
+                  <Text style={[styles.fixedType, { color: c.ink }]}>{bank.name}</Text>
+                  <Text style={[styles.note, { color: c.muted }]}>
+                    Set by Bank Sync from your bank&apos;s own records, so it can&apos;t be changed here.
+                  </Text>
+                </View>
+              ) : (
+                <BankField
+                  value={bank}
+                  onChange={(b) => { setBank(b); setBankAnswered(true); }}
+                  startOpen={focusBank}
+                  hint={focusBank && !bankAnswered
+                    ? "This account's statement didn't say which bank it's from. Choose it, or Other bank."
+                    : null}
+                  testID="account-form-bank"
+                />
+              )
+            ) : null}
 
             <Text style={[styles.sectionLabel, { color: c.muted }]}>Account type</Text>
             {isEdit ? (
@@ -236,6 +280,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 17, fontWeight: '700', marginBottom: spacing.sm },
   sectionLabel: { fontSize: 11, textTransform: 'uppercase', marginTop: spacing.xs, marginBottom: 4 },
   fixedType: { fontSize: 15, marginBottom: spacing.sm },
+  note: { fontSize: 12, marginTop: -4, marginBottom: spacing.sm },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm },
   typeChip: {
     borderWidth: 1,

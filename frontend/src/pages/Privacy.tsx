@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
-import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME } from '../lib/contact';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME, LEGAL_NAME, REGISTERED_OFFICE_TEXT } from '../lib/contact';
 
 export default function Privacy() {
   return (
@@ -10,8 +10,7 @@ export default function Privacy() {
     >
       <PublicSection title="Who We Are & Your Consent">
         <p>
-          Fynora is operated by Fynora Technovation LLP, registered at 463, Sita Ram Compound, Chaman Ganj,
-          Sipri Bazaar, Jhansi, Uttar Pradesh, 284003, India. Under the DPDP Act, Fynora Technovation LLP is
+          Fynora is operated by {LEGAL_NAME}, registered at {REGISTERED_OFFICE_TEXT}. Under the DPDP Act, Fynora Technovation LLP is
           the "Data Fiduciary" for the personal data described in this policy, and you are the "Data
           Principal." We process your personal data on the basis of the consent you give when you create an
           account and when you take actions in the app that involve sharing further data (such as importing a

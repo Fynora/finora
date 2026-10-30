@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
-import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../lib/contact';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO, LEGAL_NAME, REGISTERED_OFFICE_TEXT } from '../lib/contact';
 
 export default function Terms() {
   return (
@@ -18,9 +18,8 @@ export default function Terms() {
 
       <PublicSection title="2. Who You're Contracting With">
         <p>
-          Fynora is operated by Fynora Technovation LLP, a limited liability partnership registered in India,
-          with its registered office at 463, Sita Ram Compound, Chaman Ganj, Sipri Bazaar, Jhansi, Uttar
-          Pradesh, 284003, India. References to "Fynora," "we," "us," or "our" in these terms mean Fynora
+          Fynora is operated by {LEGAL_NAME}, a limited liability partnership registered in India,
+          with its registered office at {REGISTERED_OFFICE_TEXT}. References to "Fynora," "we," "us," or "our" in these terms mean Fynora
           Technovation LLP.
         </p>
       </PublicSection>

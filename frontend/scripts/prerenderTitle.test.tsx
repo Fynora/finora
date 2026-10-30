@@ -7,10 +7,14 @@ import Careers from '../src/pages/Careers';
 import Terms from '../src/pages/Terms';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import Help from '../src/pages/Help';
+import Privacy from '../src/pages/Privacy';
+import CookiePolicy from '../src/pages/CookiePolicy';
+import ShippingPolicy from '../src/pages/ShippingPolicy';
 import NotFound, { NOT_FOUND_DOCUMENT_TITLE } from '../src/pages/NotFound';
 import {
   decodeEntities,
   heroFontAsset,
+  lastUpdatedFromMarkup,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
@@ -150,5 +154,29 @@ describe('hero font preload', () => {
   it('refuses a template with no </title> or one that already preloads a font', () => {
     expect(() => withFontPreload('<html><head></head></html>', '/a.woff2')).toThrow(/no <\/title>/);
     expect(() => withFontPreload(withFontPreload(TEMPLATE, '/a.woff2'), '/a.woff2')).toThrow(/already preloads a font/);
+  });
+});
+
+describe('lastUpdatedFromMarkup', () => {
+  it("reads each policy page's own \"Last updated\" line as YYYY-MM", () => {
+    for (const Page of [Privacy, Terms, RefundPolicy, CookiePolicy, ShippingPolicy]) {
+      const html = render(Page);
+      const line = /data-seo="description"[^>]*>Last updated: ([A-Za-z]+) (\d{4})\./.exec(html);
+      expect(line, Page.name).not.toBeNull();
+      const month = new Date(`${line![1]} 1, ${line![2]}`).getMonth() + 1;
+      expect(lastUpdatedFromMarkup(html), Page.name).toBe(`${line![2]}-${String(month).padStart(2, '0')}`);
+    }
+  });
+
+  it('is null for a page with no such line, so no date is invented for it', () => {
+    for (const Page of [About, Careers, Help]) expect(lastUpdatedFromMarkup(render(Page)), Page.name).toBeNull();
+    expect(lastUpdatedFromMarkup('<p data-seo="description">Updated: October 2026.</p>')).toBeNull();
+    expect(lastUpdatedFromMarkup('<h1>No subtitle</h1>')).toBeNull();
+  });
+
+  it('maps every month, and refuses one it does not know', () => {
+    expect(lastUpdatedFromMarkup('<p data-seo="description">Last updated: January 2027. x</p>')).toBe('2027-01');
+    expect(lastUpdatedFromMarkup('<p data-seo="description">Last updated: December 2026. x</p>')).toBe('2026-12');
+    expect(() => lastUpdatedFromMarkup('<p data-seo="description">Last updated: Sept 2026. x</p>')).toThrow(/no month/);
   });
 });

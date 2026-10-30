@@ -15,6 +15,7 @@ import {
   decodeEntities,
   helpArticleOutputFile,
   heroFontAsset,
+  lastUpdatedFromMarkup,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
@@ -141,7 +142,10 @@ async function main() {
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own
     // data in src/lib/structuredData.ts, so it cannot say something the page does not.
-    pageTemplate = withStructuredData(pageTemplate, jsonLdScripts(structuredDataFor(route, heading)));
+    // A page whose subtitle opens "Last updated: <Month> <year>." also gets that date as its
+    // dateModified (the policy pages); every other page passes null and gets none.
+    const lastUpdated = route === '/' ? null : lastUpdatedFromMarkup(appHtml);
+    pageTemplate = withStructuredData(pageTemplate, jsonLdScripts(structuredDataFor(route, heading, lastUpdated)));
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);

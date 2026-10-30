@@ -1,5 +1,6 @@
 import { SITE_ORIGIN, canonicalUrl } from './siteUrl';
-import { SUPPORT_EMAIL } from './contact';
+import { GRIEVANCE_EMAIL, LEGAL_NAME, REGISTERED_OFFICE, SUPPORT_EMAIL } from './contact';
+import { PLAY_STORE_URL } from './openInApp';
 import { PRICING_CARDS, type Plan } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { helpArticleForPath } from '../pages/helpArticles';
@@ -20,10 +21,12 @@ import { helpArticleForPath } from '../pages/helpArticles';
  * script the browser runs.
  *
  * Not included, deliberately:
- * - A postal address on the Organization. The registered office is typed inline on Contact and
- *   Terms; a third copy here would be a third place for it to drift. Centralise it first.
- * - Any operating system but the web. The mobile apps' store status is not something this file
- *   can verify, and SoftwareApplication's operatingSystem is read as "where can I get it".
+ * - Android in SoftwareApplication's operatingSystem. The Android app is on Google Play (the
+ *   Organization's sameAs links its listing, and landing-config.ts says so), but this block's
+ *   offers are the web prices from plans.ts, and a store purchase is priced and invoiced by Google.
+ *   Listing Android here would attach the web prices to it.
+ * - A founder, founding date or company registration number. None is stated anywhere on the site,
+ *   and structured data must not be the first place a fact appears.
  */
 
 type JsonLd = Record<string, unknown>;
@@ -31,17 +34,57 @@ type JsonLd = Record<string, unknown>;
 const ORGANIZATION_ID = `${SITE_ORIGIN}/#organization`;
 const WEBSITE_ID = `${SITE_ORIGIN}/#website`;
 
+/**
+ * The company, as Contact, Terms and Privacy describe it: legal name and registered office from
+ * contact.ts (the constants those pages render), the two public mailboxes, and the official profiles
+ * the site itself links: Instagram from the footer and the Android app's Google Play listing.
+ */
 export function organization(): JsonLd {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     '@id': ORGANIZATION_ID,
     name: 'Fynora',
-    legalName: 'Fynora Technovation LLP',
+    legalName: LEGAL_NAME,
     url: `${SITE_ORIGIN}/`,
     logo: `${SITE_ORIGIN}/favicon.png`,
     email: SUPPORT_EMAIL,
-    sameAs: [footer.instagram],
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: REGISTERED_OFFICE.streetAddress,
+      addressLocality: REGISTERED_OFFICE.addressLocality,
+      addressRegion: REGISTERED_OFFICE.addressRegion,
+      postalCode: REGISTERED_OFFICE.postalCode,
+      addressCountry: REGISTERED_OFFICE.addressCountry,
+    },
+    contactPoint: [
+      { '@type': 'ContactPoint', contactType: 'customer support', email: SUPPORT_EMAIL, url: `${SITE_ORIGIN}/contact` },
+      // The DPDP Act grievance officer's mailbox, which Contact and Privacy publish for
+      // data-protection complaints.
+      { '@type': 'ContactPoint', contactType: 'data protection grievances', email: GRIEVANCE_EMAIL, url: `${SITE_ORIGIN}/contact` },
+    ],
+    sameAs: [footer.instagram, PLAY_STORE_URL],
+  };
+}
+
+/**
+ * A page's own WebPage block, with the date its "Last updated: <Month> <year>." line gives, as
+ * ISO 8601 year and month ("2026-10"). Only month precision is published on the page, so no day is
+ * invented for this.
+ */
+export function webPage(route: string, title: string, dateModified: string): JsonLd {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(dateModified)) {
+    throw new Error(`structuredData: ${route}'s dateModified ${JSON.stringify(dateModified)} is not YYYY-MM`);
+  }
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    '@id': `${canonicalUrl(route)}#webpage`,
+    url: canonicalUrl(route),
+    name: title,
+    dateModified,
+    isPartOf: { '@id': WEBSITE_ID },
+    publisher: { '@id': ORGANIZATION_ID },
   };
 }
 
@@ -149,13 +192,15 @@ export const HELP_CENTER_TITLE = 'Help Center';
  * Everything a prerendered route should carry. The homepage describes the organisation, the site,
  * the product with its prices, and the landing page's own FAQ. A Help article (/help/<slug>) is its
  * own question and answer as an FAQPage, under a Home > Help Center > question trail. Every other
- * page, /help included, gets a breadcrumb trail. `title` is unused for the homepage.
+ * page, /help included, gets a breadcrumb trail; /about adds the Organization; a page with a
+ * "Last updated" line (`lastUpdated`, YYYY-MM) adds a WebPage block with that dateModified.
+ * `title` is unused for the homepage.
  *
  * /help itself carries no FAQPage. It used to mark up all of its answers, but each answer now has
  * its own page with its own markup, and Google asks for FAQ markup on one instance of a question
  * only; the article page is the one search results and AI answers should link.
  */
-export function structuredDataFor(route: string, title: string | null): JsonLd[] {
+export function structuredDataFor(route: string, title: string | null, lastUpdated: string | null = null): JsonLd[] {
   if (route === '/') {
     return [organization(), website(), softwareApplication(), faqPage(faq.items)];
   }
@@ -173,7 +218,12 @@ export function structuredDataFor(route: string, title: string | null): JsonLd[]
       faqPage([[article.question, article.answer]]),
     ];
   }
-  return [breadcrumbs(route, title)];
+  const blocks: JsonLd[] = [breadcrumbs(route, title)];
+  // The About page is the company's own page, so it carries the full Organization block (the same
+  // @id as the homepage's, so the two are read as one entity).
+  if (route === '/about') blocks.push(organization());
+  if (lastUpdated !== null) blocks.push(webPage(route, title, lastUpdated));
+  return blocks;
 }
 
 /**

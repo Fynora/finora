@@ -222,4 +222,29 @@ export async function uploadStatement(
   }
 }
 
+/**
+ * The import review asks for a new account's bank when the statement names none, and holds Import
+ * until it is answered (docs/superpowers/specs/2026-10-22-bank-from-profile-and-required-bank-design.md
+ * §3). The CSV fixtures here name no bank, so a test that creates a new account answers "Other bank".
+ * The field is asserted empty first: pre-filled would mean the statement named a bank, which these
+ * fixtures never do.
+ */
+export async function chooseOtherBank(page: Page) {
+  const bank = page.getByLabel('Bank', { exact: true });
+  await expect(bank).toHaveValue('', { timeout: 30_000 });
+  await bank.selectOption('OTHER');
+}
+
+/**
+ * Imports into an account the test already made, the way a user re-importing would. Nothing
+ * preselects it any more: the accounts these tests make have no bank, and "Other bank" never
+ * matches "Other bank" (frontend/src/lib/accountMatch.ts).
+ */
+export async function importIntoExisting(page: Page, accountName: string) {
+  await page.getByRole('radio', { name: /use an existing account/i }).check({ timeout: 30_000 });
+  const select = page.getByLabel('Select an existing account');
+  const value = await select.locator('option', { hasText: accountName }).first().getAttribute('value');
+  await select.selectOption(value!);
+}
+
 export { expect };

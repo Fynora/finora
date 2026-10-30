@@ -106,7 +106,13 @@ public final class MerchantNames {
     public static String forDisplay(String storedName) {
         if (storedName == null || storedName.isBlank()) return storedName;
         String[] words = storedName.trim().split("\\s+");
-        if (!opensWithRail(words)) return storedName;
+        if (!opensWithRail(words)) {
+            // A masked card number is kept in a stored name for the grouping key (see forNarration),
+            // never for a reader: one bank's card standing instruction ("me dc si <card>") stores a
+            // name that does not open with a rail, so the rule below never hid it.
+            String[] kept = Arrays.stream(words).filter(w -> !CategoryRules.isMaskedCard(w)).toArray(String[]::new);
+            return kept.length == 0 || kept.length == words.length ? storedName : String.join(" ", kept);
+        }
         if (Arrays.stream(words).allMatch(w -> namesNobody(w) || isCode(w))) {
             return RAIL_PAYMENTS.get(words[0].toLowerCase(Locale.ROOT));
         }
@@ -123,6 +129,15 @@ public final class MerchantNames {
      * today -- and falls back to the stored name's own words when none names one.
      */
     public static String forDisplay(String storedName, Collection<String> narrations) {
+        if (storedName != null && narrations != null && Arrays.stream(storedName.trim().split("\\s+"))
+                .anyMatch(CategoryRules::isMaskedCard)) {
+            // The stored name was cut to four words with the card number among them, so the shop's
+            // own name was cut off. Each payment's label (CategoryRules.extractMerchantLabel) drops
+            // the number and keeps it.
+            String shop = mostCommon(narrations.stream().map(CategoryRules::extractMerchantLabel)
+                    .filter(l -> l != null && !l.isBlank()).map(MerchantNames::titleCase).toList());
+            if (shop != null) return shop;
+        }
         if (storedName == null || storedName.isBlank() || narrations == null
                 || !opensWithRail(storedName.trim().split("\\s+"))) {
             return forDisplay(storedName);
@@ -188,6 +203,16 @@ public final class MerchantNames {
             String name = forNarration(narration);
             if (counts.test(name)) votes.merge(name, 1, Integer::sum);
         }
+        return votes.entrySet().stream()
+                .max(Map.Entry.<String, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey(Comparator.reverseOrder())))
+                .map(Map.Entry::getKey)
+                .orElse(null);
+    }
+
+    /** The name given most often, settled by the name on an even split, as {@link #mostCommonName}. */
+    private static String mostCommon(java.util.List<String> names) {
+        Map<String, Integer> votes = new TreeMap<>();
+        for (String name : names) votes.merge(name, 1, Integer::sum);
         return votes.entrySet().stream()
                 .max(Map.Entry.<String, Integer>comparingByValue().thenComparing(Map.Entry.comparingByKey(Comparator.reverseOrder())))
                 .map(Map.Entry::getKey)

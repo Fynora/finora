@@ -1,4 +1,4 @@
-import { test, expect, uploadStatement } from '../../fixtures/test';
+import { test, expect, uploadStatement, importIntoExisting } from '../../fixtures/test';
 import { csv, type Row } from '../../fixtures/statements';
 import { countedExpense, ledgerExpense, transactionsFor } from '../../fixtures/db';
 
@@ -40,6 +40,7 @@ test.describe('Phase 7 — what the ledger holds and what the product counts', (
     await uploadStatement(userPage, 'fares.csv', 'text/csv', csv([FARE]));
     await expect(userPage.getByTestId('duplicate-review')).toBeVisible({ timeout: 20_000 });
 
+    await importIntoExisting(userPage, 'Primary');
     await userPage.getByTestId('duplicate-0').getByRole('button', { name: 'Import anyway' }).click();
     await userPage.getByRole('button', { name: /confirm import/i }).click();
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
@@ -72,6 +73,7 @@ test.describe('Phase 7 — what the ledger holds and what the product counts', (
       await uploadStatement(userPage, 'fares.csv', 'text/csv', csv([FARE, COFFEE]));
       await expect(userPage.getByTestId('duplicate-review')).toBeVisible({ timeout: 20_000 });
 
+      await importIntoExisting(userPage, 'Primary');
       await userPage.getByTestId('duplicate-0').getByRole('button', { name: 'Skip this row' }).click();
       await userPage.getByRole('button', { name: /confirm import/i }).click();
       await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });

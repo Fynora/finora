@@ -1,4 +1,4 @@
-import { test, expect, uploadStatement } from '../../fixtures/test';
+import { test, expect, uploadStatement, chooseOtherBank } from '../../fixtures/test';
 import { csv, FIVE_ROW_STATEMENT } from '../../fixtures/statements';
 import { transactionsFor, count, query } from '../../fixtures/db';
 import { API_BASE } from '../../fixtures/config';
@@ -22,6 +22,7 @@ test.describe('Phase 12 — negative and interruption cases', () => {
     await uploadStatement(userPage, 'statement.csv', 'text/csv', csv(FIVE_ROW_STATEMENT));
     await expect(userPage.getByText(/5 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
 
+    await chooseOtherBank(userPage);
     const confirm = userPage.getByRole('button', { name: /confirm import/i });
     await confirm.dblclick();
 
@@ -93,6 +94,7 @@ test.describe('Phase 12 — negative and interruption cases', () => {
     await userPage.goto('/app/import');
     await uploadStatement(userPage, 'statement.csv', 'text/csv', csv(FIVE_ROW_STATEMENT));
     await expect(userPage.getByText(/5 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
+    await chooseOtherBank(userPage);
     await userPage.getByRole('button', { name: /confirm import/i }).click();
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
 

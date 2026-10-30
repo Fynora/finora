@@ -31,7 +31,7 @@ import type { NewAccountPayload } from '../api/endpoints';
  */
 
 /**
- * The five fields the user can actually edit on the review screen.
+ * The six fields the user can actually edit on the review screen.
  *
  * Named to match both call sites' existing state — `SectionState` satisfies this structurally, so
  * the multi-account path passes its section straight in.
@@ -42,6 +42,9 @@ export interface NewAccountForm {
   newOpeningBalance: string;
   newCreditLimit: string;
   newDueDate: string;
+  /** The bank the user settled on: a bank id, `OTHER` for "Other bank", or '' for none chosen yet
+   *  (the review holds the import until it is not ''). See lib/importBank.ts. */
+  newBankId: string;
 }
 
 /**
@@ -90,12 +93,12 @@ export function toNewAccountPayload(
     creditLimit: isCard && form.newCreditLimit ? parseFloat(form.newCreditLimit) : null,
     dueDate: isCard && form.newDueDate ? form.newDueDate : null,
 
-    // Detected and shown (disabled) on the review step. The bank id lets the new account's
-    // logo/colour render correctly even if the user renames the account away from the bank's
-    // official name.
+    // Detected and shown (disabled) on the review step.
     accountHolderName: detected?.accountHolderName ?? null,
     accountNumberMasked: detected?.accountNumberMasked ?? null,
-    bankId: detected?.bank.id ?? null,
+    // The user's final choice on the review, not the staged value: the staged bank only pre-fills
+    // the field, and an unknown one leaves it for the user to choose.
+    bankId: form.newBankId || null,
     branchName: detected?.branchName ?? null,
     ifscCode: detected?.ifscCode ?? null,
 
@@ -104,7 +107,12 @@ export function toNewAccountPayload(
     // answer — sending the guess as well would override the correction they were just asked for.
     detectedProduct:
       detected && !detected.productNeedsReview ? detected.detectedProduct : null,
-    productIdentityHash: detected?.productIdentityHash ?? null,
+    // The key is a hash of the staged bank and the full number, built at staging and never
+    // rebuildable here. With a different bank chosen it names the wrong institution, so it is not
+    // sent: the confirm then matches on the masked number at the chosen bank, the same thing the
+    // server does when it fills a bank from a profile (DetectedAccountInfo.withProfileBank).
+    productIdentityHash:
+      detected && form.newBankId === detected.bank?.id ? detected.productIdentityHash : null,
 
     principalAmount: detected?.principalAmount ?? null,
     interestRate: detected?.interestRate ?? null,

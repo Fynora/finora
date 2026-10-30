@@ -11,6 +11,10 @@ jest.mock('../../api/endpoints', () => ({
   accountLifecycleApi: { deleteAccount: jest.fn() },
 }));
 
+// Has its own coverage (StoreSubscriptionDeletionWarning.test.tsx); this suite pins the deletion
+// flow itself, which renders the same with or without it.
+jest.mock('./StoreSubscriptionDeletionWarning', () => ({ StoreSubscriptionDeletionWarning: () => null }));
+
 jest.mock('../../lib/phoneAuth', () => ({
   sendPhoneVerificationCode: jest.fn(),
   confirmPhoneVerificationCode: jest.fn(),

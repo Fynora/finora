@@ -24,7 +24,7 @@ function subscription(overrides: Partial<MySubscription> = {}): MySubscription {
   return {
     planCode: 'FREE', planName: 'Free', billingCycle: null, status: 'ACTIVE', renewalDate: null,
     autoRenew: true, hasBillingSubscription: false, pendingChange: null, pendingOrder: null,
-    paymentProvider: null, paymentMethod: null, autoRenewResumable: false, ...overrides,
+    paymentProvider: null, paymentMethod: null, autoRenewResumable: false, storePlatform: null, ...overrides,
   };
 }
 

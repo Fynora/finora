@@ -626,6 +626,59 @@ class AccountPurgeSweepServiceTest {
      * is instant and irreversible and there is no account left for "still usable until the cycle
      * ends" to mean anything to.
      */
+    /** A store subscription cannot be cancelled from the server; the purge records that one was
+     *  still renewing, so support can answer a later "why was I charged" question. */
+    @Test
+    void sweep_recordsAStoreSubscriptionThatIsStillRenewing() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setStorePlatform("IOS");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        verify(auditService).record(userId, "STORE_SUBSCRIPTION_STILL_RENEWING", "User", userId,
+                Map.of("platform", "IOS", "actorId", userId.toString()));
+        verify(gateway, never()).cancelSubscription(any(), anyBoolean());
+    }
+
+    @Test
+    void sweep_recordsNothing_forAStoreSubscriptionAlreadySetNotToRenew() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setStorePlatform("ANDROID");
+        subscription.setAutoRenew(false);
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        service.sweep();
+
+        verify(auditService, never()).record(eq(userId), eq("STORE_SUBSCRIPTION_STILL_RENEWING"), any(), any(), any());
+    }
+
+    @Test
+    void sweep_recordsNoStoreRow_forARazorpaySubscription() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        Subscription subscription = new Subscription();
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("RAZORPAY");
+        subscription.setRazorpaySubscriptionId("sub_live123");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId)).thenReturn(List.of(subscription));
+
+        service.sweep();
+
+        verify(auditService, never()).record(eq(userId), eq("STORE_SUBSCRIPTION_STILL_RENEWING"), any(), any(), any());
+    }
+
     @Test
     void sweep_cancelsALiveRazorpayMandate_beforeHardDeletingSubscriptions() {
         User user = pendingDeletionUser();

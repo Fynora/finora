@@ -11561,6 +11561,7 @@ export interface components {
             paymentProvider?: string;
             paymentMethod?: components["schemas"]["PaymentMethodDto"];
             autoRenewResumable?: boolean;
+            storePlatform?: string;
         };
         PaymentMethodDto: {
             cardLast4?: string;

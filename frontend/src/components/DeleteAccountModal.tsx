@@ -4,6 +4,7 @@ import { passwordChangeApi, accountLifecycleApi, type DeletionReason } from '../
 import { DELETION_REASONS, DELETION_REASON_QUESTION } from '../lib/activationQuestions';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode, resetPhoneVerification } from '../lib/phoneAuth';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
+import { StoreSubscriptionDeletionWarning } from './StoreSubscriptionDeletionWarning';
 import type { ConfirmationResult } from 'firebase/auth';
 import { useDialogA11y } from '../design-system';
 
@@ -147,6 +148,9 @@ export function DeleteAccountModal({ onClose, onDeleted, signInMethod }: {
         {/* See ChangePasswordModal's identical anchor for why this must be rendered unconditionally,
             not just inside the 'otp' step's JSX. */}
         <div id={RECAPTCHA_CONTAINER_ID} />
+
+        {/* Every step, the confirm step included: that one is the point of no return. */}
+        <StoreSubscriptionDeletionWarning />
 
         {step === 'password' && signInMethod === 'GOOGLE' && (
           <div className="space-y-3">

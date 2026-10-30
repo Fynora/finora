@@ -76,7 +76,12 @@ public class BillingDtos {
             String planCode, String planName, String billingCycle, String status,
             LocalDate renewalDate, boolean autoRenew, boolean hasBillingSubscription,
             PendingPlanChangeDto pendingChange, PendingOrderDto pendingOrder, String paymentProvider,
-            PaymentMethodDto paymentMethod, boolean autoRenewResumable
+            PaymentMethodDto paymentMethod, boolean autoRenewResumable,
+            /** "IOS" or "ANDROID" for a subscription bought through the App Store or Google Play
+             *  (paymentProvider "REVENUECAT"), null otherwise. Account deletion cannot cancel a
+             *  store subscription -- only the store can -- so the delete screens use this to say
+             *  where to cancel it. */
+            String storePlatform
     ) {}
 
     /** Payment Method card (Billing page). Non-null only when {@code paymentProvider == "RAZORPAY"}

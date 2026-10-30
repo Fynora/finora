@@ -3004,4 +3004,32 @@ public final class PdfFixtureBuilder {
 
         return render(List.of(page1, page2));
     }
+    /**
+     * A two-page savings statement laid out like Punjab National Bank's: every page ends with the
+     * time it was printed at the left ("Date: dd/mm/yyyy hh:mm:ss") and "Page N" at the far right,
+     * outside the table's columns. The page number therefore never reaches the table-scoped line,
+     * and the stamp alone used to be glued onto the last transaction of every page. Balances chain
+     * across both pages. Every value is invented.
+     */
+    public static byte[] buildPrintTimePageFooterSample() throws IOException {
+        float[] col = {LEFT_MARGIN, 110f, 330f, 410f, 470f};
+        float[] footer = {LEFT_MARGIN, 540f};
+
+        PageBuilder page1 = new PageBuilder();
+        page1.line("Statement of Account")
+                .blankLine()
+                .row(col, "Txn Date", "Description", "Withdrawal", "Deposit", "Balance")
+                .row(col, "01/06/2026", "Opening Balance", "", "", "10,000.00")
+                .row(col, "02/06/2026", "UPI/DR/SAMPLE PAYEE ONE", "500.00", "", "9,500.00")
+                .row(col, "03/06/2026", "NEFT_IN:SAMPLEREF01//SAMPLE PAYER", "", "2,000.00", "11,500.00")
+                .row(footer, "Date: 25/06/2026 13:07:57", "Page 1");
+
+        PageBuilder page2 = new PageBuilder();
+        page2.row(col, "Txn Date", "Description", "Withdrawal", "Deposit", "Balance")
+                .row(col, "04/06/2026", "UPI/DR/SAMPLE PAYEE TWO", "1,500.00", "", "10,000.00")
+                .row(col, "05/06/2026", "UPI/CR/SAMPLE PAYER TWO", "", "250.00", "10,250.00")
+                .row(footer, "Date: 25/06/2026 13:07:57", "Page 2");
+
+        return render(List.of(page1, page2));
+    }
 }

@@ -47,6 +47,7 @@ import {
 } from '../lib/format';
 import { invalidateFinancialData } from '../lib/invalidateFinancialData';
 import { usePrefetchAdjacentScreens } from '../lib/prefetchAdjacentScreens';
+import { rowTitle } from '../lib/ledgerRows';
 import { healthBarColor, healthLabelInk, scoreLabel } from '../lib/health';
 import { withBypass } from '../lib/changeSync';
 import { deriveRefreshing, isPausedCold } from '../lib/refreshingIndicator';
@@ -739,7 +740,9 @@ export function DashboardScreen() {
                 )}
                 <View style={styles.txnMain}>
                   <Text style={[typography.labelM, { color: c.ink }]} numberOfLines={largeText ? 2 : 1}>
-                    {t.description || t.merchant || 'Transaction'}
+                    {/* The Ledger's title: the short name, in the case the bank printed it, and the
+                        full narration only when there is none (see rowTitle). */}
+                    {rowTitle(t)}
                   </Text>
                   {/* Never cut at large text: one line cut "Credit Card bill · 2026-09-30" to
                       "Credit C..." on a simulator, losing the date, and two lines still cut it. It

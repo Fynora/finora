@@ -670,12 +670,41 @@ describe('Dashboard — Recent Transactions icon/color', () => {
   it("renders the category's real backend icon/color token instead of the old hardcoded fallback", async () => {
     renderDashboard();
 
-    const row = (await screen.findByText('Vet visit')).closest('.flex.items-center.gap-3') as HTMLElement;
+    const row = (await screen.findByText('Local Vet Clinic')).closest('.flex.items-center.gap-3') as HTMLElement;
     // The teal token's real hex (CategoryPalette.COLORS / COLOR_HEX) rendered as `color + '20'`
     // (12.5% alpha) -- jsdom normalizes the inline style's hex+alpha shorthand to rgba -- not the
     // old generic '#262A33' fallback that every non-mapped category used to get.
     const iconWrap = row.querySelector('div[style*="background"]') as HTMLElement;
     expect(iconWrap.style.background).toBe('rgba(13, 148, 136, 0.125)');
+  });
+
+  it('titles a recent transaction by its short name, and by the narration only when it has none', async () => {
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [
+        {
+          id: 'txn-3', accountId: 'acct-1', categoryId: 'cat-pets', categoryName: 'Investments',
+          date: '2026-08-20', description: 'NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//HDFCH00000000001/ACME SECURITIES PVT LT',
+          merchant: 'acme securities pvt lt', paymentMethod: 'NEFT', amount: 5000, type: 'INCOME', tags: [], notes: null,
+          reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+          pendingBankCorrection: false, categoryManuallySet: false, counterpartyType: 'UNKNOWN',
+          international: false, foreignCurrency: null, foreignAmount: null,
+        },
+        {
+          id: 'txn-4', accountId: 'acct-1', categoryId: 'cat-pets', categoryName: 'Other',
+          date: '2026-08-19', description: 'CASH DEPOSIT AT BRANCH', merchant: null,
+          paymentMethod: 'CASH', amount: 100, type: 'INCOME', tags: [], notes: null,
+          reconciliationStatus: 'OK', recurring: false, needsCategoryReview: false,
+          pendingBankCorrection: false, categoryManuallySet: false, counterpartyType: 'UNKNOWN',
+          international: false, foreignCurrency: null, foreignAmount: null,
+        },
+      ],
+      page: 0, size: 4, totalElements: 2, totalPages: 1,
+    } as any);
+    renderDashboard();
+
+    expect(await screen.findByText('acme securities pvt lt')).toBeInTheDocument();
+    expect(screen.queryByText(/NEFT_IN:/)).not.toBeInTheDocument();
+    expect(screen.getByText('CASH DEPOSIT AT BRANCH')).toBeInTheDocument();
   });
 
   it('colors an INCOME row from the theme-reactive success token, not a fixed literal', async () => {
@@ -694,7 +723,7 @@ describe('Dashboard — Recent Transactions icon/color', () => {
     });
     renderDashboard();
 
-    const row = (await screen.findByText('Paycheck')).closest('.flex.items-center.gap-3') as HTMLElement;
+    const row = (await screen.findByText('Employer Inc')).closest('.flex.items-center.gap-3') as HTMLElement;
     const iconWrap = row.querySelector('div[style*="background"]') as HTMLElement;
     // useChartColors().success in light mode (#147b3a), sourced from the theme-reactive hook
     // rather than a hardcoded literal, so this would go stale on a rebrand or fail to darken in

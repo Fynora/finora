@@ -1426,7 +1426,9 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-ink truncate">{t.description || t.merchant}</p>
+                    {/* The short name first, as the Ledger shows it; the bank's full narration
+                        (reference numbers, handles, a timestamp) only when there is none. */}
+                    <p className="text-sm font-medium text-ink truncate">{t.merchant || t.description}</p>
                     <p className="text-xs text-muted">{t.date}</p>
                   </div>
                   <span className={`text-sm font-semibold flex-shrink-0 ${t.type === 'INCOME' ? 'text-success' : 'text-danger'}`}>

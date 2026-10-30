@@ -17062,7 +17062,7 @@
                     },
                     "category": {
                         "type": "string",
-                        "maxLength": 255,
+                        "maxLength": 80,
                         "minLength": 0
                     }
                 },

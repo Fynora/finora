@@ -296,6 +296,17 @@ public class TransactionService {
      */
     @Transactional
     public TransactionDto create(UUID userId, TransactionDto.CreateRequest req) {
+        // Asked first, in words: a missing account reached findById(null) as a 500, and a missing
+        // date the NOT NULL column as a 409 "conflicts with a record that already exists".
+        if (req.accountId() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose an account for this transaction.");
+        }
+        if (req.date() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a date for this transaction.");
+        }
+        if (req.description() == null || req.description().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Add a description for this transaction.");
+        }
         // Blank normalized to null up front, and reused below for both the check and the persisted
         // value -- an empty string is not a real key (V97's index would otherwise start treating
         // "every caller that sends an empty string" as one colliding identity), and a caller that
@@ -639,6 +650,10 @@ public class TransactionService {
     public TransactionDto update(UUID userId, UUID txnId, TransactionDto.UpdateRequest req) {
         Transaction t = getOwned(userId, txnId);
         requireNotInTheFuture(userId, req.date());
+        // Null leaves the description as it is; spaces would blank it -- the same rule as create.
+        if (req.description() != null && req.description().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Add a description for this transaction.");
+        }
 
         BigDecimal oldDelta = balanceOf(t);
         // Located before the edit: a date change can move the row in or out of a stated figure.
@@ -741,6 +756,12 @@ public class TransactionService {
     @Transactional
     public TransactionDto updateCategory(UUID userId, UUID txnId, String categoryName,
                                          TransactionDto.CategoryScope scope) {
+        // Refused rather than cut: resolveOrCreateCategory trims a long name to the column for the
+        // import path, where it means a parser fault, but a name the user typed or picked over 80
+        // characters was saved shortened without a word. This path also serves the Quick sort answer.
+        if (categoryName != null && categoryName.trim().length() > CategorizationService.MAX_CATEGORY_NAME_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Category name can't exceed 80 characters");
+        }
         Transaction t = getOwned(userId, txnId);
         // A Quick sort answer the user later changed -- how good the answers were. Quick sort's own
         // answer never counts here: it stamps quick_sorted_at only after this method returns.
@@ -996,6 +1017,12 @@ public class TransactionService {
     @Transactional
     public TransactionDto acknowledgeBankCorrection(UUID userId, UUID txnId) {
         Transaction t = getOwned(userId, txnId);
+        // Nothing pending, nothing to acknowledge: it used to write an "acknowledged" entry into the
+        // row's correction history anyway, for a correction that never happened. Still a 200, so a
+        // double tap stays harmless.
+        if (!t.isPendingBankCorrection()) {
+            return TransactionDto.from(t, categoryNamesById(userId).getOrDefault(t.getCategoryId(), "Uncategorized"));
+        }
         t.setPendingBankCorrection(false);
         Transaction saved = transactionRepository.save(t);
         auditService.record(userId, "ACCOUNT_AGGREGATOR_CORRECTION_ACKNOWLEDGED", "Transaction", txnId);
@@ -1565,7 +1592,10 @@ public class TransactionService {
     private List<Transaction> getOwnedAll(UUID userId, List<UUID> ids) {
         Map<UUID, Transaction> found = transactionRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(Transaction::getId, t -> t));
-        return ids.stream()
+        // Each id once. A list naming one row twice gave every caller that row twice: bulkDelete
+        // reversed its balance effect twice (the balance rose by its amount a second time), and
+        // removeFromStatement would have done the same.
+        return ids.stream().distinct()
                 .map(id -> OwnershipGuard.requireOwned(
                         java.util.Optional.ofNullable(found.get(id)),
                         Transaction::getUserId, userId, "Transaction"))

@@ -1206,16 +1206,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
-      # --legacy-peer-deps: added in #1702, when expo-modules-core 57's peerOptional range on
-      # react-native-worklets (^0.7.4 - ^0.10.0) conflicted with the worklets 0.13.x that
-      # react-native-reanimated 4.7 requires, and plain `npm ci` hard-failed. SDK 58's
-      # expo-modules-core accepts worklets >=0.13.0, and plain `npm ci` on the SDK 58 lockfile
-      # succeeds (measured 2026-10-30), but it also installs 11 peer packages this flag skips.
-      # The flag stays so CI matches what EAS installs (mobile/.npmrc); dropping both is its own
-      # change, tested on its own.
+      # Plain `npm ci`, the same install EAS Build runs. #1702 added --legacy-peer-deps (here and
+      # in mobile/.npmrc) for expo-modules-core 57's peer range on react-native-worklets; SDK 58's
+      # expo-modules-core accepts worklets >=0.13.0, so the flag was dropped once on SDK 58.
       - name: Install
         working-directory: mobile
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       # Mobile had no lint script at all until now -- `npx expo lint` set up eslint-config-expo
       # (see mobile/eslint.config.js for which of its rules are turned off and why). It caught a

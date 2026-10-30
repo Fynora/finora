@@ -176,7 +176,8 @@ updates:
   # jest-expo's setup.js (a plain top-level `require('expo-modules-core')`) can no longer find it.
   # That was an upstream timing gap. #1702 then moved to reanimated 4.7 / worklets 0.13 with
   # --legacy-peer-deps, and SDK 58's expo-modules-core (#2413) declares worklets ">=0.13.0", so the
-  # conflict itself is gone. The ignore stays because Expo SDK 58 pins reanimated and worklets
+  # conflict itself is gone and the mobile app installs with plain `npm ci` again (no
+  # --legacy-peer-deps, no direct expo-modules-core devDependency). The ignore stays because Expo SDK 58 pins reanimated and worklets
   # (bundledNativeModules.json): they move with the SDK, the same reasoning as the
   # react-native/expo pairing above.
   #

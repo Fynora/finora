@@ -17,6 +17,28 @@ public interface RazorpaySubscriptionGateway {
      *  support/debugging correlation, not read back by this application. */
     RazorpaySubscriptionDto createSubscription(String razorpayPlanId, String billingCycle, Map<String, String> notes);
 
+    /** Same as {@link #createSubscription}, for a checkout under a billing offer (V297): the
+     *  customer pays {@code firstPeriod.amountPaise} once, at authorisation, as an upfront amount
+     *  (Razorpay's {@code addons}), and the first regular plan charge happens at
+     *  {@code firstPeriod.regularBillingStartsAt} (Razorpay's {@code start_at}). The authorisation
+     *  link stops working at {@code firstPeriod.payBy} (Razorpay's {@code expire_by}), so a checkout
+     *  opened during an offer can't be paid at the offer price after it ends. */
+    RazorpaySubscriptionDto createSubscriptionWithFirstPeriod(String razorpayPlanId, String billingCycle,
+                                                              Map<String, String> notes, FirstPeriod firstPeriod);
+
+    /** The payment the customer made when authorising this subscription, read from Razorpay's
+     *  invoices for it -- for an offer checkout, the upfront offer payment. Empty when Razorpay
+     *  has no paid invoice for it yet. */
+    java.util.Optional<AuthorisationPayment> findAuthorisationPayment(String razorpaySubscriptionId);
+
+    /** @param amountPaise what was paid, in paise */
+    record AuthorisationPayment(String paymentId, long amountPaise) {}
+
+    /** @param amountPaise what the customer pays at authorisation, in paise
+     *  @param label the upfront amount's name, shown by Razorpay at checkout and on its invoice */
+    record FirstPeriod(long amountPaise, String label, java.time.Instant regularBillingStartsAt,
+                       java.time.Instant payBy) {}
+
     RazorpaySubscriptionDto fetchSubscription(String razorpaySubscriptionId);
 
     /** {@code cancelAtCycleEnd=true} for every user-initiated cancellation (spec §6.3); {@code false}

@@ -54,6 +54,39 @@ class SubscriptionCancellationDispatchSweepServiceIT extends AbstractIntegration
         return subscriptionRepository.save(subscription);
     }
 
+    /** An offer checkout (V297) whose regular billing has not started yet: Razorpay still reports it
+     *  "authenticated", and refuses cancel_at_cycle_end=true for it, so it must be cancelled now. */
+    @Test
+    void anOfferSubscriptionNotYetBillingIsCancelledImmediatelyNotAtCycleEnd() {
+        User user = createUser();
+        Subscription subscription = cancelledLocallyNotYetDispatched(user, BillingCalendar.today().plusDays(2));
+        org.mockito.Mockito.when(gateway.fetchSubscription(subscription.getRazorpaySubscriptionId()))
+                .thenReturn(new com.finora.integrations.razorpay.RazorpaySubscriptionDto(
+                        subscription.getRazorpaySubscriptionId(), "authenticated"));
+
+        sweepService.sweep();
+
+        verify(gateway).cancelSubscription(eq(subscription.getRazorpaySubscriptionId()), eq(false));
+        verify(gateway, never()).cancelSubscription(eq(subscription.getRazorpaySubscriptionId()), eq(true));
+        Subscription reloaded = subscriptionRepository.findById(subscription.getId()).orElseThrow();
+        assertThat(reloaded.getCancellationDispatchedAt()).isNotNull();
+        // Still Plus until the paid-for period ends; the reconciliation sweep downgrades after it.
+        assertThat(reloaded.getRenewalDate()).isEqualTo(BillingCalendar.today().plusDays(2));
+    }
+
+    @Test
+    void anActiveSubscriptionIsStillCancelledAtCycleEnd() {
+        User user = createUser();
+        Subscription subscription = cancelledLocallyNotYetDispatched(user, BillingCalendar.today().plusDays(2));
+        org.mockito.Mockito.when(gateway.fetchSubscription(subscription.getRazorpaySubscriptionId()))
+                .thenReturn(new com.finora.integrations.razorpay.RazorpaySubscriptionDto(
+                        subscription.getRazorpaySubscriptionId(), "active"));
+
+        sweepService.sweep();
+
+        verify(gateway).cancelSubscription(eq(subscription.getRazorpaySubscriptionId()), eq(true));
+    }
+
     @Test
     void dispatchesTheRealCancellationWhenWithinTheBufferWindow() {
         User user = createUser();

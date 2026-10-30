@@ -24,10 +24,13 @@ public class BillingController {
 
     private final BillingCheckoutService billingCheckoutService;
     private final CurrentUser currentUser;
+    private final com.finora.service.BillingOfferService billingOfferService;
 
-    public BillingController(BillingCheckoutService billingCheckoutService, CurrentUser currentUser) {
+    public BillingController(BillingCheckoutService billingCheckoutService, CurrentUser currentUser,
+                             com.finora.service.BillingOfferService billingOfferService) {
         this.billingCheckoutService = billingCheckoutService;
         this.currentUser = currentUser;
+        this.billingOfferService = billingOfferService;
     }
 
     @PostMapping("/checkout")
@@ -70,6 +73,13 @@ public class BillingController {
         return ApiResponse.ok(checkout, checkout != null
                 ? "Upgrade started -- authorize the new subscription to activate it."
                 : "Plan change requested");
+    }
+
+    /** Live first-period offers (V297), for the pricing card and the Billing page. Public: the
+     *  marketing pricing page shows them to signed-out visitors (SecurityConfig). */
+    @GetMapping("/offers")
+    public ApiResponse<java.util.List<com.finora.dto.BillingDtos.BillingOfferDto>> offers() {
+        return ApiResponse.ok(billingOfferService.liveOffers(java.time.Instant.now()));
     }
 
     @GetMapping("/subscription")

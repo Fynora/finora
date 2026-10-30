@@ -1987,9 +1987,25 @@ export interface CheckoutResponse {
   keyId: string;
 }
 
+// Mirrors backend BillingDtos.BillingOfferDto. A live first-period offer: a checkout started now
+// pays firstPeriodPrice for the first month/year, then regularPrice. Both include GST. The backend
+// stops applying it at endsAt, so this is display only -- checkout charges whatever the backend
+// decides at that moment.
+export interface BillingOffer {
+  planCode: string;
+  billingCycle: 'MONTHLY' | 'YEARLY';
+  code: string;
+  label: string;
+  firstPeriodPrice: number;
+  regularPrice: number;
+  endsAt: string;
+}
+
 export const billingApi = {
   history: () => api.get<BillingHistoryEntry[]>('/billing/history').then((r) => r.data),
   mySubscription: () => api.get<MySubscription>('/billing/subscription').then((r) => r.data),
+  // Public (no sign-in needed): the landing pricing card reads it too.
+  offers: () => api.get<BillingOffer[]>('/billing/offers').then((r) => r.data),
   checkout: (planCode: string, billingCycle: string) =>
     api.post<CheckoutResponse>('/billing/checkout', { planCode, billingCycle }).then((r) => r.data),
   cancel: () => api.post<{ message: string }>('/billing/cancel').then((r) => r.data),

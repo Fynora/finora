@@ -14,6 +14,7 @@ import { downloadBlob } from '../lib/download';
 import { formatDate } from '../utils/date';
 import { FinoraCard, EmptyState, Button, ConfirmDialog, Skeleton, Badge, useDialogA11y } from '../design-system';
 import { COMPARISON, INTENDED_BILLING_CYCLE_KEY, PLANS, priceForCycle } from './landing/plans';
+import { offerDisplay, offerFor, useBillingOffers } from './landing/offers';
 import { PREMIUM_PLAN_VISIBLE } from '../lib/premiumVisibility';
 import { isPlanVisible, paidMembershipName, visiblePlanName } from '../lib/planDisplay';
 import { trackNavigation } from '../lib/trackNavigation';
@@ -264,6 +265,7 @@ export default function Billing() {
   const [invoiceBusyIds, setInvoiceBusyIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const offers = useBillingOffers();
   const { data: subscription, isLoading: subLoading } = useQuery({
     queryKey: ['my-subscription'],
     queryFn: () => billingApi.mySubscription(),
@@ -930,6 +932,13 @@ export default function Billing() {
             // Shares priceForCycle with the landing page's own toggle (plans.ts) rather than a
             // second copy of the same parsing.
             const price = priceForCycle(plan, targetCycle === 'YEARLY' ? 'yearly' : 'monthly');
+            // A live offer (V297) applies only to a first paid checkout -- the backend's checkout(),
+            // which is what subscribeToPlan calls when there is no billing subscription yet. An
+            // upgrade or cycle switch goes through changePlan and pays the regular price.
+            const offer = !subscription.hasBillingSubscription && !isCurrent
+              ? offerFor(offers, plan.id, targetCycle === 'YEARLY' ? 'yearly' : 'monthly')
+              : undefined;
+            const offerShown = offer ? offerDisplay(offer) : undefined;
             return (
               <FinoraCard
                 key={plan.id}
@@ -942,14 +951,29 @@ export default function Billing() {
                   </span>
                 )}
                 <p className="font-semibold text-ink mb-1">{plan.name}</p>
+                {offerShown && (
+                  <span
+                    data-testid={`plan-offer-${plan.id}`}
+                    className="self-start text-2xs font-semibold rounded px-2 py-0.5 mb-1 bg-warning-bg text-warning"
+                  >
+                    {offerShown.badge}
+                  </span>
+                )}
                 <p data-testid={`plan-price-${plan.id}`} className="font-display text-2xl font-extrabold text-ink mb-1">
-                  {price.amount}
-                  {price.cadence && <span className="text-sm font-medium text-muted">{price.cadence}</span>}
+                  {offerShown ? offerShown.amount : price.amount}
+                  {offerShown && (
+                    <span className="text-base font-semibold text-muted line-through ml-2">{offerShown.regular}</span>
+                  )}
+                  {(offerShown?.cadence ?? price.cadence) && (
+                    <span className="text-sm font-medium text-muted">{offerShown?.cadence ?? price.cadence}</span>
+                  )}
                 </p>
                 {plan.priceIncludesGst && (
                   <p data-testid={`plan-gst-${plan.id}`} className="text-xs text-muted mb-1">Incl. GST</p>
                 )}
-                {price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
+                {offerShown
+                  ? <p className="text-xs text-muted mb-3">{offerShown.note}</p>
+                  : price.note && <p className="text-xs text-muted mb-3">{price.note}</p>}
                 <ul className="space-y-2 mb-6 flex-1">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm text-ink">

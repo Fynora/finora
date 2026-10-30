@@ -257,9 +257,29 @@ public class RazorpayWebhookDispatcher {
         Object currentEnd = entity.get("current_end");
         if (currentEnd instanceof Number n) {
             subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
+        } else if (order.getOfferCode() != null) {
+            // Offer checkout (V297): regular billing starts a period from now, so at authorisation
+            // Razorpay has no current period yet (current_end is null) -- the next charge, charge_at
+            // (or start_at, the same moment for a subscription that has not started), is when the
+            // paid-for first period ends. subscription.charged corrects it from then on. This date
+            // matters beyond display: the cancellation sweep only dispatches a cancellation for a
+            // subscription with a renewal date, so without it a cancelled offer would still be
+            // charged at the first regular charge.
+            Object nextCharge = entity.get("charge_at") instanceof Number ? entity.get("charge_at") : entity.get("start_at");
+            if (nextCharge instanceof Number n) {
+                subscription.setRenewalDate(BillingCalendar.dateOf(Instant.ofEpochSecond(n.longValue())));
+            } else {
+                log.error("Offer checkout {} activated with neither charge_at nor start_at -- renewal date left "
+                        + "unset, so a cancellation will not be dispatched for it automatically. Set it by hand.",
+                        LogSanitizer.sanitize(razorpaySubscriptionId));
+            }
         }
         applyCardOnFile(subscription, paymentEntity(payload));
         subscriptionRepository.save(subscription);
+
+        if (order.getOfferCode() != null) {
+            recordOfferPayment(subscription, plan, razorpaySubscriptionId, paymentEntity(payload));
+        }
 
         // design spec §6.5 step 4. A pre-existing, DIFFERENT razorpaySubscriptionId on the row
         // means this activation is completing an upgrade over an old, still live subscription --
@@ -355,6 +375,14 @@ public class RazorpayWebhookDispatcher {
         order.setRazorpaySubscriptionId(razorpaySubscriptionId);
         order.setStatus(SubscriptionOrder.STATUS_PENDING);
         order.setAmount(price.getPrice());
+        // An offer checkout (V297) sends offerCode in its notes; keeping it here is what makes the
+        // recovered order record the upfront offer payment, as a normally created one would. Its
+        // amount stays the regular price -- audit only, see above -- and the payment row carries
+        // what was actually paid.
+        String offerCode = asString(notes.get("offerCode"));
+        if (offerCode != null && !offerCode.isBlank()) {
+            order.setOfferCode(offerCode);
+        }
         return order;
     }
 
@@ -459,23 +487,36 @@ public class RazorpayWebhookDispatcher {
         applyCardOnFile(subscription, paymentEntity);
         subscriptionRepository.save(subscription);
 
-        Payment payment = new Payment();
-        payment.setUserId(subscription.getUserId());
-        payment.setSubscriptionId(subscription.getId());
-        payment.setProvider("RAZORPAY");
-        payment.setStatus(Payment.STATUS_SUCCESS);
         Object amountPaise = paymentEntity.get("amount");
-        payment.setAmount(amountPaise instanceof Number n
-                ? java.math.BigDecimal.valueOf(n.longValue(), 2)
-                : java.math.BigDecimal.ZERO);
-        payment.setCurrency("INR");
-        payment.setProviderTransactionId((String) paymentEntity.get("id"));
         // Frozen at charge time, not read back later off the (mutated-in-place) subscription --
         // see Payment.planId/billingCycle's own doc for why: subscription.getPlanId()/
         // getBillingCycle() are already the final, reconciled values for THIS charge by this point
         // (the plan-correction block above has already run and saved), so this is the one moment
         // they're guaranteed to describe what was actually charged rather than whatever the
         // subscription has since become.
+        Plan chargedPlan = planRepository.findById(subscription.getPlanId()).orElse(null);
+        recordPayment(subscription, chargedPlan, razorpaySubscriptionId, (String) paymentEntity.get("id"),
+                amountPaise instanceof Number n ? n.longValue() : 0L);
+    }
+
+    /** A successful Razorpay charge: the {@link Payment} row billing history and the invoice read,
+     *  the renewal event, the referral ledger and the invoice email. Shared by
+     *  {@link #handleCharged} and an offer checkout's upfront payment ({@link #recordOfferPayment}).
+     *
+     *  <p>design spec §5 (referral reward ledger): keyed off a real charge, never off activation
+     *  alone, which can fire with zero funds movement. The amount > 0 check is only a guard against
+     *  a zero-value charge being counted. Fires on every charge including renewals --
+     *  onReferredUserCharged's own REGISTERED-only guard makes repeat calls a no-op. */
+    private void recordPayment(Subscription subscription, Plan chargedPlan, String razorpaySubscriptionId,
+                               String paymentId, long amountPaise) {
+        Payment payment = new Payment();
+        payment.setUserId(subscription.getUserId());
+        payment.setSubscriptionId(subscription.getId());
+        payment.setProvider("RAZORPAY");
+        payment.setStatus(Payment.STATUS_SUCCESS);
+        payment.setAmount(java.math.BigDecimal.valueOf(amountPaise, 2));
+        payment.setCurrency("INR");
+        payment.setProviderTransactionId(paymentId);
         payment.setPlanId(subscription.getPlanId());
         payment.setBillingCycle(subscription.getBillingCycle());
         paymentRepository.save(payment);
@@ -486,21 +527,57 @@ public class RazorpayWebhookDispatcher {
         event.setMetadata(Map.of("razorpaySubscriptionId", razorpaySubscriptionId));
         subscriptionEventRepository.save(event);
 
-        // design spec §5 (referral reward ledger): subscription.charged is the real-charge signal
-        // this is keyed off (not subscription.activated, which can fire with zero funds movement).
-        // Razorpay documents it as "sent every time a successful charge is made", so it is never a
-        // trial -- a trial on Razorpay would be a future start_at with no charge at all. The
-        // amount > 0 check is only a guard against a zero-value charge being counted. Fires on
-        // every charge including renewals -- onReferredUserCharged's own REGISTERED-only guard
-        // makes repeat calls a no-op, so this needs no idempotency handling of its own.
-        Plan chargedPlan = planRepository.findById(subscription.getPlanId()).orElse(null);
-        if (chargedPlan != null && amountPaise instanceof Number n && n.longValue() > 0) {
+        if (chargedPlan != null && amountPaise > 0) {
             referralService.onReferredUserCharged(subscription.getUserId(), chargedPlan.getCode(),
-                    ReferralCharge.PROVIDER_RAZORPAY, chargePaymentId);
+                    ReferralCharge.PROVIDER_RAZORPAY, paymentId);
         }
 
         String planName = chargedPlan != null ? chargedPlan.getName() : "Fynora";
         sendInvoiceEmail(subscription.getUserId(), payment.getId(), planName);
+    }
+
+    /** An offer checkout (V297) is paid once, up front, at authorisation; the first regular charge
+     *  -- and so the first {@code subscription.charged} -- is a period later. Without this, the
+     *  offer payment would never reach billing history or get an invoice.
+     *
+     *  <p>The payment comes from the webhook's own {@code payment.entity} when Razorpay includes
+     *  one, otherwise from Razorpay's invoices for the subscription. Either way it is recorded under
+     *  Razorpay's own payment id, the same key {@link #handleCharged} dedupes on, so a later
+     *  {@code subscription.charged} for this same payment, or a re-run of this webhook, never
+     *  records it twice.
+     *
+     *  <p>Never allowed to stop the activation: the customer has paid, so they get Plus whatever
+     *  happens here. If the invoice lookup fails or finds nothing, the payment is left unrecorded
+     *  and logged as an error for a manual entry -- a missing invoice row is fixable later, a paying
+     *  customer left on Free is not. */
+    private void recordOfferPayment(Subscription subscription, Plan plan, String razorpaySubscriptionId,
+                                    Map<String, Object> paymentEntity) {
+        String paymentId = asString(paymentEntity.get("id"));
+        long amountPaise = paymentEntity.get("amount") instanceof Number n ? n.longValue() : 0L;
+        if (paymentId == null || amountPaise <= 0) {
+            Optional<RazorpaySubscriptionGateway.AuthorisationPayment> found;
+            try {
+                found = gateway.findAuthorisationPayment(razorpaySubscriptionId);
+            } catch (RuntimeException e) {
+                log.error("Offer checkout {} for user {} activated, but looking up its upfront payment failed -- "
+                        + "billing history and the invoice are missing it. Record it by hand from the Razorpay "
+                        + "dashboard.", LogSanitizer.sanitize(razorpaySubscriptionId), subscription.getUserId(), e);
+                return;
+            }
+            if (found.isEmpty()) {
+                log.error("Offer checkout {} for user {} activated, but Razorpay shows no paid invoice for it -- "
+                        + "billing history and the invoice are missing its upfront payment. Record it by hand "
+                        + "from the Razorpay dashboard.", LogSanitizer.sanitize(razorpaySubscriptionId),
+                        subscription.getUserId());
+                return;
+            }
+            paymentId = found.get().paymentId();
+            amountPaise = found.get().amountPaise();
+        }
+        if (paymentRepository.existsByProviderTransactionId(paymentId)) {
+            return;
+        }
+        recordPayment(subscription, plan, razorpaySubscriptionId, paymentId, amountPaise);
     }
 
     /** A refund of one payment. Refunds are issued by us from the Razorpay dashboard, so any

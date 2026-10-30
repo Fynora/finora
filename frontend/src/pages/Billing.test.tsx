@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Billing from './Billing';
 import { INTENDED_BILLING_CYCLE_KEY } from './landing/plans';
+import { resetBillingOffersCache } from './landing/offers';
 import { billingApi, userApi, entitlementsApi, referralsApi, accountsApi, goalsApi, budgetsApi, analyticsApi, usageApi } from '../api/endpoints';
 import { openRazorpayCheckout } from '../lib/razorpayCheckout';
 import type { BillingHistoryEntry, MySubscription, UserSettings } from '../api/endpoints';
@@ -22,7 +23,7 @@ vi.mock('../api/endpoints', () => ({
   billingApi: {
     history: vi.fn(), mySubscription: vi.fn(), checkout: vi.fn(), cancel: vi.fn(),
     changePlan: vi.fn(), cancelPendingOrder: vi.fn(), pause: vi.fn(), resume: vi.fn(),
-    undoCancellation: vi.fn(), invoicePdf: vi.fn(),
+    undoCancellation: vi.fn(), invoicePdf: vi.fn(), offers: vi.fn(),
   },
   userApi: { get: vi.fn() },
   entitlementsApi: { mine: vi.fn() },
@@ -107,6 +108,38 @@ describe('Billing', () => {
       totalStatements: 0, totalTransactionsImported: 0, totalTransactionsSkipped: 0, lastImportedAt: null,
     });
     vi.mocked(usageApi.viewCount).mockReset().mockResolvedValue({ viewCount: 0 });
+    vi.mocked(billingApi.offers).mockReset().mockResolvedValue([]);
+    resetBillingOffersCache();
+  });
+
+  // Billing offers (backend V297). Synthetic offer, shaped like GET /billing/offers.
+  const plusMonthlyOffer = {
+    planCode: 'PLUS', billingCycle: 'MONTHLY' as const, code: 'DIWALI2026', label: 'Diwali offer',
+    firstPeriodPrice: 125, regularPrice: 249, endsAt: '2099-11-07T18:30:00Z',
+  };
+
+  it('shows a Free user the live offer on the Plus card', async () => {
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription());
+    vi.mocked(billingApi.offers).mockResolvedValue([plusMonthlyOffer]);
+    renderPage();
+
+    expect(await screen.findByTestId('plan-offer-plus')).toHaveTextContent('Diwali offer · ends 7 Nov');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹125₹249/month');
+    expect(screen.getByText('₹125 for your first month, then ₹249/month')).toBeInTheDocument();
+  });
+
+  it('does not show the offer to someone already paying, whose change goes through change-plan', async () => {
+    // The offer only applies to a first paid checkout; an upgrade or cycle switch pays full price.
+    vi.mocked(billingApi.mySubscription).mockResolvedValue(subscription({
+      planCode: 'PREMIUM', planName: 'Premium', billingCycle: 'MONTHLY', hasBillingSubscription: true,
+      paymentProvider: 'RAZORPAY', renewalDate: '2026-11-01',
+    }));
+    vi.mocked(billingApi.offers).mockResolvedValue([plusMonthlyOffer]);
+    renderPage();
+
+    await waitFor(() => expect(billingApi.offers).toHaveBeenCalled());
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹249');
+    expect(screen.queryByTestId('plan-offer-plus')).toBeNull();
   });
 
   it('shows the current Free plan and a disabled auto-renewal toggle', async () => {

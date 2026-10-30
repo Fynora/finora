@@ -9,6 +9,7 @@ import { PageLoading } from './components/PageLoading';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
+import { OfferPopup, OfferPopupBoundary } from './components/OfferPopup';
 import { OpenInAppBanner } from './components/OpenInAppBanner';
 import { GMAIL_SYNC_UI_ENABLED } from './lib/features';
 import { useDocumentTitle } from './hooks/useDocumentTitle';
@@ -86,6 +87,10 @@ function AppShell({ children }: { children: ReactNode }) {
               fixed, and lazy routes are the easiest way to reintroduce it. */}
           <Suspense fallback={<PageLoading />}>{children}</Suspense>
         </ErrorBoundary>
+        {/* Its own boundary: an offer announcement must never take the page down with it. */}
+        <OfferPopupBoundary>
+          <OfferPopup />
+        </OfferPopupBoundary>
       </main>
     </div>
   );

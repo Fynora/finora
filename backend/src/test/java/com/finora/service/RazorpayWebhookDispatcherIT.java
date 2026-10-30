@@ -11,6 +11,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.when;
 
 class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
 
@@ -1365,5 +1367,183 @@ class RazorpayWebhookDispatcherIT extends AbstractIntegrationTest {
 
         Subscription reloaded = subscriptionRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
         assertThat(reloaded.getCancellationDispatchedAt()).isNull();
+    }
+
+    // --- Billing offers (V297): the upfront first-period payment ---------------------------------
+
+    /** 2030-02-01T18:30:00Z, midnight 2 Feb in India: the regular billing start an offer checkout
+     *  would put a month after authorisation. */
+    private static final long OFFER_CHARGE_AT = 1896201000L; // synthetic-ok: fixture epoch second
+
+    private User offerCheckoutUser(String razorpaySubscriptionId) {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        Plan plus = planRepository.findByCode("PLUS").orElseThrow();
+        SubscriptionOrder order = new SubscriptionOrder();
+        order.setUserId(user.getId());
+        order.setPlanId(plus.getId());
+        order.setBillingCycle("MONTHLY");
+        order.setRazorpaySubscriptionId(razorpaySubscriptionId);
+        order.setStatus(SubscriptionOrder.STATUS_PENDING);
+        order.setAmount(new BigDecimal("125.00"));
+        order.setOfferCode("DIWALI2026");
+        subscriptionOrderRepository.save(order);
+        return user;
+    }
+
+    /** What Razorpay's docs show for subscription.authenticated with a future start: the
+     *  subscription entity only, no payment, current_end null, charge_at set. */
+    private Map<String, Object> authenticatedWithFutureStart(String razorpaySubscriptionId) {
+        return Map.of("subscription", Map.of("entity", futureStartEntity(razorpaySubscriptionId)));
+    }
+
+    private Map<String, Object> futureStartEntity(String razorpaySubscriptionId) {
+        Map<String, Object> entity = new java.util.HashMap<>();
+        entity.put("id", razorpaySubscriptionId);
+        entity.put("status", "authenticated");
+        entity.put("current_end", null);
+        entity.put("charge_at", OFFER_CHARGE_AT);
+        entity.put("start_at", OFFER_CHARGE_AT);
+        return entity;
+    }
+
+    @Test
+    void offerAuthorisationRecordsTheUpfrontPaymentFromRazorpaysInvoices() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.of(
+                new RazorpaySubscriptionGateway.AuthorisationPayment("pay_offer_" + UUID.randomUUID(), 12500)));
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getStatus()).isEqualTo(Subscription.STATUS_ACTIVE);
+        assertThat(subscription.getPlanId()).isEqualTo(planRepository.findByCode("PLUS").orElseThrow().getId());
+        // The first period is paid for until the first regular charge.
+        assertThat(subscription.getRenewalDate()).isEqualTo(java.time.LocalDate.of(2030, 2, 2));
+
+        List<Payment> payments = paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        assertThat(payments).hasSize(1);
+        assertThat(payments.get(0).getAmount()).isEqualByComparingTo("125.00");
+        assertThat(payments.get(0).getStatus()).isEqualTo(Payment.STATUS_SUCCESS);
+        assertThat(payments.get(0).getBillingCycle()).isEqualTo("MONTHLY");
+        verify(emailProvider).sendInvoiceEmail(eq(user.getEmail()), eq(user.getFullName()), eq("Plus"), any());
+    }
+
+    @Test
+    void offerAuthorisationUsesThePaymentInThePayloadWhenRazorpaySendsOne() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        String paymentId = "pay_offer_" + UUID.randomUUID();
+        Map<String, Object> payload = new java.util.HashMap<>(authenticatedWithFutureStart(razorpaySubscriptionId));
+        payload.put("payment", Map.of("entity", Map.of("id", paymentId, "amount", 12500)));
+
+        dispatcher.dispatch("subscription.activated", payload);
+
+        verify(gateway, never()).findAuthorisationPayment(anyString());
+        List<Payment> payments = paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+        assertThat(payments).hasSize(1);
+        assertThat(payments.get(0).getProviderTransactionId()).isEqualTo(paymentId);
+        assertThat(payments.get(0).getAmount()).isEqualByComparingTo("125.00");
+    }
+
+    @Test
+    void theUpfrontPaymentIsRecordedOnceEvenIfRazorpayAlsoSendsItAsACharge() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        String paymentId = "pay_offer_" + UUID.randomUUID();
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.of(
+                new RazorpaySubscriptionGateway.AuthorisationPayment(paymentId, 12500)));
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+        // authenticated and activated both fire for one checkout; the second is a no-op.
+        dispatcher.dispatch("subscription.activated", authenticatedWithFutureStart(razorpaySubscriptionId));
+        dispatcher.dispatch("subscription.charged", Map.of(
+                "payment", Map.of("entity", Map.of("id", paymentId, "amount", 12500)),
+                "subscription", Map.of("entity", Map.of("id", razorpaySubscriptionId))));
+
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(1);
+    }
+
+    @Test
+    void aCustomerWhoPaidGetsPlusEvenWhenTheUpfrontPaymentCannotBeFound() {
+        // The customer has paid; a missing invoice row is logged for a manual fix, never a reason to
+        // leave them on Free.
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.empty());
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+
+        assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow()
+                .getStatus()).isEqualTo(SubscriptionOrder.STATUS_COMPLETED);
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo(razorpaySubscriptionId);
+        assertThat(subscription.getPlanId()).isEqualTo(planRepository.findByCode("PLUS").orElseThrow().getId());
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+    }
+
+    @Test
+    void aCustomerWhoPaidGetsPlusEvenWhenRazorpaysInvoiceLookupFails() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId))
+                .thenThrow(new IllegalStateException("Razorpay fetch invoices failed."));
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+
+        Subscription subscription = subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow();
+        assertThat(subscription.getRazorpaySubscriptionId()).isEqualTo(razorpaySubscriptionId);
+        assertThat(subscription.getRenewalDate()).isEqualTo(java.time.LocalDate.of(2030, 2, 2));
+    }
+
+    @Test
+    void theRenewalDateFallsBackToStartAtWhenChargeAtIsMissing() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.of(
+                new RazorpaySubscriptionGateway.AuthorisationPayment("pay_offer_" + UUID.randomUUID(), 12500)));
+        Map<String, Object> entity = futureStartEntity(razorpaySubscriptionId);
+        entity.put("charge_at", null);
+
+        dispatcher.dispatch("subscription.authenticated", Map.of("subscription", Map.of("entity", entity)));
+
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getRenewalDate())
+                .isEqualTo(java.time.LocalDate.of(2030, 2, 2));
+    }
+
+    @Test
+    void aRegularCheckoutNeverLooksUpAnAuthorisationPayment() {
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        User user = offerCheckoutUser(razorpaySubscriptionId);
+        SubscriptionOrder order = subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow();
+        order.setOfferCode(null);
+        subscriptionOrderRepository.save(order);
+
+        dispatcher.dispatch("subscription.authenticated", authenticatedWithFutureStart(razorpaySubscriptionId));
+
+        verify(gateway, never()).findAuthorisationPayment(anyString());
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).isEmpty();
+        // Unchanged behaviour: without current_end a regular checkout's renewal date waits for
+        // subscription.charged.
+        assertThat(subscriptionRepository.findActiveOrTrial(user.getId()).orElseThrow().getRenewalDate()).isNull();
+    }
+
+    @Test
+    void anOrphanedOfferCheckoutRecoveredFromNotesStillRecordsTheUpfrontPayment() {
+        User user = createUser();
+        subscriptionService.provisionFreeSubscription(user.getId());
+        String razorpaySubscriptionId = "sub_test_" + UUID.randomUUID();
+        Map<String, Object> entity = futureStartEntity(razorpaySubscriptionId);
+        entity.put("notes", Map.of("fynoraUserId", user.getId().toString(), "planCode", "PLUS",
+                "billingCycle", "MONTHLY", "offerCode", "DIWALI2026"));
+        when(gateway.findAuthorisationPayment(razorpaySubscriptionId)).thenReturn(Optional.of(
+                new RazorpaySubscriptionGateway.AuthorisationPayment("pay_offer_" + UUID.randomUUID(), 12500)));
+
+        dispatcher.dispatch("subscription.authenticated", Map.of("subscription", Map.of("entity", entity)));
+
+        assertThat(subscriptionOrderRepository.findByRazorpaySubscriptionId(razorpaySubscriptionId).orElseThrow()
+                .getOfferCode()).isEqualTo("DIWALI2026");
+        assertThat(paymentRepository.findByUserIdOrderByCreatedAtDesc(user.getId())).hasSize(1);
     }
 }

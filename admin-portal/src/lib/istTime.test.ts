@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  estimateMinutes, formatIst, formatIstDate, isInputInsideWindow, isInsideWindow, isoToIstInput,
-  istInputToIso, toTimeInput, todayIst,
+  endOfIstDay, estimateMinutes, formatIst, formatIstDate, isInputInsideWindow, isInsideWindow, isoToIstInput,
+  istInputToIso, lastIstDayBefore, toTimeInput, todayIst,
 } from './istTime';
 
 describe('istTime', () => {
@@ -56,5 +56,25 @@ describe('istTime', () => {
     expect(estimateMinutes(100)).toBe(1);
     expect(estimateMinutes(101)).toBe(2);
     expect(estimateMinutes(6000)).toBe(60);
+  });
+
+  it('ends an offer at 00:00 IST the day after its last day, across month and year ends', () => {
+    expect(endOfIstDay('2026-11-07')).toBe('2026-11-07T18:30:00.000Z');
+    expect(endOfIstDay('2026-10-31')).toBe('2026-10-31T18:30:00.000Z');
+    expect(endOfIstDay('2026-12-31')).toBe('2026-12-31T18:30:00.000Z');
+    expect(endOfIstDay('2028-02-28')).toBe('2028-02-28T18:30:00.000Z');
+    expect(formatIst(endOfIstDay('2026-12-31'))).toBe('01 Jan 2027, 00:00 IST');
+    expect(formatIst(endOfIstDay('2028-02-28'))).toBe('29 Feb 2028, 00:00 IST');
+  });
+
+  it('reads the last day back only from an end exactly on IST midnight', () => {
+    expect(lastIstDayBefore('2026-11-07T18:30:00Z')).toBe('2026-11-07');
+    expect(lastIstDayBefore('2026-12-31T18:30:00.000Z')).toBe('2026-12-31');
+    expect(lastIstDayBefore('2026-11-07T18:30:01Z')).toBeNull();
+    expect(lastIstDayBefore('2026-11-07T18:29:59.999Z')).toBeNull();
+    expect(lastIstDayBefore('2026-11-07T09:47:00Z')).toBeNull();
+    for (const day of ['2026-11-07', '2026-12-31', '2028-02-28', '2028-02-29']) {
+      expect(lastIstDayBefore(endOfIstDay(day))).toBe(day);
+    }
   });
 });

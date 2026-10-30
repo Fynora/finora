@@ -84,3 +84,28 @@ export const PEOPLE_PER_MINUTE = 100;
 export function estimateMinutes(people: number): number {
   return Math.max(1, Math.ceil(people / PEOPLE_PER_MINUTE));
 }
+
+/**
+ * For an offer's "last day" (an IST date, "2026-11-07"): the instant the offer stops applying,
+ * 00:00 IST on the following day. Offer windows are end-exclusive, so the last day is fully inside.
+ */
+export function endOfIstDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  const nextDate = `${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}`;
+  return istInputToIso(`${nextDate}T00:00`);
+}
+
+/**
+ * The reverse, for display: the IST date of the last whole day before an end that falls exactly
+ * on 00:00 IST ("2026-11-07" for 00:00 IST on 8 Nov), or null when the end is at any other time
+ * (an offer ended early with "End now").
+ */
+export function lastIstDayBefore(iso: string): string | null {
+  const p = istParts(iso);
+  if (p.hour !== 0 || p.minute !== 0 || new Date(iso).getUTCSeconds() !== 0 || new Date(iso).getUTCMilliseconds() !== 0) {
+    return null;
+  }
+  const prev = new Date(Date.UTC(p.year, p.month, p.day - 1));
+  return `${prev.getUTCFullYear()}-${pad(prev.getUTCMonth() + 1)}-${pad(prev.getUTCDate())}`;
+}

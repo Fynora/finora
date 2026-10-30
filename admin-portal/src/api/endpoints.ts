@@ -3,7 +3,7 @@ import { downloadBlob } from '../lib/download';
 import type { components } from './generated-types';
 import type {
 
-  AccountDto, ActivationFunnelDto, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
+  AccountDto, ActivationFunnelDto, BillingOfferAdmin, BillingOfferCreateRequest, BillingOfferPlanOption, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
@@ -342,6 +342,16 @@ export const adminAppIconApi = {
   update: (id: string, body: AppIconScheduleSaveRequest) =>
     api.put<AppIconScheduleEntry>(`/admin/app-icon/schedule/${id}`, body).then((r) => r.data),
   remove: (id: string) => api.delete<void>(`/admin/app-icon/schedule/${id}`).then(() => undefined),
+};
+
+// Billing offers -- read with SUBSCRIPTION_MANAGEMENT_VIEW, create and end with _MANAGE (V99), the
+// same split as the Subscriptions page. There is no delete: past offers are kept as the record.
+export const adminBillingOffersApi = {
+  list: () => api.get<BillingOfferAdmin[]>('/admin/billing-offers').then((r) => r.data),
+  plans: () => api.get<BillingOfferPlanOption[]>('/admin/billing-offers/plans').then((r) => r.data),
+  create: (body: BillingOfferCreateRequest) =>
+    api.post<BillingOfferAdmin>('/admin/billing-offers', body).then((r) => r.data),
+  endNow: (id: string) => api.post<BillingOfferAdmin>(`/admin/billing-offers/${id}/end`).then((r) => r.data),
 };
 
 export interface AuditLogFilters {

@@ -3188,6 +3188,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/billing-offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listBillingOffers"];
+        put?: never;
+        post: operations["createBillingOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/billing-offers/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["endBillingOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/banks": {
         parameters: {
             query?: never;
@@ -6060,6 +6092,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["status_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/billing-offers/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listBillingOfferPlans"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9607,6 +9655,49 @@ export interface components {
             createdAt?: string;
             /** Format: date-time */
             heldAt?: string;
+        };
+        BillingOfferCreateRequest: {
+            code: string;
+            planCode: string;
+            billingCycle: string;
+            firstPeriodPrice: number;
+            label: string;
+            /** Format: date-time */
+            startsAt: string;
+            /** Format: date-time */
+            endsAt: string;
+        };
+        ApiResponseBillingOfferAdminDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BillingOfferAdminDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BillingOfferAdminDto: {
+            /** Format: uuid */
+            id?: string;
+            code?: string;
+            planCode?: string;
+            planName?: string;
+            billingCycle?: string;
+            firstPeriodPrice?: number;
+            regularPrice?: number;
+            label?: string;
+            /** Format: date-time */
+            startsAt?: string;
+            /** Format: date-time */
+            endsAt?: string;
+            /** @enum {string} */
+            state?: "UPCOMING" | "LIVE" | "ENDED";
+            appliedAtCheckout?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
         };
         BankCreateRequest: {
             id: string;
@@ -13873,6 +13964,37 @@ export interface components {
         };
         BlankedCopySwitchStatus: {
             enabled?: boolean;
+        };
+        ApiResponseListBillingOfferAdminDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BillingOfferAdminDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiResponseListBillingOfferPlanOptionDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BillingOfferPlanOptionDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BillingOfferPlanOptionDto: {
+            planCode?: string;
+            planName?: string;
+            billingCycle?: string;
+            regularPrice?: number;
+            checkoutReady?: boolean;
         };
         ApiResponsePagedResponseBankDto: {
             success?: boolean;
@@ -20069,6 +20191,72 @@ export interface operations {
             };
         };
     };
+    listBillingOffers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBillingOfferAdminDto"];
+                };
+            };
+        };
+    };
+    createBillingOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillingOfferCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBillingOfferAdminDto"];
+                };
+            };
+        };
+    };
+    endBillingOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBillingOfferAdminDto"];
+                };
+            };
+        };
+    };
     list_13: {
         parameters: {
             query?: {
@@ -24169,6 +24357,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseBlankedCopySwitchStatus"];
+                };
+            };
+        };
+    };
+    listBillingOfferPlans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBillingOfferPlanOptionDto"];
                 };
             };
         };

@@ -51,12 +51,21 @@ export function useBillingOffers(): BillingOffer[] {
 
 /** One line announcing the live offers on a plan, for the marketing banner and the in-app pop-up:
  *  "Plus at ₹125 for your first month (then ₹249/month), or ₹999 for your first year". Null when
- *  the plan has no live offer. */
+ *  the plan has no live offer.
+ *
+ *  The yearly price joins the monthly one only when both are the same offer (same code and end):
+ *  offers are created per plan and cycle from the admin page, so the two can differ, and the line
+ *  carries one name and one last day. Otherwise the monthly offer is announced alone; the pricing
+ *  card still shows each cycle's own offer with its own end. */
 export function offerHeadline(offers: BillingOffer[], planCode: string, planName: string): {
   label: string; text: string; lastDay: string; code: string;
 } | null {
   const monthly = offers.find((o) => o.planCode === planCode && o.billingCycle === 'MONTHLY');
-  const yearly = offers.find((o) => o.planCode === planCode && o.billingCycle === 'YEARLY');
+  const yearlyOffer = offers.find((o) => o.planCode === planCode && o.billingCycle === 'YEARLY');
+  const yearly = yearlyOffer && (!monthly
+    || (yearlyOffer.code === monthly.code && Date.parse(yearlyOffer.endsAt) === Date.parse(monthly.endsAt)))
+    ? yearlyOffer
+    : undefined;
   const lead = monthly ?? yearly;
   if (!lead) return null;
   const parts: string[] = [];

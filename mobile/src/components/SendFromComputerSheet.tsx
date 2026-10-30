@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppModal } from './AppModal';
 import { Button } from './Button';
@@ -12,8 +12,17 @@ export const POLL_MS = 3000;
 /** How long "Received" stays on screen before the sheet closes itself. */
 export const RECEIVED_DWELL_MS = 2000;
 
+/** The code the sheet was still waiting on when it was closed: the import screen keeps watching for
+ *  its file (WaitingForComputerFile). Closing the sheet never cancels the code -- the computer can
+ *  still send with it -- so the phone must not stop listening just because the sheet went away. */
+export interface StillWaiting {
+  code: string;
+  id?: string;
+}
+
 interface Props {
-  onClose: () => void;
+  /** Closed with no file. `stillWaiting` is set when the code shown was still unused. */
+  onClose: (stillWaiting?: StillWaiting) => void;
   /** The file arrived as this import job: the parent closes the sheet and follows the job to its
    *  review, as it does for a file picked on the phone (Sid, 2026-10-25). */
   onReceived: (importJobId: string) => void;
@@ -94,12 +103,21 @@ export function SendFromComputerSheet({ onClose, onReceived }: Props) {
 
   const status = phase.kind === 'code' ? phase.state : null;
   // Closing during the "Received." pause still follows the file: closing then must not strand it.
-  const close = () => (receivedJobId ? onReceived(receivedJobId) : onClose());
+  // Closing while the code is still waiting hands the code back, so the screen keeps listening.
+  const close = () => {
+    if (receivedJobId) onReceived(receivedJobId);
+    else if (waitingCode) onClose({ code: waitingCode, id: waitingId });
+    else onClose();
+  };
 
   return (
     <AppModal visible animationType="slide" transparent onRequestClose={close}>
       <View style={styles.flex}>
-        <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Close" />
+        {/* Not a close target. A user reads the code off the phone while typing on the computer,
+            and on Android the tap that wakes a dimmed screen is also delivered to the app: a
+            backdrop that closed the sheet stopped the phone listening the moment the file was
+            sent (a customer report, 2026-10-30). Close and the back button still close it. */}
+        <View style={styles.backdrop} />
         <GlassSurface style={[styles.sheet, { paddingBottom: insets.bottom + spacing.md }]}>
           {phase.kind === 'issuing' ? (
             <ActivityIndicator style={styles.spinner} color={c.primary} accessibilityLabel="Getting a code" />

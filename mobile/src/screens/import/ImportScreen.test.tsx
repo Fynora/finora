@@ -61,7 +61,9 @@ jest.mock('../../api/endpoints', () => ({
   // Gate 2b spec §7: the "My statement is on my computer" sheet.
   sendCodesApi: {
     issue: jest.fn().mockResolvedValue({ code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' }),
-    current: jest.fn().mockResolvedValue({ state: 'WAITING', importJobId: null }),
+    // NONE by default: the screen asks once on mount whether a code is still out, and a WAITING
+    // answer adds a "Waiting for your file" card the other tests do not expect.
+    current: jest.fn().mockResolvedValue({ state: 'NONE', importJobId: null }),
   },
   activationApi: {
     funnelEvent: jest.fn().mockResolvedValue(undefined),
@@ -1563,6 +1565,79 @@ describe('ImportScreen — send from a computer', () => {
     await screen.findByText('Choose a file');
     expect(screen.queryByText('My statement is on my computer')).toBeNull();
   });
+
+  // A customer report (2026-10-30): the sheet closed in the second the computer sent the file, the
+  // phone stopped listening, and the statement waited unnoticed. The code still works after the
+  // sheet closes, so the screen keeps listening for it.
+  it('keepsWatchingAfterTheSheetIsClosed, and follows the file when it arrives', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    await screen.findByText('AB3K7M');
+    fireEvent.press(screen.getByText('Close'));
+
+    expect(await screen.findByText('Waiting for your file')).toBeOnTheScreen();
+    expect(screen.getByText(
+      'On your computer, open app.fynora.net/send and type AB3K7M. The review opens here when your file arrives.',
+    )).toBeOnTheScreen();
+
+    api.sendCodes.current.mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-8' });
+    await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-8'), { timeout: 9000 });
+    expect(screen.queryByText('Waiting for your file')).toBeNull();
+  }, 15000);
+
+  // The app may be closed or killed while a code is out; the code still works on the computer.
+  it('picksAWaitingCodeBackUpWhenTheScreenOpens', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    render(treeAsyncAvailable());
+
+    expect(await screen.findByText('Waiting for your file')).toBeOnTheScreen();
+    expect(screen.getByText(
+      'Send your statement from app.fynora.net/send on your computer. The review opens here when it arrives.',
+    )).toBeOnTheScreen();
+  });
+
+  it('showsNoWaitingCardWhenNoCodeIsOut', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'RECEIVED', importJobId: 'job-old' });
+    render(treeAsyncAvailable());
+
+    await screen.findByText('Choose a file');
+    await waitFor(() => expect(api.sendCodes.current).toHaveBeenCalled());
+    expect(screen.queryByText('Waiting for your file')).toBeNull();
+    // An old arrival is not followed again on every visit; the review list covers it.
+    expect(api.importJobs.progress).not.toHaveBeenCalledWith('job-old');
+  });
+
+  it('stopsWaitingWhenAsked', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    render(treeAsyncAvailable());
+
+    fireEvent.press(await screen.findByText('Stop waiting'));
+
+    expect(screen.queryByText('Waiting for your file')).toBeNull();
+  });
+
+  // The same customer then saw "nothing to import": the statement sat under the upload card, below
+  // the fold, as "Continue a previous import".
+  it('showsStatementsReadyToReviewAboveTheUploadCard', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'NONE', importJobId: null });
+    api.import.listSessions.mockReset().mockResolvedValue([
+      { id: 'sess-1', fileName: 'card.pdf', rowCount: 11, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    render(treeAsyncAvailable());
+
+    expect(await screen.findByText('Ready to review')).toBeOnTheScreen();
+    expect(screen.getByText(
+      'This statement has been read. Nothing is added to your accounts until you review it and tap Import.',
+    )).toBeOnTheScreen();
+    expect(screen.getByLabelText('Review import of card.pdf')).toBeOnTheScreen();
+    const rendered = JSON.stringify(screen.toJSON());
+    expect(rendered.indexOf('Ready to review')).toBeLessThan(rendered.indexOf('Import a statement'));
+  });
 });
 
 describe('ImportScreen — async import job (Phase 4)', () => {
@@ -1953,15 +2028,15 @@ describe('ImportScreen — async import job (Phase 4)', () => {
     api.importJobs.progress.mockResolvedValue(jobProgress());
     render(treeAsyncAvailable());
 
-    expect(await screen.findByText('Continue a previous import')).toBeTruthy();
+    expect(await screen.findByText('Ready to review')).toBeTruthy();
     expect(await screen.findByText('Recent failed imports')).toBeTruthy();
 
     fireEvent.press(await screen.findByText('Choose a file'));
     await settle();
 
     expect(await screen.findByText('Waiting to start')).toBeTruthy();
-    expect(screen.queryByText('Continue a previous import')).toBeNull();
-    expect(screen.queryByText('Resume')).toBeNull();
+    expect(screen.queryByText('Ready to review')).toBeNull();
+    expect(screen.queryByText('Review')).toBeNull();
     expect(screen.queryByText('Recent failed imports')).toBeNull();
     expect(screen.queryByText('Try again')).toBeNull();
   });

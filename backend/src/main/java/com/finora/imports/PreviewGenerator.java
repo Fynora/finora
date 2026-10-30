@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -118,9 +119,10 @@ public class PreviewGenerator {
             if (csvParser.isBlankRow(allRows.get(i))) continue;
             Map<String, String> row = csvParser.zipRow(headerRow, allRows.get(i));
             String dateCell = TransactionNormalizer.dateCellOf(row);
+            String dateColumn = TransactionNormalizer.dateColumnOf(row);
             dateCells.add(dateCell);
             for (Map.Entry<String, String> e : row.entrySet()) {
-                if (e.getValue() != dateCell && CsvDateOrder.namesADate(e.getKey())) {
+                if (!Objects.equals(e.getKey(), dateColumn) && CsvDateOrder.namesADate(e.getKey())) {
                     otherDates.addAll(CsvDateOrder.datesIn(e.getValue()));
                 }
             }

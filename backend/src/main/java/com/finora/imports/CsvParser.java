@@ -141,9 +141,24 @@ public class CsvParser {
                 .withResolverStyle(ResolverStyle.STRICT);
     }
 
+    /**
+     * A run of digits as a number, or -1 when it does not fit an int. Every caller reads a group of a
+     * pattern that allows at most four digits, so today this never returns -1. It is here so that
+     * widening one of those patterns can never turn a cell of a customer's CSV into an uncaught
+     * exception that fails the whole import. -1 is not a valid year, month or day, so it reads as
+     * "not a date".
+     */
+    static int digitsToInt(String digits) {
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     /** A year as printed, with a two-digit one placed in the {@link #TWO_DIGIT_YEAR_BASE} window. */
     static int fullYear(String printed) {
-        int value = Integer.parseInt(printed);
+        int value = digitsToInt(printed);
         if (printed.length() != 2) return value;
         int year = TWO_DIGIT_YEAR_BASE - Math.floorMod(TWO_DIGIT_YEAR_BASE, 100) + value;
         return year < TWO_DIGIT_YEAR_BASE ? year + 100 : year;
@@ -421,11 +436,19 @@ public class CsvParser {
     // exported the file ("Txn Date" vs "date" vs "DATE"), and we'd rather recognize a known
     // column under any casing than force every bank's exact spelling into this list.
     public static String firstNonBlank(Map<String, String> row, String... keys) {
+        String column = firstNonBlankKey(row, keys);
+        return column == null ? null : row.get(column);
+    }
+
+    /** The header of the column {@link #firstNonBlank} reads from, as the file printed it, or null
+     *  when it reads none. Lets a caller say which column a value came from without comparing the
+     *  value's identity, which says nothing once two cells hold the same text. */
+    public static String firstNonBlankKey(Map<String, String> row, String... keys) {
         for (String k : keys) {
             for (Map.Entry<String, String> e : row.entrySet()) {
                 if (e.getKey() != null && normalizeHeaderCell(e.getKey()).equalsIgnoreCase(k)) {
                     String v = e.getValue();
-                    if (v != null && !v.isBlank()) return v;
+                    if (v != null && !v.isBlank()) return e.getKey();
                 }
             }
         }
@@ -559,20 +582,20 @@ public class CsvParser {
 
         Matcher dayMonth = DAY_MONTH_YEAR.matcher(cell);
         if (dayMonth.matches()) {
-            int first = Integer.parseInt(dayMonth.group(1));
-            int second = Integer.parseInt(dayMonth.group(3));
+            int first = digitsToInt(dayMonth.group(1));
+            int second = digitsToInt(dayMonth.group(3));
             int year = fullYear(dayMonth.group(4));
             return order == CsvDateOrder.Order.DAY_FIRST ? dateOf(year, second, first) : dateOf(year, first, second);
         }
         Matcher yearFirst = YEAR_MONTH_DAY.matcher(cell);
         if (yearFirst.matches()) {
-            return dateOf(Integer.parseInt(yearFirst.group(1)), Integer.parseInt(yearFirst.group(3)),
-                    Integer.parseInt(yearFirst.group(4)));
+            return dateOf(digitsToInt(yearFirst.group(1)), digitsToInt(yearFirst.group(3)),
+                    digitsToInt(yearFirst.group(4)));
         }
         Matcher compact = COMPACT_YEAR_MONTH_DAY.matcher(cell);
         if (compact.matches()) {
-            return dateOf(Integer.parseInt(compact.group(1)), Integer.parseInt(compact.group(2)),
-                    Integer.parseInt(compact.group(3)));
+            return dateOf(digitsToInt(compact.group(1)), digitsToInt(compact.group(2)),
+                    digitsToInt(compact.group(3)));
         }
         // Every remaining shape names its month in letters, so the order question does not arise.
         // A cell of digits and separators alone that matched none of the above is not a date.

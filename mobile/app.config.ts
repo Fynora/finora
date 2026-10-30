@@ -391,6 +391,12 @@ const config: ExpoConfig = {
           // Expo's own default -- everywhere except a Maestro build, which sets it explicitly. See
           // mobile/.maestro/README.md.
           usesCleartextTraffic: process.env.MAESTRO_ALLOW_CLEARTEXT === 'true' ? true : undefined,
+          // R8 for release builds: removes unused Java/Kotlin code and resources. Off, Play Console
+          // flagged "DEX code optimization below threshold (obfuscation 2%)" against 1.1.1, with
+          // a fix-by date of Feb 2027. JS is unaffected (Hermes bytecode). Obfuscated native stack
+          // traces need the build's mapping.txt to read: Play gets it inside the .aab.
+          enableMinifyInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
         },
       },
     ],

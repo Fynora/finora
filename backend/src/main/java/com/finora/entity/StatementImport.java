@@ -18,9 +18,23 @@ import java.util.UUID;
 // second (version) parameter on any delete of a versioned entity regardless of custom @SQLDelete
 // SQL. Omitting "AND version = ?" here would reintroduce the exact "No value specified for
 // parameter 2" bug that was already found and fixed on the other four entities.
-@SQLDelete(sql = "UPDATE statement_imports SET deleted_at = now(), version = version + 1 WHERE id = ? AND version = ?")
+//
+// Deleting also clears what identifies the file and its holder: the file name, the detected holder
+// name, the header text in layout_metadata_json and any inline file bytes. The row stays for the
+// storage sweep, the balance anchor chain and the activation funnel, none of which read those four
+// columns. A legacy row with no content_hash gets the hash of its bytes first, the same value the
+// activation funnel would compute from them (PostgreSQL evaluates SET against the old row). The
+// placeholder must match DELETED_FILE_NAME. V298 did the same for rows deleted before this.
+@SQLDelete(sql = "UPDATE statement_imports SET deleted_at = now(), version = version + 1, "
+        + "content_hash = COALESCE(content_hash, encode(sha256(file_content), 'hex')), "
+        + "file_name = '(deleted)', extracted_holder_name = NULL, file_content = NULL, "
+        + "layout_metadata_json = NULL WHERE id = ? AND version = ?")
 @SQLRestriction("deleted_at IS NULL")
 public class StatementImport extends BaseEntity implements com.finora.imports.storage.StoredStatement {
+
+    /** What a deleted statement's {@code file_name} becomes. The column is NOT NULL, and nothing
+     *  reads a deleted row's name; see the @SQLDelete above, which writes this same literal. */
+    public static final String DELETED_FILE_NAME = "(deleted)";
 
     /**
      * Which account-balance branch this statement's own confirm actually took (Phase 4 of

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AccountFormSheet } from './AccountFormSheet';
 import { accountsApi } from '../api/endpoints';
 import type { Account } from '../types';
@@ -6,6 +7,13 @@ import { expectHaptics } from '../test/haptics';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { create: jest.fn(), update: jest.fn(), remove: jest.fn() },
+  // The edit mode's Bank field (GET /banks).
+  banksApi: {
+    list: jest.fn().mockResolvedValue([
+      { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#004c8f', initials: 'H', logoPath: '', category: 'PRIVATE', websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: [] },
+      { id: 'ICICI', officialName: 'ICICI Bank', shortName: 'ICICI', colorHex: '#b02a30', initials: 'I', logoPath: '', category: 'PRIVATE', websiteUrl: null, ifscPrefix: 'ICIC', supportedAccountTypes: [] },
+    ]),
+  },
 }));
 
 const api = accountsApi as jest.Mocked<typeof accountsApi>;
@@ -26,8 +34,13 @@ function account(over: Partial<Account> = {}): Account {
 const onClose = jest.fn();
 const onSaved = jest.fn();
 
-function renderSheet(existing?: Account | null) {
-  return render(<AccountFormSheet account={existing} onClose={onClose} onSaved={onSaved} />);
+function renderSheet(existing?: Account | null, focusBank?: boolean) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <AccountFormSheet account={existing} focusBank={focusBank} onClose={onClose} onSaved={onSaved} />
+    </QueryClientProvider>
+  );
 }
 
 async function settle() {
@@ -239,5 +252,94 @@ describe('AccountFormSheet -- a card whose amount owed is not known', () => {
     await settle();
 
     expect(api.update).toHaveBeenCalledWith('card-1', expect.objectContaining({ balance: -500 }));
+  });
+});
+
+// Spec 2026-10-22-bank-from-profile-and-required-bank-design.md, section 4: the person can change
+// an account's bank later. Edit mode only; add mode is unchanged.
+describe('AccountFormSheet -- the bank, in edit mode', () => {
+  const HDFC = { ...bank, id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' };
+
+  it('shows the current bank and changes it', async () => {
+    renderSheet(account({ bank: HDFC }));
+    await settle();
+
+    expect(screen.getByTestId('account-form-bank-value')).toHaveTextContent('HDFC Bank');
+    fireEvent.press(screen.getByTestId('account-form-bank-change'));
+    fireEvent.press(await screen.findByTestId('account-form-bank-option-ICICI'));
+    expect(screen.getByTestId('account-form-bank-value')).toHaveTextContent('ICICI Bank');
+
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update).toHaveBeenCalledWith('a-1', expect.objectContaining({ bankId: 'ICICI' }));
+    expect(onSaved).toHaveBeenCalledWith({ bankAnswered: true });
+  });
+
+  it('turns "Other bank" into a real one', async () => {
+    renderSheet(account({ bank }));
+    await settle();
+
+    expect(screen.getByTestId('account-form-bank-value')).toHaveTextContent('Other bank');
+    fireEvent.press(screen.getByTestId('account-form-bank-change'));
+    fireEvent.changeText(screen.getByLabelText('Search banks'), 'hdfc');
+    fireEvent.press(await screen.findByTestId('account-form-bank-option-HDFC'));
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update).toHaveBeenCalledWith('a-1', expect.objectContaining({ bankId: 'HDFC' }));
+  });
+
+  it('sends no bank on a plain rename', async () => {
+    renderSheet(account({ bank: HDFC }));
+    await settle();
+
+    fireEvent.changeText(screen.getByLabelText('Account name'), 'Salary');
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update.mock.calls[0][1]).not.toHaveProperty('bankId');
+    expect(onSaved).toHaveBeenCalledWith({ bankAnswered: false });
+  });
+
+  it('counts "Other bank" picked again as an answer, without sending a change', async () => {
+    // Spec section 7: choosing "Other bank" again answers "Which bank is this?".
+    renderSheet(account({ bank }), true);
+    await settle();
+
+    fireEvent.press(await screen.findByTestId('account-form-bank-option-OTHER'));
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update.mock.calls[0][1]).not.toHaveProperty('bankId');
+    expect(onSaved).toHaveBeenCalledWith({ bankAnswered: true });
+  });
+
+  it('opens the bank list at once from the prompt', async () => {
+    renderSheet(account({ bank }), true);
+    await settle();
+
+    expect(screen.getByLabelText('Search banks')).toBeOnTheScreen();
+    expect(screen.getByTestId('account-form-bank-hint')).toHaveTextContent(/didn't say which bank/);
+  });
+
+  it('keeps an Account Aggregator account\'s bank read-only and never sends one', async () => {
+    // AA sets the bank once from the bank's own IFSC; a re-link finds the account again by it.
+    renderSheet(account({ bank: HDFC, primarySource: 'ACCOUNT_AGGREGATOR' }));
+    await settle();
+
+    expect(screen.getByTestId('account-form-bank-readonly')).toHaveTextContent(/HDFC Bank/);
+    expect(screen.queryByTestId('account-form-bank-change')).toBeNull();
+    fireEvent.changeText(screen.getByLabelText('Account name'), 'Synced');
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(api.update.mock.calls[0][1]).not.toHaveProperty('bankId');
+    expect(onSaved).toHaveBeenCalledWith({ bankAnswered: false });
+  });
+
+  it('offers no bank field when adding an account', () => {
+    renderSheet();
+    expect(screen.queryByTestId('account-form-bank-value')).toBeNull();
   });
 });

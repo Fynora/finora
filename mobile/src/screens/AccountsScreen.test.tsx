@@ -10,6 +10,11 @@ import { __activeShimmerCountForTests } from '../components/skeletons/Shimmer';
 
 jest.mock('../api/endpoints', () => ({
   accountsApi: { list: jest.fn(), create: jest.fn(), update: jest.fn(), remove: jest.fn() },
+  banksApi: {
+    list: jest.fn().mockResolvedValue([
+      { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC', colorHex: '#004c8f', initials: 'H', logoPath: '', category: 'PRIVATE', websiteUrl: null, ifscPrefix: 'HDFC', supportedAccountTypes: [] },
+    ]),
+  },
 }));
 
 const api = accountsApi as jest.Mocked<typeof accountsApi>;
@@ -239,5 +244,81 @@ describe('AccountsScreen -- a card whose amount owed is not known', () => {
     renderScreen();
     expect(await screen.findByText('HDFC Card')).toBeOnTheScreen();
     expect(screen.queryByText('Amount owed not known')).not.toBeOnTheScreen();
+  });
+});
+
+// Spec 2026-10-22-bank-from-profile-and-required-bank-design.md, section 7: a one-time "Which bank
+// is this?" on imported accounts whose bank is unknown, remembered per account once answered.
+describe('AccountsScreen -- "Which bank is this?"', () => {
+  const imported = (over: Partial<Account> = {}) =>
+    account({ id: 'a-imp', name: 'Bank Statement Import', lastImportedAt: '2026-10-20T10:00:00Z', statementsCount: 1, ...over });
+
+  beforeEach(() => {
+    api.update.mockReset().mockResolvedValue(imported());
+  });
+
+  it('asks on an imported account with no bank', async () => {
+    api.list.mockResolvedValue([imported()]);
+    renderScreen();
+
+    expect(await screen.findByTestId('which-bank-a-imp')).toHaveTextContent(/Which bank is this\?/);
+  });
+
+  it('does not ask on a hand-made account, an Account Aggregator account, or one with a bank', async () => {
+    const HDFC = { ...bank, id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' };
+    api.list.mockResolvedValue([
+      account({ id: 'a-manual' }),
+      imported({ id: 'a-aa', primarySource: 'ACCOUNT_AGGREGATOR' }),
+      imported({ id: 'a-hdfc', bank: HDFC }),
+    ]);
+    renderScreen();
+    await screen.findAllByText(/Bank Statement Import|HDFC Savings/);
+    await settle();
+
+    expect(screen.queryByTestId('which-bank-a-manual')).toBeNull();
+    expect(screen.queryByTestId('which-bank-a-aa')).toBeNull();
+    expect(screen.queryByTestId('which-bank-a-hdfc')).toBeNull();
+  });
+
+  it('stops asking once dismissed, including after the screen is opened again', async () => {
+    api.list.mockResolvedValue([imported()]);
+    const first = renderScreen();
+    fireEvent.press(await screen.findByText("Don't ask again"));
+    expect(screen.queryByTestId('which-bank-a-imp')).toBeNull();
+    first.unmount();
+
+    renderScreen();
+    await screen.findByText('Bank Statement Import');
+    await settle();
+    expect(screen.queryByTestId('which-bank-a-imp')).toBeNull();
+  });
+
+  it('opens the edit sheet at the bank list, and remembers "Other bank" chosen again', async () => {
+    api.list.mockResolvedValue([imported()]);
+    const first = renderScreen();
+    fireEvent.press(await screen.findByText('Choose bank'));
+
+    expect(await screen.findByLabelText('Search banks')).toBeOnTheScreen();
+    fireEvent.press(await screen.findByTestId('account-form-bank-option-OTHER'));
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+    first.unmount();
+
+    // The account is still OTHER (nothing changed), but the question was answered.
+    renderScreen();
+    await screen.findByText('Bank Statement Import');
+    await settle();
+    expect(screen.queryByTestId('which-bank-a-imp')).toBeNull();
+  });
+
+  it('keeps asking when the sheet is saved without a bank being picked', async () => {
+    api.list.mockResolvedValue([imported()]);
+    renderScreen();
+    fireEvent.press(await screen.findByText('Choose bank'));
+    fireEvent.changeText(await screen.findByLabelText('Account name'), 'Salary');
+    fireEvent.press(screen.getByRole('button', { name: /Save Changes/ }));
+    await settle();
+
+    expect(await screen.findByTestId('which-bank-a-imp')).toBeOnTheScreen();
   });
 });

@@ -8,7 +8,7 @@ import { isCanceled, isOffline, networkErrorCode } from '../lib/apiError';
 import { reportHandledEvent } from '../lib/monitoring';
 import { shareFileAndCleanUp } from '../lib/shareFile';
 import type {
-  Account, AccountStatementGroup, BankCorrectionHistoryEntry, Budget, CounterpartyGroup, DashboardSummary,
+  Account, AccountStatementGroup, BankCorrectionHistoryEntry, BankInfo, Budget, CounterpartyGroup, DashboardSummary,
   DetectedAccountInfo, Goal, ImportSummary, MerchantGroup, QuickSortBatch, QuickSortKind, ReimportResult, StagedAccountSection, StagedRow,
   StatementSummary, Transaction, TransactionExplanation, TransactionSource, VerificationReport,
   WorkspaceSettings, UnparseableRow, WorkspaceSummary, TimelineEvent, GoalMomentum, Wrapped,
@@ -166,6 +166,12 @@ export interface AccountRequest {
   branchName?: string;
   ifscCode?: string;
 }
+
+// Every bank a person can pick: the built-in registry plus admin-added banks, never OTHER (the
+// picker offers "Other bank" itself). Mirrors frontend/src/api/endpoints.ts's banksApi.
+export const banksApi = {
+  list: () => api.get<BankInfo[]>('/banks').then((r) => r.data),
+};
 
 export const accountsApi = {
   list: () => api.get<Account[]>('/accounts').then((r) => r.data),

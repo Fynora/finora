@@ -1,4 +1,5 @@
 import type { Account, DetectedAccountInfo } from '../types';
+import { OTHER_BANK_ID } from './bankChoice';
 
 /**
  * Which existing account, if any, a freshly-staged statement belongs to.
@@ -59,7 +60,14 @@ export function matchExistingAccount(
   const eligibleAccounts = accounts.filter((a) => a.primarySource !== 'ACCOUNT_AGGREGATOR');
   if (eligibleAccounts.length === 0) return null;
 
-  const sameBank = eligibleAccounts.filter((a) => a.bank?.id && a.bank.id === detected.bank?.id);
+  // "Other bank" is not a bank. Two accounts that are both OTHER share nothing but the absence of a
+  // bank, so treating them as the same bank preselected every unknown-bank statement into the
+  // person's one "Other bank" account, whatever bank it really came from. The backend refuses the
+  // same thing (ProductIdentity: OTHER matching OTHER "would make every unidentified product the
+  // same product"). Spec 2026-10-22-bank-from-profile-and-required-bank-design.md, section 5.
+  const detectedBank = detected.bank?.id;
+  if (!detectedBank || detectedBank === OTHER_BANK_ID) return null;
+  const sameBank = eligibleAccounts.filter((a) => a.bank?.id === detectedBank);
   if (sameBank.length === 0) return null;
 
   const detectedDigits = trailingDigits(detected.accountNumberMasked);
@@ -86,6 +94,34 @@ export function matchExistingAccount(
 
   const sameType = sameBank.filter((a) => a.accountType === detected.suggestedAccountType);
   return sameType.length === 1 ? sameType[0] : null;
+}
+
+/**
+ * Accounts the person already holds at the bank they just chose for a new account, of the same
+ * type, that this statement could be imported into instead. Feeds a one-line hint on the import
+ * review -- never a preselection (spec 2026-10-22-bank-from-profile-and-required-bank-design.md,
+ * section 5): the bank here is the person's own pick, not something the statement said.
+ *
+ * Left out: "Other bank" (not a bank, so nothing is "the same bank"); Account Aggregator accounts
+ * (a statement can't be imported into one); and an account whose number is known to differ from the
+ * statement's, by the same veto matchExistingAccount applies -- offering that one would point at an
+ * account the statement already says it is not.
+ */
+export function sameBankAccounts(
+  bankId: string | null,
+  accountType: Account['accountType'],
+  statementNumberMasked: string | null | undefined,
+  accounts: Account[],
+): Account[] {
+  if (!bankId || bankId === OTHER_BANK_ID) return [];
+  const statementDigits = trailingDigits(statementNumberMasked);
+  return accounts.filter((a) => {
+    if (a.bank?.id !== bankId || a.accountType !== accountType) return false;
+    if (a.primarySource === 'ACCOUNT_AGGREGATOR') return false;
+    const accountDigits = trailingDigits(a.accountNumberMasked);
+    if (statementDigits && accountDigits && !digitsMatch(statementDigits, accountDigits)) return false;
+    return true;
+  });
 }
 
 /**

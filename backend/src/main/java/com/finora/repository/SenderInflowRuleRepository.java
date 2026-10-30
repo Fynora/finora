@@ -22,6 +22,17 @@ public interface SenderInflowRuleRepository extends JpaRepository<SenderInflowRu
     @Query("DELETE FROM SenderInflowRule r WHERE r.userId = :userId")
     int hardDeleteByUserId(@Param("userId") UUID userId);
 
+    /** Remembers {@code kindId} for the user's payments from {@code key}: one statement, so two
+     *  requests for the same sender at once (a double tap) both succeed, the later choice winning,
+     *  rather than one tripping the (user_id, counterparty_key) unique constraint. */
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO sender_inflow_rules (id, user_id, counterparty_key, inflow_kind_id)
+            VALUES (gen_random_uuid(), :userId, :key, :kindId)
+            ON CONFLICT (user_id, counterparty_key)
+            DO UPDATE SET inflow_kind_id = EXCLUDED.inflow_kind_id, updated_at = now()""", nativeQuery = true)
+    int remember(@Param("userId") UUID userId, @Param("key") String key, @Param("kindId") UUID kindId);
+
     /** Copies the user's rule for {@code oldKey} to {@code newKey} when a row is re-keyed, unless
      *  the new key already has its own rule -- that is the newer answer and is kept. The old rule
      *  stays for rows not yet re-keyed. Returns 0 when there was nothing to carry. */

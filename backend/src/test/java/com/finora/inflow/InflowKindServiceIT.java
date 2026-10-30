@@ -32,6 +32,7 @@ class InflowKindServiceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired private AccountRepository accounts;
     @Autowired private TransactionRepository transactions;
+    @Autowired private com.finora.repository.SenderInflowRuleRepository rules;
 
     private UUID newUser() {
         User u = new User();
@@ -151,5 +152,89 @@ class InflowKindServiceIT extends AbstractIntegrationTest {
 
         assertThat(kinds.findById(rent.id())).isEmpty();
         assertThat(transactions.findById(t.getId()).orElseThrow().getInflowKindId()).isNull();
+    }
+
+    /** Run {@code task} on four threads released together; what each returned or threw, in order. */
+    private static List<Object> together(java.util.concurrent.Callable<?> task) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            CountDownLatch go = new CountDownLatch(1);
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                futures.add(pool.submit(() -> {
+                    go.await();
+                    return task.call();
+                }));
+            }
+            go.countDown();
+            List<Object> outcomes = new ArrayList<>();
+            for (Future<?> f : futures) {
+                try {
+                    outcomes.add(f.get(30, TimeUnit.SECONDS));
+                } catch (java.util.concurrent.ExecutionException e) {
+                    outcomes.add(e.getCause());
+                }
+            }
+            return outcomes;
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    // Found by a local break-test: tapping "Every payment from this sender" twice (or four requests
+    // at once) stored the one rule, but three of the four answered "That conflicts with a record
+    // that already exists -- refresh and try again" for a choice that had in fact been saved.
+    @Test
+    void theSameSenderChoiceMadeFourTimesAtOnceSucceedsEveryTime() throws Exception {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:race-" + UUID.randomUUID();
+        Transaction first = credit(userId, account, key);
+        credit(userId, account, key);
+        UUID family = service.list(userId).stream().filter(k -> "FAMILY_SUPPORT".equals(k.builtIn())).findFirst()
+                .orElseThrow().id();
+
+        List<Object> outcomes = together(() -> service.setChoice(userId, first.getId(),
+                new InflowDtos.SetChoiceRequest(family, com.finora.service.InflowChoices.Scope.SENDER)));
+
+        assertThat(outcomes).allSatisfy(o -> assertThat(o).isInstanceOf(InflowDtos.CountsAsDto.class));
+        assertThat(rules.findByUserId(userId)).singleElement()
+                .satisfies(r -> assertThat(r.getInflowKindId()).isEqualTo(family));
+    }
+
+    @Test
+    void aSecondSenderChoiceReplacesTheFirst() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:switch-" + UUID.randomUUID();
+        Transaction row = credit(userId, account, key);
+        List<InflowDtos.InflowKindDto> builtIns = service.list(userId);
+        UUID family = builtIns.stream().filter(k -> "FAMILY_SUPPORT".equals(k.builtIn())).findFirst().orElseThrow().id();
+        UUID own = builtIns.stream().filter(k -> "OWN_MONEY".equals(k.builtIn())).findFirst().orElseThrow().id();
+
+        service.setChoice(userId, row.getId(), new InflowDtos.SetChoiceRequest(family, com.finora.service.InflowChoices.Scope.SENDER));
+        InflowDtos.CountsAsDto after = service.setChoice(userId, row.getId(),
+                new InflowDtos.SetChoiceRequest(own, com.finora.service.InflowChoices.Scope.SENDER));
+
+        assertThat(after.kind().id()).isEqualTo(own);
+        assertThat(rules.findByUserId(userId)).singleElement()
+                .satisfies(r -> assertThat(r.getInflowKindId()).isEqualTo(own));
+    }
+
+    // The same break-test: four creates of one new name at once stored one kind, and two of the three
+    // refusals were a generic "conflicts with a record" instead of "You already have a kind with this name".
+    @Test
+    void fourCreatesOfOneNameAtOnceStoreOneKindAndRefuseTheRestByName() throws Exception {
+        UUID userId = newUser();
+        service.list(userId);
+
+        List<Object> outcomes = together(() -> service.create(userId, new InflowDtos.CreateKindRequest("Race kind", true)));
+
+        assertThat(outcomes).filteredOn(o -> o instanceof InflowDtos.InflowKindDto).hasSize(1);
+        assertThat(outcomes).filteredOn(o -> !(o instanceof InflowDtos.InflowKindDto))
+                .hasSize(3)
+                .allSatisfy(o -> assertThat(o).isInstanceOfSatisfying(com.finora.exception.ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.INFLOW_KIND_NAME_TAKEN)));
+        assertThat(kinds.findByUserId(userId)).filteredOn(k -> "race kind".equals(k.getName().toLowerCase())).hasSize(1);
     }
 }

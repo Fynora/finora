@@ -157,6 +157,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private com.finora.imports.send.StatementSendCodeRepository statementSendCodeRepository;
     @Autowired private NarrationCategoryMemory narrationCategoryMemory;
+    @Autowired private PhoneVerificationProvider phoneVerificationProvider;
     @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     @Autowired private com.finora.repository.StatementImportExcludedRowRepository excludedRowRepository;
     @Autowired private com.finora.repository.StatementRefreshPreviewRepository refreshPreviewRepository;
@@ -306,7 +307,8 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
                 passwordEncoder, transactionTemplate,
-                auditLogRepository, emailProvider, adminAlerts, statementSendCodeRepository, narrationCategoryMemory);
+                auditLogRepository, emailProvider, adminAlerts, statementSendCodeRepository, narrationCategoryMemory,
+                phoneVerificationProvider);
         ReflectionTestUtils.setField(built, "sweepEnabled", true);
         ReflectionTestUtils.setField(built, "retentionHours", 0);
         ReflectionTestUtils.setField(built, "batchSize", 200);

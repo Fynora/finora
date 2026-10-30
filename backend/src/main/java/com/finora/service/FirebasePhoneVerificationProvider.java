@@ -2,6 +2,8 @@ package com.finora.service;
 
 import com.finora.exception.ApiException;
 import com.google.firebase.FirebaseApp;
+import com.google.firebase.auth.AuthErrorCode;
+import com.google.firebase.auth.ExportedUserRecord;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
@@ -62,5 +64,59 @@ public class FirebasePhoneVerificationProvider implements PhoneVerificationProvi
             throw new ApiException(HttpStatus.UNAUTHORIZED, "This verification token doesn't prove a phone number.");
         }
         return (String) phoneNumber;
+    }
+
+    /**
+     * Firebase keeps a user for every number verified through Fynora's phone sign-in, on every
+     * client (web, mobile, admin portal). The clients sign out straight after verifying, so nothing
+     * depends on that user still existing: the next verification of the same number creates it
+     * again.
+     */
+    @Override
+    public boolean deleteIdentityForPhoneNumber(String e164PhoneNumber) {
+        if (firebaseApp.isEmpty()) {
+            throw new IllegalStateException("Phone verification is not configured on this server.");
+        }
+        FirebaseAuth auth = FirebaseAuth.getInstance(firebaseApp.get());
+        String uid;
+        try {
+            uid = auth.getUserByPhoneNumber(e164PhoneNumber).getUid();
+        } catch (FirebaseAuthException e) {
+            if (e.getAuthErrorCode() == AuthErrorCode.USER_NOT_FOUND) {
+                return false;
+            }
+            throw new IllegalStateException("Could not look up the phone number's Firebase user: " + e.getMessage(), e);
+        }
+        try {
+            auth.deleteUser(uid);
+        } catch (FirebaseAuthException e) {
+            if (e.getAuthErrorCode() == AuthErrorCode.USER_NOT_FOUND) {
+                return false; // deleted by someone else in between
+            }
+            throw new IllegalStateException("Could not delete the phone number's Firebase user: " + e.getMessage(), e);
+        }
+        return true;
+    }
+
+    @Override
+    public java.util.List<PhoneIdentity> listPhoneIdentities() {
+        if (firebaseApp.isEmpty()) {
+            throw new IllegalStateException("Phone verification is not configured on this server.");
+        }
+        java.util.List<PhoneIdentity> identities = new java.util.ArrayList<>();
+        try {
+            for (ExportedUserRecord user : FirebaseAuth.getInstance(firebaseApp.get()).listUsers(null).iterateAll()) {
+                if (user.getPhoneNumber() == null || user.getEmail() != null) {
+                    continue;
+                }
+                long created = user.getUserMetadata().getCreationTimestamp();
+                long lastSignIn = user.getUserMetadata().getLastSignInTimestamp();
+                identities.add(new PhoneIdentity(user.getPhoneNumber(),
+                        java.time.Instant.ofEpochMilli(Math.max(created, lastSignIn))));
+            }
+        } catch (FirebaseAuthException e) {
+            throw new IllegalStateException("Could not list Firebase users: " + e.getMessage(), e);
+        }
+        return identities;
     }
 }

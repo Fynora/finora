@@ -106,6 +106,10 @@ app:
     sweep:
       enabled: false
 
+  # Same reasoning. PhoneIdentitySweepServiceIT calls sweep(now) directly, which does not consult it.
+  phone-identity-sweep:
+    enabled: false
+
   # Same reasoning again, and it bites harder here than for most sweeps: this one rewrites columns
   # on transactions, the table nearly every integration test asserts against. A pass firing mid-test
   # would change counterparty_type under a running assertion. Tests that exercise it call

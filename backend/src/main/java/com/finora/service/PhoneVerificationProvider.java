@@ -22,4 +22,28 @@ public interface PhoneVerificationProvider {
      *         verifiable phone number at all.
      */
     String verifyAndGetPhoneNumber(String idToken);
+
+    /**
+     * Deletes the provider's own record of a phone number. Verifying a number through the provider
+     * leaves that record on the provider's side (Firebase keeps one user per verified number), and
+     * it outlives the Fynora account unless something removes it.
+     *
+     * @param e164PhoneNumber the number in E.164 form, as {@code verifyAndGetPhoneNumber} returns it
+     * @return {@code true} if a record was found and deleted, {@code false} if the provider held none
+     * @throws RuntimeException if the provider could not be asked or refused; nothing is deleted then
+     */
+    boolean deleteIdentityForPhoneNumber(String e164PhoneNumber);
+
+    /** One phone-only record the provider holds: the number, and the later of when it was created
+     *  and when it was last signed in with. */
+    record PhoneIdentity(String e164PhoneNumber, java.time.Instant lastActiveAt) {}
+
+    /**
+     * Every phone-only record the provider holds. A record that also carries anything other than a
+     * phone number (an email, say) is left out: Fynora's phone verification never creates one, so
+     * it is not this service's to judge.
+     *
+     * @throws RuntimeException if the provider could not be read
+     */
+    java.util.List<PhoneIdentity> listPhoneIdentities();
 }

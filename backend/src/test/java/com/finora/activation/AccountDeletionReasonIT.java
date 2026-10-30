@@ -58,6 +58,7 @@ class AccountDeletionReasonIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private AccountRepository accountRepository;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.finora.service.PhoneVerificationProvider phoneVerificationProvider;
     @MockitoSpyBean private ReportingDay reportingDay;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -142,6 +143,20 @@ class AccountDeletionReasonIT extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM statement_imports WHERE user_id = ? AND deleted_at IS NULL",
                 Long.class, user.userId())).as("the purge ran").isZero();
         assertThat(rowsFor(month)).singleElement().satisfies(row -> assertThat(row.reason()).isEqualTo("DONT_NEED_IT"));
+    }
+
+    /** Not about the reason, but this class is the one that drives a real self-service deletion with
+     *  the fake phone provider: the purge removes the provider's record of the account's number. */
+    @Test
+    void theDeletedAccountsNumberIsRemovedFromThePhoneProvider() throws Exception {
+        Signed user = signUp();
+
+        assertThat(delete(user, verifiedSession(user), null).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(((FakePhoneVerificationProvider) phoneVerificationProvider).deletedIdentities()).contains(user.phone());
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM audit_logs WHERE user_id = ? AND action = 'PHONE_IDENTITY_DELETED'",
+                Long.class, user.userId())).isEqualTo(1L);
     }
 
     /**

@@ -130,14 +130,19 @@ class AccountPurgeSweepServiceTest {
     private AuditLogRepository auditLogRepository;
     private EmailProvider emailProvider;
     private HeldItemAdminAlertService adminAlerts;
+    private PhoneVerificationProvider phoneVerificationProvider;
     private AccountPurgeSweepService service;
     private final UUID userId = UUID.randomUUID();
+    /** The number pendingDeletionUser() stores, in the E.164 form the provider is asked for. */
+    private static final String SYNTHETIC_PHONE = "+919876543210"; // synthetic-ok
 
     @BeforeEach
     void setUp() {
         auditLogRepository = mock(AuditLogRepository.class);
         emailProvider = mock(EmailProvider.class);
         adminAlerts = mock(HeldItemAdminAlertService.class);
+        phoneVerificationProvider = mock(PhoneVerificationProvider.class);
+        when(phoneVerificationProvider.isConfigured()).thenReturn(true);
         userRepository = mock(UserRepository.class);
         gmailConnectionService = mock(GmailConnectionService.class);
         gmailConnectionRepository = mock(GmailConnectionRepository.class);
@@ -224,7 +229,7 @@ class AccountPurgeSweepServiceTest {
                 mock(com.finora.repository.SenderInflowRuleRepository.class),
                 auditService, passwordEncoder, transactionTemplate,
                 auditLogRepository, emailProvider, adminAlerts, mock(com.finora.imports.send.StatementSendCodeRepository.class),
-                mock(NarrationCategoryMemory.class));
+                mock(NarrationCategoryMemory.class), phoneVerificationProvider);
         ReflectionTestUtils.setField(service, "sweepEnabled", true);
         ReflectionTestUtils.setField(service, "retentionHours", 0);
         ReflectionTestUtils.setField(service, "batchSize", 200);
@@ -342,6 +347,21 @@ class AccountPurgeSweepServiceTest {
         verify(auditService).record(eq(userId), eq("ACCOUNT_PURGED"), eq("User"), eq(userId), any());
     }
 
+    @Test
+    void adminPurge_recordsTheAdminAsWhoRemovedThePhoneProvidersRecord() {
+        User user = pendingDeletionUser();
+        user.setStatus(User.STATUS_ACTIVE);
+        user.setDeletionRequestedAt(null);
+        UUID adminId = UUID.randomUUID();
+        when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(user));
+        when(phoneVerificationProvider.deleteIdentityForPhoneNumber(SYNTHETIC_PHONE)).thenReturn(true);
+
+        service.adminPurge(userId, adminId);
+
+        verify(auditService).record(userId, "PHONE_IDENTITY_DELETED", "User", userId,
+                Map.of("found", true, "actorId", adminId.toString()));
+    }
+
     /**
      * Regression guard for the gap this fix closes: without marking PENDING_DELETION first, an
      * admin purge that dies partway (a Gmail/Razorpay outage, a failed statement) would leave the
@@ -430,6 +450,96 @@ class AccountPurgeSweepServiceTest {
         assertThat(result.purged()).isZero();
         verify(importJobRepository, never()).deleteByUserId(any());
         assertThat(user.getStatus()).isNotEqualTo(User.STATUS_DELETED);
+    }
+
+    /** The phone sign-in provider (Firebase) keeps its own record of every number verified through
+     *  Fynora. The purge removes it, by the number the account had, before that number is erased. */
+    @Test
+    void sweep_deletesThePhoneProvidersRecordOfTheAccountsNumber_beforeErasingIt() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(phoneVerificationProvider.deleteIdentityForPhoneNumber(SYNTHETIC_PHONE)).thenAnswer(inv -> {
+            // Still on the account when the provider is called: the anonymization comes last.
+            assertThat(user.getPhoneNumber()).isEqualTo(SYNTHETIC_PHONE);
+            return true;
+        });
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        verify(phoneVerificationProvider).deleteIdentityForPhoneNumber(SYNTHETIC_PHONE);
+        assertThat(user.getPhoneNumber()).isNull();
+        verify(auditService).record(userId, "PHONE_IDENTITY_DELETED", "User", userId, Map.of("found", true, "actorId", userId.toString()));
+    }
+
+    /** A number stored before registration normalised to E.164 is looked up in the form the
+     *  provider keys by. */
+    @Test
+    void sweep_looksUpALegacyStoredNumberInE164() {
+        User user = pendingDeletionUser();
+        user.setPhoneNumber("98765 43210"); // synthetic-ok
+        stubOneCandidate(user);
+
+        service.sweep();
+
+        verify(phoneVerificationProvider).deleteIdentityForPhoneNumber(SYNTHETIC_PHONE);
+    }
+
+    @Test
+    void sweep_recordsThatNoProviderRecordExisted_andStillPurges() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(phoneVerificationProvider.deleteIdentityForPhoneNumber(anyString())).thenReturn(false);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        assertThat(user.getStatus()).isEqualTo(User.STATUS_DELETED);
+        verify(auditService).record(userId, "PHONE_IDENTITY_DELETED", "User", userId, Map.of("found", false, "actorId", userId.toString()));
+    }
+
+    @Test
+    void sweep_skipsTheProvider_whenTheAccountHasNoPhoneNumber() {
+        User user = pendingDeletionUser();
+        user.setPhoneNumber(null);
+        stubOneCandidate(user);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        verify(phoneVerificationProvider, never()).deleteIdentityForPhoneNumber(any());
+    }
+
+    /** No provider on this server (a local or test boot; production refuses to start without one). */
+    @Test
+    void sweep_skipsTheProvider_whenItIsNotConfigured() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(phoneVerificationProvider.isConfigured()).thenReturn(false);
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.purged()).isEqualTo(1);
+        verify(phoneVerificationProvider, never()).deleteIdentityForPhoneNumber(any());
+    }
+
+    /** A provider failure fails the purge before anything is erased, so the next run still has the
+     *  number to delete by. Not best-effort: once the number is erased nothing could find the
+     *  provider's record again. */
+    @Test
+    void sweep_failsThePurgeWithTheNumberStillInPlace_whenTheProviderFails() {
+        User user = pendingDeletionUser();
+        stubOneCandidate(user);
+        when(phoneVerificationProvider.deleteIdentityForPhoneNumber(anyString()))
+                .thenThrow(new IllegalStateException("provider unavailable"));
+
+        AccountPurgeSweepService.Result result = service.sweep();
+
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.purged()).isZero();
+        assertThat(user.getStatus()).isNotEqualTo(User.STATUS_DELETED);
+        assertThat(user.getPhoneNumber()).isEqualTo(SYNTHETIC_PHONE);
+        verify(transactionRepository, never()).hardDeleteByUserId(any());
     }
 
     /** No object key (legacy row, or no storage provider configured) -- nothing to reclaim, and

@@ -126,6 +126,15 @@ public class CacheConfig implements CachingConfigurer {
      *  itself, which carry suspension, deletion and revocation and must stay instant. */
     public static final String USER_AUTHORITIES_CACHE = "userAuthorities";
 
+    /** {@code AppIconWindowSource.openWindows()} -- the festival app icon schedule's open windows,
+     *  read by the public GET /api/v1/app/icon that the mobile app calls on every launch and
+     *  resume, with no login. One entry, not keyed per caller: the answer is the same for everyone.
+     *  {@code AppIconService} evicts it after commit on every admin create, update and delete, so
+     *  the 60 s TTL is the safety net, same shape as {@link #FEATURE_FLAGS_CACHE}. Windows start
+     *  and end on time while cached: the list is cached, and the current window is picked from it
+     *  against the clock on each call. */
+    public static final String APP_ICON_SCHEDULE_CACHE = "appIconSchedule";
+
     /** How long a {@code sync = true} load's Redis lock lives if nobody removes it. */
     public static final Duration CACHE_LOCK_TTL = Duration.ofSeconds(5);
 
@@ -187,6 +196,7 @@ public class CacheConfig implements CachingConfigurer {
                 .withCacheConfiguration(TRUSTED_SENDER_DOMAINS_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .withCacheConfiguration(FYN_TOOL_RESULT_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(30)))
                 .withCacheConfiguration(USER_AUTHORITIES_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
+                .withCacheConfiguration(APP_ICON_SCHEDULE_CACHE, defaultConfig.entryTtl(Duration.ofSeconds(60)))
                 .build();
     }
 }

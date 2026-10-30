@@ -89,6 +89,12 @@ public class PhoneVerificationFilter extends OncePerRequestFilter {
     private static final PathPatternRequestMatcher PHONE_CHANGE_ENDPOINTS =
             REQUEST_MATCHERS.matcher("/api/v1/users/me/phone-change/**");
 
+    // The app icon answer (AppIconController) is public and the same for everyone. The app sends
+    // its session token along when it has one, so a signed-in user who has not verified a phone yet
+    // must not be refused something an anonymous caller gets.
+    private static final PathPatternRequestMatcher APP_ICON_ENDPOINT =
+            REQUEST_MATCHERS.matcher(HttpMethod.GET, "/api/v1/app/icon");
+
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
@@ -106,7 +112,7 @@ public class PhoneVerificationFilter extends OncePerRequestFilter {
         if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof UserDetails userDetails
                 && !PHONE_ENDPOINTS.matches(request) && !AUTH_ENDPOINTS.matches(request)
                 && !SETUP_STATUS_ENDPOINT.matches(request) && !USER_ME_ENDPOINT.matches(request)
-                && !PHONE_CHANGE_ENDPOINTS.matches(request)) {
+                && !PHONE_CHANGE_ENDPOINTS.matches(request) && !APP_ICON_ENDPOINT.matches(request)) {
             // The principal's username is the user id (see CurrentUserDetailsService) -- an email
             // would be ambiguous since V52, and could check phone verification against the wrong
             // one of the two accounts a person may hold under one address.

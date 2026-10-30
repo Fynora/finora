@@ -135,6 +135,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> {
                 auth.requestMatchers("/api/v1/auth/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/setup/status").permitAll()
+                    // Which home-screen icon the app should show (AppIconController). The same answer
+                    // for every caller, nothing private in it, and the app asks before sign-in too.
+                    // GET on this one path only.
+                    .requestMatchers(HttpMethod.GET, "/api/v1/app/icon").permitAll()
                     // Google redirects the user's BROWSER here after consent. That navigation
                     // carries no Authorization header, and this API keeps no session, so requiring
                     // authentication would make the callback unreachable by construction rather

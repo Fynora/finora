@@ -1023,6 +1023,49 @@ export interface UpdateFeatureFlagRequest {
   enabled: boolean;
 }
 
+// --- Festival app icon (AdminAppIconController, AppIconController) ---
+
+/** Mirrors backend AppIconDto. `until` is absent for the default icon, which has no end. */
+export interface AppIconNow {
+  icon: string;
+  until?: string;
+}
+
+/** One icon the installed app bundles and an admin may schedule (never `default`). */
+export interface AppIconOption {
+  key: string;
+  label: string;
+}
+
+export type AppIconScheduleState = 'UPCOMING' | 'ACTIVE' | 'ENDED';
+
+/** Mirrors backend AppIconScheduleDto. `iconLabel` is null when the stored key left the code's list. */
+export interface AppIconScheduleEntry {
+  id: string;
+  icon: string;
+  iconLabel: string | null;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  state: AppIconScheduleState;
+  createdBy: string;
+  createdByEmail: string | null;
+  createdAt: string;
+  updatedBy: string;
+  updatedByEmail: string | null;
+  updatedAt: string;
+  version: number;
+}
+
+/** `expectedVersion` is required on update: the server answers 409 if someone else saved in between. */
+export interface AppIconScheduleSaveRequest {
+  icon: string;
+  label: string;
+  startsAt: string;
+  endsAt: string;
+  expectedVersion?: number;
+}
+
 /* ── Layout Studio ─────────────────────────────────────────────────────────────────────────────
  * The read side of statement_analysis_sessions: one row per upload ATTEMPT, successes and
  * failures alike. Distinct from the layout-intelligence types above, which are derived from

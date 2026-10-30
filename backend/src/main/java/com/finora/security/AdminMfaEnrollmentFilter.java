@@ -89,6 +89,10 @@ public class AdminMfaEnrollmentFilter extends OncePerRequestFilter {
     private static final PathPatternRequestMatcher SETUP_COMPLETE_ENDPOINT =
             REQUEST_MATCHERS.matcher(HttpMethod.POST, "/api/v1/setup/complete");
 
+    // Public and the same for every caller (AppIconController); mirrors PhoneVerificationFilter.
+    private static final PathPatternRequestMatcher APP_ICON_ENDPOINT =
+            REQUEST_MATCHERS.matcher(HttpMethod.GET, "/api/v1/app/icon");
+
     private final AdminMfaService adminMfaService;
     private final ObjectMapper objectMapper;
 
@@ -140,7 +144,7 @@ public class AdminMfaEnrollmentFilter extends OncePerRequestFilter {
         return ADMIN_MFA_ENDPOINTS.matches(request) || AUTH_ENDPOINTS.matches(request)
                 || PHONE_ENDPOINTS.matches(request) || PHONE_CHANGE_ENDPOINTS.matches(request)
                 || USER_ME_ENDPOINT.matches(request) || SETUP_STATUS_ENDPOINT.matches(request)
-                || SETUP_COMPLETE_ENDPOINT.matches(request);
+                || SETUP_COMPLETE_ENDPOINT.matches(request) || APP_ICON_ENDPOINT.matches(request);
     }
 
     private static Optional<UUID> parseId(String raw) {

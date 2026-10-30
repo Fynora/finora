@@ -56,6 +56,7 @@ const LayoutStudio = lazy(() => import('./pages/LayoutStudio'));
 const ImportTrace = lazy(() => import('./pages/ImportTrace'));
 const ImportRowTrace = lazy(() => import('./pages/ImportRowTrace'));
 const Settings = lazy(() => import('./pages/Settings'));
+const AppIcon = lazy(() => import('./pages/AppIcon'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -132,6 +133,7 @@ export default function App() {
               <Route path="/import-trace" element={<ProtectedRoute><ImportTrace /></ProtectedRoute>} />
               <Route path="/import-row-trace" element={<ProtectedRoute><ImportRowTrace /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/app-icon" element={<ProtectedRoute><AppIcon /></ProtectedRoute>} />
 
               {/* Same bug, same fix as the user app's App.tsx: with no catch-all, any unmatched
                   path rendered a completely blank page instead of going anywhere. "/" is the

@@ -102,7 +102,7 @@ public class InflowKindService {
         k.setUserId(userId);
         k.setName(name);
         k.setCountsAsIncome(req.countsAsIncome());
-        return InflowDtos.InflowKindDto.from(kinds.save(k));
+        return InflowDtos.InflowKindDto.from(saveNamed(k));
     }
 
     @Transactional
@@ -122,7 +122,7 @@ public class InflowKindService {
             k.setName(name);
         }
         if (req.countsAsIncome() != null && k.getBuiltIn() == null) k.setCountsAsIncome(req.countsAsIncome());
-        return InflowDtos.InflowKindDto.from(kinds.save(k));
+        return InflowDtos.InflowKindDto.from(saveNamed(k));
     }
 
     @Transactional
@@ -159,15 +159,7 @@ public class InflowKindService {
                 throw new ApiException(HttpStatus.BAD_REQUEST,
                         "We can't tell who sent this payment, so it can only be set on its own.");
             }
-            SenderInflowRule rule = rules.findByUserIdAndCounterpartyKey(userId, key).orElseGet(() -> {
-                SenderInflowRule r = new SenderInflowRule();
-                r.setUserId(userId);
-                r.setCounterpartyKey(key);
-                return r;
-            });
-            rule.setInflowKindId(kind.getId());
-            rule.touch();
-            rules.save(rule);
+            rules.remember(userId, key, kind.getId());
             // Otherwise the sender choice would not reach the very row the user chose it on.
             if (t.getInflowKindId() != null) {
                 t.setInflowKindId(null);
@@ -247,6 +239,17 @@ public class InflowKindService {
     }
 
     // ---- helpers ----
+
+    /** Saves a kind whose name was just checked. Two requests for one new name at once both pass the
+     *  check; the (user_id, lower(name)) index stops the second, which is the same answer the check
+     *  gives -- not a generic conflict. */
+    private InflowKind saveNamed(InflowKind k) {
+        try {
+            return kinds.saveAndFlush(k);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw new ApiException(ErrorCode.INFLOW_KIND_NAME_TAKEN);
+        }
+    }
 
     private void ensureBuiltIns(UUID userId) {
         if (kinds.countByUserIdAndBuiltInIsNotNull(userId) >= InflowKind.BuiltIn.values().length) return;

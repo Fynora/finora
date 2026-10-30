@@ -56,12 +56,14 @@ class InflowKindServiceTest {
             stored.add(kind(i.getArgument(1), i.getArgument(2), b));
             return 1;
         });
-        when(kinds.save(any())).thenAnswer(i -> {
+        org.mockito.stubbing.Answer<InflowKind> saveKind = i -> {
             InflowKind k = i.getArgument(0);
             if (k.getId() == null) ReflectionTestUtils.setField(k, "id", UUID.randomUUID());
             if (!stored.contains(k)) stored.add(k);
             return k;
-        });
+        };
+        when(kinds.save(any())).thenAnswer(saveKind);
+        when(kinds.saveAndFlush(any())).thenAnswer(saveKind);
         when(kinds.findById(any())).thenAnswer(i -> stored.stream()
                 .filter(k -> k.getId().equals(i.getArgument(0))).findFirst());
         when(rules.findByUserId(userId)).thenAnswer(i -> List.copyOf(storedRules));
@@ -72,6 +74,23 @@ class InflowKindServiceTest {
             if (r.getId() == null) ReflectionTestUtils.setField(r, "id", UUID.randomUUID());
             if (!storedRules.contains(r)) storedRules.add(r);
             return r;
+        });
+        // remember() is one upsert in SQL: the rule for (user, key) is created or given the new kind.
+        when(rules.remember(any(), any(), any())).thenAnswer(i -> {
+            UUID owner = i.getArgument(0);
+            String key = i.getArgument(1);
+            UUID kindId = i.getArgument(2);
+            SenderInflowRule r = storedRules.stream().filter(x -> x.getCounterpartyKey().equals(key)).findFirst()
+                    .orElseGet(() -> {
+                        SenderInflowRule created = new SenderInflowRule();
+                        ReflectionTestUtils.setField(created, "id", UUID.randomUUID());
+                        created.setUserId(owner);
+                        created.setCounterpartyKey(key);
+                        storedRules.add(created);
+                        return created;
+                    });
+            r.setInflowKindId(kindId);
+            return 1;
         });
         when(txns.save(any())).thenAnswer(i -> i.getArgument(0));
         service = new InflowKindService(kinds, rules, txns, accounts, categories, new InflowChoiceService(kinds, rules));

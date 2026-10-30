@@ -1,4 +1,4 @@
-import { test, expect, uploadStatement } from '../../fixtures/test';
+import { test, expect, uploadStatement, chooseOtherBank } from '../../fixtures/test';
 import {
   csv, emptyStatement, corruptedPdf, notAPdf, unsupportedFile, manyMerchants, wrappedHeaderPdf,
   FIVE_ROW_STATEMENT, CONSISTENT_BALANCE_STATEMENT, BROKEN_BALANCE_STATEMENT,
@@ -263,6 +263,7 @@ test.describe('Phase 4 — import completion', () => {
     await uploadStatement(userPage, 'statement.csv', 'text/csv', csv(FIVE_ROW_STATEMENT));
     await expect(userPage.getByText(/5 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
 
+    await chooseOtherBank(userPage);
     await userPage.getByRole('button', { name: /confirm import/i }).click();
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
 
@@ -281,6 +282,7 @@ test.describe('Phase 4 — import completion', () => {
     await expect(userPage.getByText(/5 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
 
     await userPage.locator('table input[type=checkbox]').first().uncheck();
+    await chooseOtherBank(userPage);
     await userPage.getByRole('button', { name: /confirm import/i }).click();
 
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
@@ -292,6 +294,7 @@ test.describe('Phase 4 — import completion', () => {
     await userPage.goto('/app/import');
     await uploadStatement(userPage, 'statement.csv', 'text/csv', csv(FIVE_ROW_STATEMENT));
     await expect(userPage.getByText(/5 row\(s\) parsed/i)).toBeVisible({ timeout: 20_000 });
+    await chooseOtherBank(userPage);
     await userPage.getByRole('button', { name: /confirm import/i }).click();
     await expect(userPage.getByText('Import complete')).toBeVisible({ timeout: 30_000 });
 
@@ -317,6 +320,7 @@ test.describe('Phase 13 — behaviour at size', () => {
     const stagedIn = Date.now() - startedAt;
 
     // The page is still interactive, which is the thing a user actually notices.
+    await chooseOtherBank(userPage);
     await expect(userPage.getByRole('button', { name: /confirm import/i })).toBeEnabled();
 
     const confirmStartedAt = Date.now();

@@ -9,6 +9,7 @@ import { useCategoryScopePrompt } from './CategoryScopePrompt';
 import { ReviewCardSkeleton } from './ReviewCardSkeleton';
 import type { Transaction } from '../types';
 import { rowTitle } from '../lib/rowTitle';
+import { formatDate } from '../utils/date';
 
 const PAGE_SIZE = 10;
 
@@ -135,7 +136,14 @@ export function AskOnceCard() {
               <div key={t.id} className={`flex gap-3 flex-wrap sm:flex-nowrap ${creatingFor === t.id ? 'items-start' : 'items-center'}`}>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-ink truncate">{rowTitle(t)}</p>
-                  <p className="text-2xs text-muted">{t.date} · {fmt(t.amount)}</p>
+                  {/* A readable date and a signed, coloured amount, as the group cards above and the
+                      mobile review list show them. */}
+                  <p className="text-2xs text-muted">
+                    {formatDate(t.date)} ·{' '}
+                    <span className={t.type === 'INCOME' ? 'text-success' : 'text-danger'}>
+                      {t.type === 'INCOME' ? '+' : '-'}{fmt(Math.abs(t.amount))}
+                    </span>
+                  </p>
                 </div>
                 <div className={`flex-shrink-0 ${creatingFor === t.id ? 'w-64' : 'w-40'}`}>
                   {creatingFor === t.id ? (

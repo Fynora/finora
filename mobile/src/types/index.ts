@@ -227,6 +227,9 @@ export interface MerchantGroup {
   merchantId: string;
   merchantName: string;
   transactionIds: string[];
+  /** A preview of the group's payments, which the server has always sent (web shows them). Absent
+   *  from an older payload, which means nothing to show. */
+  transactions?: MerchantGroupTransaction[];
   /** The web address to ask Logo.dev for (server MerchantBrands): null unless the name is a listed
    *  brand with no payment to a person. Absent from an older server, which means no request. */
   logoDomain?: string | null;

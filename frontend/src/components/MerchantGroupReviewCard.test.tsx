@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MerchantGroupReviewCard } from './MerchantGroupReviewCard';
 import { transactionsApi, categoriesApi } from '../api/endpoints';
+import { formatDate } from '../utils/date';
 import type { MerchantGroup } from '../types';
 
 vi.mock('../api/endpoints', () => ({
@@ -136,7 +137,7 @@ describe('MerchantGroupReviewCard — expand to preview', () => {
 
     await screen.findByText('SWIGGY');
 
-    expect(screen.queryByText('SWIGGY purchase 1')).not.toBeInTheDocument();
+    expect(screen.queryByText('-₹100')).not.toBeInTheDocument();
   });
 
   it('shows each transaction in the group once expanded', async () => {
@@ -147,10 +148,12 @@ describe('MerchantGroupReviewCard — expand to preview', () => {
     await screen.findByText('SWIGGY');
     await user.click(screen.getByRole('button', { name: /show the 2 transactions for swiggy/i }));
 
-    expect(await screen.findByText('SWIGGY purchase 1')).toBeInTheDocument();
-    expect(screen.getByText('SWIGGY purchase 2')).toBeInTheDocument();
+    expect(await screen.findByText(formatDate('2026-08-10'))).toBeInTheDocument();
+    expect(screen.getByText(formatDate('2026-08-11'))).toBeInTheDocument();
     expect(screen.getByText('-₹100')).toBeInTheDocument();
     expect(screen.getByText('-₹200')).toBeInTheDocument();
+    // Not the bank's narration: the group's title already names the merchant (the owner's choice).
+    expect(screen.queryByText('SWIGGY purchase 1')).not.toBeInTheDocument();
   });
 
   it('collapses again on a second click', async () => {
@@ -161,11 +164,11 @@ describe('MerchantGroupReviewCard — expand to preview', () => {
     await screen.findByText('SWIGGY');
     const toggle = screen.getByRole('button', { name: /show the 2 transactions for swiggy/i });
     await user.click(toggle);
-    await screen.findByText('SWIGGY purchase 1');
+    await screen.findByText('-₹100');
 
     await user.click(screen.getByRole('button', { name: /hide the 2 transactions for swiggy/i }));
 
-    await waitFor(() => expect(screen.queryByText('SWIGGY purchase 1')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('-₹100')).not.toBeInTheDocument());
   });
 
   it('keeps each group\'s expanded state independent of the others', async () => {
@@ -177,8 +180,8 @@ describe('MerchantGroupReviewCard — expand to preview', () => {
     await screen.findByText('UBER');
     await user.click(screen.getByRole('button', { name: /show the 2 transactions for swiggy/i }));
 
-    expect(await screen.findByText('SWIGGY purchase 1')).toBeInTheDocument();
-    expect(screen.queryByText('UBER purchase 1')).not.toBeInTheDocument();
+    // Both groups hold a -₹100 payment; only the opened one shows it.
+    expect(await screen.findAllByText('-₹100')).toHaveLength(1);
   });
 
   it('still lets the transactions preview show credits with the same sign convention as the Ledger table', async () => {

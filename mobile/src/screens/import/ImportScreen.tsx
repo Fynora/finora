@@ -12,13 +12,14 @@ import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { Card, SectionHeading } from '../../components/Card';
 import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
-import { SendFromComputerSheet } from '../../components/SendFromComputerSheet';
+import { SendFromComputerSheet, type StillWaiting } from '../../components/SendFromComputerSheet';
+import { WaitingForComputerFile } from '../../components/WaitingForComputerFile';
 import { ImportProgressCard } from '../../components/ImportProgressCard';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
 import { StagedRowCard } from './StagedRowCard';
 import {
-  accountsApi, categoriesApi, importApi, importJobsApi, statementImportsApi,
+  accountsApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi,
   type ActivationMoment, type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import {
@@ -112,6 +113,23 @@ export function ImportScreen() {
   const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
   // Gate 2b spec §7: the "My statement is on my computer" sheet.
   const [sendFromComputerOpen, setSendFromComputerOpen] = useState(false);
+  // A send code still unused after its sheet closed, watched by WaitingForComputerFile. `code` is
+  // known only when this screen saw it; after a restart the server can say a code is waiting but
+  // not what it was.
+  const [waitingSend, setWaitingSend] = useState<Partial<StillWaiting> | null>(null);
+  // Once per mount: the app may have been closed or killed while a code was out (Android ends
+  // backgrounded apps freely), and the code still works on the computer. Pick the wait back up.
+  useEffect(() => {
+    let cancelled = false;
+    sendCodesApi.current()
+      .then(({ state, codeId }) => {
+        if (cancelled || state !== 'WAITING') return;
+        setWaitingSend((now) => now ?? { id: codeId ?? undefined });
+      })
+      // Optional: with no answer, nothing is shown, as before.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // The import-funnel moments this visit has already sent. One visit is one stretch of the Import tab
   // being focused. A blur ends it there and then, so anything that happens before the next focus
@@ -193,6 +211,18 @@ export function ImportScreen() {
   // nothing was kept -- said out loud rather than letting them believe it was saved.
   const [passwordNotKept, setPasswordNotKept] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+
+  /** A file sent from the computer arrived as this job, seen by the sheet or, after it closed, by
+   *  WaitingForComputerFile. Followed exactly like a file picked here: the progress card, then the
+   *  review. */
+  function followSentFile(importJobId: string) {
+    setSendFromComputerOpen(false);
+    setWaitingSend(null);
+    setError(null);
+    setAskMoment(null);
+    setJobId(importJobId);
+    void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+  }
 
   // Phase 4 (Medium-Tier Parity). "Your recent failed imports" -- a document that never got far
   // enough to become an ImportSession (no header found, zero transactions, a scanned PDF) has had
@@ -1069,6 +1099,83 @@ export function ImportScreen() {
         <ScrollView contentContainerStyle={padForTabBar(styles.padded, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }} keyboardShouldPersistTaps="handled">
           {header}
 
+          {/* Statements read and waiting for the user's review. First on the screen, not under the
+              upload card: a statement sent from a computer lands here, and a customer whose phone
+              had stopped following it (2026-10-30) saw "nothing to import" with it sitting below
+              the fold as "Continue a previous import". Only when there is something to review: an
+              empty state would be a permanent reminder of a feature with nothing to offer, on the
+              screen a first-time user sees first. Hidden while a queued job is in flight (jobId
+              set) -- Review/Discard here abandon that job's live progress view without stopping it
+              server-side, so only one thing happens on this screen at a time. */}
+          {!jobId && unfinished.length > 0 ? (
+            <Card style={styles.readyCard} testID="ready-to-review">
+              <SectionHeading title="Ready to review" />
+              <Text style={[styles.body, { color: c.muted }]}>
+                {unfinished.length === 1
+                  ? 'This statement has been read. Nothing is added to your accounts until you review it and tap Import.'
+                  : 'These statements have been read. Nothing is added to your accounts until you review one and tap Import.'}
+              </Text>
+              {unfinished.map((sess) => (
+                <View
+                  key={sess.id}
+                  style={[styles.unfinishedRow, { borderBottomColor: c.border }]}
+                >
+                  <View style={styles.unfinishedMain}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                      {sess.fileName}
+                    </Text>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                      {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
+                      {expiresInLabel(sess.expiresAt)}
+                    </Text>
+                  </View>
+                  {resumingId === sess.id ? (
+                    <ActivityIndicator size="small" color={c.muted} />
+                  ) : (
+                    <View style={styles.unfinishedActions}>
+                      <Pressable
+                        onPress={() => void resumeSession(sess.id)}
+                        disabled={discardingId === sess.id}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Review import of ${sess.fileName}`}
+                      >
+                        <Text style={[styles.unfinishedAction, { color: c.primary }]}>Review</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => confirmDiscardSession(sess)}
+                        disabled={discardingId === sess.id}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Discard import of ${sess.fileName}`}
+                      >
+                        <Text style={[styles.unfinishedAction, { color: c.dangerInk }]}>
+                          {discardingId === sess.id ? 'Discarding…' : 'Discard'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </Card>
+          ) : null}
+
+          {/* A code from "My statement is on my computer" that is still unused after its sheet
+              closed: keep listening for the file (WaitingForComputerFile's own comment). Not while
+              the sheet is open -- it watches its own code -- nor while a job is being followed or a
+              file picked here is uploading: an arrival would take over the screen mid-upload. It
+              picks the wait back up once that is over. */}
+          {!jobId && waitingSend && !sendFromComputerOpen && !uploading && !uploadCompleted ? (
+            <View style={styles.readyCard}>
+              <WaitingForComputerFile
+                code={waitingSend.code}
+                codeId={waitingSend.id}
+                onReceived={followSentFile}
+                onGone={() => setWaitingSend(null)}
+              />
+            </View>
+          ) : null}
+
           {/* A queued import replaces the dropzone while it runs -- there is nothing useful to do
               on this screen until it lands, and offering a second upload alongside it would start
               a race the user did not ask for. */}
@@ -1250,67 +1357,8 @@ export function ImportScreen() {
           </Card>
           )}
 
-          {/* Only when there is something to resume. An empty state here would be a permanent
-              reminder of a feature that has nothing to offer, on the screen a first-time user
-              sees before they have ever imported anything. Bug fix: also hidden while a queued
-              job is in flight (jobId set) -- Resume/Discard here abandon that job's live progress
-              view without stopping it server-side, and neither button checked for one in flight,
-              so nothing actually prevented tapping either mid-job. Same reasoning as the main
-              card's own comment just above: only one thing happens on this screen at a time. */}
-          {!jobId && unfinished.length > 0 ? (
-            <Card style={styles.unfinishedCard}>
-              <SectionHeading title="Continue a previous import" />
-              <Text style={[styles.body, { color: c.muted }]}>
-                These statements were uploaded and read, but never finished. Picking one up puts you
-                back on the review step — nothing is re-uploaded.
-              </Text>
-              {unfinished.map((sess) => (
-                <View
-                  key={sess.id}
-                  style={[styles.unfinishedRow, { borderBottomColor: c.border }]}
-                >
-                  <View style={styles.unfinishedMain}>
-                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
-                      {sess.fileName}
-                    </Text>
-                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
-                      {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
-                      {expiresInLabel(sess.expiresAt)}
-                    </Text>
-                  </View>
-                  {resumingId === sess.id ? (
-                    <ActivityIndicator size="small" color={c.muted} />
-                  ) : (
-                    <View style={styles.unfinishedActions}>
-                      <Pressable
-                        onPress={() => void resumeSession(sess.id)}
-                        disabled={discardingId === sess.id}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Resume import of ${sess.fileName}`}
-                      >
-                        <Text style={[styles.unfinishedAction, { color: c.primary }]}>Resume</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => confirmDiscardSession(sess)}
-                        disabled={discardingId === sess.id}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Discard import of ${sess.fileName}`}
-                      >
-                        <Text style={[styles.unfinishedAction, { color: c.dangerInk }]}>
-                          {discardingId === sess.id ? 'Discarding…' : 'Discard'}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </View>
-              ))}
-            </Card>
-          ) : null}
-
-          {/* Same "only when there's something to show" rule as "Continue a previous import"
-              above -- and the same reasoning as that card's own comment for why this isn't a
+          {/* Same "only when there's something to show" rule as "Ready to review" at the top of
+              this screen -- and the same reasoning as that card's own comment for why this isn't a
               permanent fixture on a first-time user's screen. A failed document never became an
               ImportSession, so there's nothing to resume here -- "Try again" just reopens the file
               picker, matching web's own retry banner semantics of "select the file below to try
@@ -1354,15 +1402,11 @@ export function ImportScreen() {
         </ScrollView>
         {sendFromComputerOpen && (
           <SendFromComputerSheet
-            onClose={() => setSendFromComputerOpen(false)}
-            onReceived={(importJobId) => {
+            onClose={(stillWaiting) => {
               setSendFromComputerOpen(false);
-              setError(null);
-              setAskMoment(null);
-              // Followed exactly like a file picked here: the progress card, then the review.
-              setJobId(importJobId);
-              void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+              setWaitingSend(stillWaiting ?? null);
             }}
+            onReceived={followSentFile}
           />
         )}
       </GlassScreen>
@@ -1868,6 +1912,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   unfinishedCard: { marginTop: spacing.md },
+  readyCard: { marginBottom: spacing.md },
   unfinishedRow: {
     flexDirection: 'row',
     alignItems: 'center',

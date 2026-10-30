@@ -166,12 +166,47 @@ describe('SendFromComputerSheet (Gate 2b spec §7)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('closes when Close is pressed', async () => {
+  // Closing never cancels the code, so the screen is handed it to keep listening for the file.
+  it('closes when Close is pressed, handing back the code still waiting', async () => {
+    api.issue.mockResolvedValue({ id: 'code-b', code: 'AB3K7M', expiresAt: '2031-05-03T05:10:00Z' });
     renderSheet();
     await settle();
 
     fireEvent.press(screen.getByText('Close'));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith({ code: 'AB3K7M', id: 'code-b' });
+  });
+
+  it('hands back nothing when closed after the code expired', async () => {
+    renderSheet();
+    await settle();
+    api.current.mockResolvedValue({ state: 'EXPIRED', importJobId: null });
+    await advance(POLL_MS);
+
+    fireEvent.press(screen.getByText('Close'));
+
+    expect(onClose).toHaveBeenCalledWith();
+  });
+
+  it('hands back nothing when closed before a code was issued', async () => {
+    api.issue.mockReturnValue(new Promise(() => {}));
+    renderSheet();
+    await settle();
+
+    fireEvent.press(screen.getByText('Close'));
+
+    expect(onClose).toHaveBeenCalledWith();
+  });
+
+  // A tap outside the sheet -- including the tap that wakes a dimmed Android screen -- used to close
+  // it, the second the computer sent the file (a customer report, 2026-10-30). The backdrop carried
+  // the "Close" label; only the Close link (no label of its own) and the back button close it now.
+  it('has no close target besides the Close link', async () => {
+    renderSheet();
+    await settle();
+
+    expect(screen.queryByLabelText('Close')).toBeNull();
+    expect(screen.getAllByText('Close')).toHaveLength(1);
   });
 });

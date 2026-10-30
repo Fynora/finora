@@ -1607,14 +1607,15 @@ export const passwordChangeApi = {
 // primitive -- same arraybuffer-then-share pattern as statementImportsApi.downloadFile above,
 // not the web version's downloadBlob().
 export const accountLifecycleApi = {
-  // Exactly one of currentPassword/googleIdToken is required -- see passwordChangeApi.start's
-  // identical shape and the backend's GoogleReauthVerifier. Both sheets below only ever call this
-  // with currentPassword set (Phase 0 scopes the Google/Apple reauth step-up to a later phase --
-  // see DeactivateAccountSheet's own doc comment), but the parameter stays nullable to match the
-  // backend request shape exactly rather than lying about what it accepts.
-  deactivate: (currentPassword: string | null, googleIdToken: string | null, reason: string, note?: string) =>
+  // Exactly one of currentPassword/googleIdToken/appleIdToken is required -- see
+  // passwordChangeApi.start's identical shape and the backend's GoogleReauthVerifier, which
+  // accepts all three for deactivation too.
+  deactivate: (
+    currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null,
+    reason: string, note?: string
+  ) =>
     api.post<{ message: string }>(
-      '/users/me/account/deactivate', { currentPassword, googleIdToken, reason, note }
+      '/users/me/account/deactivate', { currentPassword, googleIdToken, appleIdToken, reason, note }
     ).then((r) => r.data),
   // sessionId proves current-password+OTP -- see PasswordChangeService.consumeForAccountDeletion,
   // reached through the same passwordChangeApi.start/verifyOtp calls DeleteAccountSheet drives
@@ -1639,14 +1640,15 @@ export const accountLifecycleApi = {
   // half. This does not fully bound the export's memory use (the whole ZIP is still fetched into
   // one in-memory buffer before any of it reaches disk); doing that would need the backend to
   // support a streamable GET download instead of this POST-with-password-in-body shape.
-  exportData: async (currentPassword: string | null, googleIdToken: string | null) => {
+  // Exactly one of the three credentials, as for deactivate above.
+  exportData: async (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => {
     if (!(await Sharing.isAvailableAsync())) {
       throw new Error('Sharing is not available on this device.');
     }
     let res;
     try {
       res = await api.post<ArrayBuffer>(
-        '/users/me/data-export', { currentPassword, googleIdToken }, { responseType: 'arraybuffer' }
+        '/users/me/data-export', { currentPassword, googleIdToken, appleIdToken }, { responseType: 'arraybuffer' }
       );
     } catch (err) {
       throw await withArrayBufferErrorMessage(err);

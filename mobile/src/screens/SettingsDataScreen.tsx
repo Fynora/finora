@@ -1,8 +1,5 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { trackNavigation } from '../lib/trackNavigation';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { MetricTile } from '../components/AccountUI';
 import { Button } from '../components/Button';
@@ -11,14 +8,12 @@ import { SavedStatementPasswordsSection } from './settings/SavedStatementPasswor
 import { analyticsApi, userApi } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
-import type { MoreStackParamList } from '../navigation/types';
 import { GlassScreen } from '../components/GlassScreen';
 import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 export function SettingsDataScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
-  const navigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
   const userQ = useQuery({ queryKey: ['user-settings'], queryFn: () => userApi.get() });
   // Best-effort -- shows "—" for any stat that doesn't load rather than blocking the rest of the
   // screen on it.
@@ -26,22 +21,10 @@ export function SettingsDataScreen() {
   const stats = statsQ.data;
 
   const [exportOpen, setExportOpen] = useState(false);
-
-  // Google/Apple-linked accounts can't complete Export in-app yet -- routes to the one in-app
-  // channel that can actually help instead of leaving the sheet open on a dead end. Same
-  // modal-dismiss-race fix as the original SettingsScreen's contactSupportForAccountAction: the
-  // sheet renders as a native <Modal> (animationType="slide"), so navigating in the same tick as
-  // closing it races the modal's native dismiss against React Navigation's push. A fixed delay
-  // matching UIKit's own standard modal-transition duration is the fix available without a native
-  // onDismiss listener wired up on both platforms.
-  function contactSupportForExport() {
-    setExportOpen(false);
-    // entry='contextual', not 'group': this is not a menu item, it is the escape hatch offered
-    // when the export sheet has nothing useful left to do. That distinction is the whole reason
-    // NavEntryPoint has a 'contextual' value, and until now nothing emitted it.
-    trackNavigation('support', 'contextual');
-    setTimeout(() => navigation.navigate('SupportTickets'), 350);
-  }
+  // The sheet asks for a password or a Google/Apple check depending on how this account signs
+  // in, so it only opens once that is known; guessing "password" would show a Google user a field
+  // they can never fill in.
+  const signInMethod = userQ.data?.signInMethod;
 
   return (
     <GlassScreen style={styles.glassRoot}>
@@ -60,16 +43,15 @@ export function SettingsDataScreen() {
             A ZIP of everything in your account, including your original statement files.
           </Text>
         </View>
-        <Button label="Export" onPress={() => setExportOpen(true)} variant="link" />
+        <Button label="Export" onPress={() => setExportOpen(true)} variant="link" disabled={!signInMethod} />
       </View>
 
       <SavedStatementPasswordsSection />
 
-      {exportOpen ? (
+      {exportOpen && signInMethod ? (
         <ExportDataSheet
           onClose={() => setExportOpen(false)}
-          signInMethod={userQ.data?.signInMethod ?? 'PASSWORD'}
-          onContactSupport={contactSupportForExport}
+          signInMethod={signInMethod}
         />
       ) : null}
     </ScrollView>

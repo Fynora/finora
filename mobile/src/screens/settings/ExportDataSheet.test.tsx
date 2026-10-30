@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { ExportDataSheet } from './ExportDataSheet';
 import { accountLifecycleApi } from '../../api/endpoints';
+import { ThemeProvider } from '../../theme';
 import { expectHaptics } from '../../test/haptics';
 
 jest.mock('../../api/endpoints', () => ({
@@ -8,13 +11,16 @@ jest.mock('../../api/endpoints', () => ({
 }));
 
 const lifecycleApi = accountLifecycleApi as jest.Mocked<typeof accountLifecycleApi>;
+const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
 
 const onClose = jest.fn();
-const onContactSupport = jest.fn();
 
 function renderSheet(signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE' = 'PASSWORD') {
+  // The Google/Apple buttons read useThemeSetting(), which needs a real ThemeProvider.
   return render(
-    <ExportDataSheet onClose={onClose} signInMethod={signInMethod} onContactSupport={onContactSupport} />
+    <ThemeProvider>
+      <ExportDataSheet onClose={onClose} signInMethod={signInMethod} />
+    </ThemeProvider>
   );
 }
 
@@ -23,10 +29,16 @@ async function settle() {
 }
 
 describe('ExportDataSheet', () => {
+  const originalGoogleEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
   beforeEach(() => {
     onClose.mockReset();
-    onContactSupport.mockReset();
     lifecycleApi.exportData.mockReset().mockResolvedValue(undefined);
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'test-web-client-id.apps.googleusercontent.com';
+  });
+
+  afterEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = originalGoogleEnv;
   });
 
   it('shows the password form for a PASSWORD account', () => {
@@ -35,21 +47,62 @@ describe('ExportDataSheet', () => {
     expect(screen.getByLabelText('Current password')).toBeTruthy();
   });
 
-  // Store-readiness gate (S1): Google/Apple accounts get an honest "not yet available" message
-  // instead of a re-auth form with no password field to submit -- same posture as
-  // DeactivateAccountSheet and DeleteAccountSheet.
-  it.each(['GOOGLE', 'APPLE'] as const)(
-    'shows a support message instead of the form for a %s account',
-    (signInMethod) => {
-      renderSheet(signInMethod);
+  it('asks a GOOGLE account to verify with Google, not for a password', () => {
+    renderSheet('GOOGLE');
 
-      expect(screen.queryByLabelText('Current password')).toBeNull();
-      expect(screen.getByText(/isn.t available in the app yet/)).toBeTruthy();
+    expect(screen.getByText('Sign in with Google')).toBeTruthy();
+    expect(screen.queryByLabelText('Current password')).toBeNull();
+    expect(screen.queryByText(/isn.t available in the app yet/)).toBeNull();
+  });
 
-      fireEvent.press(screen.getByText('Contact Support'));
-      expect(onContactSupport).toHaveBeenCalled();
-    }
-  );
+  it('exports with a fresh Google credential in place of a password', async () => {
+    mockedGoogleSignin.signIn.mockResolvedValue({
+      type: 'success',
+      data: { idToken: 'a-google-id-token', user: {}, scopes: [], serverAuthCode: null },
+    } as never);
+    renderSheet('GOOGLE');
+
+    fireEvent.press(screen.getByText('Sign in with Google'));
+    await settle();
+
+    await waitFor(() => expect(lifecycleApi.exportData).toHaveBeenCalledWith(null, 'a-google-id-token', null));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('exports with a fresh Apple credential in place of a password', async () => {
+    jest.mocked(AppleAuthentication.signInAsync).mockResolvedValue({
+      identityToken: 'an-apple-id-token', fullName: null,
+    } as never);
+    renderSheet('APPLE');
+
+    fireEvent.press(screen.getByText('Sign in with Apple'));
+    await settle();
+
+    await waitFor(() => expect(lifecycleApi.exportData).toHaveBeenCalledWith(null, null, 'an-apple-id-token'));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("shows the server's message and stays open when a Google credential is refused", async () => {
+    lifecycleApi.exportData.mockReset().mockRejectedValue(
+      Object.assign(new Error('bad'), {
+        isAxiosError: true,
+        response: { status: 400, data: { message: "We couldn't verify your Google account. Please try again." } },
+      })
+    );
+    mockedGoogleSignin.signIn.mockResolvedValue({
+      type: 'success',
+      data: { idToken: 'someone-elses-token', user: {}, scopes: [], serverAuthCode: null },
+    } as never);
+    renderSheet('GOOGLE');
+
+    fireEvent.press(screen.getByText('Sign in with Google'));
+    await settle();
+
+    expect(await screen.findByText("We couldn't verify your Google account. Please try again.")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+    // The prompt is back, so the user can try again.
+    expect(screen.getByText('Sign in with Google')).toBeTruthy();
+  });
 
   it('will not submit until a password is typed', () => {
     renderSheet();
@@ -72,7 +125,7 @@ describe('ExportDataSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: /Export My Data/ }));
     await settle();
 
-    await waitFor(() => expect(lifecycleApi.exportData).toHaveBeenCalledWith('CurrentPw1!', null));
+    await waitFor(() => expect(lifecycleApi.exportData).toHaveBeenCalledWith('CurrentPw1!', null, null));
     expect(onClose).toHaveBeenCalled();
     expectHaptics({ success: 1 });
   });

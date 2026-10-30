@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { DeleteAccountSheet } from './DeleteAccountSheet';
 import { accountLifecycleApi, passwordChangeApi } from '../../api/endpoints';
 import { confirmPhoneVerificationCode, sendPhoneVerificationCode } from '../../lib/phoneAuth';
+import { ThemeProvider } from '../../theme';
 
 jest.mock('../../api/endpoints', () => ({
   passwordChangeApi: { start: jest.fn(), verifyOtp: jest.fn() },
@@ -22,18 +25,21 @@ const confirmCode = confirmPhoneVerificationCode as jest.MockedFunction<typeof c
 const PHONE = '+919876543210'; // synthetic-ok: invented test number
 const MASKED_PHONE = '+•••••••••210';
 
+const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
+
 const onClose = jest.fn();
 const onDeleted = jest.fn();
-const onContactSupport = jest.fn();
 
 function renderSheet(signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE' = 'PASSWORD') {
+  // The Google/Apple buttons read useThemeSetting(), which needs a real ThemeProvider.
   return render(
-    <DeleteAccountSheet
-      onClose={onClose}
-      onDeleted={onDeleted}
-      signInMethod={signInMethod}
-      onContactSupport={onContactSupport}
-    />
+    <ThemeProvider>
+      <DeleteAccountSheet
+        onClose={onClose}
+        onDeleted={onDeleted}
+        signInMethod={signInMethod}
+      />
+    </ThemeProvider>
   );
 }
 
@@ -53,10 +59,16 @@ async function reachConfirmStep() {
 }
 
 describe('DeleteAccountSheet', () => {
+  const originalGoogleEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+  afterEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = originalGoogleEnv;
+  });
+
   beforeEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'test-web-client-id.apps.googleusercontent.com';
     onClose.mockReset();
     onDeleted.mockReset();
-    onContactSupport.mockReset();
     passwordApi.start.mockReset().mockResolvedValue({
       sessionId: 'sess-1', phoneNumber: PHONE, maskedPhone: MASKED_PHONE,
     });
@@ -73,20 +85,75 @@ describe('DeleteAccountSheet', () => {
     expect(screen.queryByLabelText('Verification code')).toBeNull();
   });
 
-  // Store-readiness gate (S1): Google/Apple accounts get an honest "not yet available" message
-  // instead of a re-auth form that has no password field to submit.
-  it.each(['GOOGLE', 'APPLE'] as const)(
-    'shows a support message instead of the password form for a %s account',
-    (signInMethod) => {
-      renderSheet(signInMethod);
+  // Google/Apple accounts have no password anyone knows: a fresh Google/Apple credential starts
+  // the same session, and the phone code and confirm steps are the same as for everyone.
+  it('asks a GOOGLE account to verify with Google, not for a password', () => {
+    renderSheet('GOOGLE');
 
-      expect(screen.queryByLabelText('Current password')).toBeNull();
-      expect(screen.getByText(/isn.t available in the app yet/)).toBeTruthy();
+    expect(screen.getByText('Sign in with Google')).toBeTruthy();
+    expect(screen.queryByLabelText('Current password')).toBeNull();
+    expect(screen.queryByText(/isn.t available in the app yet/)).toBeNull();
+  });
 
-      fireEvent.press(screen.getByText('Contact Support'));
-      expect(onContactSupport).toHaveBeenCalled();
-    }
-  );
+  it('deletes a GOOGLE account end to end: Google credential, phone code, confirm', async () => {
+    mockedGoogleSignin.signIn.mockResolvedValue({
+      type: 'success',
+      data: { idToken: 'a-google-id-token', user: {}, scopes: [], serverAuthCode: null },
+    } as never);
+    renderSheet('GOOGLE');
+
+    fireEvent.press(screen.getByText('Sign in with Google'));
+    await settle();
+    await waitFor(() => expect(passwordApi.start).toHaveBeenCalledWith(null, 'a-google-id-token', null));
+    expect(sendCode).toHaveBeenCalledWith(PHONE);
+
+    fireEvent.changeText(await screen.findByLabelText('Verification code'), '123456');
+    fireEvent.press(screen.getByRole('button', { name: /Verify/ }));
+    await settle();
+    await waitFor(() => expect(passwordApi.verifyOtp).toHaveBeenCalledWith('sess-1', 'firebase-id-token'));
+
+    fireEvent.press(screen.getByRole('checkbox'));
+    fireEvent.press(screen.getByRole('button', { name: /Permanently Delete/i }));
+    await settle();
+
+    await waitFor(() => expect(lifecycleApi.deleteAccount).toHaveBeenCalledWith('sess-1', undefined));
+    expect(onDeleted).toHaveBeenCalled();
+  });
+
+  it('starts an APPLE account with a fresh Apple credential', async () => {
+    jest.mocked(AppleAuthentication.signInAsync).mockResolvedValue({
+      identityToken: 'an-apple-id-token', fullName: null,
+    } as never);
+    renderSheet('APPLE');
+
+    fireEvent.press(screen.getByText('Sign in with Apple'));
+    await settle();
+
+    await waitFor(() => expect(passwordApi.start).toHaveBeenCalledWith(null, null, 'an-apple-id-token'));
+    expect(await screen.findByLabelText('Verification code')).toBeTruthy();
+  });
+
+  /** A Google account with no phone on file: the backend refuses the start with its own message. */
+  it("shows the server's message when the account has no phone number to send a code to", async () => {
+    passwordApi.start.mockReset().mockRejectedValue(
+      Object.assign(new Error('bad'), {
+        isAxiosError: true,
+        response: { status: 400, data: { message: 'Add a phone number to your account before changing your password or deleting your account.' } },
+      })
+    );
+    mockedGoogleSignin.signIn.mockResolvedValue({
+      type: 'success',
+      data: { idToken: 'a-google-id-token', user: {}, scopes: [], serverAuthCode: null },
+    } as never);
+    renderSheet('GOOGLE');
+
+    fireEvent.press(screen.getByText('Sign in with Google'));
+    await settle();
+
+    expect(await screen.findByText(/Add a phone number to your account/)).toBeTruthy();
+    expect(sendCode).not.toHaveBeenCalled();
+    expect(screen.getByText('Sign in with Google')).toBeTruthy();
+  });
 
   it('asks the backend to start, then has Firebase send the code', async () => {
     renderSheet();

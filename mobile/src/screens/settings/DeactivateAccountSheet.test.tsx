@@ -1,25 +1,30 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { DeactivateAccountSheet } from './DeactivateAccountSheet';
 import { accountLifecycleApi } from '../../api/endpoints';
+import { ThemeProvider } from '../../theme';
 
 jest.mock('../../api/endpoints', () => ({
   accountLifecycleApi: { deactivate: jest.fn() },
 }));
 
 const lifecycleApi = accountLifecycleApi as jest.Mocked<typeof accountLifecycleApi>;
+const mockedGoogleSignin = GoogleSignin as jest.Mocked<typeof GoogleSignin>;
 
 const onClose = jest.fn();
 const onDeactivated = jest.fn();
-const onContactSupport = jest.fn();
 
 function renderSheet(signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE' = 'PASSWORD') {
+  // The Google/Apple buttons read useThemeSetting(), which needs a real ThemeProvider.
   return render(
-    <DeactivateAccountSheet
-      onClose={onClose}
-      onDeactivated={onDeactivated}
-      signInMethod={signInMethod}
-      onContactSupport={onContactSupport}
-    />
+    <ThemeProvider>
+      <DeactivateAccountSheet
+        onClose={onClose}
+        onDeactivated={onDeactivated}
+        signInMethod={signInMethod}
+      />
+    </ThemeProvider>
   );
 }
 
@@ -36,11 +41,17 @@ async function chooseReason(label: string) {
 }
 
 describe('DeactivateAccountSheet', () => {
+  const originalGoogleEnv = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
   beforeEach(() => {
     onClose.mockReset();
     onDeactivated.mockReset();
-    onContactSupport.mockReset();
     lifecycleApi.deactivate.mockReset().mockResolvedValue({ message: 'Account deactivated.' });
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'test-web-client-id.apps.googleusercontent.com';
+  });
+
+  afterEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = originalGoogleEnv;
   });
 
   it('shows the password + reason form for a PASSWORD account', () => {
@@ -50,21 +61,53 @@ describe('DeactivateAccountSheet', () => {
     expect(screen.getByLabelText('Reason for deactivating')).toBeTruthy();
   });
 
-  // Store-readiness gate (S1/S2): Google/Apple accounts get an honest "not yet available"
-  // message instead of a re-auth form with no password field to submit -- same posture as
-  // DeleteAccountSheet and ExportDataSheet.
+  // Google/Apple accounts have no password anyone knows: they choose a reason first, then a fresh
+  // Google/Apple credential is what deactivates.
   it.each(['GOOGLE', 'APPLE'] as const)(
-    'shows a support message instead of the form for a %s account',
+    'asks a %s account for a reason first, with no password field',
     (signInMethod) => {
       renderSheet(signInMethod);
 
       expect(screen.queryByLabelText('Current password')).toBeNull();
-      expect(screen.getByText(/isn.t available in the app yet/)).toBeTruthy();
-
-      fireEvent.press(screen.getByText('Contact Support'));
-      expect(onContactSupport).toHaveBeenCalled();
+      expect(screen.getByLabelText('Reason for deactivating')).toBeTruthy();
+      expect(screen.getByText(/Choose a reason, then verify with/)).toBeTruthy();
+      expect(screen.queryByText(/Sign in with (Google|Apple)/)).toBeNull();
+      expect(screen.queryByText(/isn.t available in the app yet/)).toBeNull();
     }
   );
+
+  it('deactivates a GOOGLE account with a fresh Google credential once a reason is chosen', async () => {
+    mockedGoogleSignin.signIn.mockResolvedValue({
+      type: 'success',
+      data: { idToken: 'a-google-id-token', user: {}, scopes: [], serverAuthCode: null },
+    } as never);
+    renderSheet('GOOGLE');
+    await chooseReason('Taking a break');
+
+    fireEvent.press(screen.getByText('Sign in with Google'));
+    await settle();
+
+    await waitFor(() =>
+      expect(lifecycleApi.deactivate).toHaveBeenCalledWith(null, 'a-google-id-token', null, 'TAKING_A_BREAK', undefined)
+    );
+    expect(onDeactivated).toHaveBeenCalled();
+  });
+
+  it('deactivates an APPLE account with a fresh Apple credential once a reason is chosen', async () => {
+    jest.mocked(AppleAuthentication.signInAsync).mockResolvedValue({
+      identityToken: 'an-apple-id-token', fullName: null,
+    } as never);
+    renderSheet('APPLE');
+    await chooseReason('Privacy concerns');
+
+    fireEvent.press(screen.getByText('Sign in with Apple'));
+    await settle();
+
+    await waitFor(() =>
+      expect(lifecycleApi.deactivate).toHaveBeenCalledWith(null, null, 'an-apple-id-token', 'PRIVACY_CONCERNS', undefined)
+    );
+    expect(onDeactivated).toHaveBeenCalled();
+  });
 
   it('will not submit until both a password and a reason are given', async () => {
     renderSheet();
@@ -102,7 +145,7 @@ describe('DeactivateAccountSheet', () => {
     await settle();
 
     await waitFor(() =>
-      expect(lifecycleApi.deactivate).toHaveBeenCalledWith('CurrentPw1!', null, 'TAKING_A_BREAK', 'back in a month')
+      expect(lifecycleApi.deactivate).toHaveBeenCalledWith('CurrentPw1!', null, null, 'TAKING_A_BREAK', 'back in a month')
     );
     expect(onDeactivated).toHaveBeenCalled();
   });
@@ -116,7 +159,7 @@ describe('DeactivateAccountSheet', () => {
     await settle();
 
     await waitFor(() =>
-      expect(lifecycleApi.deactivate).toHaveBeenCalledWith('CurrentPw1!', null, 'NOT_USING_ANYMORE', undefined)
+      expect(lifecycleApi.deactivate).toHaveBeenCalledWith('CurrentPw1!', null, null, 'NOT_USING_ANYMORE', undefined)
     );
   });
 

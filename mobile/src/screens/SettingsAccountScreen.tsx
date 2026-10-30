@@ -6,7 +6,6 @@ import { Button } from '../components/Button';
 import { DeactivateAccountSheet } from './settings/DeactivateAccountSheet';
 import { DeleteAccountSheet } from './settings/DeleteAccountSheet';
 import { userApi } from '../api/endpoints';
-import { trackNavigation } from '../lib/trackNavigation';
 import { useAuth } from '../context/AuthContext';
 import { spacing, useTheme } from '../theme';
 import type { MoreStackParamList } from '../navigation/types';
@@ -17,7 +16,9 @@ import { padForTabBar, useTabBarSpace } from '../navigation/useTabBarSpace';
 
 type Props = NativeStackScreenProps<MoreStackParamList, 'SettingsAccount'>;
 
-export function SettingsAccountScreen({ navigation }: Props) {
+// The navigator passes its props; this screen needs none of them now that every account action
+// finishes in-app (Google/Apple accounts included), with no dead end routing to support.
+export function SettingsAccountScreen(_props: Props) {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const { logout } = useAuth();
@@ -32,18 +33,6 @@ export function SettingsAccountScreen({ navigation }: Props) {
     setDeactivateOpen(false);
     setDeleteOpen(false);
     logout();
-  }
-
-  // Google/Apple-linked accounts can't complete Deactivate/Delete in-app yet -- routes to the one
-  // in-app channel that can actually help. Same modal-dismiss-race fix as the original
-  // SettingsScreen's contactSupportForAccountAction (see SettingsDataScreen's identical comment).
-  function contactSupportForAccountAction() {
-    setDeactivateOpen(false);
-    setDeleteOpen(false);
-    // entry='contextual', matching SettingsDataScreen's identical dead-end. Both are escape
-    // hatches offered when a flow cannot finish in-app, not menu entries.
-    trackNavigation('support', 'contextual');
-    setTimeout(() => navigation.navigate('SupportTickets'), 350);
   }
 
   if (userQ.isLoading) {
@@ -97,7 +86,6 @@ export function SettingsAccountScreen({ navigation }: Props) {
           onClose={() => setDeactivateOpen(false)}
           onDeactivated={endSessionAfterLifecycleAction}
           signInMethod={signInMethod}
-          onContactSupport={contactSupportForAccountAction}
         />
       ) : null}
 
@@ -106,7 +94,6 @@ export function SettingsAccountScreen({ navigation }: Props) {
           onClose={() => setDeleteOpen(false)}
           onDeleted={endSessionAfterLifecycleAction}
           signInMethod={signInMethod}
-          onContactSupport={contactSupportForAccountAction}
         />
       ) : null}
     </ScrollView>

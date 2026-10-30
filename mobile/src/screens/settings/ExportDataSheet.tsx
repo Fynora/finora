@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
+import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
+import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi } from '../../api/endpoints';
 import { toUserMessage } from '../../lib/apiError';
@@ -21,12 +23,13 @@ import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
  * there is no separate success step here -- the button's own "Preparing…" state is the whole
  * loading UI, and the sheet just closes once the share hand-off has completed.
  *
- * Google/Apple accounts: see DeactivateAccountSheet's identical doc comment.
+ * Google/Apple accounts have no password anyone knows, so they prove who they are with a fresh
+ * Google or Apple credential instead (GoogleReauthPrompt / AppleReauthPrompt, the same step-up
+ * ChangePasswordSheet uses); the backend's GoogleReauthVerifier accepts either for export.
  */
-export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
+export function ExportDataSheet({ onClose, signInMethod }: {
   onClose: () => void;
   signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
-  onContactSupport: () => void;
 }) {
   const c = useTheme();
   const singleFlight = useSingleFlight();
@@ -35,19 +38,23 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit() {
-    if (currentPassword.length === 0) return;
+  /** Exactly one of the three is non-null, matching the backend's request contract. */
+  async function submitWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
       const startedAt = requestStartedAt();
       try {
-        await accountLifecycleApi.exportData(currentPassword, null);
+        await accountLifecycleApi.exportData(currentPasswordArg, googleIdToken, appleIdToken);
         hapticSuccess();
         onClose();
       } catch (e) {
         hapticError();
         reportTransportFailure(e, 'export-data:submit', startedAt);
+        // The server's own message wins when there is one ("We couldn't verify your Google
+        // account..." for a token that does not match this account); this is only the fallback.
         setError(toUserMessage(e, 'Could not prepare your export. Please try again.'));
       } finally {
         setSubmitting(false);
@@ -64,15 +71,7 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
         included.
       </Text>
 
-      {signInMethod !== 'PASSWORD' ? (
-        <View style={[sheetStyles.notice, { backgroundColor: c.primaryLight }]}>
-          <Text style={[sheetStyles.noticeText, { color: c.ink }]}>
-            Exporting data for a {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'}-linked account
-            isn&apos;t available in the app yet. Contact support and we&apos;ll take care of it.
-          </Text>
-          <Button label="Contact Support" variant="link" onPress={onContactSupport} />
-        </View>
-      ) : (
+      {signInMethod === 'PASSWORD' ? (
         <>
           <TextField
             label="Current password"
@@ -86,11 +85,29 @@ export function ExportDataSheet({ onClose, signInMethod, onContactSupport }: {
           <View style={sheetStyles.action}>
             <Button
               label={submitting ? 'Preparing your export…' : 'Export My Data'}
-              onPress={() => void submit()}
+              onPress={() => void submitWithCredential(currentPassword, null, null)}
               loading={submitting}
               disabled={currentPassword.length === 0}
             />
           </View>
+        </>
+      ) : (
+        <>
+          {/* Kept mounted while the export runs: the button awaits onCredential and shows its
+              own locked, dimmed state until it settles. */}
+          {signInMethod === 'GOOGLE' ? (
+            <GoogleReauthPrompt
+              onCredential={(idToken) => submitWithCredential(null, idToken, null)}
+              onError={setError}
+            />
+          ) : (
+            <AppleReauthPrompt
+              onCredential={(idToken) => submitWithCredential(null, null, idToken)}
+              onError={setError}
+            />
+          )}
+          {submitting ? <Text style={[sheetStyles.body, { color: c.muted }]}>Preparing your export…</Text> : null}
+          {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
         </>
       )}
 

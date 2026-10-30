@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
+import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi, passwordChangeApi, type DeletionReason } from '../../api/endpoints';
 import { DELETION_REASONS, DELETION_REASON_QUESTION } from '../../lib/activationQuestions';
@@ -36,17 +38,19 @@ type Step = 'password' | 'otp' | 'confirm';
  * always visible (not just after an error) for the same reason the OTP step's is: consistency,
  * and one less thing to figure out under an already-anxious "delete my account" flow.
  *
- * Google/Apple accounts: see DeactivateAccountSheet's identical doc comment for why this shows a
- * "not yet available" message with a support link instead of a broken re-auth step.
+ * Google/Apple accounts have no password anyone knows, so the first step proves who they are
+ * with a fresh Google or Apple credential instead (GoogleReauthPrompt / AppleReauthPrompt, the
+ * same step-up ChangePasswordSheet uses); the phone code and the confirm step are the same for
+ * everyone. An account with no phone number on file gets the backend's own "add a phone number
+ * first" message from the start call, as it does on web.
  *
  * onDeleted is responsible for the actual sign-out (AuthContext.logout()) -- requestDeletion
  * already revoked every refresh token server-side, so there is nothing left to be signed in to.
  */
-export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContactSupport }: {
+export function DeleteAccountSheet({ onClose, onDeleted, signInMethod }: {
   onClose: () => void;
   onDeleted: () => void;
   signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
-  onContactSupport: () => void;
 }) {
   const c = useTheme();
   const singleFlight = useSingleFlight();
@@ -66,14 +70,16 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
 
   const otpValid = /^\d{6}$/.test(otp);
 
-  async function submitCurrentPassword() {
-    if (currentPassword.length === 0) return;
+  /** Exactly one of the three is non-null, matching PasswordChangeService.start's contract. */
+  async function startWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
       const startedAt = requestStartedAt();
       try {
-        const res = await passwordChangeApi.start(currentPassword, null, null);
+        const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken);
         setSessionId(res.sessionId);
         setMaskedPhone(res.maskedPhone);
         setConfirmation(await sendPhoneVerificationCode(res.phoneNumber));
@@ -142,17 +148,8 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
     <AccountActionSheet onClose={onClose} dismissable={dismissable} closeLabel="Close delete account">
       <Text style={[sheetStyles.title, { color: c.ink }]}>Delete Account</Text>
 
-      {signInMethod !== 'PASSWORD' ? (
-        <View style={[sheetStyles.notice, { backgroundColor: c.primaryLight }]}>
-          <Text style={[sheetStyles.noticeText, { color: c.ink }]}>
-            Deleting a {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'}-linked account isn&apos;t
-            available in the app yet. Contact support and we&apos;ll take care of it.
-          </Text>
-          <Button label="Contact Support" variant="link" onPress={onContactSupport} />
-        </View>
-      ) : (
-        <>
-          {step === 'password' ? (
+      <>
+          {step === 'password' && signInMethod === 'PASSWORD' ? (
             <>
               <Text style={[sheetStyles.body, { color: c.muted }]}>
                 Deleting your account is permanent and cannot be undone. Enter your current
@@ -170,11 +167,35 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
               <View style={sheetStyles.action}>
                 <Button
                   label={submitting ? 'Sending…' : 'Send code'}
-                  onPress={() => void submitCurrentPassword()}
+                  onPress={() => void startWithCredential(currentPassword, null, null)}
                   loading={submitting}
                   disabled={currentPassword.length === 0}
                 />
               </View>
+            </>
+          ) : null}
+
+          {step === 'password' && signInMethod !== 'PASSWORD' ? (
+            <>
+              <Text style={[sheetStyles.body, { color: c.muted }]}>
+                Deleting your account is permanent and cannot be undone. Verify it&apos;s you to get
+                started — we&apos;ll then send a verification code to the phone on file.
+              </Text>
+              {/* Kept mounted while the start call runs: the button awaits onCredential and
+                  shows its own locked, dimmed state until it settles. */}
+              {signInMethod === 'GOOGLE' ? (
+                <GoogleReauthPrompt
+                  onCredential={(idToken) => startWithCredential(null, idToken, null)}
+                  onError={setError}
+                />
+              ) : (
+                <AppleReauthPrompt
+                  onCredential={(idToken) => startWithCredential(null, null, idToken)}
+                  onError={setError}
+                />
+              )}
+              {submitting ? <Text style={[sheetStyles.body, { color: c.muted }]}>Sending a code…</Text> : null}
+              {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
             </>
           ) : null}
 
@@ -286,8 +307,7 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod, onContact
           ) : null}
 
           <Button label="Cancel" variant="link" onPress={onClose} disabled={!dismissable} />
-        </>
-      )}
+      </>
     </AccountActionSheet>
   );
 }

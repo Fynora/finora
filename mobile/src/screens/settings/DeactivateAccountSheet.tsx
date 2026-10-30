@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppleReauthPrompt } from '../../components/AppleReauthPrompt';
 import { Button } from '../../components/Button';
+import { GoogleReauthPrompt } from '../../components/GoogleReauthPrompt';
 import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { TextField } from '../../components/TextField';
 import { accountLifecycleApi } from '../../api/endpoints';
@@ -27,22 +29,20 @@ const REASONS: { value: string; label: string }[] = [
  * and can undo this by simply signing in again (ReactivateAccountPrompt is the mobile Login flow's
  * existing handling for that, unchanged by this file).
  *
- * Google/Apple accounts: web branches here into a GoogleReauthPrompt step-up. Mobile doesn't have
- * that component yet (see ChangeEmailSheet's own doc comment for the same gap on a different
- * screen) -- building it is scoped to a later phase, not duplicated a third time here. Rather than
- * show a button that reaches this screen and then dead-ends on a 400 asking for a password that
- * doesn't apply to this account, `signInMethod !== 'PASSWORD'` renders an honest "not yet
- * available in the app" message instead, with a way to reach support.
+ * Google/Apple accounts have no password anyone knows, so they prove who they are with a fresh
+ * Google or Apple credential instead (GoogleReauthPrompt / AppleReauthPrompt, the same step-up
+ * ChangePasswordSheet uses). The credential is the last step: the reason is chosen first, and
+ * verifying with Google/Apple then deactivates straight away, so a fresh token is never held
+ * waiting for the rest of the form.
  *
  * onDeactivated is responsible for the actual sign-out (AuthContext.logout()) -- there is nothing
  * left to be signed in to once this succeeds, since UserAccountLifecycleService.deactivate already
  * revoked every refresh token server-side.
  */
-export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod, onContactSupport }: {
+export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod }: {
   onClose: () => void;
   onDeactivated: () => void;
   signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
-  onContactSupport: () => void;
 }) {
   const c = useTheme();
   const singleFlight = useSingleFlight();
@@ -54,16 +54,20 @@ export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod, o
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = signInMethod === 'PASSWORD' && currentPassword.length > 0 && reason !== null;
+  const canSubmitPassword = signInMethod === 'PASSWORD' && currentPassword.length > 0 && reason !== null;
 
-  async function submit() {
-    if (!canSubmit || !reason) return;
+  /** Exactly one of the three is non-null, matching the backend's request contract. */
+  async function submitWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
+    if (!reason) return;
     setError(null);
     await singleFlight(async () => {
       setSubmitting(true);
       const startedAt = requestStartedAt();
       try {
-        await accountLifecycleApi.deactivate(currentPassword, null, reason.value, note.trim() || undefined);
+        await accountLifecycleApi.deactivate(
+          currentPasswordArg, googleIdToken, appleIdToken, reason.value, note.trim() || undefined);
         onDeactivated();
       } catch (e) {
         reportTransportFailure(e, 'deactivate-account:submit', startedAt);
@@ -83,53 +87,70 @@ export function DeactivateAccountSheet({ onClose, onDeactivated, signInMethod, o
         time just by signing in again.
       </Text>
 
-      {signInMethod !== 'PASSWORD' ? (
-        <View style={[sheetStyles.notice, { backgroundColor: c.primaryLight }]}>
-          <Text style={[sheetStyles.noticeText, { color: c.ink }]}>
-            Deactivating a {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'}-linked account isn&apos;t
-            available in the app yet. Contact support and we&apos;ll take care of it.
-          </Text>
-          <Button label="Contact Support" variant="link" onPress={onContactSupport} />
-        </View>
-      ) : (
+      {signInMethod === 'PASSWORD' ? (
+        <TextField
+          label="Current password"
+          value={currentPassword}
+          onChangeText={(v) => { setCurrentPassword(v); setError(null); }}
+          secure
+          autoCapitalize="none"
+          textContentType="password"
+        />
+      ) : null}
+
+      <Pressable
+        onPress={() => setReasonPickerOpen(true)}
+        style={[styles.picker, { borderColor: c.border }]}
+        accessibilityRole="button"
+        accessibilityLabel="Reason for deactivating"
+      >
+        <Text style={[styles.pickerLabel, { color: c.muted }]}>Reason</Text>
+        <Text style={[styles.pickerValue, { color: reason ? c.ink : c.muted }]}>
+          {reason?.label ?? 'Choose a reason…'}
+        </Text>
+      </Pressable>
+
+      <TextField
+        label="Anything else? (optional)"
+        value={note}
+        onChangeText={(v) => setNote(v.slice(0, 500))}
+        multiline
+      />
+
+      {signInMethod === 'PASSWORD' ? (
         <>
-          <TextField
-            label="Current password"
-            value={currentPassword}
-            onChangeText={(v) => { setCurrentPassword(v); setError(null); }}
-            secure
-            autoCapitalize="none"
-            textContentType="password"
-          />
-
-          <Pressable
-            onPress={() => setReasonPickerOpen(true)}
-            style={[styles.picker, { borderColor: c.border }]}
-            accessibilityRole="button"
-            accessibilityLabel="Reason for deactivating"
-          >
-            <Text style={[styles.pickerLabel, { color: c.muted }]}>Reason</Text>
-            <Text style={[styles.pickerValue, { color: reason ? c.ink : c.muted }]}>
-              {reason?.label ?? 'Choose a reason…'}
-            </Text>
-          </Pressable>
-
-          <TextField
-            label="Anything else? (optional)"
-            value={note}
-            onChangeText={(v) => setNote(v.slice(0, 500))}
-            multiline
-          />
-
           {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
           <View style={sheetStyles.action}>
             <Button
               label={submitting ? 'Deactivating…' : 'Deactivate Account'}
-              onPress={() => void submit()}
+              onPress={() => void submitWithCredential(currentPassword, null, null)}
               loading={submitting}
-              disabled={!canSubmit}
+              disabled={!canSubmitPassword}
             />
           </View>
+        </>
+      ) : (
+        <>
+          {/* The prompt stays mounted while the call runs: the button awaits onCredential and
+              shows its own locked, dimmed state until it settles. */}
+          {reason === null ? (
+            <Text style={[sheetStyles.body, { color: c.muted }]}>
+              Choose a reason, then verify with {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} to
+              deactivate.
+            </Text>
+          ) : signInMethod === 'GOOGLE' ? (
+            <GoogleReauthPrompt
+              onCredential={(idToken) => submitWithCredential(null, idToken, null)}
+              onError={setError}
+            />
+          ) : (
+            <AppleReauthPrompt
+              onCredential={(idToken) => submitWithCredential(null, null, idToken)}
+              onError={setError}
+            />
+          )}
+          {submitting ? <Text style={[sheetStyles.body, { color: c.muted }]}>Deactivating…</Text> : null}
+          {error ? <Text style={[sheetStyles.error, { color: c.dangerInk }]}>{error}</Text> : null}
         </>
       )}
 

@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { StyleSheet, type TextInput } from 'react-native';
+import { StyleSheet, type TextInputInstance } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { LedgerControls, type ActiveFilterChip } from './LedgerControls';
 import { ThemeProvider } from '../../theme';
@@ -11,7 +11,7 @@ function show(over: Partial<Parameters<typeof LedgerControls>[0]> = {}) {
     <ThemeProvider>
       <LedgerControls
         keyword=""
-        searchRef={createRef<TextInput>()}
+        searchRef={createRef<TextInputInstance>()}
         typeFilter="ALL"
         filtersOn={0}
         chips={[]}

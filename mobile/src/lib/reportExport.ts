@@ -239,7 +239,7 @@ export async function shareCsv(report: ReportData): Promise<void> {
   // A previous export of the same month leaves the file behind, and create() won't overwrite.
   if (file.exists) file.delete();
   file.create();
-  file.write(toCsv(report));
+  file.writeSync(toCsv(report));
   await shareFileAndCleanUp(file, {
     mimeType: 'text/csv', UTI: 'public.comma-separated-values-text', dialogTitle: name,
   });

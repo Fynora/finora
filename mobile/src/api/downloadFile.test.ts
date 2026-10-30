@@ -13,7 +13,7 @@ jest.mock('expo-file-system', () => ({
     exists: false,
     delete: jest.fn(),
     create: jest.fn(),
-    write: jest.fn(),
+    writeSync: jest.fn(),
     uri: 'file:///mock/statement.pdf',
   })),
   Paths: { cache: 'mock-cache-dir' },
@@ -121,7 +121,7 @@ describe('statementImportsApi.downloadFile — cleans up the cache file after sh
       exists: false,
       delete: jest.fn(() => { throw new Error('already gone'); }),
       create: jest.fn(),
-      write: jest.fn(),
+      writeSync: jest.fn(),
       uri: 'file:///mock/statement.pdf',
     }));
 

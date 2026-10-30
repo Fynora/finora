@@ -801,7 +801,7 @@ export const statementImportsApi = {
    * user has already been given a chance to put somewhere permanent. Nothing here re-downloads on
    * its own, so a reclaimed file costs one more tap, not data loss.
    *
-   * arraybuffer -> base64 because expo-file-system's write() takes a string; axios on React Native
+   * arraybuffer -> base64 because expo-file-system's writeSync() takes a string; axios on React Native
    * has no Blob to hand over.
    */
   downloadFile: async (id: string, fileName: string) => {
@@ -822,10 +822,10 @@ export const statementImportsApi = {
       throw await withArrayBufferErrorMessage(err);
     }
     const file = new File(Paths.cache, fileName);
-    // A previous share of the same statement leaves the file behind; write() will not overwrite.
+    // A previous share of the same statement leaves the file behind; writeSync() will not overwrite.
     if (file.exists) file.delete();
     file.create();
-    file.write(encodeBase64(res.data), { encoding: 'base64' });
+    file.writeSync(encodeBase64(res.data), { encoding: 'base64' });
     await shareFileAndCleanUp(file, {
       mimeType: fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/csv',
       UTI: fileName.toLowerCase().endsWith('.pdf') ? 'com.adobe.pdf' : 'public.comma-separated-values-text',
@@ -1634,7 +1634,7 @@ export const accountLifecycleApi = {
   // history, open-ended in size -- base64 would hold a second, ~33% LARGER copy of the whole
   // buffer in JS memory simultaneously with the original ArrayBuffer, on top of the buffer axios
   // already has to hold whole (RN's networking layer has no disk-backed Blob/streamed-response
-  // equivalent to fetch this into instead). file.write() accepts a Uint8Array directly -- a
+  // equivalent to fetch this into instead). file.writeSync() accepts a Uint8Array directly -- a
   // zero-copy view over the same ArrayBuffer, not a duplicate -- cutting peak memory roughly in
   // half. This does not fully bound the export's memory use (the whole ZIP is still fetched into
   // one in-memory buffer before any of it reaches disk); doing that would need the backend to
@@ -1653,10 +1653,10 @@ export const accountLifecycleApi = {
     }
     const fileName = `fynora-data-export-${new Date().toISOString().slice(0, 10)}.zip`;
     const file = new File(Paths.cache, fileName);
-    // A previous export attempt can leave the file behind -- write() will not overwrite.
+    // A previous export attempt can leave the file behind -- writeSync() will not overwrite.
     if (file.exists) file.delete();
     file.create();
-    file.write(new Uint8Array(res.data));
+    file.writeSync(new Uint8Array(res.data));
     await shareFileAndCleanUp(file, {
       mimeType: 'application/zip',
       UTI: 'com.pkware.zip-archive',
@@ -2077,7 +2077,7 @@ export const supportApi = {
     const file = new File(Paths.cache, filename);
     if (file.exists) file.delete();
     file.create();
-    file.write(encodeBase64(res.data), { encoding: 'base64' });
+    file.writeSync(encodeBase64(res.data), { encoding: 'base64' });
     await shareFileAndCleanUp(file, { mimeType: contentType, dialogTitle: filename });
   },
 };
@@ -2213,7 +2213,7 @@ export const billingApi = {
     const file = new File(Paths.cache, fileName);
     if (file.exists) file.delete();
     file.create();
-    file.write(encodeBase64(res.data), { encoding: 'base64' });
+    file.writeSync(encodeBase64(res.data), { encoding: 'base64' });
     await shareFileAndCleanUp(file, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf', dialogTitle: fileName });
   },
   // Pause/resume are real actions here despite the "mobile only ever reads" note above -- unlike

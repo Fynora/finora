@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -146,7 +146,7 @@ function FynChat() {
   // in flight. Same fix as web's FynWidget.tsx.
   const [ratingBusy, setRatingBusy] = useState<Set<string>>(new Set());
   const conversationId = useRef<string | undefined>(undefined);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   // Answers received on this visit (a resumed history does not count) -- see REVIEW_PROMPT_AFTER_ANSWERS.
   const answersThisVisit = useRef(0);
 

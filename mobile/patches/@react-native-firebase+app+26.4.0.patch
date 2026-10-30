@@ -1,0 +1,19 @@
+diff --git a/node_modules/@react-native-firebase/app/plugin/build/ios/appDelegate.js b/node_modules/@react-native-firebase/app/plugin/build/ios/appDelegate.js
+index 322970e..58df7f4 100644
+--- a/node_modules/@react-native-firebase/app/plugin/build/ios/appDelegate.js
++++ b/node_modules/@react-native-firebase/app/plugin/build/ios/appDelegate.js
+@@ -74,7 +74,13 @@ function modifyObjcAppDelegate(contents) {
+ }
+ function modifySwiftAppDelegate(contents) {
+     const methodInvocationBlock = `FirebaseApp.configure()`;
+-    const methodInvocationLineMatcher = /(?:self\.moduleName\s*=\s*"([^"]*)")|(?:factory\.startReactNative\()/;
++    // Patched for Expo SDK 58 (see patches/@react-native-firebase+app+26.4.0.patch): SDK 58's
++    // scene-based template moved factory.startReactNative() into SceneDelegate.swift, so neither
++    // upstream anchor exists in AppDelegate.swift any more and the plugin skipped
++    // FirebaseApp.configure() entirely. The third alternative is copied from 27.1.0, which fixed
++    // this upstream ("match scene-based AppDelegate for Expo SDK 58 config plugin", dce165d); 27
++    // itself is SPM-only on iOS, which the static linkage in app.config.ts rules out for now.
++    const methodInvocationLineMatcher = /(?:self\.moduleName\s*=\s*"([^"]*)")|(?:factory\.startReactNative\()|(?:return\s+super\.application\(\s*application\s*,\s*didFinishLaunchingWithOptions:\s*launchOptions\s*\))/;
+     // Add import
+     contents = addImport(contents, 'import FirebaseCore', /^[ \t]*import\s+FirebaseCore[ \t]*$/m, /^[ \t]*import\s+Expo[ \t]*$/m, /^[ \t]*import\b[^\r\n]*$/m);
+     // To avoid potential issues with existing changes from older plugin versions

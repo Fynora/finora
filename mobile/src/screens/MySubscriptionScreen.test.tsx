@@ -171,7 +171,7 @@ describe('MySubscriptionScreen', () => {
       planCode: 'PLUS', planName: 'Plus', status: 'ACTIVE', autoRenew: true,
       hasBillingSubscription: true, paymentProvider: 'RAZORPAY',
     } as any);
-    const openURLSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const openURLSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     renderScreen();
 
     fireEvent.press(await screen.findByText('Manage on web'));
@@ -229,7 +229,7 @@ describe('MySubscriptionScreen', () => {
     mockedBillingApi.mySubscription.mockResolvedValue({
       planCode: 'PREMIUM', planName: 'Premium', hasBillingSubscription: true, paymentProvider: 'REVENUECAT',
     } as any);
-    const openURLSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const openURLSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     renderScreen();
 
     fireEvent.press(await screen.findByText('Manage subscription'));

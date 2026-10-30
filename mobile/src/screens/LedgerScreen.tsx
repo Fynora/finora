@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, FlatList, Keyboard, Pressable, StyleSheet, Text, View,
-  type NativeScrollEvent, type NativeSyntheticEvent, type TextInput,
+  type NativeScrollEvent, type NativeSyntheticEvent, type TextInputInstance,
 } from 'react-native';
 import { AppRefreshControl } from '../components/AppRefreshControl';
 import { AppAlert } from '../lib/appAlert';
@@ -192,7 +192,7 @@ export function LedgerScreen() {
   const listRef = useRef<FlatList<DayPiece>>(null);
   // A second tap on the Transactions tab scrolls the list back to the top.
   useScrollToTop(listRef);
-  const searchRef = useRef<TextInput>(null);
+  const searchRef = useRef<TextInputInstance>(null);
 
   // Getting-started checklist: "Review transactions" fires once, on a 1.5s dwell rather than on
   // mount itself, so a user who opens this tab and immediately switches away doesn't get credited

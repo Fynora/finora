@@ -14,7 +14,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 function tempFile(name: string): File {
   const file = new File(Paths.cache, name);
   file.create();
-  file.write('x');
+  file.writeSync('x');
   return file;
 }
 
@@ -68,7 +68,7 @@ describe('sweepFileCache', () => {
       dir.create({ idempotent: true });
       const file = new File(dir, 'statement.pdf');
       file.create();
-      file.write('x');
+      file.writeSync('x');
       const writtenAt = file.lastModified as number;
 
       sweepFileCache(writtenAt + ONE_HOUR_MS + 1);
@@ -82,7 +82,7 @@ describe('sweepFileCache', () => {
       dir.create({ idempotent: true });
       const file = new File(dir, 'fresh-statement.pdf');
       file.create();
-      file.write('x');
+      file.writeSync('x');
       const writtenAt = file.lastModified as number;
 
       sweepFileCache(writtenAt + 1);
@@ -96,7 +96,7 @@ describe('sweepFileCache', () => {
       dir.create({ idempotent: true, intermediates: true });
       const file = new File(dir, 'deeply-nested.pdf');
       file.create();
-      file.write('x');
+      file.writeSync('x');
       const writtenAt = file.lastModified as number;
 
       sweepFileCache(writtenAt + ONE_HOUR_MS + 1);

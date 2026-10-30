@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View, type TextInputInstance } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassSurface, useGlassSurfaceStyle } from '../GlassSurface';
 import { hapticSelectionIfChanged } from '../../lib/haptics';
@@ -23,7 +23,7 @@ export function LedgerControls({
 }: {
   keyword: string;
   onKeywordChange: (text: string) => void;
-  searchRef: RefObject<TextInput | null>;
+  searchRef: RefObject<TextInputInstance | null>;
   typeFilter: TypeFilter;
   onTypeFilter: (t: TypeFilter) => void;
   filtersOn: number;

@@ -16,7 +16,7 @@ let container: Directory;
 function fileIn(name: string): File {
   const file = new File(container, name);
   file.create();
-  file.write('x');
+  file.writeSync('x');
   return file;
 }
 

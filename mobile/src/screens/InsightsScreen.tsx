@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
@@ -222,7 +222,7 @@ export function InsightsScreen() {
   }, [story?.status, queryClient]);
   const aiOnScreen = storyText?.writtenByAi === true || aiWhyShown;
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ScrollViewInstance>(null);
   // A second tap on the Insights tab scrolls this screen back to the top.
   useScrollToTop(scrollRef);
   // Where each section sits in the list, measured as it lays out, for the questions' jumps.

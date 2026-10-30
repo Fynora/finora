@@ -11,6 +11,7 @@ import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../lib/hap
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AddTransactionSheet } from './AddTransactionSheet';
+import { OfferPopup } from '../components/OfferPopup';
 import { AccountsCard } from '../components/dashboard/AccountsCard';
 import { DashboardCard } from '../components/dashboard/DashboardCard';
 import { DashboardEmptyState } from '../components/dashboard/DashboardEmptyState';
@@ -1150,6 +1151,9 @@ export function DashboardScreen() {
         }}
       />
     ) : null}
+    {/* A live Plus offer, announced once to a Free customer. Held back while the sheet above is
+        open: two native modals at once can leave touches dead. */}
+    <OfferPopup suppressed={addingTransaction} />
     </>
   );
 }

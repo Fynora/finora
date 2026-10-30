@@ -167,3 +167,93 @@ describe('purchasePlan', () => {
     await expect(purchasePlan('PREMIUM', 'YEARLY')).rejects.toThrow(/no.*offering/i);
   });
 });
+
+// Shaped like Google Play's answer for Plus monthly with the Play Console offer "diwali2026": one
+// single payment of ₹125 for a month, then the ₹249 base plan. Synthetic values.
+function phase(amountRupees: number, iso8601: string, cycles: number | null) {
+  return {
+    billingPeriod: { iso8601, unit: 'MONTH', value: 1 },
+    recurrenceMode: cycles == null ? 1 : 3,
+    billingCycleCount: cycles,
+    price: { formatted: `₹${amountRupees.toFixed(2)}`, amountMicros: Math.round(amountRupees * 1_000_000), currencyCode: 'INR' },
+    offerPaymentMode: cycles == null ? null : 'SINGLE_PAYMENT',
+  };
+}
+
+function diwaliOption(overrides: Record<string, unknown> = {}) {
+  const intro = phase(125, 'P1M', 1);
+  const full = phase(249, 'P1M', null);
+  return {
+    id: 'monthly:diwali2026', storeProductId: 'plus:monthly', productId: 'plus', tags: ['diwali2026'],
+    isBasePlan: false, pricingPhases: [intro, full], introPhase: intro, fullPricePhase: full, freePhase: null,
+    ...overrides,
+  };
+}
+
+describe('playIntroOffer', () => {
+  const originalOS = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = originalOS;
+  });
+
+  /** A fresh, configured module on the given platform whose offerings hold one Plus package. */
+  async function configuredOn(os: 'android' | 'ios', defaultOption: unknown) {
+    jest.resetModules();
+    Platform.OS = os;
+    const purchases = (require('react-native-purchases') as { default: jest.Mocked<typeof Purchases> }).default;
+    purchases.getOfferings.mockReset().mockResolvedValue({
+      current: { availablePackages: [{ identifier: 'plus_monthly', product: { identifier: 'plus:monthly', defaultOption } }] },
+    } as any);
+    const mod = await import('./revenueCat');
+    mod.configureRevenueCat('11111111-1111-1111-1111-111111111111');
+    return { mod, purchases };
+  }
+
+  it("reads Play's first-month price and the regular price that follows", async () => {
+    const { mod } = await configuredOn('android', diwaliOption());
+
+    await expect(mod.playIntroOffer('PLUS', 'MONTHLY')).resolves.toEqual({ offerPrice: '₹125', regularPrice: '₹249' });
+  });
+
+  it("keeps Play's own formatting for a price that is not whole rupees, rather than rounding it", async () => {
+    const intro = phase(124.5, 'P1M', 1);
+    const { mod } = await configuredOn('android', diwaliOption({ introPhase: intro, pricingPhases: [intro] }));
+
+    await expect(mod.playIntroOffer('PLUS', 'MONTHLY')).resolves.toEqual({ offerPrice: '₹124.50', regularPrice: '₹249' });
+  });
+
+  it.each([
+    ['the base plan (no offer this customer is eligible for)', { isBasePlan: true, introPhase: null }],
+    ['a free trial', { freePhase: phase(0, 'P7D', 1) }],
+    ['a discount over several months', { introPhase: phase(125, 'P1M', 3) }],
+    ['a first period longer than a month', { introPhase: phase(125, 'P3M', 1) }],
+    ['an "offer" that costs no less than the regular price', { introPhase: phase(249, 'P1M', 1) }],
+  ])('reports nothing for %s', async (_what, overrides) => {
+    const { mod } = await configuredOn('android', diwaliOption(overrides));
+
+    await expect(mod.playIntroOffer('PLUS', 'MONTHLY')).resolves.toBeNull();
+  });
+
+  it('reports nothing on iOS, without asking the store', async () => {
+    const { mod, purchases } = await configuredOn('ios', diwaliOption());
+
+    await expect(mod.playIntroOffer('PLUS', 'MONTHLY')).resolves.toBeNull();
+    expect(purchases.getOfferings).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing, rather than throwing, when the store cannot be reached', async () => {
+    const { mod, purchases } = await configuredOn('android', diwaliOption());
+    purchases.getOfferings.mockRejectedValue(new Error('network down'));
+
+    await expect(mod.playIntroOffer('PLUS', 'MONTHLY')).resolves.toBeNull();
+  });
+
+  it('reports nothing before RevenueCat is configured', async () => {
+    jest.resetModules();
+    Platform.OS = 'android';
+    const { playIntroOffer: fresh } = await import('./revenueCat');
+
+    await expect(fresh('PLUS', 'MONTHLY')).resolves.toBeNull();
+  });
+});

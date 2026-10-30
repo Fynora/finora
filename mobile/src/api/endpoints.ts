@@ -2222,7 +2222,22 @@ export const billingApi = {
   // Razorpay-owned subscription viewed on mobile can still be paused/resumed from here.
   pause: () => api.post<{ message: string }>('/billing/pause').then((r) => r.data),
   resume: () => api.post<{ message: string }>('/billing/resume').then((r) => r.data),
+  /** The offers live right now (backend billing_offers). On mobile only the name and end date are
+   *  used: the price shown is always Google Play's own, read from RevenueCat (playIntroOffer). */
+  offers: () => api.get<BillingOffer[]>('/billing/offers').then((r) => r.data),
 };
+
+/** GET /billing/offers, one row per plan and billing cycle. Mirrors frontend's BillingOffer. endsAt
+ *  is exclusive: the first moment the offer no longer applies. */
+export interface BillingOffer {
+  planCode: string;
+  billingCycle: string;
+  code: string;
+  label: string;
+  firstPeriodPrice: number;
+  regularPrice: number;
+  endsAt: string;
+}
 
 /** GET/PUT /notification-preferences -- FINANCIAL on EMAIL/PUSH and REMINDERS on PUSH are exposed (see the backend's
  *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */

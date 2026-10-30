@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PaywallScreen } from './PaywallScreen';
 import { billingApi } from '../api/endpoints';
-import { purchasePlan } from '../lib/revenueCat';
+import { playIntroOffer, purchasePlan } from '../lib/revenueCat';
 
 // Premium is hidden in the app (lib/premiumVisibility.ts). These tests default it to visible so the
 // Premium paths that still exist stay tested; individual tests turn it off.
@@ -14,12 +14,13 @@ jest.mock('../lib/premiumVisibility', () => ({
 }));
 
 jest.mock('../api/endpoints', () => ({
-  billingApi: { mySubscription: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn() },
+  billingApi: { mySubscription: jest.fn(), history: jest.fn(), downloadInvoice: jest.fn(), offers: jest.fn() },
 }));
-jest.mock('../lib/revenueCat', () => ({ purchasePlan: jest.fn() }));
+jest.mock('../lib/revenueCat', () => ({ purchasePlan: jest.fn(), playIntroOffer: jest.fn() }));
 
 const mockedBillingApi = billingApi as jest.Mocked<typeof billingApi>;
 const mockedPurchasePlan = purchasePlan as jest.MockedFunction<typeof purchasePlan>;
+const mockedPlayIntroOffer = playIntroOffer as jest.MockedFunction<typeof playIntroOffer>;
 
 function renderScreen() {
   // gcTime: 0 -- see SubscriptionScreen.test.tsx's own comment on this exact line: without it, a
@@ -35,6 +36,47 @@ describe('PaywallScreen', () => {
     } as any);
     // Someone who never paid -- the Paywall must look exactly as it did before the history section.
     mockedBillingApi.history.mockReset().mockResolvedValue([]);
+    // No Play offer unless a test sets one: the regular price, as before the Diwali offer.
+    mockedPlayIntroOffer.mockReset().mockResolvedValue(null);
+    mockedBillingApi.offers.mockReset().mockResolvedValue([]);
+  });
+
+  it("shows Google Play's first-month price on Plus, named after the live campaign", async () => {
+    mockedPlayIntroOffer.mockResolvedValue({ offerPrice: '₹125', regularPrice: '₹249' });
+    mockedBillingApi.offers.mockResolvedValue([{
+      planCode: 'PLUS', billingCycle: 'MONTHLY', code: 'DIWALI2026', label: 'Diwali offer',
+      firstPeriodPrice: 125, regularPrice: 249, endsAt: '2099-11-07T18:30:00Z',
+    }]);
+    renderScreen();
+
+    expect(await screen.findByTestId('plan-offer-plus')).toHaveTextContent('Diwali offer · ends 7 Nov');
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('₹125 for your first month');
+    expect(screen.getByText('then ₹249/mo')).toBeTruthy();
+    expect(screen.queryByText('₹249/mo')).toBeNull();
+    // Premium keeps its own price.
+    expect(screen.getByText('₹799/mo')).toBeTruthy();
+  });
+
+  it("shows Play's offer price without a name when no campaign is live", async () => {
+    mockedPlayIntroOffer.mockResolvedValue({ offerPrice: '₹125', regularPrice: '₹249' });
+    renderScreen();
+
+    expect(await screen.findByTestId('plan-price-plus')).toHaveTextContent('₹125 for your first month');
+    await waitFor(() => expect(mockedBillingApi.offers).toHaveBeenCalled());
+    expect(screen.queryByTestId('plan-offer-plus')).toBeNull();
+  });
+
+  it('keeps the regular price when Play has no offer for this customer, even with a campaign live', async () => {
+    mockedBillingApi.offers.mockResolvedValue([{
+      planCode: 'PLUS', billingCycle: 'MONTHLY', code: 'DIWALI2026', label: 'Diwali offer',
+      firstPeriodPrice: 125, regularPrice: 249, endsAt: '2099-11-07T18:30:00Z',
+    }]);
+    renderScreen();
+
+    expect(await screen.findByText('₹249/mo')).toBeTruthy();
+    await waitFor(() => expect(mockedPlayIntroOffer).toHaveBeenCalled());
+    expect(screen.queryByTestId('plan-price-plus')).toBeNull();
+    expect(screen.queryByText(/first month/)).toBeNull();
   });
 
   it('shows past payments and invoices to a lapsed payer, below the plans', async () => {

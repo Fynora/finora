@@ -1,6 +1,14 @@
 import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { AppState, Platform } from 'react-native';
 import { withShareSuppression } from './appLock';
+
+/**
+ * How long to keep waiting for the share call once the app is back in front, on Android. The OS
+ * hands the share sheet's result back before the app resumes, so a call that is going to settle
+ * has normally done so by then; this only covers the case where it never does.
+ */
+export const SHARE_RETURN_GRACE_MS = 1_500;
 
 /**
  * The "check availability, share via the OS sheet, always clean up the cache file afterwards"
@@ -19,7 +27,7 @@ export async function shareFileAndCleanUp(file: File, options: Sharing.SharingOp
       throw new Error('Sharing is not available on this device.');
     }
     // D5 (Track D security cleanup) -- see appLock.ts's withShareSuppression doc comment.
-    await withShareSuppression(() => Sharing.shareAsync(file.uri, options));
+    await withShareSuppression(() => settleOnReturn(Sharing.shareAsync(file.uri, options)));
   } finally {
     // D2 (Track D security cleanup, docs/project-management/plans/mobile-correctness-trust-roadmap.md).
     // Best-effort: a failed cleanup must not turn a completed (or already-failed) share into a new
@@ -31,4 +39,47 @@ export async function shareFileAndCleanUp(file: File, options: Sharing.SharingOp
       // See comment above.
     }
   }
+}
+
+/**
+ * On Android, stops waiting for the share call once the user has left the app for the share sheet,
+ * come back, and SHARE_RETURN_GRACE_MS has passed without it settling. expo-sharing settles it only
+ * when the sheet's activity result reaches the app; if that result is lost, the call never settles,
+ * and every caller that awaits it (an export button showing "Preparing…") would wait for good.
+ * Returning to the app means the sheet is closed, so the share is over either way.
+ *
+ * iOS settles the call from the sheet's own completion handler, so it is left as it is there.
+ */
+function settleOnReturn(share: Promise<void>): Promise<void> {
+  if (Platform.OS !== 'android') return share;
+  return new Promise<void>((resolve, reject) => {
+    let leftApp = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      subscription.remove();
+      clearTimeout(timer);
+    };
+    const subscription = AppState.addEventListener('change', (next) => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (next !== 'active') {
+        leftApp = true;
+      } else if (leftApp) {
+        timer = setTimeout(() => {
+          stop();
+          resolve();
+        }, SHARE_RETURN_GRACE_MS);
+      }
+    });
+    share.then(
+      () => {
+        stop();
+        resolve();
+      },
+      (error: unknown) => {
+        stop();
+        reject(error);
+      },
+    );
+  });
 }

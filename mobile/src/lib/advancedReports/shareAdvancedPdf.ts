@@ -1,6 +1,6 @@
 import { File } from 'expo-file-system';
-import * as Print from 'expo-print';
 import type { AdvancedReport } from '../../api/endpoints';
+import { printToPdfFile } from '../printPdf';
 import { shareFileAndCleanUp } from '../shareFile';
 import { advancedPdfName, advancedPrintDocument } from './advancedPrint';
 
@@ -11,7 +11,7 @@ export async function shareAdvancedPdf(report: AdvancedReport): Promise<void> {
   // A4 (595 x 842 at expo-print's 72 PPI) rather than its US Letter default: the paper size here. iOS takes
   // its page margins from `margins`; Android ignores them (expo-print sets none) and uses the page's own
   // @page rule, which carries the same 16/18/14 mm.
-  const { uri } = await Print.printToFileAsync({
+  const uri = await printToPdfFile({
     html: advancedPrintDocument(report), width: 595, height: 842,
     margins: { top: 45, bottom: 51, left: 40, right: 40 },
   });

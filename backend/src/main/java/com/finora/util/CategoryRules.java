@@ -472,12 +472,32 @@ public final class CategoryRules {
      * can carry a date with slashes in it.
      */
     private static String[] fieldsOf(String cleaned) {
+        // A rail and its direction glued to the reference by a colon: "NEFT_IN:<ref><IFSC>//<ref>/
+        // PAYEE" and "NEFT_OUT:<ref>/PAYEE/<IFSC>/<account>". The first "/" field was "NEFT_IN:" plus
+        // the reference, which is no rail head, so the narration was not read as structured and its
+        // label became the first four words -- the rail, the reference and one word of the payee.
+        // Read as the head, then the "/" fields LAST FIRST: the incoming layout's second reference
+        // can be split by a line wrap ("AB CD<digits>"), and read first its letters became the name;
+        // the payee is its last field. Behind the outgoing layout's payee are only an IFSC and an
+        // account number, which carry no name and are passed over. Measured on production's 26
+        // colon-headed rows, the only two layouts there.
+        java.util.regex.Matcher colon = COLON_HEAD.matcher(cleaned);
+        if (colon.matches() && isHead(colon.group(1))) {
+            String[] rest = colon.group(2).split("/");
+            String[] fields = new String[rest.length + 1];
+            fields[0] = colon.group(1);
+            for (int i = 0; i < rest.length; i++) fields[i + 1] = rest[rest.length - 1 - i];
+            return fields;
+        }
         String[] slash = cleaned.split("/");
         if (slash.length >= 2 && isHead(slash[0])) return slash;
         String[] hyphen = cleaned.split("-");
         if (hyphen.length >= 2 && isHead(hyphen[0])) return hyphen;
         return null;
     }
+
+    /** "NEFT_IN:" / "IMPS_OUT:": a rail word, its direction after an underscore, then a colon. */
+    private static final Pattern COLON_HEAD = Pattern.compile("(?i)^\\s*([a-z]+)_(?:in|out|cr|dr)\\s*:(.*)$");
 
     /** A field that is never a payee's name: an IFSC (possibly split by a line wrap), a letter-digit
      *  code, or a real bank's code. */

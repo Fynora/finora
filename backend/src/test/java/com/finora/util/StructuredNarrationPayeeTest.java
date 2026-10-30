@@ -58,6 +58,28 @@ class StructuredNarrationPayeeTest {
                 .isEqualTo("credit sample services");
     }
 
+    /** A rail and direction glued to the reference by a colon ("NEFT_IN:<ref><IFSC>//<ref>/PAYEE"):
+     *  its label was the rail leftover, the reference and one word of the payee. */
+    @Test
+    void aColonHeadedNarrationTakesThePayeeField() {
+        assertThat(label("NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//HDFCH00000000001/SAMPLE SECURITIES PVT LT"))
+                .isEqualTo("sample securities pvt lt");
+        assertThat(label("NEFT_OUT:25HDFCH00000000001HDFC0XXXXXX//HDFCH00000000001/SAMPLE PERSON"))
+                .isEqualTo("sample person");
+        assertThat(CategoryRules.structuredPayee("IMPS_IN:100000000001/SAMPLE TRADERS/KKBK"))
+                .isEqualTo("sample traders");
+        // The incoming layout's second reference split by a line wrap: its letters are no name.
+        assertThat(label("NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//HD FCH00000000001/SAMPLE PAYEE"))
+                .isEqualTo("sample payee");
+        assertThat(label("NEFT_IN:25HDFCH00000000001HDFC0XXXXXX//XY1 100000000001/SAMPLE PAYEE LTD"))
+                .isEqualTo("sample payee ltd");
+        // The outgoing layout: the payee, then an IFSC and an account number.
+        assertThat(label("NEFT_OUT:100000000001/SAMPLE PERSON/HDFC0XXXXXX/100000000001"))
+                .isEqualTo("sample person");
+        // A word that is no rail before the underscore is not a head.
+        assertThat(label("ORDER_IN:SAMPLE STORE")).doesNotStartWith("sample store").isNotNull();
+    }
+
     @Test
     void anImpsNarrationTakesThePayee() {
         assertThat(label("MOB-IMPS-CR/SAMPLE PERSON/KKBK /1000000001/IMPS/1000000002")).isEqualTo("sample person");

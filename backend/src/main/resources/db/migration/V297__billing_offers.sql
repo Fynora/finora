@@ -1,5 +1,7 @@
--- Time-boxed first-period offers on a paid plan (owner decision, 2026-10-30: Diwali offer, Plus at
--- half price for the first month or first year, ending 7 Nov 2026).
+-- Time-boxed first-period offers on a paid plan. The table is general: any number of offers, past,
+-- live and upcoming, one row per plan and billing cycle. The first one, Diwali 2026, is seeded at
+-- the bottom (owner decision, 2026-10-30: Plus at half price for the first month or first year,
+-- ending 7 Nov 2026); later offers are meant to be added from an admin page, not a migration.
 --
 -- How an offer is charged: checkout creates the normal Razorpay subscription on the plan's usual
 -- Razorpay plan, with the offer price as a one-time upfront amount and the first regular charge

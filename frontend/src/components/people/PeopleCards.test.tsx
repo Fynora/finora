@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { inflowApi, insightsApi, peopleApi, transactionsApi, type PeopleSuggestion } from '../../api/endpoints';
+import { inflowApi, insightsApi, peopleApi, transactionsApi } from '../../api/endpoints';
 import { WithPeopleCard } from './WithPeopleCard';
 
 // Every name and amount here is invented.
@@ -19,11 +19,6 @@ vi.mock('../../api/endpoints', () => ({
 // The UPI request names the user; every page sits inside AuthProvider in the app.
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ fullName: 'Sample User' }) }));
 
-const shareCheck: PeopleSuggestion = {
-  kind: 'SHARE_CHECK', ackKey: 'c-1', txnId: 'c-1', relatedTxnId: null, personKey: 'vpa:flatmate.a', label: 'Flatmate A',
-  amount: 9000, date: '2026-09-04', category: 'Rent', owed: null,
-  bills: [{ billId: 'b-1', category: 'Rent', payeeLabel: 'Sample Owner', date: '2026-09-01', amount: 36000, remaining: 36000 }],
-};
 function Where() {
   const location = useLocation();
   return <p data-testid="where">{location.pathname + location.search}</p>;

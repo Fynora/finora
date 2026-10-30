@@ -10791,6 +10791,26 @@
                 }
             }
         },
+        "/api/v1/billing/offers": {
+            "get": {
+                "tags": [
+                    "billing-controller"
+                ],
+                "operationId": "offers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseListBillingOfferDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/billing/history": {
             "get": {
                 "tags": [
@@ -27906,6 +27926,64 @@
                         "type": "string"
                     },
                     "effectiveAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponseListBillingOfferDto": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BillingOfferDto"
+                        }
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BillingOfferDto": {
+                "type": "object",
+                "properties": {
+                    "planCode": {
+                        "type": "string"
+                    },
+                    "billingCycle": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "firstPeriodPrice": {
+                        "type": "number"
+                    },
+                    "regularPrice": {
+                        "type": "number"
+                    },
+                    "endsAt": {
                         "type": "string",
                         "format": "date-time"
                     }

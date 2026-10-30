@@ -139,6 +139,10 @@ public class SecurityConfig {
                     // for every caller, nothing private in it, and the app asks before sign-in too.
                     // GET on this one path only.
                     .requestMatchers(HttpMethod.GET, "/api/v1/app/icon").permitAll()
+                    // Live billing offers (V297): the public pricing page shows them to signed-out
+                    // visitors. Read-only and the same for everyone -- plan codes, prices, an end
+                    // date -- nothing about any user.
+                    .requestMatchers(HttpMethod.GET, "/api/v1/billing/offers").permitAll()
                     // Google redirects the user's BROWSER here after consent. That navigation
                     // carries no Authorization header, and this API keeps no session, so requiring
                     // authentication would make the callback unreachable by construction rather

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { Nav } from './landing/Nav';
+import { OfferBanner } from './landing/OfferBanner';
 import { MagneticLink } from './landing/MagneticLink';
 import { Hero } from './landing/Hero';
 import { Problem } from './landing/Problem';
@@ -129,6 +130,7 @@ export default function Landing() {
       >
         Skip to content
       </a>
+      <OfferBanner />
       <Nav overHero={overHero} />
 
       <main id="main-content">

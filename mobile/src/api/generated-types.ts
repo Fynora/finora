@@ -4532,6 +4532,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["offers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/history": {
         parameters: {
             query?: never;
@@ -11455,6 +11471,28 @@ export interface components {
             toPlanName?: string;
             /** Format: date-time */
             effectiveAt?: string;
+        };
+        ApiResponseListBillingOfferDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BillingOfferDto"][];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BillingOfferDto: {
+            planCode?: string;
+            billingCycle?: string;
+            code?: string;
+            label?: string;
+            firstPeriodPrice?: number;
+            regularPrice?: number;
+            /** Format: date-time */
+            endsAt?: string;
         };
         ApiResponseListBillingHistoryEntryDto: {
             success?: boolean;
@@ -22056,6 +22094,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseMySubscriptionDto"];
+                };
+            };
+        };
+    };
+    offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseListBillingOfferDto"];
                 };
             };
         };

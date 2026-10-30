@@ -52,6 +52,12 @@ public class SubscriptionOrder {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    /** The {@code billing_offers.code} this order was checked out under, or null for a regular
+     *  checkout. When set, {@link #amount} is the offer's first-period price and Razorpay charges it
+     *  as an upfront amount at authorisation, not as a plan charge. */
+    @Column(name = "offer_code", length = 40)
+    private String offerCode;
+
     public UUID getId() { return id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
@@ -68,4 +74,6 @@ public class SubscriptionOrder {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getCompletedAt() { return completedAt; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+    public String getOfferCode() { return offerCode; }
+    public void setOfferCode(String offerCode) { this.offerCode = offerCode; }
 }

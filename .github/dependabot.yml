@@ -257,6 +257,22 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint-config-expo"
         update-types: ["version-update:semver-major"]
+      # React Native Firebase 27 is not a bot update. It arrived as #2395/#2396 and again as
+      # #2424/#2425, and neither pair could merge:
+      #   * mobile/patches/@react-native-firebase+app+26.4.0.patch carries the Expo SDK 58 config
+      #     plugin fix, and patch-package refuses to apply it to 27.x, so `npm ci` fails before any
+      #     test runs ("Patch was made for version: 26.4.0 / Installed version: 27.1.0", #2425).
+      #     That patch's own comment adds that 27 is SPM-only on iOS, which the static linkage in
+      #     app.config.ts (useFrameworks: 'static') rules out for now.
+      #   * auth and messaging each require @react-native-firebase/app at one exact version
+      #     (messaging@27.1.0 requires app 27.1.0), but Dependabot proposes a major as one PR per
+      #     package. CI cannot see the mismatch: mobile/.npmrc sets legacy-peer-deps, so #2424,
+      #     messaging 27 alone, was green while `app` and `auth` stayed on 26.
+      # Moving to 27 is one deliberate change of all three modules together, once the iOS linkage
+      # question is settled, and it needs a store build. Minor and patch releases inside 26 still
+      # arrive through npm-minor-and-patch, and security updates are exempt from `ignore`.
+      - dependency-name: "@react-native-firebase/*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore(deps)"
 

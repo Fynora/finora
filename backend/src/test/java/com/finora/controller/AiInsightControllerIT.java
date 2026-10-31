@@ -250,6 +250,30 @@ class AiInsightControllerIT extends AbstractIntegrationTest {
         assertThat(reopened.get("ratingReason").isNull()).isTrue();
     }
 
+    // Shaped like yyyy-MM but not a month: GET /insights refused these (MonthParam), the AI endpoints
+    // answered them 200. Found 2026-10-31.
+    @Test
+    void aMonthThatCannotExistIs400() throws Exception {
+        for (String bad : List.of("2026-13", "2027-00", "0000-06")) {
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/story?month=" + bad, user, null).getStatusCode())
+                    .as("GET story " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.POST, "/api/v1/insights/story", user, "{\"month\":\"" + bad + "\"}").getStatusCode())
+                    .as("POST story " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/look-at?month=" + bad, user, null).getStatusCode())
+                    .as("look-at " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.POST, "/api/v1/insights/look-at/why", user,
+                    "{\"kind\":\"CATEGORY_HIGH\",\"itemKey\":\"Food|" + month + "\",\"month\":\"" + bad + "\"}").getStatusCode())
+                    .as("why " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/narration?month=" + bad, user, null).getStatusCode())
+                    .as("narration " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        // The real month still works, and is the only thing written.
+        assertThat(call(HttpMethod.POST, "/api/v1/insights/story", user, "{\"month\":\"" + month + "\"}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(data(call(HttpMethod.GET, "/api/v1/insights/story?month=" + month, user, null)).get("status").asText())
+                .isEqualTo("ready");
+    }
+
     @Test
     void badInputIs400() {
         assertThat(call(HttpMethod.GET, "/api/v1/insights/story?month=2026-9", user, null).getStatusCode())

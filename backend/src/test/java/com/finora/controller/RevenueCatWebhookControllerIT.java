@@ -49,6 +49,20 @@ class RevenueCatWebhookControllerIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    // The webhook receivers are open to the internet. A request without the signature header came
+    // back 500 and was logged as an unhandled error (found 2026-10-31); it is a bad request.
+    @Test
+    void aRequestWithoutTheSignatureHeaderIsABadRequestNotAServerError() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        for (String path : new String[] {"/api/v1/webhooks/revenuecat", "/api/v1/webhooks/razorpay"}) {
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    path, new HttpEntity<>("{\"event\":{\"type\":\"TEST\"}}", headers), String.class);
+            assertThat(response.getStatusCode()).as(path).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).as(path).contains("INVALID_PARAMETER").contains("is missing");
+        }
+    }
+
     @Test
     void aRealisticInitialPurchaseActivatesTheSubscriptionAtTheMappedPlan() {
         User user = new User();

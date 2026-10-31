@@ -26,4 +26,22 @@ public final class MonthParam {
         }
         return parsed;
     }
+
+    /**
+     * An optional {@code ?month=} or body month for the AI insight endpoints: null stays null, a
+     * month that can exist comes back in canonical form, anything else is a 400 "month must be
+     * yyyy-MM". Those endpoints only checked the shape, so "2026-13" and "2027-00" were answered 200
+     * and their facts built (found 2026-10-31); GET /insights already refused them through
+     * {@link #parse}.
+     */
+    public static String requestMonth(String month) {
+        if (month == null) return null;
+        try {
+            if (!month.matches("^\\d{4}-\\d{2}$")) throw new DateTimeParseException("Not yyyy-MM", month, 0);
+            return parse(month).toString();
+        } catch (DateTimeParseException e) {
+            throw new com.finora.exception.ApiException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "month must be yyyy-MM");
+        }
+    }
 }

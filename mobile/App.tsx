@@ -16,6 +16,7 @@ import { OnboardingStepProvider } from './src/onboarding/OnboardingStepContext';
 import { ToastProvider } from './src/context/ToastContext';
 import { resetLaunchUrlGuards } from './src/lib/appLinks';
 import { sweepFileCache } from './src/lib/fileCacheSweep';
+import { startFestivalIcon } from './src/lib/festivalIcon';
 import { primeHapticsSetting } from './src/lib/haptics';
 import { sweepSharedContainers } from './src/lib/sharedContainerSweep';
 import { initMonitoring, withMonitoring } from './src/lib/monitoring';
@@ -87,6 +88,9 @@ function App() {
   // lifetime and torn down cleanly, instead of leaking across fast-refresh reloads in development.
   useEffect(() => startNetworkMonitoring(), []);
   useEffect(() => startForegroundRefetch(), []);
+  // Festival app icon: follows the admin schedule (GET /app/icon), signed in or not. See
+  // festivalIcon.ts for why Android switches on background and iOS while the app is open.
+  useEffect(() => startFestivalIcon(), []);
   // Warms the query cache from AsyncStorage on cold start and keeps saving it as it changes -- see
   // startQueryPersistence's own doc comment in api/queryClient.ts. Same posture as the
   // network-monitoring effect just above: subscribed here, not at module scope, so it's torn down

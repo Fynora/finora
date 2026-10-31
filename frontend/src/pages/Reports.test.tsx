@@ -1067,7 +1067,12 @@ describe('Reports — opens on the month a link names', () => {
     vi.mocked(reportsApi.availableMonths).mockResolvedValue(['2026-07', '2026-08']);
     renderPage('/app/reports?month=2026-07');
     expect(await screen.findByText("Loading July 2026's report")).toBeInTheDocument();
-    expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07');
+    // Waited for, not asserted straight after the text. The loading text is painted by the render
+    // that sets the month, but forMonth() is called from that render's useEffect, which React runs
+    // in a later scheduler task (setImmediate). findByText hands control back after a 0ms
+    // setTimeout, and on a busy machine that timer can fire before the effect does, so a plain
+    // expect here sometimes saw no call at all.
+    await waitFor(() => expect(reportsApi.forMonth).toHaveBeenCalledWith('2026-07'));
   });
 
   it('opens on the newest month when the link names one it does not have, or nothing usable', async () => {

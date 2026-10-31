@@ -139,18 +139,45 @@ ACCEPTED = [
     # new files, compare them under both versions again. Once @expo/cli declares zod ^4.6.6 or
     # later itself, delete the override.
 
+    # GHSA-86w9-cpqp-85rv (node-forge: RSA PKCS#1 v1.5 signature verification accepts extra nested
+    # DigestAlgorithm elements) was accepted here for mobile and removed on 2026-10-31: node-forge
+    # 1.4.2 is published, mobile's lockfile moved to it (Expo's own `^1.4.0` ranges allow it, so no
+    # override), and this check then stopped reporting the advisory for mobile.
+
     Accepted(
-        "GHSA-86w9-cpqp-85rv",
+        "GHSA-3g3m-2fjr-6pw4",
         {"mobile"},
-        "node-forge: RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
-        "Reached only as expo -> @expo/cli and expo-updates -> @expo/code-signing-certificates, and "
-        "inside expo-updates only from its cli/ directory (configureCodeSigningAsync, "
-        "generateCodeSigningAsync): developer-machine commands that create code-signing keys. No "
-        "module the app bundles imports node-forge; the installed app verifies update signatures in "
-        "expo-updates' native code. No patched version exists (affected: <= 1.4.0, the latest).",
-        "When node-forge publishes a release that fixes this, update the lockfile and delete this "
-        "entry. Re-check at once if the app code, or a runtime (non-cli) part of an Expo package, "
-        "starts importing node-forge or @expo/code-signing-certificates.",
+        "glob: AbortSignal cancellation bypass allows post-timeout filesystem traversal",
+        "The shipped copy is glob 13.0.6, declared as `^13.0.0` by Expo's build tooling (@expo/cli, "
+        "@expo/config, @expo/config-plugins, @expo/fingerprint, @expo/metro-config, expo-updates) "
+        "and as `^13.0.6` by @sentry/bundler-plugins. The patch is glob 14.0.2, a major the "
+        "toolchain has not adopted: the newest @expo/cli (58.1.17, checked 2026-10-31) still "
+        "declares ^13.0.0. The patterns those tools pass are the developer's own project files and "
+        "Expo's own code, not input from an app user. Measured 2026-10-31: `npx expo export "
+        "--platform android --dump-sourcemap` on this lockfile, then a read of the sourcemap's "
+        "`sources` list (every module in the bundle, 2498 files) found no file under glob, while "
+        "axios and react, searched the same way, were found, so the check does see packages. The "
+        "other glob copies (10.5.0, 7.2.3) are jest and test-exclude, dev-only.",
+        "When an @expo/cli release declares glob ^14.0.2 or later, update the lockfile and delete "
+        "this entry. Re-check at once if app code, or a runtime part of a package the app bundles, "
+        "starts importing glob: repeat the sourcemap search above. An npm override to glob 14 is "
+        "the alternative; it puts a major version under Expo's build tools, which `expo export` can "
+        "exercise but a native prebuild or EAS build, which this repo cannot run locally, cannot "
+        "be checked against.",
+    ),
+    Accepted(
+        "GHSA-g3hv-75wg-m249",
+        {"mobile"},
+        "minimatch: potential denial of service via globparts amplification",
+        "The shipped copies are minimatch 10.2.6, under @expo/fingerprint (declared `^10.2.2`) and "
+        "under glob 13 (above). The patch is minimatch 11.0.1, a major its parents do not accept. "
+        "The patterns come from the developer's own project and Expo's own code. Measured "
+        "2026-10-31 by the same sourcemap search as the glob entry: no file under minimatch is in "
+        "the Android bundle. The other copies are under jest, eslint, typescript-eslint and "
+        "test-exclude, all marked dev in the lockfile.",
+        "When @expo/fingerprint and glob declare minimatch ^11.0.1 or later, update the lockfile "
+        "and delete this entry. Re-check at once if app code, or a runtime part of a package the "
+        "app bundles, starts importing minimatch: repeat the sourcemap search above.",
     ),
     Accepted(
         "GHSA-gcqx-w48m-w2h4",

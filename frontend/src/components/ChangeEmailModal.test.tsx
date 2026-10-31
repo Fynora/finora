@@ -1,14 +1,56 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChangeEmailModal } from './ChangeEmailModal';
-import { emailChangeApi } from '../api/endpoints';
+import { emailChangeApi, type SignInMethod } from '../api/endpoints';
+import { isAppleLoginConfigured, loadAppleIdServices } from '../lib/appleIdentity';
 
 vi.mock('../api/endpoints', () => ({
   emailChangeApi: { start: vi.fn() },
 }));
 
-function renderModal(onClose = vi.fn(), signInMethod: 'PASSWORD' | 'GOOGLE' = 'PASSWORD') {
+// Mocked wholesale, as in AppleSignInButton.test.tsx.
+vi.mock('../lib/appleIdentity', () => ({
+  isAppleLoginConfigured: vi.fn(),
+  loadAppleIdServices: vi.fn(),
+}));
+
+// An APPLE account must get the Apple step-up, never the password field it cannot fill in.
+describe('ChangeEmailModal for an Apple Sign-In account', () => {
+  beforeEach(() => {
+    vi.mocked(emailChangeApi.start).mockReset().mockResolvedValue({ sessionId: 'session-1', devVerifyLink: null });
+    vi.mocked(isAppleLoginConfigured).mockReturnValue(true);
+    vi.mocked(loadAppleIdServices).mockResolvedValue({
+      init: vi.fn(),
+      signIn: vi.fn().mockResolvedValue({ authorization: { id_token: 'fresh-apple-id-token' } }),
+    } as any);
+  });
+
+  it('shows no password field, and asks for the new address before the Apple check', async () => {
+    const user = userEvent.setup();
+    renderModal(vi.fn(), 'APPLE');
+
+    expect(screen.queryByLabelText(/^current password$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/enter a new email address to continue/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/new email address/i), 'jane.new@example.com');
+    expect(screen.getByRole('button', { name: /sign in with apple/i })).toBeInTheDocument();
+  });
+
+  it('starts the change with a fresh Apple credential', async () => {
+    const user = userEvent.setup();
+    renderModal(vi.fn(), 'APPLE');
+
+    await user.type(screen.getByLabelText(/new email address/i), 'jane.new@example.com');
+    await user.click(screen.getByRole('button', { name: /sign in with apple/i }));
+
+    await waitFor(() => expect(emailChangeApi.start).toHaveBeenCalledWith(
+      null, null, 'fresh-apple-id-token', 'jane.new@example.com'));
+    expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument();
+  });
+});
+
+function renderModal(onClose = vi.fn(), signInMethod: SignInMethod = 'PASSWORD') {
   return { onClose, ...render(<ChangeEmailModal onClose={onClose} signInMethod={signInMethod} />) };
 }
 

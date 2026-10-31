@@ -27,6 +27,11 @@ function zero(some: Partial<Record<(typeof STEPS)[number], number>>): Record<(ty
   return { ...(Object.fromEntries(STEPS.map((s) => [s, 0])) as Record<(typeof STEPS)[number], number>), ...some };
 }
 
+function rowsOf(table: HTMLElement): string[][] {
+  return within(table).getAllByRole('row').slice(1)
+    .map((r) => Array.from(r.querySelectorAll('td, th')).map((c) => c.textContent ?? ''));
+}
+
 function report(over: Partial<ActivationReport> = {}): ActivationReport {
   const counts = Object.fromEntries(STEPS.map((s, i) => [s, i + 1])) as Record<(typeof STEPS)[number], number>;
   return {
@@ -53,11 +58,11 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
       // 23 Oct 2026 20:00 UTC is already 24 Oct in IST.
       trackingStart: '2026-10-23T20:00:00Z',
       pages: [
-        { path: '/banks/example-bank', signups: 4, gotDataIn: 3 },
-        { path: '/help', signups: 2, gotDataIn: 0 },
+        { path: '/banks/example-bank', signups: 4, gotDataIn: 3, cameBackLaterDay: 1 },
+        { path: '/help', signups: 2, gotDataIn: 0, cameBackLaterDay: 0 },
       ],
-      other: { path: null, signups: 1, gotDataIn: 1 },
-      none: { path: null, signups: 5, gotDataIn: 2 },
+      other: { path: null, signups: 1, gotDataIn: 1, cameBackLaterDay: 0 },
+      none: { path: null, signups: 5, gotDataIn: 2, cameBackLaterDay: 1 },
     },
     secondImport: { users: 3, medianDays: 2, cameBackLaterDay: 2 },
     monthStartNudges: [{ month: '2026-11-01', nudgesSent: 5, importedWithin3Days: 2 }],
@@ -178,10 +183,50 @@ describe('Activation', () => {
     expect(screen.queryByText(/NONE/)).not.toBeInTheDocument();
   });
 
-  it('shows one row per source with steps in order and the second import', async () => {
+  it('shows each source with signups, got data in, import rate and who came back, most signups first', async () => {
     renderPage();
 
-    const table = await screen.findByRole('table', { name: 'Funnel by signup source' });
+    const table = await screen.findByRole('table', { name: 'Signups by source' });
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Source', 'Signed up ↓', 'Got data in', 'Import rate', 'Came back another day', 'Second import', 'Median days to second',
+    ]);
+    expect(rowsOf(table)).toEqual([
+      ['utm_source: reel', '5', '3', '60%', '1', '2', '4.5 days'],
+      ['Google', '1', '0', '0%too few to judge', '0', '0', '—'],
+      ["Friend's referral code", '1', '1', '100%too few to judge', '0', '0', '—'],
+      ['Unknown (before tracking)', '1', '1', '100%too few to judge', '1', '1', '1.0 day'],
+      ['Direct (incl. mobile app)', '0', '0', '—', '0', '0', '—'],
+    ]);
+    expect(within(table).queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('sorts the source table by any count column, and by rate puts rows too few to judge last', async () => {
+    renderPage();
+    const table = await screen.findByRole('table', { name: 'Signups by source' });
+
+    fireEvent.click(within(table).getByRole('button', { name: 'Import rate' }));
+
+    expect(within(table).getByRole('columnheader', { name: /Import rate/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(rowsOf(table).map((r) => r[0])).toEqual([
+      'utm_source: reel', "Friend's referral code", 'Unknown (before tracking)', 'Google', 'Direct (incl. mobile app)',
+    ]);
+
+    fireEvent.click(within(table).getByRole('button', { name: /Import rate/ }));
+
+    expect(within(table).getByRole('columnheader', { name: /Import rate/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(rowsOf(table).map((r) => r[0])).toEqual([
+      'utm_source: reel', 'Direct (incl. mobile app)', 'Google', "Friend's referral code", 'Unknown (before tracking)',
+    ]);
+  });
+
+  it('shows one row per source with steps in order and the second import, one click away', async () => {
+    renderPage();
+    await screen.findByRole('table', { name: 'Signups by source' });
+    expect(screen.queryByRole('table', { name: 'Funnel by signup source' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show where each source stopped' }));
+
+    const table = screen.getByRole('table', { name: 'Funnel by signup source' });
     const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual([
       'Source', 'Signed up', 'Opened import', 'Chose a file', 'Refused', 'Read failed', 'Held',
@@ -203,14 +248,30 @@ describe('Activation', () => {
 
     const table = await screen.findByRole('table', { name: 'Signups by landing page' });
     expect(within(table).getAllByRole('columnheader').map((h) => h.textContent))
-      .toEqual(['Landing page', 'Signed up', 'Got data in']);
-    const rows = within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
-    expect(rows).toEqual([
-      ['/banks/example-bank', '4', '3'],
-      ['/help', '2', '0'],
-      ['Other pages', '1', '1'],
-      ['No landing page recorded', '5', '2'],
+      .toEqual(['Landing page', 'Signed up ↓', 'Got data in', 'Import rate', 'Came back another day']);
+    // Other and none stay at the bottom, though none has the most signups.
+    expect(rowsOf(table)).toEqual([
+      ['/banks/example-bank', '4', '3', '75%too few to judge', '1'],
+      ['/help', '2', '0', '0%too few to judge', '0'],
+      ['Other pages', '1', '1', '100%too few to judge', '0'],
+      ['No landing page recorded', '5', '2', '40%', '1'],
     ]);
+
+    fireEvent.click(within(table).getByRole('button', { name: 'Got data in' }));
+    expect(rowsOf(table).map((r) => r[0])).toEqual(['/banks/example-bank', '/help', 'Other pages', 'No landing page recorded']);
+  });
+
+  it('shows a dash for came back another day from a backend that does not send it', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      landingPaths: {
+        trackingStart: '2026-10-23T20:00:00Z', pages: [{ path: '/help', signups: 6, gotDataIn: 3 }],
+        other: { path: null, signups: 0, gotDataIn: 0 }, none: { path: null, signups: 0, gotDataIn: 0 },
+      },
+    }));
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Signups by landing page' });
+    expect(rowsOf(table)).toEqual([['/help', '6', '3', '50%', '—']]);
   });
 
   it('leaves out the other and none lines when nobody is on them, and says when there are no signups', async () => {
@@ -250,7 +311,7 @@ describe('Activation', () => {
 
     vi.mocked(adminActivationApi.report).mockResolvedValue(report({ landingPaths: undefined }));
     renderPage();
-    await screen.findByRole('table', { name: 'Funnel by signup source' });
+    await screen.findByRole('table', { name: 'Signups by source' });
     expect(screen.queryByRole('table', { name: 'Signups by landing page' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Landing pages are recorded from/)).not.toBeInTheDocument();
   });

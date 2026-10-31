@@ -221,31 +221,34 @@ public class ActivationFunnelService {
      * @param start when landing paths began to be recorded, or null when not known (nobody counts)
      */
     static ActivationReportDto.LandingPaths landingPaths(Map<UUID, Counted> users, Instant start) {
+        // Per path: signups, got data in, came back another day.
         Map<String, long[]> byPath = new HashMap<>();
-        long[] none = new long[2];
+        long[] none = new long[3];
         for (Counted c : users.values()) {
             if (start == null || c.beforeLandingTracking()) continue;
-            long[] counts = c.landingPath() == null ? none : byPath.computeIfAbsent(c.landingPath(), p -> new long[2]);
+            long[] counts = c.landingPath() == null ? none : byPath.computeIfAbsent(c.landingPath(), p -> new long[3]);
             counts[0]++;
             if (c.step() == FunnelStep.GOT_DATA_IN) counts[1]++;
+            if (c.cameBackLaterDay()) counts[2]++;
         }
         List<Map.Entry<String, long[]>> ordered = new ArrayList<>(byPath.entrySet());
         ordered.sort((a, b) -> a.getValue()[0] != b.getValue()[0]
                 ? Long.compare(b.getValue()[0], a.getValue()[0]) : a.getKey().compareTo(b.getKey()));
         List<ActivationReportDto.LandingPathRow> pages = new ArrayList<>();
-        long[] other = new long[2];
+        long[] other = new long[3];
         for (int i = 0; i < ordered.size(); i++) {
             Map.Entry<String, long[]> e = ordered.get(i);
             if (i < MAX_LANDING_PATHS) {
-                pages.add(new ActivationReportDto.LandingPathRow(e.getKey(), e.getValue()[0], e.getValue()[1]));
+                pages.add(landingRow(e.getKey(), e.getValue()));
             } else {
-                other[0] += e.getValue()[0];
-                other[1] += e.getValue()[1];
+                for (int k = 0; k < other.length; k++) other[k] += e.getValue()[k];
             }
         }
-        return new ActivationReportDto.LandingPaths(start, pages,
-                new ActivationReportDto.LandingPathRow(null, other[0], other[1]),
-                new ActivationReportDto.LandingPathRow(null, none[0], none[1]));
+        return new ActivationReportDto.LandingPaths(start, pages, landingRow(null, other), landingRow(null, none));
+    }
+
+    private static ActivationReportDto.LandingPathRow landingRow(String path, long[] counts) {
+        return new ActivationReportDto.LandingPathRow(path, counts[0], counts[1], counts[2]);
     }
 
     /**

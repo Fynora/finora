@@ -81,12 +81,12 @@ public record ActivationReportDto(
                                LandingPathRow none) {}
 
     /**
-     * One landing path: how many counted accounts started on it and how many of those got data in
-     * (reached {@link FunnelStep#GOT_DATA_IN}). {@code path} is null for the {@code other} and
-     * {@code none} rows.
+     * One landing path: how many counted accounts started on it, how many of those got data in
+     * (reached {@link FunnelStep#GOT_DATA_IN}) and how many came back another day (the measure in
+     * {@link SecondImport}). {@code path} is null for the {@code other} and {@code none} rows.
      */
     @Schema(name = "ActivationLandingPathRow")
-    public record LandingPathRow(String path, long signups, long gotDataIn) {}
+    public record LandingPathRow(String path, long signups, long gotDataIn, long cameBackLaterDay) {}
 
     /**
      * People who imported a second, different statement file that brought in at least one

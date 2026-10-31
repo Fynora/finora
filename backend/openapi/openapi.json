@@ -34845,6 +34845,10 @@
                     "gotDataIn": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "cameBackLaterDay": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

@@ -24,6 +24,26 @@ class LandingPathsReportTest {
                 landingPath, beforeTracking);
     }
 
+    private static ActivationFunnelService.Counted cameBack(String landingPath) {
+        return new ActivationFunnelService.Counted(FunnelStep.GOT_DATA_IN, LocalDate.of(2026, 11, 2), null, DIRECT, 2.0, true,
+                landingPath, false);
+    }
+
+    /** Came back another day, per page: the same measure as the second import, by landing page. */
+    @Test
+    void countsWhoCameBackAnotherDayPerPath_andInTheOtherAndNoneRows() {
+        var report = ActivationFunnelService.landingPaths(users(
+                cameBack("/help"), cameBack("/help"), user(FunnelStep.GOT_DATA_IN, "/help", false),
+                user(FunnelStep.SIGNED_UP, "/about", false),
+                cameBack(null)), START);
+
+        assertThat(report.pages()).extracting("path", "signups", "gotDataIn", "cameBackLaterDay").containsExactly(
+                org.assertj.core.groups.Tuple.tuple("/help", 3L, 3L, 2L),
+                org.assertj.core.groups.Tuple.tuple("/about", 1L, 0L, 0L));
+        assertThat(report.none().cameBackLaterDay()).isEqualTo(1);
+        assertThat(report.other().cameBackLaterDay()).isZero();
+    }
+
     private static Map<UUID, ActivationFunnelService.Counted> users(ActivationFunnelService.Counted... all) {
         Map<UUID, ActivationFunnelService.Counted> map = new HashMap<>();
         for (ActivationFunnelService.Counted c : all) map.put(UUID.randomUUID(), c);
@@ -86,7 +106,7 @@ class LandingPathsReportTest {
             // Page i has (total - i) sign-ups, so the last `extra` pages are the quietest, with 1..extra.
             int signups = ActivationFunnelService.MAX_LANDING_PATHS + extra - i;
             for (int n = 0; n < signups; n++) {
-                all.add(user(n == 0 ? FunnelStep.GOT_DATA_IN : FunnelStep.SIGNED_UP, path, false));
+                all.add(n == 0 ? cameBack(path) : user(FunnelStep.SIGNED_UP, path, false));
             }
         }
         var report = ActivationFunnelService.landingPaths(users(all.toArray(new ActivationFunnelService.Counted[0])), START);
@@ -97,6 +117,7 @@ class LandingPathsReportTest {
         assertThat(report.other().path()).isNull();
         assertThat(report.other().signups()).isEqualTo(1 + 2 + 3 + 4);
         assertThat(report.other().gotDataIn()).isEqualTo(extra);
+        assertThat(report.other().cameBackLaterDay()).isEqualTo(extra);
         long total = report.pages().stream().mapToLong(ActivationReportDto.LandingPathRow::signups).sum()
                 + report.other().signups() + report.none().signups();
         assertThat(total).as("every counted account is in exactly one row").isEqualTo(all.size());
@@ -107,7 +128,7 @@ class LandingPathsReportTest {
         var report = ActivationFunnelService.landingPaths(Map.of(), START);
 
         assertThat(report.pages()).isEmpty();
-        assertThat(report.other()).isEqualTo(new ActivationReportDto.LandingPathRow(null, 0, 0));
-        assertThat(report.none()).isEqualTo(new ActivationReportDto.LandingPathRow(null, 0, 0));
+        assertThat(report.other()).isEqualTo(new ActivationReportDto.LandingPathRow(null, 0, 0, 0));
+        assertThat(report.none()).isEqualTo(new ActivationReportDto.LandingPathRow(null, 0, 0, 0));
     }
 }

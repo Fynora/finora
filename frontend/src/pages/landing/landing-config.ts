@@ -367,7 +367,7 @@ export const faq = {
     ],
     [
       'Which files can I upload?',
-      'PDF and CSV. Password-protected PDFs work too: enter the password during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL, and is not stored afterwards, so a later re-import will ask again.',
+      'PDF and CSV. Password-protected PDFs work too: enter the password during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL, and Fynora keeps it only if you choose to save it for that statement; otherwise a later re-import will ask again.',
     ],
     [
       'Can I import several bank accounts?',

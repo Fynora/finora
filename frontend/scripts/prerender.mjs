@@ -94,7 +94,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts, llmsTxt, llmsFullTxt } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -160,6 +160,13 @@ async function main() {
     const pageTemplate = templateForNotFound(template, { title, description });
     fs.writeFileSync(path.join(distDir, NOT_FOUND_FILE), pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`));
     console.log(`prerender: not-found page -> dist/${NOT_FOUND_FILE} (${appHtml.length} chars of markup)`);
+  }
+
+  // The plain-text description for AI assistants (llmstxt.org), at the site root. Built from the
+  // same copy and plan data as the pages above, so it cannot quote a price or a claim they don't.
+  for (const [fileName, text] of [['llms.txt', llmsTxt()], ['llms-full.txt', llmsFullTxt()]]) {
+    fs.writeFileSync(path.join(distDir, fileName), text);
+    console.log(`prerender: ${fileName} -> dist/${fileName} (${text.length} chars)`);
   }
 
   fs.rmSync(ssrOutDir, { recursive: true, force: true });

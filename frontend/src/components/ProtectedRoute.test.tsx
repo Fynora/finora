@@ -32,6 +32,11 @@ vi.mock('../onboarding/SpendingQuestionGate', () => ({
   ),
 }));
 
+// Same for the consent step (V302): ConsentGate.test.tsx covers the gate itself.
+vi.mock('./consent/ConsentGate', () => ({
+  ConsentGate: ({ children }: { children: React.ReactNode }) => <div data-testid="consent-gate">{children}</div>,
+}));
+
 function renderProtected(allowUnverified?: boolean) {
   return render(
     <MemoryRouter initialEntries={['/dashboard']}>
@@ -107,6 +112,24 @@ describe('ProtectedRoute', () => {
     expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Protected content'));
     // A returning user is never held on a loader while the answer is looked up.
     expect(screen.getByTestId('spending-question-gate')).toHaveAttribute('data-hold', 'false');
+  });
+
+  it('puts the consent step in front of the spending question, onboarding and the app', () => {
+    vi.mocked(useAuth).mockReturnValue({ token: 'tok', bootstrapping: false, phoneVerified: true, onboardingCompleted: true } as ReturnType<typeof useAuth>);
+
+    renderProtected();
+
+    expect(screen.getByTestId('consent-gate')).toContainElement(screen.getByTestId('spending-question-gate'));
+    expect(screen.getByTestId('spending-question-gate')).toContainElement(screen.getByText('Protected content'));
+  });
+
+  it('never puts the consent step on the phone-verification screen', () => {
+    vi.mocked(useAuth).mockReturnValue({ token: 'tok', bootstrapping: false, phoneVerified: false, onboardingCompleted: false } as ReturnType<typeof useAuth>);
+
+    renderProtected(true);
+
+    expect(screen.queryByTestId('consent-gate')).not.toBeInTheDocument();
+    expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
 
   it('puts the required spending question in front of onboarding as well', () => {

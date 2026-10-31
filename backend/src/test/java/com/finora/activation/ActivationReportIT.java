@@ -82,6 +82,43 @@ class ActivationReportIT extends AbstractIntegrationTest {
         assertThat(counts.get("GOT_DATA_IN").asLong()).isEqualTo(1);
     }
 
+    /**
+     * The reached view: by week, each main-path step counts everyone at or past it, and the week
+     * carries how many came back another day. Overall, the reached counts are the weeks summed.
+     */
+    @Test
+    void reachedCountsByWeekAndOverall() throws Exception {
+        Instant week = Instant.parse("2034-05-03T06:00:00Z");                 // week of Monday 1 May 2034
+        signupAt(week);                                                       // SIGNED_UP
+        session(signupAt(week), "REJECTED");                                  // REFUSED
+        User returned = signupAt(week);
+        importedFile(returned, Instant.parse("2021-06-06T06:00:00Z"), 10, hash());
+        importedFile(returned, Instant.parse("2021-06-09T06:00:00Z"), 10, hash()); // GOT_DATA_IN, came back
+
+        JsonNode report = report(admin(), null, null);
+        JsonNode row = week(report, "2034-05-01");
+
+        JsonNode reached = row.get("reached");
+        assertThat(reached.get("SIGNED_UP").asLong()).isEqualTo(3);
+        assertThat(reached.get("OPENED_IMPORT").asLong()).isEqualTo(2);
+        assertThat(reached.get("CHOSE_FILE").asLong()).isEqualTo(2);
+        assertThat(reached.get("FILE_READ").asLong()).isEqualTo(1);
+        assertThat(reached.get("REVIEW_OPENED").asLong()).isEqualTo(1);
+        assertThat(reached.get("GOT_DATA_IN").asLong()).isEqualTo(1);
+        assertThat(row.get("cameBackLaterDay").asLong()).isEqualTo(1);
+
+        JsonNode overall = report.get("reached");
+        long signupsInWeeks = 0;
+        for (JsonNode w : report.get("weeks")) signupsInWeeks += w.get("reached").get("SIGNED_UP").asLong();
+        assertThat(overall.get("signups").asLong()).isEqualTo(signupsInWeeks);
+        assertThat(overall.get("steps")).hasSize(ReachedStep.values().length);
+        for (JsonNode step : overall.get("steps")) {
+            long summed = 0;
+            for (JsonNode w : report.get("weeks")) summed += w.get("reached").get(step.get("step").asText()).asLong();
+            assertThat(step.get("reached").asLong()).as(step.get("step").asText()).isEqualTo(summed);
+        }
+    }
+
     /** A Sunday evening in IST is already Monday: 19:00 UTC is 00:30 IST the next day. */
     @Test
     void groupsBySignupWeekInIst() throws Exception {

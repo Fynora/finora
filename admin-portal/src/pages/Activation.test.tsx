@@ -6,7 +6,7 @@ import Activation from './Activation';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
 import { adminActivationApi } from '../api/endpoints';
-import type { ActivationReport } from '../api/endpoints';
+import type { ActivationReport, ActivationWeekRow } from '../api/endpoints';
 
 // Same reasons as PlatformAnalytics.test.tsx: AdminLayout renders ThemeToggle and GlobalSearch.
 vi.mock('../context/ThemeContext', () => ({
@@ -27,6 +27,29 @@ function zero(some: Partial<Record<(typeof STEPS)[number], number>>): Record<(ty
   return { ...(Object.fromEntries(STEPS.map((s) => [s, 0])) as Record<(typeof STEPS)[number], number>), ...some };
 }
 
+/** The fixture week's counts (1 at SIGNED_UP ... 9 at GOT_DATA_IN, 45 people) by step reached. */
+const WEEK_REACHED = {
+  SIGNED_UP: 45, OPENED_IMPORT: 44, CHOSE_FILE: 42, FILE_READ: 24, REVIEW_OPENED: 17, GOT_DATA_IN: 9,
+};
+
+function emptyWeek(weekStart: string): ActivationWeekRow {
+  return {
+    weekStart, counts: zero({}), cameBackLaterDay: 0,
+    reached: { SIGNED_UP: 0, OPENED_IMPORT: 0, CHOSE_FILE: 0, FILE_READ: 0, REVIEW_OPENED: 0, GOT_DATA_IN: 0 },
+  };
+}
+
+function signupWeek(weekStart: string, signedUp: number, gotDataIn: number): ActivationWeekRow {
+  const all = signedUp + gotDataIn;
+  return {
+    weekStart, counts: zero({ SIGNED_UP: signedUp, GOT_DATA_IN: gotDataIn }), cameBackLaterDay: gotDataIn,
+    reached: {
+      SIGNED_UP: all, OPENED_IMPORT: gotDataIn, CHOSE_FILE: gotDataIn, FILE_READ: gotDataIn, REVIEW_OPENED: gotDataIn,
+      GOT_DATA_IN: gotDataIn,
+    },
+  };
+}
+
 function rowsOf(table: HTMLElement): string[][] {
   return within(table).getAllByRole('row').slice(1)
     .map((r) => Array.from(r.querySelectorAll('td, th')).map((c) => c.textContent ?? ''));
@@ -36,7 +59,19 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
   const counts = Object.fromEntries(STEPS.map((s, i) => [s, i + 1])) as Record<(typeof STEPS)[number], number>;
   return {
     funnelGoLive: '2026-10-17',
-    weeks: [{ weekStart: '2026-10-12', counts }],
+    weeks: [{ weekStart: '2026-10-12', counts, reached: WEEK_REACHED, cameBackLaterDay: 2 }],
+    reached: {
+      signups: 45,
+      steps: [
+        { step: 'SIGNED_UP', reached: 45, lost: 0, lostBeforeFunnelRecord: 0 },
+        { step: 'OPENED_IMPORT', reached: 44, lost: 1, lostBeforeFunnelRecord: 1 },
+        { step: 'CHOSE_FILE', reached: 42, lost: 2, lostBeforeFunnelRecord: 0 },
+        { step: 'FILE_READ', reached: 24, lost: 18, lostBeforeFunnelRecord: 0 },
+        { step: 'REVIEW_OPENED', reached: 17, lost: 7, lostBeforeFunnelRecord: 0 },
+        { step: 'GOT_DATA_IN', reached: 9, lost: 8, lostBeforeFunnelRecord: 0 },
+      ],
+      stoppedAt: counts,
+    },
     answers: [
       { moment: 'NO_FILE', answer: 'NO_STATEMENT', count: 3 },
       { moment: 'NO_FILE', answer: 'SKIPPED', count: 1 },
@@ -94,16 +129,145 @@ describe('Activation', () => {
 
   it('rendersStepColumnsInOrder', async () => {
     renderPage();
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
 
-    const table = await screen.findByRole('table', { name: 'Funnel by signup week' });
+    fireEvent.click(screen.getByRole('button', { name: 'Stopped at' }));
+
+    const table = screen.getByRole('table', { name: 'Furthest step by signup week' });
     const headers = within(table).getAllByRole('columnheader').map((h) => h.textContent);
     expect(headers).toEqual([
       'Signup week', 'Signed up', 'Opened import', 'Chose a file', 'Refused', 'Read failed', 'Held',
-      'Read, not reviewed', 'Reviewed, not confirmed', 'Got data in',
+      'Read, not reviewed', 'Reviewed, not confirmed', 'Got data in', 'Came back another day',
     ]);
-    // The week's counts, in the same order.
-    const cells = within(table).getAllByRole('cell').map((c) => c.textContent);
-    expect(cells.slice(1)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    // The week's counts, in the same order, then the total row.
+    expect(rowsOf(table)).toEqual([
+      ['12 Oct 2026', '1', '2', '3', '4', '5', '6', '7', '8', '9', '2'],
+      ['Total', '1', '2', '3', '4', '5', '6', '7', '8', '9', '2'],
+    ]);
+    expect(screen.getByRole('button', { name: 'Stopped at' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('list', { name: 'Steps reached' })).not.toBeInTheDocument();
+  });
+
+  it('leads with a verdict: the biggest drop, the activation rate and who came back', async () => {
+    renderPage();
+
+    expect(await screen.findByLabelText('Verdict')).toHaveTextContent(
+      'Biggest drop: 18 of 42 chose a file but never had one read. Activation 20% (9 of 45 got data in). 2 came back another day.',
+    );
+  });
+
+  it('shows steps reached by default, each with its drop, the biggest marked and split by where people stopped', async () => {
+    renderPage();
+
+    const list = await screen.findByRole('list', { name: 'Steps reached' });
+    expect(screen.getByRole('button', { name: 'Reached' })).toHaveAttribute('aria-pressed', 'true');
+    const items = within(list).getAllByRole('listitem');
+    expect(items.map((i) => i.getAttribute('aria-label'))).toEqual([
+      'Signed up', 'Opened import', 'Chose a file', 'File read', 'Opened the review', 'Got data in',
+    ]);
+    expect(items[0]).toHaveTextContent('45 (100%)');
+    expect(items[1]).toHaveTextContent('44 (98%)−1 of 45 (2%) · 1 signed up before this step was recorded');
+    expect(items[3]).toHaveTextContent(
+      '24 (53%)−18 of 42 (43%) · biggest drop · No result 3 · Refused 4 · Read failed 5 · Held 6',
+    );
+    expect(items[5]).toHaveTextContent('9 (20%)−8 of 17 (47%)');
+    expect(items[5]).not.toHaveTextContent('biggest drop');
+  });
+
+  it('shows steps reached by signup week, with who came back and a total row', async () => {
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Steps reached by signup week' });
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Signup week', 'Signed up', 'Opened import', 'Chose a file', 'File read', 'Opened the review', 'Got data in',
+      'Came back another day',
+    ]);
+    expect(rowsOf(table)).toEqual([
+      ['12 Oct 2026', '45', '44', '42', '24', '17', '9', '2'],
+      ['Total', '45', '44', '42', '24', '17', '9', '2'],
+    ]);
+    expect(within(table).queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('shows the last 8 weeks with runs of quiet weeks folded, a total of those shown, and all weeks on request', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      weeks: [
+        signupWeek('2026-08-17', 5, 5), signupWeek('2026-08-24', 1, 0),                 // before the last 8
+        signupWeek('2026-08-31', 2, 1), emptyWeek('2026-09-07'), emptyWeek('2026-09-14'),
+        emptyWeek('2026-09-21'), signupWeek('2026-09-28', 3, 0), signupWeek('2026-10-05', 0, 2),
+        signupWeek('2026-10-12', 1, 1), emptyWeek('2026-10-19'),
+      ],
+    }));
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Steps reached by signup week' });
+    expect(rowsOf(table)).toEqual([
+      ['31 Aug 2026', '3', '1', '1', '1', '1', '1', '1'],
+      ['7 Sep 2026 – 21 Sep 2026', 'No signups in 3 weeks'],
+      ['28 Sep 2026', '3', '0', '0', '0', '0', '0', '0'],
+      ['5 Oct 2026', '2', '2', '2', '2', '2', '2', '2'],
+      ['12 Oct 2026', '2', '1', '1', '1', '1', '1', '1'],
+      ['19 Oct 2026', 'No signups'],
+      ['Total', '10', '4', '4', '4', '4', '4', '4'],
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 10 weeks' }));
+
+    const all = rowsOf(screen.getByRole('table', { name: 'Steps reached by signup week' }));
+    expect(all[0]).toEqual(['17 Aug 2026', '10', '5', '5', '5', '5', '5', '5']);
+    expect(all[all.length - 1]).toEqual(['Total', '21', '9', '9', '9', '9', '9', '9']);
+    expect(screen.getByRole('button', { name: 'Show the last 8 weeks only' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('offers no week toggle with 8 weeks or fewer', async () => {
+    renderPage();
+
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
+    expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument();
+  });
+
+  it('says there are no signups yet, with no bars and no table', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      weeks: [],
+      reached: {
+        signups: 0,
+        steps: (['SIGNED_UP', 'OPENED_IMPORT', 'CHOSE_FILE', 'FILE_READ', 'REVIEW_OPENED', 'GOT_DATA_IN'] as const)
+          .map((step) => ({ step, reached: 0, lost: 0, lostBeforeFunnelRecord: 0 })),
+        stoppedAt: zero({}),
+      },
+      secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 },
+    }));
+    renderPage();
+
+    expect(await screen.findByLabelText('Verdict')).toHaveTextContent('No signups counted yet.');
+    expect(screen.getAllByText('No signups to count yet.')).toHaveLength(2);
+    expect(screen.queryByRole('list', { name: 'Steps reached' })).not.toBeInTheDocument();
+  });
+
+  it('falls back to the stopped-at table, with no verdict, for a backend from before the reached counts', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      reached: undefined,
+      weeks: [{ weekStart: '2026-10-12', counts: zero({ SIGNED_UP: 2, GOT_DATA_IN: 1 }) }],
+    }));
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Furthest step by signup week' });
+    expect(rowsOf(table)[0]).toEqual(['12 Oct 2026', '2', '0', '0', '0', '0', '0', '0', '0', '1', '—']);
+    expect(rowsOf(table)[1]).toEqual(['Total', '2', '0', '0', '0', '0', '0', '0', '0', '1', '—']);
+    expect(screen.queryByLabelText('Verdict')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Funnel view' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the notes on these numbers behind a toggle', async () => {
+    renderPage();
+    const toggle = await screen.findByRole('button', { name: 'About these numbers' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Counts are small; one person changes them.')).not.toBeVisible();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole('button', { name: 'Hide notes on these numbers' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Counts are small; one person changes them.')).toBeVisible();
   });
 
   it('showsGoLiveLine', async () => {
@@ -122,7 +286,7 @@ describe('Activation', () => {
 
   it('rangeChangeRefetches', async () => {
     renderPage();
-    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
     const firstCall = vi.mocked(adminActivationApi.report).mock.calls[0];
 
     fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2026-09-01' } });
@@ -133,20 +297,20 @@ describe('Activation', () => {
   // A new range refetches the whole report; the page must not drop to "Loading…" while it does.
   it('keeps the tables on screen while a new range loads', async () => {
     renderPage();
-    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
     vi.mocked(adminActivationApi.report).mockReturnValue(new Promise(() => {}));
 
     fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2026-09-01' } });
 
     await waitFor(() => expect(adminActivationApi.report).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('table', { name: 'Funnel by signup week' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Steps reached by signup week' })).toBeInTheDocument();
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
   // A typed start after the end would be a 400 that blanks the page; it is ignored instead.
   it('ignores a start date after the end date', async () => {
     renderPage();
-    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
 
     fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2999-01-01' } });
 
@@ -156,7 +320,7 @@ describe('Activation', () => {
 
   it('says when a new range fails, rather than passing the old numbers off as the new range', async () => {
     renderPage();
-    await screen.findByRole('table', { name: 'Funnel by signup week' });
+    await screen.findByRole('table', { name: 'Steps reached by signup week' });
     vi.mocked(adminActivationApi.report).mockRejectedValue(new Error('down'));
 
     fireEvent.change(screen.getByLabelText('Answers from'), { target: { value: '2026-09-01' } });
@@ -167,7 +331,7 @@ describe('Activation', () => {
   it('noLinksInFunnelCells', async () => {
     renderPage();
 
-    const table = await screen.findByRole('table', { name: 'Funnel by signup week' });
+    const table = await screen.findByRole('table', { name: 'Steps reached by signup week' });
     expect(within(table).queryAllByRole('link')).toHaveLength(0);
   });
 

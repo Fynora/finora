@@ -29,5 +29,7 @@ public enum AiInsightReason {
     ORG_BUDGET_SPENT,
     USER_DAILY_CAP,
     CONCURRENCY_LIMIT,
-    NOT_IN_AUDIENCE
+    NOT_IN_AUDIENCE,
+    /** The user has not said yes to "AI features" (V302). */
+    AI_CONSENT_OFF
 }

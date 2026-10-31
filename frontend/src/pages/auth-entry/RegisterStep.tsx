@@ -8,6 +8,8 @@ import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPromp
 import { AuthDivider } from './AuthDivider';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from './identifierPatterns';
+import { ConsentChoices } from '../../components/consent/ConsentChoices';
+import { ConsentNotice } from '../../components/consent/ConsentNotice';
 
 function passwordStrength(pw: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -62,6 +64,10 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   // plain <div>, which is what made this seed stale at 420 until GoogleSignInButton.tsx's own
   // fix for that).
   const [formWidth, setFormWidth] = useState(400);
+  // V302: neither box is ticked to start with. The required one gates Create account; the AI one
+  // is the user's own choice and is sent as given.
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
 
   const trimmedName = fullName.trim();
   const fullNameValid = trimmedName.length >= 2 && FULL_NAME_PATTERN.test(trimmedName);
@@ -72,7 +78,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
   const formValid =
-    fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch;
+    fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch && termsAccepted;
 
   function markTouched(field: string) {
     setTouched((t) => ({ ...t, [field]: true }));
@@ -88,10 +94,12 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
     if (!phoneValid) { setError('Enter a valid 10-digit mobile number.'); return; }
     if (!passwordLongEnough) { setError('Password must be at least 8 characters.'); return; }
     if (!passwordsMatch) { setError('Passwords do not match.'); return; }
+    if (!termsAccepted) { setError('Please confirm you are 18 or older and agree to the Terms of Service and Privacy Policy.'); return; }
 
     setLoading(true);
     try {
-      const { phoneVerified } = await register(email.trim(), password, trimmedName, `+91${phoneNumber}`, referralCode);
+      const { phoneVerified } = await register(email.trim(), password, trimmedName, `+91${phoneNumber}`, referralCode,
+        { acceptedTerms: true, aiProcessingConsent: aiEnabled });
       onSuccess(phoneVerified);
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Registration failed.');
@@ -284,17 +292,23 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
         <p className="text-danger text-xs mt-1">Passwords don't match.</p>
       )}
 
-      {/* Implicit consent, not an explicit checkbox gate -- covers every sign-up path on this
-          form (password, Google, Apple) the same way, rather than only blocking the password
-          path's Create Account button below while leaving the Google/Apple buttons above
-          ungated (the previous checkbox's scope -- SocialSignInButtons' onGoogleCredential/
-          onAppleCredential handlers never checked it, since those flows complete before this
-          component sees anything back). Continuing with any method implies agreement, so nothing
-          here disables a button. */}
-      <p className="text-xs text-muted mt-4 mb-4">
-        By continuing, you agree to Fynora's <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Terms of Service</Link> and{' '}
-        <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Privacy Policy</Link>.
-      </p>
+      {/* V302: the notice and an explicit, unticked box that gates Create account. The Google and
+          Apple buttons above cannot carry it (their flows finish before this form sees anything),
+          so an account they create has no acceptance yet and ConsentGate shows the same notice and
+          box right after that first sign-in, before any other screen. */}
+      <div className="border border-border rounded-lg p-3 mt-4 mb-4 bg-card max-h-56 overflow-y-auto">
+        <ConsentNotice />
+      </div>
+      <div className="mb-4">
+        <ConsentChoices
+          idPrefix="register"
+          showTermsBox
+          termsAccepted={termsAccepted}
+          onTermsAcceptedChange={setTermsAccepted}
+          aiEnabled={aiEnabled}
+          onAiEnabledChange={setAiEnabled}
+        />
+      </div>
 
       <div className="flex items-start gap-2.5 bg-primary-light rounded-lg p-3 mb-6">
         <ShieldCheck size={16} className="text-primary flex-shrink-0 mt-0.5" />

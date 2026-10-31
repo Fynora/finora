@@ -644,6 +644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/account/delete": {
         parameters: {
             query?: never;
@@ -6526,6 +6542,9 @@ export interface components {
             passwordChangedAt?: string;
             signInMethod?: string;
             onboardingCompleted?: boolean;
+            termsAcceptanceRequired?: boolean;
+            currentTermsVersion?: string;
+            aiProcessingConsent?: boolean;
         };
         TransactionUpdateRequest: {
             /** Format: date */
@@ -7462,6 +7481,10 @@ export interface components {
             appleIdToken?: string;
         };
         StreamingResponseBody: unknown;
+        ConsentRequest: {
+            acceptTermsVersion?: string;
+            aiProcessing?: boolean;
+        };
         DeleteAccountRequest: {
             sessionId: string;
             /** @enum {string} */
@@ -8014,6 +8037,8 @@ export interface components {
             phoneNumber: string;
             referralCode?: string;
             attribution?: components["schemas"]["SignupAttributionRequest"];
+            acceptedTerms?: boolean;
+            aiProcessingConsent?: boolean;
         };
         SignupAttributionRequest: {
             referrerHost?: string;
@@ -14260,6 +14285,24 @@ export interface components {
             /** Format: int64 */
             importedWithin3Days?: number;
         };
+        ActivationReached: {
+            /** Format: int64 */
+            signups?: number;
+            steps?: components["schemas"]["ActivationReachedRow"][];
+            stoppedAt?: {
+                [key: string]: number;
+            };
+        };
+        ActivationReachedRow: {
+            /** @enum {string} */
+            step?: "SIGNED_UP" | "OPENED_IMPORT" | "CHOSE_FILE" | "FILE_READ" | "REVIEW_OPENED" | "GOT_DATA_IN";
+            /** Format: int64 */
+            reached?: number;
+            /** Format: int64 */
+            lost?: number;
+            /** Format: int64 */
+            lostBeforeFunnelRecord?: number;
+        };
         ActivationReportDto: {
             /** Format: date */
             funnelGoLive?: string;
@@ -14275,6 +14318,7 @@ export interface components {
             landingPaths?: components["schemas"]["ActivationLandingPaths"];
             secondImport?: components["schemas"]["ActivationSecondImport"];
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
+            reached?: components["schemas"]["ActivationReached"];
         };
         ActivationSecondImport: {
             /** Format: int64 */
@@ -14316,6 +14360,11 @@ export interface components {
             counts?: {
                 [key: string]: number;
             };
+            reached?: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            cameBackLaterDay?: number;
         };
         ApiResponseActivationReportDto: {
             success?: boolean;
@@ -15924,6 +15973,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["StreamingResponseBody"];
+                };
+            };
+        };
+    };
+    consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseUserSettingsDto"];
                 };
             };
         };

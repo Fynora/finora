@@ -46,6 +46,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmailIgnoreCaseAndAccountScope(String email, String accountScope);
     boolean existsByEmailIgnoreCaseAndAccountScope(String email, String accountScope);
     boolean existsByPhoneNumberAndAccountScope(String phoneNumber, String accountScope);
+    /** FynAvailabilityGuard: the user said yes to "AI features" (V302). Null counts as no. */
+    boolean existsByIdAndAiProcessingConsentTrue(UUID id);
     // Backs email-or-phone login -- phone numbers aren't normalized at registration time, so
     // callers try a couple of digit/plus-sign variants.
     Optional<User> findByPhoneNumberAndAccountScope(String phoneNumber, String accountScope);

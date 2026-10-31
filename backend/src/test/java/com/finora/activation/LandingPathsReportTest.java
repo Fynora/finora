@@ -21,12 +21,12 @@ class LandingPathsReportTest {
 
     private static ActivationFunnelService.Counted user(FunnelStep step, String landingPath, boolean beforeTracking) {
         return new ActivationFunnelService.Counted(step, LocalDate.of(2026, 11, 2), null, DIRECT, null, false,
-                landingPath, beforeTracking);
+                landingPath, beforeTracking, LocalDate.of(2026, 11, 2));
     }
 
     private static ActivationFunnelService.Counted cameBack(String landingPath) {
         return new ActivationFunnelService.Counted(FunnelStep.GOT_DATA_IN, LocalDate.of(2026, 11, 2), null, DIRECT, 2.0, true,
-                landingPath, false);
+                landingPath, false, LocalDate.of(2026, 11, 2));
     }
 
     /** Came back another day, per page: the same measure as the second import, by landing page. */

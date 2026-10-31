@@ -94,7 +94,8 @@ class AuthServiceLoginTest {
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
                 mock(com.finora.service.SignupAttributionService.class),
-                mock(com.finora.service.AccountRequestThrottle.class)
+                mock(com.finora.service.AccountRequestThrottle.class),
+                mock(com.finora.service.TermsConsentService.class)
         );
     }
 

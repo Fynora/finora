@@ -14,6 +14,11 @@ import { authApi } from '../api/endpoints';
  * a signed-out user opening an emailed /app deep link must land back on it after signing in.
  */
 
+// The consent step (V302) is ConsentGate.test.tsx's to cover; these tests are about where sign-in lands.
+vi.mock('../components/consent/ConsentGate', () => ({
+  ConsentGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../api/endpoints', () => ({
   authApi: { identify: vi.fn(), login: vi.fn(), register: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn() },
   userApi: { get: vi.fn(), update: vi.fn() },

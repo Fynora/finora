@@ -7,6 +7,11 @@ import AuthEntry from './AuthEntry';
 import { AuthProvider } from '../context/AuthContext';
 import { authApi } from '../api/endpoints';
 
+// The consent step (V302) is ConsentGate.test.tsx's to cover; these tests are about where sign-in lands.
+vi.mock('../components/consent/ConsentGate', () => ({
+  ConsentGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock('../api/endpoints', () => ({
   authApi: { identify: vi.fn(), login: vi.fn(), register: vi.fn(), google: vi.fn(), apple: vi.fn(), logout: vi.fn() },
   userApi: { get: vi.fn(), update: vi.fn() },
@@ -89,6 +94,7 @@ describe('AuthEntry orchestrator', () => {
     await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
     await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
+    await userEvent.click(screen.getByLabelText(/I am 18 or older and agree/));
     await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     await waitFor(() => expect(screen.getByText('Verify phone')).toBeInTheDocument());
@@ -109,6 +115,7 @@ describe('AuthEntry orchestrator', () => {
     await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
     await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
     await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
+    await userEvent.click(screen.getByLabelText(/I am 18 or older and agree/));
     await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     const passwordField = await screen.findByLabelText('Password');

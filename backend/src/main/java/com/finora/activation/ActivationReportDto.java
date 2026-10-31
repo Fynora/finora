@@ -35,8 +35,29 @@ public record ActivationReportDto(
         /** The second-import measure over every counted user. */
         SecondImport secondImport,
         /** Gate 2b spec §6: month-start nudges queued per month (IST), oldest first. */
-        List<NudgeMonth> monthStartNudges
+        List<NudgeMonth> monthStartNudges,
+        /** How many of every counted user reached each step of the main path, with the drop from the
+         *  step before. The same people as {@code weeks}, summed. */
+        Reached reached
 ) {
+    /**
+     * Counted signups by the furthest step of the main path they reached ({@link ReachedStep}), in
+     * path order. {@code signups} is everyone counted; {@code stoppedAt} is the same people at their
+     * furthest step, every step present, so a drop can be split into where those people stopped.
+     */
+    @Schema(name = "ActivationReached")
+    public record Reached(long signups, List<ReachedRow> steps, Map<FunnelStep, Long> stoppedAt) {}
+
+    /**
+     * One step of the main path. {@code reached}: signups whose furthest step ranks at or above it.
+     * {@code lost}: those who reached the step before but not this one (0 for the first step).
+     * {@code lostBeforeFunnelRecord}: of {@code lost}, the people who signed up before the
+     * import-funnel record began, for a step known only from that record -- they may have reached it
+     * unrecorded, so the drop may be smaller than shown. 0 for every other step.
+     */
+    @Schema(name = "ActivationReachedRow")
+    public record ReachedRow(ReachedStep step, long reached, long lost, long lostBeforeFunnelRecord) {}
+
     /**
      * Month-start nudges queued in one IST month, to counted users only (USER scope, not internal,
      * not deleted), and how many of those nudged imported a statement within 3 days after it.
@@ -44,9 +65,15 @@ public record ActivationReportDto(
     @Schema(name = "ActivationNudgeMonth")
     public record NudgeMonth(LocalDate month, long nudgesSent, long importedWithin3Days) {}
 
-    /** Signups in one IST week (Monday start), counted at their furthest step; every step present. */
+    /**
+     * Signups in one IST week (Monday start), counted at their furthest step; every step present.
+     * {@code reached} counts the same people by each main-path step they reached, every step present.
+     * {@code cameBackLaterDay}: of them, how many sent a second, different file on a later day (IST)
+     * than their first -- the measure in {@link SecondImport}, by signup week.
+     */
     @Schema(name = "ActivationWeekRow")
-    public record WeekRow(LocalDate weekStart, Map<FunnelStep, Long> counts) {}
+    public record WeekRow(LocalDate weekStart, Map<FunnelStep, Long> counts, Map<ReachedStep, Long> reached,
+                          long cameBackLaterDay) {}
 
     /** Answers and skips to one moment's question, in the chosen range; zeros included. */
     @Schema(name = "ActivationAnswerCount")

@@ -2,11 +2,10 @@ package com.finora.controller;
 
 import com.finora.dto.AiInsightDtos;
 import com.finora.dto.ApiResponse;
-import com.finora.exception.ApiException;
 import com.finora.security.CurrentUser;
 import com.finora.service.AiInsightService;
+import com.finora.util.MonthParam;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,7 +43,7 @@ public class AiInsightController {
 
     @PostMapping("/story")
     public ApiResponse<AiInsightDtos.StoryDto> generateStory(@Valid @RequestBody AiInsightDtos.StoryRequest request) {
-        return ApiResponse.ok(story(aiInsightService.generateStory(currentUser.id(), request.month())));
+        return ApiResponse.ok(story(aiInsightService.generateStory(currentUser.id(), validMonth(request.month()))));
     }
 
     @GetMapping("/look-at")
@@ -56,7 +55,7 @@ public class AiInsightController {
     @PostMapping("/look-at/why")
     public ApiResponse<AiInsightDtos.WhyDto> why(@Valid @RequestBody AiInsightDtos.WhyRequest request) {
         AiInsightService.TextView v = aiInsightService.why(currentUser.id(), request.kind() + "|" + request.itemKey(),
-                request.month());
+                validMonth(request.month()));
         return ApiResponse.ok(new AiInsightDtos.WhyDto(v.status(), v.id(), v.text(), v.writtenByAi(), v.basis(),
                 v.freeLeftThisMonth(), v.rating(), v.ratingReason()));
     }
@@ -72,10 +71,8 @@ public class AiInsightController {
                 v.rating(), v.ratingReason());
     }
 
+    /** A month that can exist, in canonical form, or a 400 (see {@link MonthParam#requestMonth}). */
     static String validMonth(String month) {
-        if (month != null && !month.matches(AiInsightDtos.MONTH_PATTERN)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "month must be yyyy-MM");
-        }
-        return month;
+        return MonthParam.requestMonth(month);
     }
 }

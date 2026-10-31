@@ -51,12 +51,24 @@ public class AuthDtos {
             String referralCode,
             // Optional, like referralCode: where the visit that led to this sign-up came from. The
             // website sends it; the mobile apps and any caller that predates it send nothing.
-            SignupAttributionRequest attribution
+            SignupAttributionRequest attribution,
+            // V302. The required "I am 18 or older and agree to the Terms of Service and Privacy
+            // Policy" box: true from the current forms; null from an app released before the box
+            // existed (no acceptance is recorded -- the consent step asks later); false is rejected.
+            Boolean acceptedTerms,
+            // V302. The optional "Use AI features" box; null from the same older apps (not asked yet).
+            Boolean aiProcessingConsent
     ) {
-        /** Without attribution -- every caller that has none, admin-assisted signup included. */
+        /** Without attribution or the V302 boxes -- admin-assisted signup, and tests. */
         public RegisterRequest(String email, String password, String fullName, String phoneNumber,
                                String referralCode) {
-            this(email, password, fullName, phoneNumber, referralCode, null);
+            this(email, password, fullName, phoneNumber, referralCode, null, null, null);
+        }
+
+        /** Without the V302 boxes -- the shape of a request from an app released before them. */
+        public RegisterRequest(String email, String password, String fullName, String phoneNumber,
+                               String referralCode, SignupAttributionRequest attribution) {
+            this(email, password, fullName, phoneNumber, referralCode, attribution, null, null);
         }
     }
 

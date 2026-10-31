@@ -128,6 +128,7 @@ public class AuthService {
     // V286: records where a self-service sign-up came from -- register() and the OAuth sign-ins
     // that create an account. Never blocks a signup; see the service's own doc comment.
     private final SignupAttributionService signupAttributionService;
+    private final TermsConsentService termsConsentService;
     private final MerchantSeedService merchantSeedService;
     // SEC-07: dispatches the forgotPassword() email send off the request thread -- see
     // BackgroundWorkConfig.authEmailExecutor's own doc comment for why.
@@ -157,7 +158,8 @@ public class AuthService {
                         AdminMfaService adminMfaService,
                         EmailLoginOtpRepository emailLoginOtpRepository,
                         SignupAttributionService signupAttributionService,
-                        AccountRequestThrottle accountRequestThrottle) {
+                        AccountRequestThrottle accountRequestThrottle,
+                        TermsConsentService termsConsentService) {
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
         this.resetTokenRepository = resetTokenRepository;
@@ -184,6 +186,7 @@ public class AuthService {
         this.adminMfaService = adminMfaService;
         this.emailLoginOtpRepository = emailLoginOtpRepository;
         this.signupAttributionService = signupAttributionService;
+        this.termsConsentService = termsConsentService;
     }
 
     @Transactional
@@ -195,10 +198,16 @@ public class AuthService {
         if (!platformSettingsService.getEntity().isRegistrationsEnabled()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "New registrations are currently disabled.");
         }
-        // true only here: the person signing themselves up has seen the "By continuing, you
-        // agree..." notice. adminCreateUser() shares createUserRecord() for someone who has not,
-        // and must not get a consent record they never gave (V223).
-        User user = createUserRecord(request, User.SCOPE_USER, true);
+        // Checked before anything is written. The forms never send false; an app released before the
+        // required box sends nothing, which TermsConsentService treats as "not accepted yet".
+        if (Boolean.FALSE.equals(request.acceptedTerms())) {
+            throw new ApiException(ErrorCode.TERMS_NOT_ACCEPTED);
+        }
+        User user = createUserRecord(request, User.SCOPE_USER);
+        // Only here: the person signing themselves up ticked the required box (V302).
+        // adminCreateUser() shares createUserRecord() for someone who has not, and must not get a
+        // consent record they never gave (V223).
+        termsConsentService.applySignUpChoices(user, request.acceptedTerms(), request.aiProcessingConsent());
         // D-28 PR4-C: self-service registration only -- adminCreateUser() shares createUserRecord()
         // but never reaches this call, since support-assisted signup has no organic acquisition to
         // track. See ReferralService.redeemCode's own doc comment for why an invalid code is a
@@ -277,7 +286,7 @@ public class AuthService {
      */
     @Transactional
     public User adminCreateUser(RegisterRequest request, UUID actingAdminId, String accountScope) {
-        User user = createUserRecord(request, accountScope, false);
+        User user = createUserRecord(request, accountScope);
         auditService.record(user.getId(), "USER_CREATED_BY_ADMIN", "User", user.getId(),
                 Map.of("createdBy", actingAdminId.toString()));
         return user;
@@ -286,7 +295,7 @@ public class AuthService {
     /** The uniqueness checks + row creation + default-category seeding every user-creation path
      *  needs, regardless of what happens after (register() continues into minting tokens;
      *  adminCreateUser() stops here). */
-    private User createUserRecord(RegisterRequest request, String accountScope, boolean acceptedTerms) {
+    private User createUserRecord(RegisterRequest request, String accountScope) {
         // Trimmed + lowercased once up front and reused everywhere below -- the duplicate check
         // and the saved value must agree on the exact same string, or "  Jane@Example.com" could
         // dodge the uniqueness check against an existing "jane@example.com" and still get
@@ -320,9 +329,6 @@ public class AuthService {
         // must not skip it.
         user.setFullName(request.fullName().trim());
         user.setPhoneNumber(phoneNumber);
-        if (acceptedTerms) {
-            user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
-        }
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
 
@@ -1011,9 +1017,8 @@ public class AuthService {
         // verified-email claim is itself sufficient proof for this account, unlike the
         // existing-account auto-link case loginWithOAuthIdentity's own doc comment covers.
         user.setEmailVerified(true);
-        // The Google/Apple buttons that reach this from the sign-in screens carry the same Terms
-        // and Privacy notice as the sign-up screen (SocialConsentNotice, web and mobile).
-        user.recordTermsAcceptance(LegalTerms.CURRENT_VERSION, Instant.now());
+        // No Terms acceptance here (V302): a Google/Apple button cannot carry the required box, so
+        // the consent step asks right after this first sign-in, before any other screen.
         user = userRepository.save(user);
         passwordHistoryService.record(user.getId(), user.getPasswordHash());
         seedDefaultCategories(user.getId());

@@ -2109,6 +2109,36 @@
                 }
             }
         },
+        "/api/v1/users/me/consent": {
+            "post": {
+                "tags": [
+                    "user-controller"
+                ],
+                "operationId": "consent",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConsentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseUserSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/account/delete": {
             "post": {
                 "tags": [
@@ -14641,6 +14671,15 @@
                     },
                     "onboardingCompleted": {
                         "type": "boolean"
+                    },
+                    "termsAcceptanceRequired": {
+                        "type": "boolean"
+                    },
+                    "currentTermsVersion": {
+                        "type": "string"
+                    },
+                    "aiProcessingConsent": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -17204,6 +17243,19 @@
                 }
             },
             "StreamingResponseBody": {},
+            "ConsentRequest": {
+                "type": "object",
+                "properties": {
+                    "acceptTermsVersion": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "minLength": 0
+                    },
+                    "aiProcessing": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "DeleteAccountRequest": {
                 "type": "object",
                 "properties": {
@@ -18729,6 +18781,12 @@
                     },
                     "attribution": {
                         "$ref": "#/components/schemas/SignupAttributionRequest"
+                    },
+                    "acceptedTerms": {
+                        "type": "boolean"
+                    },
+                    "aiProcessingConsent": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -34890,6 +34948,56 @@
                     }
                 }
             },
+            "ActivationReached": {
+                "type": "object",
+                "properties": {
+                    "signups": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationReachedRow"
+                        }
+                    },
+                    "stoppedAt": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                }
+            },
+            "ActivationReachedRow": {
+                "type": "object",
+                "properties": {
+                    "step": {
+                        "type": "string",
+                        "enum": [
+                            "SIGNED_UP",
+                            "OPENED_IMPORT",
+                            "CHOSE_FILE",
+                            "FILE_READ",
+                            "REVIEW_OPENED",
+                            "GOT_DATA_IN"
+                        ]
+                    },
+                    "reached": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "lost": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "lostBeforeFunnelRecord": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ActivationReportDto": {
                 "type": "object",
                 "properties": {
@@ -34954,6 +35062,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationNudgeMonth"
                         }
+                    },
+                    "reached": {
+                        "$ref": "#/components/schemas/ActivationReached"
                     }
                 }
             },
@@ -35095,6 +35206,17 @@
                             "type": "integer",
                             "format": "int64"
                         }
+                    },
+                    "reached": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    "cameBackLaterDay": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

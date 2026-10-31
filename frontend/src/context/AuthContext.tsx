@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { authApi, userApi } from '../api/endpoints';
+import { authApi, userApi, type SignUpConsent } from '../api/endpoints';
 import { AUTH_CHANGED_EVENT } from './ThemeContext';
 import { safeStorage } from '../lib/safeStorage';
 import { forgetActivationAnswered } from '../lib/activationQuestions';
@@ -39,7 +39,8 @@ interface AuthState {
     password: string,
     fullName: string,
     phoneNumber: string,
-    referralCode?: string
+    referralCode?: string,
+    consent?: SignUpConsent
   ) => Promise<{ phoneVerified: boolean }>;
   // Same shape as login()/reactivate(): persists the session and reports whether the phone is
   // already verified -- true for an auto-linked existing account, always false for a newly
@@ -180,12 +181,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     name: string,
     phoneNumber: string,
-    referralCode?: string
+    referralCode?: string,
+    consent?: SignUpConsent
   ): Promise<{ phoneVerified: boolean }> {
     // Where this tab's visit came from, read at call time (the capture happens in main.tsx) --
     // undefined for a direct visit, so the request body is unchanged for one.
     const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode,
-      readSignupAttribution(window));
+      readSignupAttribution(window), consent);
     persist(res.data);
     // VerifyPhone.tsx fetches the account's real phone number itself (userApi.get(), now that
     // it's authenticated) rather than being handed it via router state -- one less thing this

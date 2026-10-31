@@ -784,6 +784,7 @@ export type ActivationMomentName = NonNullable<GeneratedSchemas['ActivationAnswe
 export type ActivationAnswerName = NonNullable<GeneratedSchemas['ActivationAnswerCount']['answer']>;
 export type DeletionReasonName = NonNullable<GeneratedSchemas['ActivationDeletionReasonCount']['reason']>;
 export type SignupSourceKind = NonNullable<GeneratedSchemas['ActivationSourceRow']['kind']>;
+export type ReachedStep = NonNullable<GeneratedSchemas['ActivationReachedRow']['step']>;
 /**
  * People who imported a second, different statement file that brought transactions in (the sections
  * of one statement and a re-import of the same file are one file), the median days from the first
@@ -807,10 +808,31 @@ export interface ActivationLandingPaths {
   /** Accounts made after tracking began with no landing page recorded. */
   none: ActivationLandingPathRow;
 }
+/**
+ * One main-path step: signups whose furthest step ranks at or above it, those who reached the step
+ * before but not this one, and of those, how many signed up before the import-funnel record began
+ * (for a step known only from it; they may have reached it unrecorded).
+ */
+export interface ActivationReachedRow { step: ReachedStep; reached: number; lost: number; lostBeforeFunnelRecord: number }
+/** Every counted signup by the main-path steps they reached, in path order, and at their furthest step. */
+export interface ActivationReached {
+  signups: number;
+  steps: ActivationReachedRow[];
+  stoppedAt: Record<FunnelStep, number>;
+}
+export interface ActivationWeekRow {
+  weekStart: string;
+  counts: Record<FunnelStep, number>;
+  /** The same signups by main-path step reached. Optional: absent from a backend deployed before it. */
+  reached?: Record<ReachedStep, number>;
+  /** Of the week's signups, how many sent a second, different file on a later day (IST). Optional, as above. */
+  cameBackLaterDay?: number;
+}
 export interface ActivationReport {
   /** The earliest import-funnel date (YYYY-MM-DD), or null before the record has any rows. */
   funnelGoLive: string | null;
-  weeks: { weekStart: string; counts: Record<FunnelStep, number> }[];
+  /** IST weeks from the first signup's to this one; a week with no signups is a row of zeros. */
+  weeks: ActivationWeekRow[];
   answers: { moment: ActivationMomentName; answer: ActivationAnswerName; count: number }[];
   answersByStep: { step: FunnelStep; moment: ActivationMomentName; answer: ActivationAnswerName; count: number }[];
   focusByStep: { step: FunnelStep; label: string; count: number }[];
@@ -827,6 +849,8 @@ export interface ActivationReport {
   /** Gate 2b: month-start nudges queued per IST month (YYYY-MM-01), and imports within 3 days of one.
    *  Optional: absent from a backend deployed before it. */
   monthStartNudges?: { month: string; nudgesSent: number; importedWithin3Days: number }[];
+  /** Every counted signup by main-path step reached. Optional: absent from a backend deployed before it. */
+  reached?: ActivationReached;
 }
 
 export const adminActivationApi = {

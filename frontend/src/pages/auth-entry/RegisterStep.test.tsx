@@ -42,6 +42,7 @@ async function fillValidForm() {
   await userEvent.type(screen.getByLabelText('Mobile number'), '9876500011'); // synthetic-ok: fake sequential example number
   await userEvent.type(screen.getByLabelText('Password (min 8 characters)'), 'correct-password-1');
   await userEvent.type(screen.getByLabelText('Confirm password'), 'correct-password-1');
+  await userEvent.click(screen.getByLabelText(/I am 18 or older and agree/));
 }
 
 describe('RegisterStep', () => {
@@ -50,14 +51,51 @@ describe('RegisterStep', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('new@example.com');
   });
 
-  // Store-readiness (ST1/S4): the form must disclose terms/privacy consent, but as an implicit
-  // notice rather than a checkbox gate -- covering the Google/Apple buttons above, which a gate on
-  // this form's own submit button never could reach.
-  it('shows the consent notice with working Terms of Service and Privacy Policy links', () => {
+  // V302 (privacy workstream 8): the standalone notice and an explicit, unticked box. The Google
+  // and Apple buttons cannot carry the box; ConsentGate asks those accounts right after sign-in.
+  it('shows the notice and both boxes, neither ticked, with working document links', () => {
     renderStep();
-    expect(screen.getByText(/By continuing, you agree to/)).toBeInTheDocument();
+    expect(screen.getByTestId('consent-notice')).toBeInTheDocument();
+    expect(screen.getByLabelText(/I am 18 or older and agree/)).not.toBeChecked();
+    expect(screen.getByLabelText(/Use AI features/)).not.toBeChecked();
     expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute('href', '/terms');
-    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute('href', '/privacy');
+    for (const link of screen.getAllByRole('link', { name: 'Privacy Policy' })) {
+      expect(link).toHaveAttribute('href', '/privacy');
+    }
+  });
+
+  it('keeps Create account disabled until the required box is ticked', async () => {
+    renderStep();
+    await fillValidForm(); // ticks it
+    expect(screen.getByRole('button', { name: /create account/i })).toBeEnabled();
+
+    await userEvent.click(screen.getByLabelText(/I am 18 or older and agree/));
+    expect(screen.getByRole('button', { name: /create account/i })).toBeDisabled();
+  });
+
+  it('sends the required box as accepted and the AI box as the user left it', async () => {
+    vi.mocked(authApi.register).mockReset().mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane Doe', phoneVerified: false },
+    } as any);
+    renderStep();
+    await fillValidForm();
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => expect(authApi.register).toHaveBeenCalled());
+    expect(vi.mocked(authApi.register).mock.calls[0][6]).toEqual({ acceptedTerms: true, aiProcessingConsent: false });
+  });
+
+  it('sends a yes to AI features only when that box is ticked', async () => {
+    vi.mocked(authApi.register).mockReset().mockResolvedValue({
+      data: { token: 't', refreshToken: 'r', email: 'jane@example.com', fullName: 'Jane Doe', phoneVerified: false },
+    } as any);
+    renderStep();
+    await fillValidForm();
+    await userEvent.click(screen.getByLabelText(/Use AI features/));
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
+
+    await waitFor(() => expect(authApi.register).toHaveBeenCalled());
+    expect(vi.mocked(authApi.register).mock.calls[0][6]).toEqual({ acceptedTerms: true, aiProcessingConsent: true });
   });
 
   it('calls onSuccess with phoneVerified on successful registration', async () => {

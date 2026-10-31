@@ -85,7 +85,8 @@ class AuthServiceOtpLoginTest {
                 mock(AdminMfaService.class),
                 emailLoginOtpRepository,
                 mock(com.finora.service.SignupAttributionService.class),
-                accountRequestThrottle
+                accountRequestThrottle,
+                mock(com.finora.service.TermsConsentService.class)
         );
         // AuthService's own constructor calls passwordEncoder.encode() once (timingParityHash,
         // BH-014) -- clearing here so each test's own verify(passwordEncoder).encode(...) counts

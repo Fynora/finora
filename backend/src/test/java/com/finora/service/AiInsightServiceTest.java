@@ -146,6 +146,7 @@ class AiInsightServiceTest {
         plan("PLUS");
         when(entitlements.hasEntitlement(userId, FeatureEntitlement.FYN_INSIGHTS)).thenReturn(true);
         when(guard.insightsAvailableFor(userId)).thenReturn(true);
+        when(guard.aiConsentGiven(userId)).thenReturn(true);
         when(cost.freeBudgetSpent()).thenReturn(false);
         when(cost.monthlyBudget()).thenReturn(new FynCostGovernanceService.MonthlyBudget(BigDecimal.ONE, BigDecimal.TEN,
                 FynCostGovernanceService.BudgetStatus.OK));
@@ -366,6 +367,35 @@ class AiInsightServiceTest {
         assertThat(read.status()).isEqualTo("ready");
         assertThat(read.id()).isEqualTo(made.id());
         assertThat(read.writtenByAi()).isTrue();
+    }
+
+    // ---- AI features switch off (V302) ----
+
+    @Test
+    void consentOffWritesNothingNew() {
+        when(guard.aiConsentGiven(userId)).thenReturn(false);
+        when(guard.insightsAvailableFor(userId)).thenReturn(false);
+
+        assertThat(service.generateStory(userId, null).status()).isEqualTo("none");
+        assertThat(service.getStory(userId, null).canGenerate()).isFalse();
+        verify(generator, never()).generate(any(), any(), any(), anyBoolean(), any());
+    }
+
+    /** Stored AI text is not served while the switch is off: the rules text stands alone. */
+    @Test
+    void consentOffHidesStoredStoryWhyAndOrder() {
+        properties.setInsightsAiRanking(true);
+        service.generateStory(userId, null);
+        service.why(userId, "CATEGORY_HIGH|Food|2026-09", null);
+        assertThat(service.getStory(userId, null).status()).isEqualTo("ready");
+        assertThat(service.lookAt(userId, null).orderedByAi()).isTrue();
+
+        when(guard.aiConsentGiven(userId)).thenReturn(false);
+        when(guard.insightsAvailableFor(userId)).thenReturn(false);
+
+        assertThat(service.getStory(userId, null).status()).isEqualTo("none");
+        assertThat(service.why(userId, "CATEGORY_HIGH|Food|2026-09", null).writtenByAi()).isFalse();
+        assertThat(service.lookAt(userId, null).orderedByAi()).isFalse();
     }
 
     // ---- why ----

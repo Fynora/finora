@@ -5,6 +5,7 @@ import { MetricTile } from '../components/AccountUI';
 import { Button } from '../components/Button';
 import { ExportDataSheet } from './settings/ExportDataSheet';
 import { SavedStatementPasswordsSection } from './settings/SavedStatementPasswordsSection';
+import { AiFeaturesSection } from './settings/AiFeaturesSection';
 import { analyticsApi, userApi } from '../api/endpoints';
 import { fmtDate } from '../lib/format';
 import { spacing, useTheme } from '../theme';
@@ -45,6 +46,8 @@ export function SettingsDataScreen() {
         </View>
         <Button label="Export" onPress={() => setExportOpen(true)} variant="link" disabled={!signInMethod} />
       </View>
+
+      <AiFeaturesSection />
 
       <SavedStatementPasswordsSection />
 

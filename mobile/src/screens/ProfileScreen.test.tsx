@@ -27,6 +27,9 @@ const settings: UserSettings = {
   createdAt: '2026-01-15T00:00:00Z',
   passwordChangedAt: '2026-07-06T00:00:00Z',
   signInMethod: 'PASSWORD',
+  termsAcceptanceRequired: false,
+  currentTermsVersion: '2026-10',
+  aiProcessingConsent: true,
 };
 
 const navigation = { navigate: jest.fn() };

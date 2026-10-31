@@ -101,6 +101,8 @@ class AiInsightControllerIT extends AbstractIntegrationTest {
         u.setFullName("Sample User");
         u.setAccountScope(User.SCOPE_USER);
         u.setPhoneVerified(true);
+        // These tests are about AI paths, so the user has said yes to "AI features" (V302).
+        u.recordAiProcessingConsent(true, java.time.Instant.now());
         u = userRepository.save(u);
         subscriptionService.provisionFreeSubscription(u.getId());
         Account a = new Account();
@@ -248,6 +250,30 @@ class AiInsightControllerIT extends AbstractIntegrationTest {
         JsonNode reopened = data(call(HttpMethod.POST, "/api/v1/insights/look-at/why", user, body));
         assertThat(reopened.get("rating").asText()).isEqualTo("HELPFUL");
         assertThat(reopened.get("ratingReason").isNull()).isTrue();
+    }
+
+    // Shaped like yyyy-MM but not a month: GET /insights refused these (MonthParam), the AI endpoints
+    // answered them 200. Found 2026-10-31.
+    @Test
+    void aMonthThatCannotExistIs400() throws Exception {
+        for (String bad : List.of("2026-13", "2027-00", "0000-06")) {
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/story?month=" + bad, user, null).getStatusCode())
+                    .as("GET story " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.POST, "/api/v1/insights/story", user, "{\"month\":\"" + bad + "\"}").getStatusCode())
+                    .as("POST story " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/look-at?month=" + bad, user, null).getStatusCode())
+                    .as("look-at " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.POST, "/api/v1/insights/look-at/why", user,
+                    "{\"kind\":\"CATEGORY_HIGH\",\"itemKey\":\"Food|" + month + "\",\"month\":\"" + bad + "\"}").getStatusCode())
+                    .as("why " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(call(HttpMethod.GET, "/api/v1/insights/narration?month=" + bad, user, null).getStatusCode())
+                    .as("narration " + bad).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        // The real month still works, and is the only thing written.
+        assertThat(call(HttpMethod.POST, "/api/v1/insights/story", user, "{\"month\":\"" + month + "\"}").getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(data(call(HttpMethod.GET, "/api/v1/insights/story?month=" + month, user, null)).get("status").asText())
+                .isEqualTo("ready");
     }
 
     @Test

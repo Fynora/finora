@@ -71,6 +71,8 @@ class AiInsightConcurrencyIT extends AbstractIntegrationTest {
         u.setEmail("ai-concurrency-" + UUID.randomUUID() + "@example.com");
         u.setPasswordHash("not-used");
         u.setFullName("Sample User");
+        // These tests are about AI paths, so the user has said yes to "AI features" (V302).
+        u.recordAiProcessingConsent(true, java.time.Instant.now());
         userId = userRepository.save(u).getId();
         subscriptionService.provisionFreeSubscription(userId);
         Account a = new Account();

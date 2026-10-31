@@ -137,6 +137,18 @@ public class RazorpaySubscriptionGatewayImpl implements RazorpaySubscriptionGate
     }
 
     @Override
+    public SubscriptionState fetchSubscriptionState(String razorpaySubscriptionId) {
+        try {
+            com.razorpay.Subscription subscription = client().subscriptions.fetch(razorpaySubscriptionId);
+            Object currentEnd = subscription.toJson().opt("current_end");
+            return new SubscriptionState(subscription.get("status"),
+                    currentEnd instanceof Number n ? java.time.Instant.ofEpochSecond(n.longValue()) : null);
+        } catch (RazorpayException e) {
+            throw new IllegalStateException("Razorpay fetchSubscription failed.", e);
+        }
+    }
+
+    @Override
     public void cancelSubscription(String razorpaySubscriptionId, boolean cancelAtCycleEnd) {
         try {
             JSONObject request = new JSONObject();

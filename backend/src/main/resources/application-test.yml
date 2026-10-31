@@ -150,6 +150,11 @@ app:
     sweep:
       enabled: false
 
+  # Same reasoning -- tests call LapsedSubscriptionCheckSweepService.sweep() directly.
+  lapsed-subscription-check:
+    sweep:
+      enabled: false
+
   # Same reasoning as subscription-reconciliation.sweep above -- tests call
   # SubscriptionCancellationDispatchSweepService.sweep() directly.
   subscription-cancellation-dispatch:

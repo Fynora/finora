@@ -106,4 +106,12 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, UUID
            "AND s.cancellationDispatchedAt IS NULL AND s.razorpaySubscriptionId IS NOT NULL " +
            "AND s.renewalDate <= :cutoff")
     List<Subscription> findSubscriptionsAwaitingCancellationDispatch(@Param("cutoff") LocalDate cutoff);
+
+    /** LapsedSubscriptionCheckSweepService -- paid rows that still grant access (ACTIVE/TRIAL, the
+     *  statuses findActiveOrTrial reads) though their paid-until date is before {@code cutoff}. Only
+     *  the two providers whose subscription can be asked about; a complimentary admin grant has no
+     *  provider and no end. */
+    @Query("SELECT s FROM Subscription s WHERE s.status IN ('ACTIVE', 'TRIAL') " +
+           "AND s.paymentProvider IN ('RAZORPAY', 'REVENUECAT') AND s.renewalDate < :cutoff")
+    List<Subscription> findPaidAccessPastRenewalDate(@Param("cutoff") LocalDate cutoff);
 }

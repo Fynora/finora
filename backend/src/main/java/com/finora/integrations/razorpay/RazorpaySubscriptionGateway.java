@@ -41,6 +41,16 @@ public interface RazorpaySubscriptionGateway {
 
     RazorpaySubscriptionDto fetchSubscription(String razorpaySubscriptionId);
 
+    /** A subscription's status and the end of its current period. LapsedSubscriptionCheckSweepService
+     *  reads both: whether Razorpay ended it, and when a live one is paid until. A default so the many
+     *  test fakes keep compiling; it knows no period end. */
+    default SubscriptionState fetchSubscriptionState(String razorpaySubscriptionId) {
+        return new SubscriptionState(fetchSubscription(razorpaySubscriptionId).status(), null);
+    }
+
+    /** @param currentEnd the end of the current billing period, or null when Razorpay gave none */
+    record SubscriptionState(String status, java.time.Instant currentEnd) {}
+
     /** {@code cancelAtCycleEnd=true} for every user-initiated cancellation (spec §6.3); {@code false}
      *  is an immediate stop, used by two Plan 2 callers: the admin support action (spec §6.6), and
      *  {@code RazorpayWebhookDispatcher.handleActivated} stopping the OLD subscription once an

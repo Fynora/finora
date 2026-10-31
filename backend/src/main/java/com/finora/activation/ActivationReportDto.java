@@ -29,6 +29,9 @@ public record ActivationReportDto(
         Instant sourceTrackingStart,
         /** Counted users per source, at their furthest step, with the second-import measure. */
         List<SourceRow> bySource,
+        /** V300: the first public page each sign-up landed on, with how many got data in. Aggregates
+         *  only; counts accounts made after landing paths began to be recorded. */
+        LandingPaths landingPaths,
         /** The second-import measure over every counted user. */
         SecondImport secondImport,
         /** Gate 2b spec §6: month-start nudges queued per month (IST), oldest first. */
@@ -65,6 +68,25 @@ public record ActivationReportDto(
     @Schema(name = "ActivationSourceRow")
     public record SourceRow(SignupSourceKind kind, String utmSource, Map<FunnelStep, Long> counts,
                             SecondImport secondImport) {}
+
+    /**
+     * Sign-ups by the first public page of their visit (V300), for accounts made after
+     * {@code trackingStart} (when landing paths began to be recorded; null when that is not known,
+     * in which case every list is empty). {@code pages} are the busiest paths, most sign-ups first;
+     * {@code other} sums the paths beyond them; {@code none} counts accounts with no landing path
+     * recorded -- a visit that began off the public pages, a typed-in /auth, the mobile apps.
+     */
+    @Schema(name = "ActivationLandingPaths")
+    public record LandingPaths(Instant trackingStart, List<LandingPathRow> pages, LandingPathRow other,
+                               LandingPathRow none) {}
+
+    /**
+     * One landing path: how many counted accounts started on it and how many of those got data in
+     * (reached {@link FunnelStep#GOT_DATA_IN}). {@code path} is null for the {@code other} and
+     * {@code none} rows.
+     */
+    @Schema(name = "ActivationLandingPathRow")
+    public record LandingPathRow(String path, long signups, long gotDataIn) {}
 
     /**
      * People who imported a second, different statement file that brought in at least one

@@ -3,12 +3,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SITE_ORIGIN, canonicalUrl } from '../src/lib/siteUrl';
+import { LANDING_PATH_META, landingPathOfDocument } from '../src/lib/signupAttribution';
 import {
+  LANDING_PATH_META as SCRIPT_LANDING_PATH_META,
   SITE_ORIGIN as SCRIPT_ORIGIN,
   templateForHomepage,
   templateForNotFound,
   templateForPage,
   withCanonical,
+  withLandingPath,
   withRobotsNoindex,
 } from './prerenderTitle.mjs';
 import { spaShellHtml } from './spaShell.mjs';
@@ -207,6 +210,52 @@ describe('the address each built document names', () => {
     }
   });
 
+  // The landing-path marker (src/lib/signupAttribution.ts reads it): a prerendered public page names
+  // its own route, so the sign-up's landing page can only ever be a real public page.
+  const landingPathMetas = (html: string) =>
+    hrefs(html, /<meta\b[^>]*name=["']fynora-landing-path["'][^>]*>/g, 'content');
+
+  it('the marker name is the one the web app reads', () => {
+    expect(SCRIPT_LANDING_PATH_META).toBe(LANDING_PATH_META);
+  });
+
+  it('homepage and every other prerendered page: exactly one landing-path marker, its own route, which the web app accepts', () => {
+    const pages = outputRoutes.filter((route) => route !== '/');
+    expect(pages.length).toBeGreaterThan(0);
+    const home = templateForHomepage(template, FONT);
+    expect(landingPathMetas(home)).toEqual(['/']);
+    for (const route of pages) {
+      const page = templateForPage(template, { title: 'T — Fynora', description: 'D.', route });
+      expect(landingPathMetas(page), route).toEqual([route]);
+    }
+    // What the client reads back from a real document built that way is the route itself, for
+    // every page the build writes -- so no route is one the client would reject.
+    for (const route of outputRoutes) {
+      const html = route === '/' ? home : templateForPage(template, { title: 'T — Fynora', description: 'D.', route });
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      expect(landingPathOfDocument(parsed, route), route).toBe(route);
+    }
+  });
+
+  it('blank shell and not-found page carry no landing-path marker: they are not landing pages', () => {
+    const shell = spaShellHtml(template);
+    const notFound = templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' });
+    expect(landingPathMetas(shell)).toEqual([]);
+    expect(landingPathMetas(notFound)).toEqual([]);
+    expect(landingPathMetas(template)).toEqual([]);
+  });
+
+  it('refuses a template that already has a marker, and a route that is not a plain page path', () => {
+    const tagged = template.replace('</head>', '<meta name="fynora-landing-path" content="/x" />\n</head>');
+    expect(() => templateForHomepage(tagged, FONT)).toThrow(/already has a landing-path meta/);
+    expect(() => templateForPage(tagged, { title: 'T', description: 'D', route: '/terms' }))
+      .toThrow(/already has a landing-path meta/);
+    expect(() => withLandingPath('<html></html>', '/terms')).toThrow(/no <\/head>/);
+    for (const bad of ['', 'terms', '/Terms', '/terms?x=1', '/terms#a', '//terms', '/a b', '/..', '/a/../b']) {
+      expect(() => withLandingPath(template, bad), bad).toThrow(/not a plain lower-case page path/);
+    }
+  });
+
   it('blank shell (dist/spa-shell.html) and not-found page (dist/404.html): neither tag, and noindex', () => {
     const shell = spaShellHtml(template);
     const notFound = templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' });
@@ -237,6 +286,6 @@ describe('the address each built document names', () => {
     expect(prerenderSource).toContain('pageTemplate = templateForPage(template, { title, description, route });');
     expect(prerenderSource).toContain('const pageTemplate = templateForNotFound(template, { title, description });');
     // No address tag is added anywhere else in the script.
-    expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta)\(/);
+    expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta|LandingPath)\(/);
   });
 });

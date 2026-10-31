@@ -130,6 +130,33 @@ export function withOgUrl(templateHtml, route) {
   return templateHtml.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
 }
 
+/** The <meta name> withLandingPath writes and src/lib/signupAttribution.ts reads. A copy of
+ *  LANDING_PATH_META there (a build script cannot import TypeScript from src); seoFiles.test.tsx
+ *  fails if the two differ. */
+export const LANDING_PATH_META = 'fynora-landing-path';
+
+/**
+ * Adds <meta name="fynora-landing-path" content="<route>"> before </head>: the page's own route,
+ * which the web app reads on arrival to record which public page a sign-up began on
+ * (src/lib/signupAttribution.ts). Written from the route this script is rendering, never from
+ * anything a visitor controls, so the value can only be a real public page's address.
+ *
+ * Only the prerendered public pages get it, the homepage included. The blank SPA shell (/auth,
+ * /app/...), the not-found page and the template itself must not: they are not landing pages, and a
+ * mistyped address that is answered with the 404 page must never be recorded as one. Throws if the
+ * template already has one, like withCanonical, since every document is built from one template.
+ */
+export function withLandingPath(templateHtml, route) {
+  if (new RegExp(`<meta name=["']${LANDING_PATH_META}["']`).test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has a landing-path meta; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
+  if (!/^\/([a-z0-9_~-][a-z0-9._~-]*(\/[a-z0-9_~-][a-z0-9._~-]*)*)?$/.test(route)) {
+    throw new Error(`prerender: ${JSON.stringify(route)} is not a plain lower-case page path, so it cannot be a landing path.`);
+  }
+  return templateHtml.replace('</head>', () => `<meta name="${LANDING_PATH_META}" content="${route}" />\n</head>`);
+}
+
 /**
  * Adds the page's JSON-LD <script> tags (src/lib/structuredData.ts, via ssr-entry) before </head>.
  * Throws if the template already carries some: the prerender runs once per route from one shared
@@ -223,12 +250,14 @@ export function withRobotsNoindex(templateHtml) {
  * `wrangler dev`) still answer every unknown path with index.html.
  */
 export function templateForHomepage(templateHtml, heroFontHref) {
-  return withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/');
+  return withLandingPath(withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/'), '/');
 }
 
-/** Every other prerendered page: its own title, description, social tags, canonical and og:url. */
+/** Every other prerendered page: its own title, description, social tags, canonical and og:url, and
+ *  its landing-path marker. */
 export function templateForPage(templateHtml, { title, description, route }) {
-  return withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route });
+  return withLandingPath(
+    withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route }), route);
 }
 
 /**

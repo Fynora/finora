@@ -51,6 +51,14 @@ public class ActivationFunnelService {
     static final String TRACKING_START_SQL =
             "SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h WHERE h.version = '286' AND h.success";
 
+    /** The same for V300 (signup_attributions.landing_path): accounts made before it have no landing path. */
+    static final String LANDING_TRACKING_START_SQL =
+            "SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h WHERE h.version = '300' AND h.success";
+
+    /** The busiest landing paths listed by name; the rest are summed into one "other" row, so a
+     *  stream of made-up paths posted to the sign-up endpoint cannot grow the report. */
+    static final int MAX_LANDING_PATHS = 25;
+
     /** One row per counted user, each fact an EXISTS over the table that records it (spec §3). */
     private static final String FACTS_SQL = """
             SELECT u.id,
@@ -72,10 +80,14 @@ public class ActivationFunnelService {
                    EXISTS (SELECT 1 FROM referrals r WHERE r.referred_user_id = u.id) AS referred,
                    a.utm_source,
                    a.referrer_host,
+                   a.landing_path,
                    -- No V286 row means the start is not known: everyone counts as before it, so nobody
                    -- is called "direct" whom nothing was recording.
                    COALESCE(u.created_at < (SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h
-                                             WHERE h.version = '286' AND h.success), true) AS before_tracking
+                                             WHERE h.version = '286' AND h.success), true) AS before_tracking,
+                   -- The same for V300: no landing path was being recorded before it.
+                   COALESCE(u.created_at < (SELECT max(h.installed_on)::timestamptz FROM flyway_schema_history h
+                                             WHERE h.version = '300' AND h.success), true) AS before_landing_tracking
               FROM users u
               LEFT JOIN signup_attributions a ON a.user_id = u.id
              WHERE u.account_scope = 'USER'
@@ -112,7 +124,8 @@ public class ActivationFunnelService {
      * a file first imported on a later reporting day than their first file.
      */
     record Counted(FunnelStep step, LocalDate weekStart, String tracking, SignupSources.Source source,
-                   Double daysToSecondImport, boolean cameBackLaterDay) {}
+                   Double daysToSecondImport, boolean cameBackLaterDay, String landingPath,
+                   boolean beforeLandingTracking) {}
 
     /**
      * @param from first answer date counted, inclusive; null means {@code to} minus 90 days
@@ -146,7 +159,8 @@ public class ActivationFunnelService {
             List<OffsetDateTime> imported = files.getOrDefault(id, List.of());
             users.put(id, new Counted(step, rs.getObject("week_start", LocalDate.class),
                     rs.getString("spending_tracking_method"), source,
-                    daysToSecond(imported), cameBackLaterDay(imported, zone)));
+                    daysToSecond(imported), cameBackLaterDay(imported, zone),
+                    rs.getString("landing_path"), rs.getBoolean("before_landing_tracking")));
         }, reportingDay.zone().getId());
 
         return new ActivationReportDto(
@@ -159,6 +173,7 @@ public class ActivationFunnelService {
                 deletionReasons(),
                 trackingStart(),
                 bySource(users),
+                landingPaths(users, landingTrackingStart()),
                 secondImport(users.values()),
                 monthStartNudges());
     }
@@ -190,6 +205,47 @@ public class ActivationFunnelService {
     private Instant trackingStart() {
         OffsetDateTime start = jdbc.queryForObject(TRACKING_START_SQL, OffsetDateTime.class);
         return start == null ? null : start.toInstant();
+    }
+
+    private Instant landingTrackingStart() {
+        OffsetDateTime start = jdbc.queryForObject(LANDING_TRACKING_START_SQL, OffsetDateTime.class);
+        return start == null ? null : start.toInstant();
+    }
+
+    /**
+     * Sign-ups by the first public page of their visit (V300), counting only accounts made after
+     * landing paths began to be recorded: before that, "no landing path" meant nothing was being
+     * recorded, not that the visit began somewhere else. Paths come from the build's page marker, so
+     * each is a real public page; the list is still capped at {@link #MAX_LANDING_PATHS} names.
+     *
+     * @param start when landing paths began to be recorded, or null when not known (nobody counts)
+     */
+    static ActivationReportDto.LandingPaths landingPaths(Map<UUID, Counted> users, Instant start) {
+        Map<String, long[]> byPath = new HashMap<>();
+        long[] none = new long[2];
+        for (Counted c : users.values()) {
+            if (start == null || c.beforeLandingTracking()) continue;
+            long[] counts = c.landingPath() == null ? none : byPath.computeIfAbsent(c.landingPath(), p -> new long[2]);
+            counts[0]++;
+            if (c.step() == FunnelStep.GOT_DATA_IN) counts[1]++;
+        }
+        List<Map.Entry<String, long[]>> ordered = new ArrayList<>(byPath.entrySet());
+        ordered.sort((a, b) -> a.getValue()[0] != b.getValue()[0]
+                ? Long.compare(b.getValue()[0], a.getValue()[0]) : a.getKey().compareTo(b.getKey()));
+        List<ActivationReportDto.LandingPathRow> pages = new ArrayList<>();
+        long[] other = new long[2];
+        for (int i = 0; i < ordered.size(); i++) {
+            Map.Entry<String, long[]> e = ordered.get(i);
+            if (i < MAX_LANDING_PATHS) {
+                pages.add(new ActivationReportDto.LandingPathRow(e.getKey(), e.getValue()[0], e.getValue()[1]));
+            } else {
+                other[0] += e.getValue()[0];
+                other[1] += e.getValue()[1];
+            }
+        }
+        return new ActivationReportDto.LandingPaths(start, pages,
+                new ActivationReportDto.LandingPathRow(null, other[0], other[1]),
+                new ActivationReportDto.LandingPathRow(null, none[0], none[1]));
     }
 
     /**

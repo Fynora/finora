@@ -226,6 +226,14 @@ A new page under Analytics, gated by `PLATFORM_ANALYTICS_VIEW`. Counts only.
      another day".
    - A `utm_source` value that looks like an email or phone number is shown withheld. The
      Dashboard's "Sign-ups by source" list follows the same unknown, deletion and withholding rules.
+   - **Signups by landing page** *(added 2026-10-31, V300)*, under the source table: the first public
+     Fynora page of the visit, as a path (`/help`, a bank page), with how many got data in. The path
+     is not read from the address bar: the build writes each prerendered public page's own route into
+     it as `<meta name="fynora-landing-path">` (`prerenderTitle.mjs` `withLandingPath`), so the 404
+     page, `/auth` and `/app/...` carry none and a made-up address can never be recorded. Counted:
+     accounts made after V300 was applied. The busiest 25 paths are named, the rest are summed as
+     "other pages", and accounts with none are "no landing page recorded" (mobile apps, visits that
+     began off the public pages). Counts only; deleted with the account.
 6. **Second import.** Beside the totals: people who imported a second, different statement file
    that brought in at least one transaction, the median days from the first file to the second,
    and how many sent a file on a later IST day than their first. Files, not rows: one composite

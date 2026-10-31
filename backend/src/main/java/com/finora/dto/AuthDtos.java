@@ -74,8 +74,17 @@ public class AuthDtos {
             String utmSource,
             String utmMedium,
             String utmCampaign,
-            String utmContent
-    ) {}
+            String utmContent,
+            // V300: the path of the first public page of the visit ("/help", "/banks/example-bank").
+            // The website reads it from a marker the build writes into each prerendered page.
+            String landingPath
+    ) {
+        /** Without a landing path -- a caller that predates it. */
+        public SignupAttributionRequest(String referrerHost, String utmSource, String utmMedium,
+                                        String utmCampaign, String utmContent) {
+            this(referrerHost, utmSource, utmMedium, utmCampaign, utmContent, null);
+        }
+    }
 
     /**
      * `identifier` accepts either an email address or a registered mobile number -- users

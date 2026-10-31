@@ -19,6 +19,21 @@
  * Only the referrer's host is kept, never its path or query: a full referrer URL can carry
  * another site's session tokens. A referrer on this site's own host is dropped, since that is
  * the app linking to itself, not a channel. No analytics SDK, no identifiers.
+ *
+ * The landing path is which public Fynora page the visit began on ("/help", a bank page), so each
+ * page of the site can be measured by the accounts it brings in. It is NOT read from the address
+ * bar. The build writes the page's own route into every prerendered public page as
+ * <meta name="fynora-landing-path"> (scripts/prerenderTitle.mjs withLandingPath), and this reads that.
+ * So only a page that really exists as a public page can ever be recorded: a typo, an address
+ * someone made up, the 404 page, /auth and every /app page carry no marker. The marker must also
+ * name the address the browser is on: a server that answers an unknown address with the homepage's
+ * file (the local `wrangler dev` / `vite` fallback, or any future misconfiguration) would otherwise
+ * make a mistyped address count as a visit to "/". Nothing from the
+ * address bar's query or fragment is involved, so nothing personal can arrive this way. Unlike the
+ * referrer and tags, a landing path is also kept for a visit with neither (typed in, bookmarked),
+ * but only when the tab holds no capture at all: the FIRST public page, and never replaced by a
+ * later page of the same tab. A new arrival that does carry a referrer or a tag starts over,
+ * landing path included.
  */
 
 export const SIGNUP_ATTRIBUTION_KEY = 'finora:signup-attribution';
@@ -26,15 +41,49 @@ export const SIGNUP_ATTRIBUTION_KEY = 'finora:signup-attribution';
 /** Matches SignupAttributionService.UTM_MAX_LENGTH on the backend, which caps again. */
 export const MAX_VALUE_LENGTH = 100;
 
+/** The <meta name> the build puts on each prerendered public page; its content is the page's route. */
+export const LANDING_PATH_META = 'fynora-landing-path';
+
+/** Matches SignupAttributionService.LANDING_PATH_MAX_LENGTH and the V300 column, which check again. */
+export const MAX_LANDING_PATH_LENGTH = 200;
+
 export interface SignupAttribution {
   referrerHost?: string;
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
   utmContent?: string;
+  landingPath?: string;
 }
 
-const FIELDS = ['referrerHost', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent'] as const;
+const TAG_FIELDS = ['referrerHost', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent'] as const;
+
+/** "/" or "/seg" or "/seg/seg": lower-case segments that do not start with a dot. The same shape
+ *  SignupAttributionService.normalizeLandingPath and the V300 CHECK enforce. */
+const LANDING_PATH = /^\/([a-z0-9_~-][a-z0-9._~-]*(\/[a-z0-9_~-][a-z0-9._~-]*)*)?$/;
+
+/** The path if it is a plain public-page path of the shape the backend stores, else undefined. */
+export function validLandingPath(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (value.length > MAX_LANDING_PATH_LENGTH || !LANDING_PATH.test(value)) return undefined;
+  return value;
+}
+
+/**
+ * The route the build wrote into this page, or undefined for a page that is not a prerendered public
+ * page, or whose marker does not name the address the browser is on (`pathname`, a trailing slash
+ * ignored): the document is then some other page's file served for this address.
+ */
+export function landingPathOfDocument(doc: Pick<Document, 'querySelector'>, pathname: string): string | undefined {
+  try {
+    const marker = validLandingPath(doc.querySelector(`meta[name="${LANDING_PATH_META}"]`)?.getAttribute('content'));
+    if (!marker) return undefined;
+    const here = pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+    return marker === here ? marker : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const UTM_PARAMS: ReadonlyArray<[keyof SignupAttribution, string]> = [
   ['utmSource', 'utm_source'],
@@ -76,7 +125,10 @@ export function attributionFromLanding(referrer: string, search: string, ownHost
 }
 
 type StorageWindow = Pick<Window, 'sessionStorage'>;
-type LandingWindow = StorageWindow & { location: Pick<Location, 'host' | 'search'>; document: Pick<Document, 'referrer'> };
+type LandingWindow = StorageWindow & {
+  location: Pick<Location, 'host' | 'search' | 'pathname'>;
+  document: Pick<Document, 'referrer' | 'querySelector'>;
+};
 
 function storage(win: StorageWindow): Storage | null {
   try {
@@ -88,16 +140,29 @@ function storage(win: StorageWindow): Storage | null {
 }
 
 /**
- * Called from main.tsx before the first render. Stores this landing when it carries a referrer
- * or a tag, leaves the tab's earlier capture alone when it carries neither, and fails silently
- * when storage is unavailable: attribution is a measurement, never something that may break the
- * page.
+ * Called from main.tsx before the first render, on every full page load.
+ *
+ * - An arrival that carries a referrer or a tag is a new visit: it replaces what the tab held, with
+ *   this page's landing path if it is a public page.
+ * - An arrival that carries neither leaves the tab's capture alone, except that a tab holding
+ *   nothing at all takes this page's landing path, if it is a public page: the first public page.
+ *
+ * Fails silently when storage is unavailable: attribution is a measurement, never something that may
+ * break the page.
  */
 export function captureSignupAttribution(win: LandingWindow): void {
   const store = storage(win);
   if (!store) return;
-  const captured = attributionFromLanding(win.document.referrer, win.location.search, win.location.host);
-  if (Object.keys(captured).length === 0) return;
+  const landingPath = landingPathOfDocument(win.document, win.location.pathname);
+  const arrival = attributionFromLanding(win.document.referrer, win.location.search, win.location.host);
+  let captured: SignupAttribution;
+  if (Object.keys(arrival).length > 0) {
+    captured = landingPath ? { ...arrival, landingPath } : arrival;
+  } else if (landingPath && readSignupAttribution(win) === undefined) {
+    captured = { landingPath };
+  } else {
+    return;
+  }
   try {
     store.setItem(SIGNUP_ATTRIBUTION_KEY, JSON.stringify(captured));
   } catch {
@@ -120,9 +185,12 @@ export function readSignupAttribution(win: StorageWindow): SignupAttribution | u
   if (!parsed || typeof parsed !== 'object') return undefined;
   const out: SignupAttribution = {};
   const record = parsed as Record<string, unknown>;
-  for (const key of FIELDS) {
+  for (const key of TAG_FIELDS) {
     const value = record[key];
     if (typeof value === 'string' && value) out[key] = value.slice(0, MAX_VALUE_LENGTH);
   }
+  // Re-checked on the way out, never cut: a shortened path would name a different page.
+  const landingPath = validLandingPath(record.landingPath);
+  if (landingPath) out.landingPath = landingPath;
   return Object.keys(out).length > 0 ? out : undefined;
 }

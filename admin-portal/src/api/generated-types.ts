@@ -7989,6 +7989,7 @@ export interface components {
             utmMedium?: string;
             utmCampaign?: string;
             utmContent?: string;
+            landingPath?: string;
         };
         ApiResponseStatementSendReceived: {
             success?: boolean;
@@ -14157,6 +14158,20 @@ export interface components {
             /** Format: int64 */
             count?: number;
         };
+        ActivationLandingPathRow: {
+            path?: string;
+            /** Format: int64 */
+            signups?: number;
+            /** Format: int64 */
+            gotDataIn?: number;
+        };
+        ActivationLandingPaths: {
+            /** Format: date-time */
+            trackingStart?: string;
+            pages?: components["schemas"]["ActivationLandingPathRow"][];
+            other?: components["schemas"]["ActivationLandingPathRow"];
+            none?: components["schemas"]["ActivationLandingPathRow"];
+        };
         ActivationNudgeMonth: {
             /** Format: date */
             month?: string;
@@ -14177,6 +14192,7 @@ export interface components {
             /** Format: date-time */
             sourceTrackingStart?: string;
             bySource?: components["schemas"]["ActivationSourceRow"][];
+            landingPaths?: components["schemas"]["ActivationLandingPaths"];
             secondImport?: components["schemas"]["ActivationSecondImport"];
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
         };

@@ -177,6 +177,75 @@ class AuthFlowIT extends AbstractIntegrationTest {
         assertThat(mapper.readTree(response.getBody()).get("data").get("accountCreated").asBoolean()).isTrue();
     }
 
+    /** V300: the first public page of the visit is persisted beside the rest of the attribution, as a
+     *  path only -- a trailing slash is dropped. */
+    @Test
+    void register_withALandingPath_persistsItWithTheAttribution() {
+        String email = "landing-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Landing Test", "phoneNumber": "%s",
+                 "attribution": {"utmSource": "news", "landingPath": "/banks/example-bank/"}}
+                """.formatted(email, phoneNumber);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        var attribution = signupAttributionRepository.findById(saved.getId()).orElseThrow();
+        assertThat(attribution.getLandingPath()).isEqualTo("/banks/example-bank");
+        assertThat(attribution.getUtmSource()).isEqualTo("news");
+    }
+
+    /** V300: a visitor who arrived directly on a page has only a landing path; that is still a row. */
+    @Test
+    void register_withOnlyALandingPath_persistsARow() {
+        String email = "landingonly-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Landing Only", "phoneNumber": "%s",
+                 "attribution": {"landingPath": "/help"}}
+                """.formatted(email, phoneNumber);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        var attribution = signupAttributionRepository.findById(saved.getId()).orElseThrow();
+        assertThat(attribution.getLandingPath()).isEqualTo("/help");
+        assertThat(attribution.getReferrerHost()).isNull();
+        assertThat(attribution.getUtmSource()).isNull();
+    }
+
+    /** V300: a landing path that is not a plain page path (a query, a host, a token) never reaches the
+     *  table, and the sign-up still succeeds; the rest of the attribution is kept. */
+    @Test
+    void register_withAnUnusableLandingPath_dropsItButStillRegisters() {
+        String email = "badlanding-" + UUID.randomUUID() + "@example.com";
+        String phoneNumber = "+919" + String.format("%09d", ThreadLocalRandom.current().nextInt(1_000_000_000));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {"email": "%s", "password": "SecurePass123", "fullName": "Bad Landing", "phoneNumber": "%s",
+                 "attribution": {"utmSource": "news", "landingPath": "/reset-password?token=secret"}}
+                """.formatted(email, phoneNumber);
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/register", new HttpEntity<>(body, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        User saved = userRepository.findByEmailIgnoreCaseAndAccountScope(email, User.SCOPE_USER).orElseThrow();
+        var attribution = signupAttributionRepository.findById(saved.getId()).orElseThrow();
+        assertThat(attribution.getLandingPath()).isNull();
+        assertThat(attribution.getUtmSource()).isEqualTo("news");
+    }
+
     /** V286: the mobile apps and a direct visit send no attribution; the sign-up must go through
      *  exactly as before, with no attribution row. */
     @Test

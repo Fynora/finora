@@ -18705,6 +18705,9 @@
                     },
                     "utmContent": {
                         "type": "string"
+                    },
+                    "landingPath": {
+                        "type": "string"
                     }
                 }
             },
@@ -34652,6 +34655,43 @@
                     }
                 }
             },
+            "ActivationLandingPathRow": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "signups": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "gotDataIn": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationLandingPaths": {
+                "type": "object",
+                "properties": {
+                    "trackingStart": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "pages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationLandingPathRow"
+                        }
+                    },
+                    "other": {
+                        "$ref": "#/components/schemas/ActivationLandingPathRow"
+                    },
+                    "none": {
+                        "$ref": "#/components/schemas/ActivationLandingPathRow"
+                    }
+                }
+            },
             "ActivationNudgeMonth": {
                 "type": "object",
                 "properties": {
@@ -34721,6 +34761,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationSourceRow"
                         }
+                    },
+                    "landingPaths": {
+                        "$ref": "#/components/schemas/ActivationLandingPaths"
                     },
                     "secondImport": {
                         "$ref": "#/components/schemas/ActivationSecondImport"

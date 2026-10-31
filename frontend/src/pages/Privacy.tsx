@@ -32,10 +32,11 @@ export default function Privacy() {
         </p>
         <p>
           When you sign up on the website, Fynora also notes where that visit came from: the name of the
-          website that linked you here (its address only, never the page you were on) and any campaign tags
-          in the link you followed (utm_source, utm_medium, utm_campaign, utm_content). We use this only to
-          learn which places bring people to Fynora. It is kept with your account and deleted with it, and is
-          never used to advertise to you.
+          website that linked you here (its address only, never the page you were on), any campaign tags
+          in the link you followed (utm_source, utm_medium, utm_campaign, utm_content), and which public
+          page of Fynora you first landed on (its address only, such as /help). We use this only to
+          learn which places and pages bring people to Fynora. It is kept with your account and deleted with
+          it, and is never used to advertise to you.
         </p>
       </PublicSection>
 

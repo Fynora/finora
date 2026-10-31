@@ -88,6 +88,16 @@ describe('bank statement pages: what they may and may not say', () => {
     }
   });
 
+  it("describes a statement password the way the Privacy page does: kept only if the user chooses to save it", () => {
+    // Statement refresh lets the user tick "Keep this password" at upload (Import.tsx, ImportScreen.tsx),
+    // so "not stored afterwards" would be untrue for anyone who ticked it.
+    for (const page of BANK_PAGES) {
+      const answer = bankPageFaq(page).find(([q]) => /password-protected/i.test(q))?.[1] ?? '';
+      expect(answer, page.slug).toMatch(/does not keep it unless you choose to save it/);
+      expect(answer, page.slug).not.toMatch(/not stored afterwards/);
+    }
+  });
+
   it('promises checking, never perfection', () => {
     const overclaim = /perfect|flawless|guarantee|100 ?%|always (reads|works)|every (bank|layout)|official partner|in partnership/i;
     for (const page of BANK_PAGES) expect(textOf(page), page.slug).not.toMatch(overclaim);

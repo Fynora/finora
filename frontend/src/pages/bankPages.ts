@@ -467,7 +467,7 @@ export function bankPageFaq(page: BankPage): [string, string][] {
     [`Does Fynora connect to my ${page.bankName} account?`, landingAnswer('Does Fynora connect to my bank account?')],
     [
       `My ${page.bankName} ${product} is password-protected. Can I still upload it?`,
-      'Yes. Password-protected PDFs work: enter the password during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL, and is not stored afterwards, so a later re-import will ask again.',
+      'Yes. Password-protected PDFs work: enter the password during upload and Fynora opens the file to read it. The password travels in the request body, never in a URL. Fynora does not keep it unless you choose to save it so that statement can be refreshed without asking you again; if you do not, a later re-import will ask again.',
     ],
     [
       'Can I upload a statement longer than one month?',

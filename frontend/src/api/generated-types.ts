@@ -14258,6 +14258,24 @@ export interface components {
             /** Format: int64 */
             importedWithin3Days?: number;
         };
+        ActivationReached: {
+            /** Format: int64 */
+            signups?: number;
+            steps?: components["schemas"]["ActivationReachedRow"][];
+            stoppedAt?: {
+                [key: string]: number;
+            };
+        };
+        ActivationReachedRow: {
+            /** @enum {string} */
+            step?: "SIGNED_UP" | "OPENED_IMPORT" | "CHOSE_FILE" | "FILE_READ" | "REVIEW_OPENED" | "GOT_DATA_IN";
+            /** Format: int64 */
+            reached?: number;
+            /** Format: int64 */
+            lost?: number;
+            /** Format: int64 */
+            lostBeforeFunnelRecord?: number;
+        };
         ActivationReportDto: {
             /** Format: date */
             funnelGoLive?: string;
@@ -14273,6 +14291,7 @@ export interface components {
             landingPaths?: components["schemas"]["ActivationLandingPaths"];
             secondImport?: components["schemas"]["ActivationSecondImport"];
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
+            reached?: components["schemas"]["ActivationReached"];
         };
         ActivationSecondImport: {
             /** Format: int64 */
@@ -14314,6 +14333,11 @@ export interface components {
             counts?: {
                 [key: string]: number;
             };
+            reached?: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            cameBackLaterDay?: number;
         };
         ApiResponseActivationReportDto: {
             success?: boolean;

@@ -21,7 +21,7 @@ class LandingPathsReportTest {
 
     private static ActivationFunnelService.Counted user(FunnelStep step, String landingPath, boolean beforeTracking) {
         return new ActivationFunnelService.Counted(step, LocalDate.of(2026, 11, 2), null, DIRECT, null, false,
-                landingPath, beforeTracking);
+                landingPath, beforeTracking, LocalDate.of(2026, 11, 2));
     }
 
     private static Map<UUID, ActivationFunnelService.Counted> users(ActivationFunnelService.Counted... all) {

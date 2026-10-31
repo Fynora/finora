@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Date;
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -63,6 +64,7 @@ public class ActivationFunnelService {
     private static final String FACTS_SQL = """
             SELECT u.id,
                    (date_trunc('week', u.created_at AT TIME ZONE ?))::date AS week_start,
+                   (u.created_at AT TIME ZONE ?)::date AS created_day,
                    u.spending_tracking_method,
                    EXISTS (SELECT 1 FROM import_funnel_days f WHERE f.user_id = u.id AND f.event = 'IMPORT_SCREEN_OPENED') AS opened_import,
                    EXISTS (SELECT 1 FROM import_funnel_days f WHERE f.user_id = u.id AND f.event = 'FILE_CHOSEN') AS chose_file,
@@ -125,7 +127,7 @@ public class ActivationFunnelService {
      */
     record Counted(FunnelStep step, LocalDate weekStart, String tracking, SignupSources.Source source,
                    Double daysToSecondImport, boolean cameBackLaterDay, String landingPath,
-                   boolean beforeLandingTracking) {}
+                   boolean beforeLandingTracking, LocalDate createdDay) {}
 
     /**
      * @param from first answer date counted, inclusive; null means {@code to} minus 90 days
@@ -160,12 +162,14 @@ public class ActivationFunnelService {
             users.put(id, new Counted(step, rs.getObject("week_start", LocalDate.class),
                     rs.getString("spending_tracking_method"), source,
                     daysToSecond(imported), cameBackLaterDay(imported, zone),
-                    rs.getString("landing_path"), rs.getBoolean("before_landing_tracking")));
-        }, reportingDay.zone().getId());
+                    rs.getString("landing_path"), rs.getBoolean("before_landing_tracking"),
+                    rs.getObject("created_day", LocalDate.class)));
+        }, zone.getId(), zone.getId());
 
+        LocalDate funnelGoLive = jdbc.queryForObject("SELECT min(funnel_date) FROM import_funnel_days", LocalDate.class);
         return new ActivationReportDto(
-                jdbc.queryForObject("SELECT min(funnel_date) FROM import_funnel_days", LocalDate.class),
-                weeks(users),
+                funnelGoLive,
+                weeks(users.values(), reportingDay.today()),
                 answers(users, start, end),
                 answersByStep(users, start, end),
                 focusByStep(users),
@@ -175,7 +179,58 @@ public class ActivationFunnelService {
                 bySource(users),
                 landingPaths(users, landingTrackingStart()),
                 secondImport(users.values()),
-                monthStartNudges());
+                monthStartNudges(),
+                reached(users.values(), funnelGoLive));
+    }
+
+    /**
+     * Each main-path step with how many reached it and the drop from the step before (see
+     * {@link ReachedStep}). With no signups every count is 0.
+     *
+     * @param funnelGoLive the import-funnel record's first day, or null when it has no rows: then
+     *                     everyone counts as before it
+     */
+    static ActivationReportDto.Reached reached(Collection<Counted> people, LocalDate funnelGoLive) {
+        Map<FunnelStep, Long> stoppedAt = zeroSteps();
+        Map<ReachedStep, Long> reached = zeroReached();
+        Map<ReachedStep, Long> lostBefore = zeroReached();
+        ReachedStep[] path = ReachedStep.values();
+        for (Counted c : people) {
+            stoppedAt.merge(c.step(), 1L, Long::sum);
+            boolean beforeRecord = funnelGoLive == null || c.createdDay().isBefore(funnelGoLive);
+            for (int i = 0; i < path.length; i++) {
+                if (path[i].reachedBy(c.step())) {
+                    reached.merge(path[i], 1L, Long::sum);
+                } else {
+                    // The first step not reached: this person is in its drop.
+                    if (beforeRecord && path[i].fromFunnelRecord()) lostBefore.merge(path[i], 1L, Long::sum);
+                    break;
+                }
+            }
+        }
+        List<ActivationReportDto.ReachedRow> rows = new ArrayList<>();
+        for (int i = 0; i < path.length; i++) {
+            long lost = i == 0 ? 0 : reached.get(path[i - 1]) - reached.get(path[i]);
+            rows.add(new ActivationReportDto.ReachedRow(path[i], reached.get(path[i]), lost, lostBefore.get(path[i])));
+        }
+        return new ActivationReportDto.Reached(people.size(), rows, stoppedAt);
+    }
+
+    /** How many of these people reached each main-path step; every step present. */
+    static Map<ReachedStep, Long> reachedCounts(Collection<Counted> people) {
+        Map<ReachedStep, Long> reached = zeroReached();
+        for (Counted c : people) {
+            for (ReachedStep step : ReachedStep.values()) {
+                if (step.reachedBy(c.step())) reached.merge(step, 1L, Long::sum);
+            }
+        }
+        return reached;
+    }
+
+    private static Map<ReachedStep, Long> zeroReached() {
+        Map<ReachedStep, Long> counts = new EnumMap<>(ReachedStep.class);
+        for (ReachedStep step : ReachedStep.values()) counts.put(step, 0L);
+        return counts;
     }
 
     /** Days from the first distinct file to the second, or null with fewer than two. */
@@ -297,21 +352,31 @@ public class ActivationFunnelService {
         return Math.round(mid * 10) / 10.0;
     }
 
-    private static List<ActivationReportDto.WeekRow> weeks(Map<UUID, Counted> users) {
-        TreeMap<LocalDate, Map<FunnelStep, Long>> byWeek = new TreeMap<>();
-        for (Counted c : users.values()) {
-            byWeek.computeIfAbsent(c.weekStart(), w -> zeroSteps()).merge(c.step(), 1L, Long::sum);
+    /**
+     * One row per IST week from the first signup's week to the later of the last signup's week and
+     * this week. A week with no signups is a row of zeros: left out, a quiet week -- this one
+     * included -- would read as though it never happened. No signups at all: no rows.
+     */
+    static List<ActivationReportDto.WeekRow> weeks(Collection<Counted> people, LocalDate today) {
+        TreeMap<LocalDate, List<Counted>> byWeek = new TreeMap<>();
+        for (Counted c : people) {
+            byWeek.computeIfAbsent(c.weekStart(), w -> new ArrayList<>()).add(c);
         }
-        // A week with no signups between the first and the last is a row of zeros: left out, a quiet
-        // week would read as though it never happened.
         if (!byWeek.isEmpty()) {
-            LocalDate last = byWeek.lastKey();
+            LocalDate thisWeek = today.with(DayOfWeek.MONDAY);
+            LocalDate last = byWeek.lastKey().isAfter(thisWeek) ? byWeek.lastKey() : thisWeek;
             for (LocalDate w = byWeek.firstKey(); w.isBefore(last); w = w.plusWeeks(1)) {
-                byWeek.computeIfAbsent(w, k -> zeroSteps());
+                byWeek.computeIfAbsent(w, k -> new ArrayList<>());
             }
+            byWeek.computeIfAbsent(last, k -> new ArrayList<>());
         }
         List<ActivationReportDto.WeekRow> rows = new ArrayList<>();
-        byWeek.forEach((week, counts) -> rows.add(new ActivationReportDto.WeekRow(week, counts)));
+        byWeek.forEach((week, weekPeople) -> {
+            Map<FunnelStep, Long> counts = zeroSteps();
+            for (Counted c : weekPeople) counts.merge(c.step(), 1L, Long::sum);
+            rows.add(new ActivationReportDto.WeekRow(week, counts, reachedCounts(weekPeople),
+                    secondImport(weekPeople).cameBackLaterDay()));
+        });
         return rows;
     }
 

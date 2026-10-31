@@ -518,6 +518,18 @@ app:
       enabled: ${SUBSCRIPTION_RECONCILIATION_SWEEP_ENABLED:true}
       interval-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INTERVAL_MS:3600000}
       initial-delay-ms: ${SUBSCRIPTION_RECONCILIATION_SWEEP_INITIAL_DELAY_MS:300000}
+  # Plus is granted by the subscription row's status alone, and only a provider's event ends it. When
+  # that event never arrives (RevenueCat or Razorpay gave up delivering it), a paid row stayed ACTIVE
+  # forever. This asks the provider about each paid row more than grace-days past its paid-until date
+  # and ends access only when the provider confirms the subscription ended. dry-run (the default) logs
+  # what it would do; apply writes; off does nothing.
+  lapsed-subscription-check:
+    sweep:
+      enabled: ${LAPSED_SUBSCRIPTION_CHECK_SWEEP_ENABLED:true}
+      mode: ${LAPSED_SUBSCRIPTION_CHECK_SWEEP_MODE:dry-run}
+      grace-days: ${LAPSED_SUBSCRIPTION_CHECK_GRACE_DAYS:3}
+      interval-ms: ${LAPSED_SUBSCRIPTION_CHECK_SWEEP_INTERVAL_MS:86400000}
+      initial-delay-ms: ${LAPSED_SUBSCRIPTION_CHECK_SWEEP_INITIAL_DELAY_MS:600000}
   # Subscription billing -- auto-renew resume (design spec at docs/superpowers/specs/
   # 2026-09-08-billing-auto-renew-resume-design.md). Dispatches the real, deferred Razorpay
   # cancel_at_cycle_end=true call once a locally-cancelled subscription is within 3 days of its

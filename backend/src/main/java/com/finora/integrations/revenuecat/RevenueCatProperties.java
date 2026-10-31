@@ -24,9 +24,21 @@ public class RevenueCatProperties {
      *  EXPIRATION ends that access on its own. */
     private boolean countSandboxReferrals = false;
 
+    /** RevenueCat's secret API key (REVENUECAT_SECRET_API_KEY), for reading a customer's current
+     *  subscriptions from its REST API. Only LapsedSubscriptionCheckSweepService uses it; unset, that
+     *  check skips store subscriptions and nothing else changes. */
+    private String secretApiKey;
+
     public boolean isConfigured() {
         return webhookSigningSecret != null && !webhookSigningSecret.isBlank();
     }
+
+    public boolean isApiConfigured() {
+        return secretApiKey != null && !secretApiKey.isBlank();
+    }
+
+    public String getSecretApiKey() { return secretApiKey; }
+    public void setSecretApiKey(String secretApiKey) { this.secretApiKey = secretApiKey; }
 
     public String getWebhookSigningSecret() { return webhookSigningSecret; }
     public void setWebhookSigningSecret(String webhookSigningSecret) { this.webhookSigningSecret = webhookSigningSecret; }

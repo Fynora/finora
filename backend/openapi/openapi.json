@@ -4564,6 +4564,36 @@
                 }
             }
         },
+        "/api/v1/convert": {
+            "post": {
+                "tags": [
+                    "statement-conversion-controller"
+                ],
+                "operationId": "convert",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Request"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseResult"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/categories": {
             "get": {
                 "tags": [
@@ -10772,6 +10802,26 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseDashboardRangeSummaryDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/convert/availability": {
+            "get": {
+                "tags": [
+                    "statement-conversion-controller"
+                ],
+                "operationId": "availability_1",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAvailability"
                                 }
                             }
                         }
@@ -18705,6 +18755,9 @@
                     },
                     "utmContent": {
                         "type": "string"
+                    },
+                    "landingPath": {
+                        "type": "string"
                     }
                 }
             },
@@ -20438,6 +20491,130 @@
                 "required": [
                     "token"
                 ]
+            },
+            "Request": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    },
+                    "turnstileToken": {
+                        "type": "string"
+                    },
+                    "consent": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponseResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/Result"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "Result": {
+                "type": "object",
+                "properties": {
+                    "pageCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Section"
+                        }
+                    }
+                }
+            },
+            "Row": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "debit": {
+                        "type": "number"
+                    },
+                    "credit": {
+                        "type": "number"
+                    },
+                    "balance": {
+                        "type": "number"
+                    },
+                    "reference": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Section": {
+                "type": "object",
+                "properties": {
+                    "bankName": {
+                        "type": "string"
+                    },
+                    "accountType": {
+                        "type": "string"
+                    },
+                    "accountNumberMasked": {
+                        "type": "string"
+                    },
+                    "periodStart": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "periodEnd": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "openingBalance": {
+                        "type": "number"
+                    },
+                    "closingBalance": {
+                        "type": "number"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Row"
+                        }
+                    },
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
             },
             "CreateCategoryRequest": {
                 "type": "object",
@@ -34655,6 +34832,43 @@
                     }
                 }
             },
+            "ActivationLandingPathRow": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string"
+                    },
+                    "signups": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "gotDataIn": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ActivationLandingPaths": {
+                "type": "object",
+                "properties": {
+                    "trackingStart": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "pages": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationLandingPathRow"
+                        }
+                    },
+                    "other": {
+                        "$ref": "#/components/schemas/ActivationLandingPathRow"
+                    },
+                    "none": {
+                        "$ref": "#/components/schemas/ActivationLandingPathRow"
+                    }
+                }
+            },
             "ActivationNudgeMonth": {
                 "type": "object",
                 "properties": {
@@ -34724,6 +34938,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationSourceRow"
                         }
+                    },
+                    "landingPaths": {
+                        "$ref": "#/components/schemas/ActivationLandingPaths"
                     },
                     "secondImport": {
                         "$ref": "#/components/schemas/ActivationSecondImport"

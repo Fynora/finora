@@ -31,6 +31,7 @@ class AuthDtosAttributionJsonTest {
         assertThat(with.attribution().referrerHost()).isEqualTo("news.example.org");
         assertThat(with.attribution().utmSource()).isEqualTo("news");
         assertThat(with.attribution().utmMedium()).isNull();
+        assertThat(with.attribution().landingPath()).isNull();
         assertThat(with.referralCode()).isNull();
 
         RegisterRequest without = mapper.readValue("""
@@ -69,5 +70,26 @@ class AuthDtosAttributionJsonTest {
                 """, AppleAuthRequest.class);
         assertThat(without.attribution()).isNull();
         assertThat(without.fullName()).isEqualTo("Amy Santiago");
+    }
+
+    /** V300: landingPath binds on all three requests, and an attribution without it still binds. */
+    @Test
+    void landingPath_bindsOnRegisterGoogleAndApple() throws Exception {
+        RegisterRequest register = mapper.readValue("""
+                {"email": "a@example.com", "password": "Password123", "fullName": "Jane Doe",
+                 "phoneNumber": "%s", "attribution": {"landingPath": "/help"}}
+                """.formatted(PHONE), RegisterRequest.class);
+        assertThat(register.attribution().landingPath()).isEqualTo("/help");
+
+        GoogleAuthRequest google = mapper.readValue("""
+                {"idToken": "t", "attribution": {"landingPath": "/banks/example-bank", "utmSource": "x"}}
+                """, GoogleAuthRequest.class);
+        assertThat(google.attribution().landingPath()).isEqualTo("/banks/example-bank");
+        assertThat(google.attribution().utmSource()).isEqualTo("x");
+
+        AppleAuthRequest apple = mapper.readValue("""
+                {"idToken": "t", "attribution": {"landingPath": "/"}}
+                """, AppleAuthRequest.class);
+        assertThat(apple.attribution().landingPath()).isEqualTo("/");
     }
 }

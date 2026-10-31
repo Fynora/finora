@@ -620,7 +620,7 @@ class DataExportServiceIT extends AbstractIntegrationTest {
     @Test
     void exportIncludesSignupSource() throws Exception {
         signupAttributionRepository.save(new com.finora.entity.SignupAttribution(
-                userId, "news.example.org", "news", null, "launch-oct", null));
+                userId, "news.example.org", "news", null, "launch-oct", null, "/help"));
         User otherUser = new User();
         otherUser.setEmail("export-it-src-" + UUID.randomUUID() + "@example.com");
         otherUser.setPasswordHash(passwordEncoder.encode(PASSWORD));
@@ -636,8 +636,9 @@ class DataExportServiceIT extends AbstractIntegrationTest {
         assertThat(rows.get(0).get("referrerHost").asText()).isEqualTo("news.example.org");
         assertThat(rows.get(0).get("utmSource").asText()).isEqualTo("news");
         assertThat(rows.get(0).get("utmCampaign").asText()).isEqualTo("launch-oct");
+        assertThat(rows.get(0).get("landingPath").asText()).isEqualTo("/help");
         assertThat(rows.get(0).fieldNames()).toIterable().containsExactlyInAnyOrder(
-                "referrerHost", "utmSource", "utmMedium", "utmCampaign", "utmContent", "recordedAt");
+                "referrerHost", "utmSource", "utmMedium", "utmCampaign", "utmContent", "landingPath", "recordedAt");
     }
 
     /** Shared payments and loans (V281): one entry with the user's shares, split rules, loan

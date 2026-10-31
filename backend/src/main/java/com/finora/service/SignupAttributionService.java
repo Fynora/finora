@@ -21,6 +21,10 @@ import java.util.regex.Pattern;
  *       tokens; anything that is not a plausible host name is dropped;</li>
  *   <li>each UTM value is trimmed, stripped of control characters, lower-cased and cut to
  *       {@value #UTM_MAX_LENGTH} characters;</li>
+ *   <li>the landing path (V300) is kept only if it is a plain path of public-page shape --
+ *       lower-case segments, no query string, no fragment, no host, at most
+ *       {@value #LANDING_PATH_MAX_LENGTH} characters -- and is dropped, never cut, otherwise: a cut
+ *       path would name a different page;</li>
  *   <li>a request with nothing left after that writes no row at all, and the admin count reads
  *       the absence as "direct".</li>
  * </ul>
@@ -32,6 +36,11 @@ public class SignupAttributionService {
 
     static final int UTM_MAX_LENGTH = 100;
     static final int HOST_MAX_LENGTH = 253;
+    static final int LANDING_PATH_MAX_LENGTH = 200;
+
+    /** "/" or "/seg" or "/seg/seg": segments of lower-case letters, digits, dot, tilde, underscore
+     *  and hyphen that do not start with a dot, as every public page's address is. The same shape the V300 CHECK enforces. */
+    private static final Pattern LANDING_PATH = Pattern.compile("^/([a-z0-9_~-][a-z0-9._~-]*(/[a-z0-9_~-][a-z0-9._~-]*)*)?$");
 
     /** Letters, digits, dots and hyphens only, as a host name is; no IDN punycode concern since
      *  browsers hand {@code document.referrer} over already ASCII-encoded. */
@@ -58,11 +67,13 @@ public class SignupAttributionService {
         String utmMedium = normalizeUtm(attribution.utmMedium());
         String utmCampaign = normalizeUtm(attribution.utmCampaign());
         String utmContent = normalizeUtm(attribution.utmContent());
+        String landingPath = normalizeLandingPath(attribution.landingPath());
         if (referrerHost == null && utmSource == null && utmMedium == null
-                && utmCampaign == null && utmContent == null) {
+                && utmCampaign == null && utmContent == null && landingPath == null) {
             return;
         }
-        repository.save(new SignupAttribution(userId, referrerHost, utmSource, utmMedium, utmCampaign, utmContent));
+        repository.save(new SignupAttribution(userId, referrerHost, utmSource, utmMedium, utmCampaign,
+                utmContent, landingPath));
     }
 
     /**
@@ -95,6 +106,21 @@ public class SignupAttributionService {
         host = host.toLowerCase(Locale.ROOT);
         if (host.length() > HOST_MAX_LENGTH || !HOST.matcher(host).matches()) return null;
         return host;
+    }
+
+    /**
+     * The landing path as stored, or {@code null}. A trailing slash is dropped ({@code /help/} is
+     * {@code /help}; {@code /} stays). Anything with a query string, fragment, host, scheme, space,
+     * upper-case letter, empty segment or dot segment fails the shape and yields {@code null}: the
+     * website only ever sends the route of a prerendered page, so a value that is anything else did
+     * not come from the page.
+     */
+    static String normalizeLandingPath(String raw) {
+        if (raw == null) return null;
+        String value = raw.strip();
+        if (value.length() > 1 && value.endsWith("/") && !value.endsWith("//")) value = value.substring(0, value.length() - 1);
+        if (value.length() > LANDING_PATH_MAX_LENGTH || !LANDING_PATH.matcher(value).matches()) return null;
+        return value;
     }
 
     /**

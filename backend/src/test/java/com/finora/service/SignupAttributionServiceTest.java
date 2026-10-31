@@ -153,4 +153,82 @@ class SignupAttributionServiceTest {
         verify(repository).save(captor.capture());
         return captor.getValue();
     }
+
+    // ---- landing path (V300)
+
+    @ParameterizedTest
+    @CsvSource({
+            "/, /",
+            "/help, /help",
+            "/help/, /help",
+            "  /banks/example-bank  , /banks/example-bank",
+            "/help/how-to-read_a.statement~2, /help/how-to-read_a.statement~2",
+    })
+    void normalizeLandingPath_keepsAPlainPublicPagePath(String raw, String expected) {
+        assertThat(SignupAttributionService.normalizeLandingPath(raw)).isEqualTo(expected);
+    }
+
+    @Test
+    void normalizeLandingPath_trimsSurroundingWhitespaceButNotWhitespaceInsideThePath() {
+        assertThat(SignupAttributionService.normalizeLandingPath(" /help\n")).isEqualTo("/help");
+        assertThat(SignupAttributionService.normalizeLandingPath("/he lp")).isNull();
+    }
+
+    /** Nothing but the path of a page: a query, a fragment, a host, a scheme, a token-shaped or
+     *  made-up value, or anything that is not lower-case path segments is dropped, not repaired. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "", "   ", "help", "//help", "/help//x", "/help?token=abc", "/help#top", "/help?", "/help#",
+            "https://app.fynora.net/help", "app.fynora.net/help", "/Help", "/help page", "/help/%2e%2e",
+            "/.", "/..", "/help/..", "/help/./x", "/.hidden", "/someone@example.com", "/help;jsessionid=1",
+            "/he\nlp", "//", "/help//", "/hel\u0000p",
+    })
+    void normalizeLandingPath_dropsAnythingThatIsNotAPublicPagePath(String raw) {
+        assertThat(SignupAttributionService.normalizeLandingPath(raw)).isNull();
+        assertThat(SignupAttributionService.normalizeLandingPath(null)).isNull();
+    }
+
+    @Test
+    void normalizeLandingPath_dropsAPathOverTheCap_andKeepsOneExactlyAtIt() {
+        String atCap = "/" + "a".repeat(SignupAttributionService.LANDING_PATH_MAX_LENGTH - 1);
+        assertThat(atCap).hasSize(SignupAttributionService.LANDING_PATH_MAX_LENGTH);
+        assertThat(SignupAttributionService.normalizeLandingPath(atCap)).isEqualTo(atCap);
+        assertThat(SignupAttributionService.normalizeLandingPath(atCap + "a")).as("dropped, never cut").isNull();
+    }
+
+    @Test
+    void record_withOnlyALandingPath_writesARow() {
+        service.record(userId, new SignupAttributionRequest(null, null, null, null, null, "/help"));
+
+        SignupAttribution saved = savedRow();
+        assertThat(saved.getLandingPath()).isEqualTo("/help");
+        assertThat(saved.getReferrerHost()).isNull();
+        assertThat(saved.getUtmSource()).isNull();
+    }
+
+    @Test
+    void record_keepsALandingPathBesideTheRestOfTheAttribution() {
+        service.record(userId, new SignupAttributionRequest(
+                "www.example.org", "instagram", "reel", "launch-oct", "video-a", "/banks/example-bank/"));
+
+        SignupAttribution saved = savedRow();
+        assertThat(saved.getLandingPath()).isEqualTo("/banks/example-bank");
+        assertThat(saved.getReferrerHost()).isEqualTo("www.example.org");
+        assertThat(saved.getUtmSource()).isEqualTo("instagram");
+    }
+
+    @Test
+    void record_withAnUnusableLandingPathAlone_writesNoRow() {
+        service.record(userId, new SignupAttributionRequest(null, null, null, null, null, "/help?token=abc"));
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void record_withAnUnusableLandingPathBesideOtherFields_keepsTheOthersAndDropsThePath() {
+        service.record(userId, new SignupAttributionRequest(null, "instagram", null, null, null, "https://x.example/help"));
+
+        SignupAttribution saved = savedRow();
+        assertThat(saved.getUtmSource()).isEqualTo("instagram");
+        assertThat(saved.getLandingPath()).isNull();
+    }
 }

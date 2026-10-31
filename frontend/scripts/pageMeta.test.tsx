@@ -20,6 +20,7 @@ import Privacy from '../src/pages/Privacy';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Terms from '../src/pages/Terms';
+import StatementConverter from '../src/pages/StatementConverter';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import { PublicLayout } from '../src/components/PublicLayout';
 import { hero } from '../src/pages/landing/landing-config';
@@ -163,6 +164,7 @@ describe('page description', () => {
   });
   const PRERENDERED_PAGES = [
     About, Banks, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity,
+    StatementConverter,
     ...HELP_ARTICLE_PAGES,
     ...BANK_PAGE_VIEWS,
   ];

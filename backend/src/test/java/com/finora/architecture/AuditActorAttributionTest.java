@@ -102,7 +102,9 @@ class AuditActorAttributionTest {
             // the caller who uploaded the file, and that is the id the gate records (as both the
             // subject and metadata "actorId"). An admin's own analysis upload is attributed to
             // the admin; a customer's import to the customer. Nobody uploads for someone else.
-            "UploadScanGate.requireClean"               // UPLOAD_MALWARE_REJECTED
+            // The write lives in check(), shared by requireClean and the free converter's
+            // requireCleanAnonymous, whose visitor has no account and so no actor to record at all.
+            "UploadScanGate.check"                      // UPLOAD_MALWARE_REJECTED
     );
 
     private JavaClasses productionClasses() {

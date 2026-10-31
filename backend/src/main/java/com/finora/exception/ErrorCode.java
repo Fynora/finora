@@ -166,6 +166,42 @@ public enum ErrorCode {
     // minutes, see StatementSendService). Copy new, shown to Sid in the PR.
     SEND_CODE_BLOCKED("IMPORT_025", HttpStatus.TOO_MANY_REQUESTS,
             "Too many codes didn't work from this network. Try again in 15 minutes."),
+    // The free statement converter (StatementConversionService; design 2026-10-31, approved by Sid).
+    // A visitor with no account, so every message says what to do next. The parser's own refusals
+    // (locked, scanned, no transactions, payment-app history...) keep their IMPORT_* codes.
+    // intentionalRejection: switched off on purpose (app.converter.enabled), not a server fault, so
+    // a request to a switched-off converter must not log an error with a stack trace.
+    CONVERT_UNAVAILABLE("CONVERT_001", HttpStatus.SERVICE_UNAVAILABLE,
+            "The free statement converter isn't available right now. Please try again later.",
+            RetryPolicy.FAIL_FAST, false, true),
+    CONVERT_CONSENT_REQUIRED("CONVERT_002", HttpStatus.BAD_REQUEST,
+            "Please tick the box to agree before converting your statement."),
+    CONVERT_CHALLENGE_FAILED("CONVERT_003", HttpStatus.FORBIDDEN,
+            "We couldn't confirm you're a person. Refresh the page and try again."),
+    CONVERT_LIMIT_REACHED("CONVERT_004", HttpStatus.TOO_MANY_REQUESTS,
+            "You've reached the free converter's limit for now. Try again later, or create a free "
+                    + "Fynora account to import your statements."),
+    // intentionalRejection: the converter's own small processing pool is full, which is load
+    // shedding by design (the same reasoning as IMPORT_SYSTEM_BUSY), not a server error.
+    CONVERT_BUSY("CONVERT_005", HttpStatus.SERVICE_UNAVAILABLE,
+            "Lots of people are converting statements right now. Please try again in a minute.",
+            RetryPolicy.FAIL_FAST, false, true),
+    CONVERT_TOO_LARGE("CONVERT_006", HttpStatus.PAYLOAD_TOO_LARGE,
+            "The free converter takes PDF statements up to 5 MB."),
+    CONVERT_TOO_MANY_PAGES("CONVERT_007", HttpStatus.UNPROCESSABLE_ENTITY,
+            "The free converter takes statements up to 20 pages. A free Fynora account can import "
+                    + "longer statements."),
+    // Sid's rule (2026-10-11), applied to the converter (2026-10-31): a spreadsheet only when the
+    // statement's own figures confirm the amounts. Never a file with a warning.
+    CONVERT_NOT_CONFIRMED("CONVERT_008", HttpStatus.UNPROCESSABLE_ENTITY,
+            "We couldn't confirm this statement's amounts against its own totals, so we won't give you "
+                    + "a spreadsheet that might be wrong. A free Fynora account can import it: statements "
+                    + "we can't check automatically are checked by our team."),
+    CONVERT_FAILED("CONVERT_009", HttpStatus.UNPROCESSABLE_ENTITY,
+            "We couldn't convert this statement. If it's from your bank's website, try downloading the "
+                    + "PDF statement again."),
+    CONVERT_BAD_REQUEST("CONVERT_010", HttpStatus.BAD_REQUEST,
+            "That upload didn't arrive in a form we can read. Refresh the page and try again."),
     // Distinct from a genuinely expired/missing session (still a codeless ApiException, since
     // "upload again" really is the right instruction there) because the frontend has to TELL THEM
     // APART, not just print a message: reaching a completed job's "Review this import" action

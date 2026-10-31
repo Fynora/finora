@@ -67,6 +67,11 @@ export default function Terms() {
           <li>Upload files containing malicious code or attempt to disrupt the Service's operation</li>
           <li>Reverse-engineer, scrape, or resell access to the Service without written permission</li>
         </ul>
+        <p>
+          The free statement converter (app.fynora.net/bank-statement-to-excel) is for converting statements you are
+          entitled to use, for your own purposes. It is provided as is, and may not be used through scripts, bots or
+          any other automated means.
+        </p>
       </PublicSection>
 
       <PublicSection title="8. Data Processing">

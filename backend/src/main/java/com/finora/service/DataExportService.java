@@ -535,7 +535,7 @@ public class DataExportService {
                 signupAttributionRepository.findById(userId).stream()
                         .map(a -> new com.finora.dto.DataExportDto.SignupAttributionExportDto(
                                 a.getReferrerHost(), a.getUtmSource(), a.getUtmMedium(), a.getUtmCampaign(),
-                                a.getUtmContent(), a.getCreatedAt()))
+                                a.getUtmContent(), a.getLandingPath(), a.getCreatedAt()))
                         .toList();
         // V283: the AI texts written for the user, in the purge scope, so exported.
         List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights =
@@ -1058,7 +1058,7 @@ public class DataExportService {
                 new ManifestEntry("import_funnel_days.json", "The dates you opened the import screen, chose a file to upload and opened an import's review -- the date only, never the time, the file or anything in it.", bundle.importFunnelDays().size()),
                 new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
                 new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size()),
-                new ManifestEntry("signup_source.json", "Where the website visit that ended in your sign-up came from: the referring site's name and the campaign tags on the link, if any.", bundle.signupSource().size()),
+                new ManifestEntry("signup_source.json", "Where the website visit that ended in your sign-up came from: the referring site's name, the campaign tags on the link and the first Fynora page you landed on (its address only), if any.", bundle.signupSource().size()),
                 new ManifestEntry("ai_insights.json", "The AI-written month stories and \"Why?\" answers on your Insights, and the thumbs up or down you gave them.", bundle.aiInsights().size()),
                 new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size())
         );

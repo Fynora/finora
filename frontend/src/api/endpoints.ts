@@ -1,6 +1,7 @@
 import { api, rawApi, type ApiEnvelope } from './client';
 import type { SignupAttribution } from '../lib/signupAttribution';
 import { downloadBlob } from '../lib/download';
+import type { ConvertedStatement } from '../pages/converter/statementSheets';
 import type { components } from './generated-types';
 
 type GeneratedSchemas = components['schemas'];
@@ -764,6 +765,26 @@ export const sendStatementApi = {
       .post<ApiEnvelope<{ received: boolean }>>('/send', form, { withCredentials: false })
       .then((r) => r.data.data);
   },
+};
+
+/**
+ * The free statement converter (public, no account; StatementConversionService). JSON, not
+ * multipart: the server reads the body into memory with a hard cap and never writes a temp file.
+ * withCredentials off: the call carries no cookie and needs none.
+ */
+export const converterApi = {
+  availability: () =>
+    rawApi
+      .get<ApiEnvelope<{ available: boolean; maxBytes: number; maxPages: number }>>('/convert/availability', {
+        withCredentials: false,
+      })
+      .then((r) => r.data.data),
+  convert: (body: { file: string; password?: string; turnstileToken: string; consent: true }) =>
+    rawApi
+      .post<ApiEnvelope<ConvertedStatement>>('/convert', body, {
+        withCredentials: false,
+      })
+      .then((r) => r.data.data),
 };
 
 export const importJobsApi = {

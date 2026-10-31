@@ -419,17 +419,17 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         java.time.Instant at = java.time.Instant.parse("2026-10-23T10:00:00Z");
         com.finora.entity.SignupAttribution row = entity(com.finora.entity.SignupAttribution.class,
                 "userId", userId, "referrerHost", "news.example.org", "utmSource", "news", "utmMedium", "article",
-                "utmCampaign", null, "utmContent", null, "createdAt", at);
+                "utmCampaign", null, "utmContent", null, "landingPath", "/help", "createdAt", at);
         when(signupAttributionRepository.findById(userId)).thenReturn(Optional.of(row));
 
         DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
 
         assertThat(bundle.signupSource()).singleElement().isEqualTo(
                 new com.finora.dto.DataExportDto.SignupAttributionExportDto(
-                        "news.example.org", "news", "article", null, null, at));
+                        "news.example.org", "news", "article", null, null, "/help", at));
         Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
         assertThat(new String(entries.get("signup_source.json"), java.nio.charset.StandardCharsets.UTF_8))
-                .contains("news.example.org").contains("article");
+                .contains("news.example.org").contains("article").contains("/help");
         String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(manifest).contains("signup_source.json");
     }

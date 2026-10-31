@@ -1700,6 +1700,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["convert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/categories": {
         parameters: {
             query?: never;
@@ -4492,6 +4508,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["rangeSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/convert/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["availability_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7989,6 +8021,7 @@ export interface components {
             utmMedium?: string;
             utmCampaign?: string;
             utmContent?: string;
+            landingPath?: string;
         };
         ApiResponseStatementSendReceived: {
             success?: boolean;
@@ -8615,6 +8648,51 @@ export interface components {
         };
         RevokeDeviceTokenRequest: {
             token: string;
+        };
+        Request: {
+            file?: string;
+            password?: string;
+            turnstileToken?: string;
+            consent?: boolean;
+        };
+        ApiResponseResult: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["Result"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        Result: {
+            /** Format: int32 */
+            pageCount?: number;
+            sections?: components["schemas"]["Section"][];
+        };
+        Row: {
+            /** Format: date */
+            date?: string;
+            description?: string;
+            debit?: number;
+            credit?: number;
+            balance?: number;
+            reference?: string;
+        };
+        Section: {
+            bankName?: string;
+            accountType?: string;
+            accountNumberMasked?: string;
+            /** Format: date */
+            periodStart?: string;
+            /** Format: date */
+            periodEnd?: string;
+            openingBalance?: number;
+            closingBalance?: number;
+            rows?: components["schemas"]["Row"][];
+            checks?: string[];
         };
         CreateCategoryRequest: {
             name?: string;
@@ -14158,6 +14236,20 @@ export interface components {
             /** Format: int64 */
             count?: number;
         };
+        ActivationLandingPathRow: {
+            path?: string;
+            /** Format: int64 */
+            signups?: number;
+            /** Format: int64 */
+            gotDataIn?: number;
+        };
+        ActivationLandingPaths: {
+            /** Format: date-time */
+            trackingStart?: string;
+            pages?: components["schemas"]["ActivationLandingPathRow"][];
+            other?: components["schemas"]["ActivationLandingPathRow"];
+            none?: components["schemas"]["ActivationLandingPathRow"];
+        };
         ActivationNudgeMonth: {
             /** Format: date */
             month?: string;
@@ -14178,6 +14270,7 @@ export interface components {
             /** Format: date-time */
             sourceTrackingStart?: string;
             bySource?: components["schemas"]["ActivationSourceRow"][];
+            landingPaths?: components["schemas"]["ActivationLandingPaths"];
             secondImport?: components["schemas"]["ActivationSecondImport"];
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
         };
@@ -17605,6 +17698,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    convert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Request"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseResult"];
                 };
             };
         };
@@ -22220,6 +22337,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseDashboardRangeSummaryDto"];
+                };
+            };
+        };
+    };
+    availability_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseAvailability"];
                 };
             };
         };

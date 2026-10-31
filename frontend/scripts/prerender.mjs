@@ -11,6 +11,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import {
   decodeEntities,
   collectionPageFile,
@@ -50,6 +51,7 @@ const OUTPUT_FILES = {
   '/cookie-policy': 'cookie-policy.html',
   '/trust': 'trust.html',
   '/your-data': 'your-data.html',
+  '/bank-statement-to-excel': 'bank-statement-to-excel.html',
 };
 
 // The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,
@@ -75,6 +77,52 @@ const OUTPUT_FILES = {
 // path with index.html and 200 and the name 404.html means nothing. Use
 // `npx wrangler pages dev dist`, and a PR's Pages preview for the final word.
 const NOT_FOUND_FILE = '404.html';
+
+/**
+ * Builds src/signupCapture.ts into its own classic (non-module) script and writes it to
+ * dist/assets/signup-capture-<hash>.js, returning its URL. Every prerendered public page loads it
+ * (withEarlyCapture in prerenderTitle.mjs) so the sign-up capture has run before the large main
+ * bundle does. It is built apart from the app (configFile: false: no React, no Cloudflare or Sentry
+ * plugins, no public/ copy) so it is self-contained, and checked before it ships: a file that is
+ * not a plain script, or has grown past a few kilobytes, fails the build.
+ */
+async function buildEarlyCapture() {
+  const outDir = path.join(frontendRoot, '.prerender-capture');
+  await build({
+    root: frontendRoot,
+    configFile: false,
+    publicDir: false,
+    logLevel: 'warn',
+    build: {
+      lib: {
+        entry: path.join(frontendRoot, 'src/signupCapture.ts'),
+        formats: ['iife'],
+        name: 'FynoraSignupCapture',
+        fileName: () => 'signup-capture.js',
+      },
+      outDir,
+      emptyOutDir: true,
+      minify: true,
+      sourcemap: false,
+    },
+  });
+  const code = fs.readFileSync(path.join(outDir, 'signup-capture.js'), 'utf-8');
+  fs.rmSync(outDir, { recursive: true, force: true });
+  if (/(^|[;\s])(import|export)[\s{*]/.test(code) || code.includes('import.meta')) {
+    throw new Error('prerender: the early-capture script is not a plain script (it has an import or export).');
+  }
+  if (code.length > 6000) {
+    throw new Error(`prerender: the early-capture script is ${code.length} bytes; it should be a few hundred. Something large was imported.`);
+  }
+  if (!code.includes('fynora-landing-path') || !code.includes('finora:signup-attribution')) {
+    throw new Error('prerender: the early-capture script does not contain the sign-up capture.');
+  }
+  const hash = crypto.createHash('sha256').update(code).digest('hex').slice(0, 10);
+  const fileName = `signup-capture-${hash}.js`;
+  fs.writeFileSync(path.join(distDir, 'assets', fileName), code);
+  console.log(`prerender: early sign-up capture -> dist/assets/${fileName} (${code.length} bytes)`);
+  return `/assets/${fileName}`;
+}
 
 async function main() {
   if (!fs.existsSync(path.join(distDir, 'index.html'))) {
@@ -108,6 +156,7 @@ async function main() {
   console.log(`prerender: blank shell -> dist/${SPA_SHELL_FILE}`);
 
   const heroFontHref = '/assets/' + heroFontAsset(fs.readdirSync(path.join(distDir, 'assets')));
+  const earlyCaptureSrc = await buildEarlyCapture();
 
   // The fixed pages, then every page of every collection in ssr-entry's pageCollections (the Help
   // answers: dist/help/<slug>.html, which Cloudflare Pages serves at /help/<slug>). Collection pages
@@ -134,12 +183,12 @@ async function main() {
       heading = decodeEntities(pageHeadingFromMarkup(appHtml));
       const description = pageDescriptionFromMarkup(appHtml);
       if (!description) throw new Error(`prerender: no subtitle to take a description from for ${route}`);
-      pageTemplate = templateForPage(template, { title, description, route });
+      pageTemplate = templateForPage(template, { title, description, route, earlyCaptureSrc });
     } else {
       // Only the homepage paints the hero headline. The blank shell above and the not-found page
       // below are both built from the untouched template, so neither carries this preload, nor
       // the homepage's canonical and og:url, which templateForHomepage adds to this file alone.
-      pageTemplate = templateForHomepage(template, heroFontHref);
+      pageTemplate = templateForHomepage(template, heroFontHref, earlyCaptureSrc);
     }
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own

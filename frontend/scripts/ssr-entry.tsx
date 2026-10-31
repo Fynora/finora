@@ -9,6 +9,7 @@ import Contact from '../src/pages/Contact';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Help from '../src/pages/Help';
+import StatementConverter from '../src/pages/StatementConverter';
 import { HelpArticleView } from '../src/pages/HelpArticle';
 import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 import CookiePolicy from '../src/pages/CookiePolicy';
@@ -49,6 +50,9 @@ export const routes: Record<string, () => string> = {
   '/cookie-policy': page('/cookie-policy', CookiePolicy),
   '/trust': page('/trust', TrustSecurity),
   '/your-data': page('/your-data', DataPromise),
+  // The free statement converter. The tool's first render (consent box unticked) is in the HTML;
+  // the rest of the page is the answer, steps, banks and FAQ a crawler needs.
+  '/bank-statement-to-excel': page('/bank-statement-to-excel', StatementConverter),
 };
 
 /**

@@ -91,6 +91,45 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
+      <PublicSection id="converter" title="Free Statement Converter">
+        <p>
+          Fynora offers a free tool at app.fynora.net/bank-statement-to-excel that turns a bank or credit card
+          statement into a spreadsheet without an account. When you use it:
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            You choose to send us one statement file and, if it is locked, its password. We use them only to make
+            your spreadsheet.
+          </li>
+          <li>
+            The file is checked for viruses and read by Fynora&apos;s own rule-based software on servers located
+            outside India (in the United States; see Cross-Border Data Transfer below). It is not sent to any AI
+            service, and no person at Fynora sees it.
+          </li>
+          <li>
+            We do not save the file, its password, or the transactions in it. They exist only while your spreadsheet
+            is being made, and are deleted when it is ready, or within 60 seconds if something goes wrong. Nothing is
+            kept to retry with; to try again you send the file again.
+          </li>
+          <li>
+            We keep your network (IP) address for up to 24 hours, only to limit how often the tool can be used. We
+            also keep daily counts of how many conversions worked or failed and which bank they were from. These
+            counts contain nothing that identifies you or your statement.
+          </li>
+          <li>
+            The spreadsheet is created in your browser and saved on your device. We cannot see or delete it.
+          </li>
+          <li>
+            If you then create a Fynora account and choose to import the statement, it is uploaded again from your
+            browser and handled like any other import, as described in Uploaded Statements above.
+          </li>
+        </ul>
+        <p>
+          The tool is for statements you are entitled to use. Please do not upload someone else&apos;s statement
+          without their permission.
+        </p>
+      </PublicSection>
+
       <PublicSection title="Saved Statement Passwords">
         <p>
           Some statements are password-protected PDFs. Fynora does not keep the password you type to open one

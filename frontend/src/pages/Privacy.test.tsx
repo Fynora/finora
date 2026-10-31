@@ -98,6 +98,18 @@ describe('Privacy policy matches what the product does', () => {
         + 'account, your statement files are deleted with it.');
   });
 
+  it('describes the free converter: nothing kept, deleted within 60 seconds, address for 24 hours, no AI, US servers', () => {
+    policyText();
+    const section = document.getElementById('converter')?.textContent ?? '';
+    expect(section).toMatch(/^Free Statement Converter/);
+    expect(section).toMatch(/We do not save the file, its password, or the transactions in it/);
+    expect(section).toMatch(/within 60 seconds/);
+    expect(section).toMatch(/up to 24 hours/);
+    expect(section).toMatch(/not sent to any AI\s+service/);
+    expect(section).toMatch(/outside India \(in the United States/);
+    expect(section).toMatch(/nothing that identifies you or your statement/);
+  });
+
   it('gives Uploaded Statements an anchor the import screens link to', () => {
     policyText();
     expect(document.getElementById('uploaded-statements')?.textContent).toMatch(/^Uploaded Statements/);

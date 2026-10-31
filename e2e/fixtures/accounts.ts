@@ -102,7 +102,12 @@ async function register(email: string, fullName: string): Promise<string> {
   let last = '';
   for (let attempt = 0; attempt < 5; attempt++) {
     const phone = syntheticPhone();
-    const { payload } = await post('/auth/register', { email, password: PASSWORD, fullName, phoneNumber: phone });
+    // The two sign-up boxes (V302), sent the way the web form sends them: the required Terms box
+    // ticked, AI features left off. Without them the account has no acceptance and the app shows
+    // the consent step in front of every page these tests open.
+    const { payload } = await post('/auth/register', {
+      email, password: PASSWORD, fullName, phoneNumber: phone, acceptedTerms: true, aiProcessingConsent: false,
+    });
     if (payload?.success) return phone;
 
     last = `${payload?.errorCode} ${payload?.message}`;

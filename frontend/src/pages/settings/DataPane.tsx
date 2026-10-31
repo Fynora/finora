@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { analyticsApi, type ImportStatistics } from '../../api/endpoints';
+import { analyticsApi, type ImportStatistics, type SignInMethod } from '../../api/endpoints';
 import { ExportDataModal } from '../../components/ExportDataModal';
 import { formatDayMonthYear, MetricTile } from '../../components/AccountUI';
 import { Button } from '../../design-system/Button';
@@ -10,7 +10,7 @@ import { SavedStatementPasswordsSection } from './SavedStatementPasswordsSection
 export function DataPane({
   loading, loadError, signInMethod,
 }: {
-  loading: boolean; loadError: boolean; signInMethod: 'PASSWORD' | 'GOOGLE';
+  loading: boolean; loadError: boolean; signInMethod: SignInMethod;
 }) {
   const [importStats, setImportStats] = useState<ImportStatistics | null>(null);
   const [importStatsFailed, setImportStatsFailed] = useState(false);

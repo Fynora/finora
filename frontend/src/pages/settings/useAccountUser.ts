@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { userApi } from '../../api/endpoints';
+import { userApi, type SignInMethod } from '../../api/endpoints';
 
 export interface AccountUserState {
   phoneNumber: string;
   phoneVerified: boolean;
   passwordChangedAt: string | null;
-  signInMethod: 'PASSWORD' | 'GOOGLE';
+  signInMethod: SignInMethod;
   lowBalanceThreshold: number;
   timezone: string;
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X, Eye, EyeOff, MailCheck } from 'lucide-react';
-import { emailChangeApi } from '../api/endpoints';
+import { emailChangeApi, type SignInMethod } from '../api/endpoints';
+import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import { useDialogA11y } from '../design-system';
 
@@ -16,11 +17,10 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * at "we sent a link" -- see that page for the rest of the flow.
  *
  * currentPassword/googleIdToken/appleIdToken mirror ChangePasswordModal's identical step-up
- * shape exactly -- appleIdToken is always null from this web client (see GoogleReauthPrompt's own
- * doc comment on why Apple Sign-In has no web counterpart here).
+ * shape exactly; exactly one is non-null, chosen by the account's sign-in method.
  */
 export function ChangeEmailModal({ onClose, signInMethod }: {
-  onClose: () => void; signInMethod: 'PASSWORD' | 'GOOGLE';
+  onClose: () => void; signInMethod: SignInMethod;
 }) {
   const [step, setStep] = useState<'form' | 'sent'>('form');
   const [submitting, setSubmitting] = useState(false);
@@ -35,7 +35,9 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
 
   const emailValid = EMAIL_PATTERN.test(newEmail.trim());
 
-  async function startWithCredential(currentPasswordArg: string | null, googleIdToken: string | null) {
+  async function startWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     // Same double-submit guard as ChangePasswordModal.startWithCredential -- Google's own
     // rendered button has no disabled prop to gate this the way the password path's
     // <button disabled={submitting}> does.
@@ -43,7 +45,7 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await emailChangeApi.start(currentPasswordArg, googleIdToken, null, newEmail.trim());
+      const res = await emailChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken, newEmail.trim());
       setSentToEmail(newEmail.trim());
       setDevVerifyLink(res.devVerifyLink);
       setStep('sent');
@@ -56,7 +58,7 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
 
   function submitCurrentPassword() {
     if (currentPassword.length === 0 || !emailValid || submitting) return;
-    void startWithCredential(currentPassword, null);
+    void startWithCredential(currentPassword, null, null);
   }
 
   const panelRef = useDialogA11y({ onClose, closeDisabled: step === 'sent' });
@@ -107,14 +109,19 @@ export function ChangeEmailModal({ onClose, signInMethod }: {
                 />
               </div>
 
-              {signInMethod === 'GOOGLE' ? (
-                emailValid ? (
+              {signInMethod !== 'PASSWORD' ? (
+                !emailValid ? (
+                  <p className="text-xs text-muted">Enter a new email address to continue.</p>
+                ) : signInMethod === 'GOOGLE' ? (
                   <GoogleReauthPrompt
-                    onCredential={(idToken) => startWithCredential(null, idToken)}
+                    onCredential={(idToken) => startWithCredential(null, idToken, null)}
                     onError={setError}
                   />
                 ) : (
-                  <p className="text-xs text-muted">Enter a new email address to continue.</p>
+                  <AppleReauthPrompt
+                    onCredential={(idToken) => startWithCredential(null, null, idToken)}
+                    onError={setError}
+                  />
                 )
               ) : (
                 <div>

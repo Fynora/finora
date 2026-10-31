@@ -851,12 +851,39 @@ export interface ActivationReport {
   monthStartNudges?: { month: string; nudgesSent: number; importedWithin3Days: number }[];
   /** Every counted signup by main-path step reached. Optional: absent from a backend deployed before it. */
   reached?: ActivationReached;
+  /** V303: release markers, oldest first. Optional: absent from a backend deployed before it. */
+  releaseMarkers?: ActivationReleaseMarker[];
+}
+
+/** Counted signups whose signup day (IST) is from `from` to `to`, by main-path step reached. */
+export interface ActivationMarkerWindow {
+  from: string;
+  to: string;
+  signups: number;
+  reached: Record<ReachedStep, number>;
+  cameBackLaterDay: number;
+}
+/**
+ * A dated event such as "Gate 2b live". `after` runs from its day to today and `before` the same
+ * number of days up to the day before; both are null while its day is still to come.
+ */
+export interface ActivationReleaseMarker {
+  id: number;
+  date: string;
+  label: string;
+  before: ActivationMarkerWindow | null;
+  after: ActivationMarkerWindow | null;
 }
 
 export const adminActivationApi = {
   /** from/to (YYYY-MM-DD) bound the answers only. */
   report: (from: string, to: string) =>
     api.get<ActivationReport>('/admin/analytics/activation', { params: { from, to } }).then((r) => r.data),
+  /** Needs SYSTEM_SETTINGS as well as PLATFORM_ANALYTICS_VIEW. */
+  addMarker: (date: string, label: string) =>
+    api.post<{ id: number; date: string; label: string }>('/admin/analytics/activation/markers', { date, label })
+      .then((r) => r.data),
+  removeMarker: (id: number) => api.delete<void>(`/admin/analytics/activation/markers/${id}`).then(() => undefined),
 };
 
 export const adminPlatformAnalyticsApi = {

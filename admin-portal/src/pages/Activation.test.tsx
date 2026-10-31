@@ -14,7 +14,7 @@ vi.mock('../context/ThemeContext', () => ({
 }));
 vi.mock('../context/AdminAuthContext', () => ({ useAdminAuth: vi.fn() }));
 vi.mock('../api/endpoints', () => ({
-  adminActivationApi: { report: vi.fn() },
+  adminActivationApi: { report: vi.fn(), addMarker: vi.fn(), removeMarker: vi.fn() },
   adminSearchApi: { search: vi.fn(() => new Promise(() => {})) },
 }));
 
@@ -105,10 +105,10 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
   };
 }
 
-function renderPage() {
+function renderPage(permissions: string[] = ['PLATFORM_ANALYTICS_VIEW']) {
   vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({
-    hasPermission: (p: string) => p === 'PLATFORM_ANALYTICS_VIEW',
-    permissions: ['PLATFORM_ANALYTICS_VIEW'],
+    hasPermission: (p: string) => permissions.includes(p),
+    permissions,
     fullName: 'Support Admin',
     logout: vi.fn(),
   }));
@@ -538,5 +538,116 @@ describe('Activation', () => {
     renderPage();
 
     expect(await screen.findByText('No month-start nudges sent yet.')).toBeInTheDocument();
+  });
+
+  describe('release markers', () => {
+    const win = (from: string, to: string, signups: number, gotIn: number, cameBack: number) => ({
+      from, to, signups, cameBackLaterDay: cameBack,
+      reached: { SIGNED_UP: signups, OPENED_IMPORT: gotIn, CHOSE_FILE: gotIn, FILE_READ: gotIn, REVIEW_OPENED: gotIn, GOT_DATA_IN: gotIn },
+    });
+    const markers = [
+      { id: 1, date: '2026-10-14', label: 'Gate 2b live', before: win('2026-09-26', '2026-10-13', 10, 2, 0), after: win('2026-10-14', '2026-10-31', 8, 4, 1) },
+      { id: 2, date: '2026-10-20', label: 'New import screen', before: win('2026-10-08', '2026-10-19', 6, 1, 0), after: win('2026-10-20', '2026-10-31', 5, 1, 0) },
+      { id: 3, date: '2026-12-01', label: 'Planned', before: null, after: null },
+    ];
+
+    it('flags a marker in the week it falls in, in the table and on the chart', async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: markers }));
+      renderPage();
+
+      const table = await screen.findByRole('table', { name: 'Steps reached by signup week' });
+      const rows = rowsOf(table);
+      expect(rows[0]).toEqual(['◆ 14 Oct 2026 · Gate 2b live']);
+      expect(rows[1][0]).toBe('12 Oct 2026');
+      expect(rows.flat().join(' ')).not.toContain('New import screen'); // its week is not in the table
+      const chart = screen.getByRole('figure', { name: 'Signups and got data in by week' });
+      expect(within(chart).getByLabelText('Release marker: Gate 2b live')).toBeInTheDocument();
+    });
+
+    it('compares the latest marker whose day has come by default, and another on request', async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: markers }));
+      renderPage();
+
+      const table = await screen.findByRole('table', { name: 'Before and after the release marker' });
+      expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+        'Signups in the window', 'Before (8 Oct 2026 – 19 Oct 2026)', 'After (20 Oct 2026 – 31 Oct 2026)', 'Change',
+      ]);
+      // The future marker is listed but cannot be compared yet.
+      const select = screen.getByLabelText('Release marker');
+      expect(within(select).getAllByRole('option').map((o) => o.textContent))
+        .toEqual(['20 Oct 2026 · New import screen', '14 Oct 2026 · Gate 2b live']);
+
+      fireEvent.change(select, { target: { value: '1' } });
+
+      const rows = rowsOf(screen.getByRole('table', { name: 'Before and after the release marker' }));
+      expect(rows[0]).toEqual(['Signups', '10', '8', '−2']);
+      expect(rows.find((r) => r[0] === 'Activation (got data in)')).toEqual(['Activation (got data in)', '2 (20%)', '4 (50%)', '+30 pts']);
+      expect(rows[rows.length - 1]).toEqual(['Came back another day', '0', '1', '+1']);
+      expect(screen.getByText(/Signups in the after window have had less time to import/)).toBeInTheDocument();
+    });
+
+    it('says when there is nothing to compare, and hides the section from a backend without markers', async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: [] }));
+      const first = renderPage();
+      expect(await screen.findByText('No release markers yet.')).toBeInTheDocument();
+      first.unmount();
+
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: [markers[2]] }));
+      const second = renderPage();
+      expect(await screen.findByText(/No marker to compare yet/)).toBeInTheDocument();
+      second.unmount();
+
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report());
+      renderPage();
+      await screen.findByRole('table', { name: 'Steps reached by signup week' });
+      expect(screen.queryByText('Before and after a release')).not.toBeInTheDocument();
+    });
+
+    it('lists markers read-only without SYSTEM_SETTINGS', async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: markers }));
+      renderPage();
+
+      const list = await screen.findByRole('list', { name: 'Release markers' });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+      expect(screen.queryByRole('button', { name: /Remove marker/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('form', { name: 'Add a release marker' })).not.toBeInTheDocument();
+    });
+
+    it('adds and removes markers with SYSTEM_SETTINGS, then reloads the report', async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: markers }));
+      vi.mocked(adminActivationApi.addMarker).mockResolvedValue({ id: 9, date: '2026-10-25', label: 'Gate 2b live again' });
+      vi.mocked(adminActivationApi.removeMarker).mockResolvedValue(undefined);
+      renderPage(['PLATFORM_ANALYTICS_VIEW', 'SYSTEM_SETTINGS']);
+      const form = await screen.findByRole('form', { name: 'Add a release marker' });
+
+      fireEvent.click(within(form).getByRole('button', { name: 'Add marker' }));
+      expect(await screen.findByText('Choose a date and give the marker a label.')).toBeInTheDocument();
+      expect(adminActivationApi.addMarker).not.toHaveBeenCalled();
+
+      fireEvent.change(within(form).getByLabelText('Date it went live'), { target: { value: '2026-10-25' } });
+      fireEvent.change(within(form).getByLabelText('Label'), { target: { value: '  Gate 2b live again ' } });
+      fireEvent.click(within(form).getByRole('button', { name: 'Add marker' }));
+
+      await waitFor(() => expect(adminActivationApi.addMarker).toHaveBeenCalledWith('2026-10-25', 'Gate 2b live again'));
+      await waitFor(() => expect(adminActivationApi.report).toHaveBeenCalledTimes(2));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove marker Planned' }));
+
+      await waitFor(() => expect(adminActivationApi.removeMarker).toHaveBeenCalledWith(3));
+      await waitFor(() => expect(adminActivationApi.report).toHaveBeenCalledTimes(3));
+    });
+
+    it("shows the server's reason when a marker cannot be added", async () => {
+      vi.mocked(adminActivationApi.report).mockResolvedValue(report({ releaseMarkers: [] }));
+      vi.mocked(adminActivationApi.addMarker).mockRejectedValue({ response: { data: { message: 'That date is more than a year ahead.' } } });
+      renderPage(['PLATFORM_ANALYTICS_VIEW', 'SYSTEM_SETTINGS']);
+      const form = await screen.findByRole('form', { name: 'Add a release marker' });
+
+      fireEvent.change(within(form).getByLabelText('Date it went live'), { target: { value: '2030-01-01' } });
+      fireEvent.change(within(form).getByLabelText('Label'), { target: { value: 'Far' } });
+      fireEvent.click(within(form).getByRole('button', { name: 'Add marker' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('That date is more than a year ahead.');
+    });
   });
 });

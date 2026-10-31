@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -180,7 +181,48 @@ public class ActivationFunnelService {
                 landingPaths(users, landingTrackingStart()),
                 secondImport(users.values()),
                 monthStartNudges(),
-                reached(users.values(), funnelGoLive));
+                reached(users.values(), funnelGoLive),
+                releaseMarkers(markers(), users.values(), reportingDay.today()));
+    }
+
+    /** A stored release marker (V303). */
+    record Marker(long id, LocalDate date, String label) {}
+
+    private List<Marker> markers() {
+        return jdbc.query("SELECT id, marker_date, label FROM activation_release_markers ORDER BY marker_date, created_at",
+                (rs, i) -> new Marker(rs.getLong("id"), rs.getObject("marker_date", LocalDate.class),
+                        rs.getString("label")));
+    }
+
+    /**
+     * Each marker with the signups either side of it, over windows of equal length: after is the
+     * marker's day to today, before the same number of days ending the day before. A marker dated
+     * after today has no windows yet. The after window's signups have had less time to act; the page
+     * says so.
+     */
+    static List<ActivationReportDto.ReleaseMarker> releaseMarkers(List<Marker> markers, Collection<Counted> people,
+                                                                  LocalDate today) {
+        List<ActivationReportDto.ReleaseMarker> out = new ArrayList<>();
+        for (Marker m : markers) {
+            if (m.date().isAfter(today)) {
+                out.add(new ActivationReportDto.ReleaseMarker(m.id(), m.date(), m.label(), null, null));
+                continue;
+            }
+            long days = ChronoUnit.DAYS.between(m.date(), today) + 1;
+            out.add(new ActivationReportDto.ReleaseMarker(m.id(), m.date(), m.label(),
+                    window(people, m.date().minusDays(days), m.date().minusDays(1)),
+                    window(people, m.date(), today)));
+        }
+        return out;
+    }
+
+    private static ActivationReportDto.MarkerWindow window(Collection<Counted> people, LocalDate from, LocalDate to) {
+        List<Counted> in = new ArrayList<>();
+        for (Counted c : people) {
+            if (!c.createdDay().isBefore(from) && !c.createdDay().isAfter(to)) in.add(c);
+        }
+        return new ActivationReportDto.MarkerWindow(from, to, in.size(), reachedCounts(in),
+                secondImport(in).cameBackLaterDay());
     }
 
     /**

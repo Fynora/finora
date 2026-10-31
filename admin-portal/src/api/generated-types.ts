@@ -3284,6 +3284,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/analytics/activation/markers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createReleaseMarker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin-mfa/enroll": {
         parameters: {
             query?: never;
@@ -6479,6 +6495,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["discard"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/analytics/activation/markers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteReleaseMarker"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9830,6 +9862,30 @@ export interface components {
             category?: string;
             websiteUrl?: string;
             ifscPrefix?: string;
+        };
+        ActivationReleaseMarkerRequest: {
+            /** Format: date */
+            date?: string;
+            label?: string;
+        };
+        ActivationReleaseMarkerSaved: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: date */
+            date?: string;
+            label?: string;
+        };
+        ApiResponseActivationReleaseMarkerSaved: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["ActivationReleaseMarkerSaved"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
         };
         ApiResponseEnrollResponse: {
             success?: boolean;
@@ -14277,6 +14333,19 @@ export interface components {
             other?: components["schemas"]["ActivationLandingPathRow"];
             none?: components["schemas"]["ActivationLandingPathRow"];
         };
+        ActivationMarkerWindow: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            /** Format: int64 */
+            signups?: number;
+            reached?: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            cameBackLaterDay?: number;
+        };
         ActivationNudgeMonth: {
             /** Format: date */
             month?: string;
@@ -14303,6 +14372,15 @@ export interface components {
             /** Format: int64 */
             lostBeforeFunnelRecord?: number;
         };
+        ActivationReleaseMarker: {
+            /** Format: int64 */
+            id?: number;
+            /** Format: date */
+            date?: string;
+            label?: string;
+            before?: components["schemas"]["ActivationMarkerWindow"];
+            after?: components["schemas"]["ActivationMarkerWindow"];
+        };
         ActivationReportDto: {
             /** Format: date */
             funnelGoLive?: string;
@@ -14319,6 +14397,7 @@ export interface components {
             secondImport?: components["schemas"]["ActivationSecondImport"];
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
             reached?: components["schemas"]["ActivationReached"];
+            releaseMarkers?: components["schemas"]["ActivationReleaseMarker"][];
         };
         ActivationSecondImport: {
             /** Format: int64 */
@@ -20560,6 +20639,30 @@ export interface operations {
             };
         };
     };
+    createReleaseMarker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivationReleaseMarkerRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseActivationReleaseMarkerSaved"];
+                };
+            };
+        };
+    };
     enroll: {
         parameters: {
             query?: never;
@@ -25033,6 +25136,28 @@ export interface operations {
             path: {
                 userId: string;
                 merchantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    deleteReleaseMarker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
             };
             cookie?: never;
         };

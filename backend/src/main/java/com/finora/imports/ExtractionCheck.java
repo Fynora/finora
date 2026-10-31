@@ -22,7 +22,7 @@ import java.util.Map;
  * workbench, because the engineer investigating a complaint would be looking at a different
  * outcome than the one being complained about.
  */
-final class ExtractionCheck {
+public final class ExtractionCheck {
 
     private ExtractionCheck() {
     }
@@ -48,7 +48,7 @@ final class ExtractionCheck {
      * <p>For a one-section document this is exactly the argument the single-section call site used
      * to build by hand, so that long-standing rejection keeps its code, its message and its count.
      */
-    static void rejectIfNothingWasExtracted(List<StagedAccountSection> sections, DocumentContext ctx) {
+    public static void rejectIfNothingWasExtracted(List<StagedAccountSection> sections, DocumentContext ctx) {
         rejectIfNothingWasExtracted(wholeDocumentView(sections), ctx);
     }
 

@@ -338,7 +338,13 @@ function FynChat() {
           {aiOff && error && (
             <>
               {' '}
-              <Link to="/app/settings?tab=data" className="text-primary font-medium underline">Open Settings</Link>
+              <Link
+                to="/app/settings?tab=data"
+                onClick={() => trackNavigation('settings', 'contextual')}
+                className="text-primary font-medium underline"
+              >
+                Open Settings
+              </Link>
             </>
           )}
         </p>

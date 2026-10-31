@@ -15,6 +15,9 @@ import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages
 import Banks from '../src/pages/Banks';
 import { BankPageView } from '../src/pages/BankPage';
 import { BANK_PAGES, BANK_PAGE_ROUTE, bankPagePath } from '../src/pages/bankPages';
+import StatementCodeIndex from '../src/pages/StatementCodeIndex';
+import { StatementCodeView } from '../src/pages/StatementCodePage';
+import { STATEMENT_CODES, STATEMENT_CODE_ROUTE, statementCodePath } from '../src/pages/statementCodes';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
@@ -24,6 +27,8 @@ import NotFound from '../src/pages/NotFound';
 // Re-exported so scripts/prerender.mjs (plain Node, no TypeScript) can reach them through this
 // bundle: the JSON-LD each route's HTML carries, built from the pages' own data.
 export { jsonLdScripts, structuredDataFor } from '../src/lib/structuredData';
+// llms.txt and llms-full.txt, built from the site's own copy (see src/lib/llmsTxt.ts).
+export { llmsFullTxt, llmsTxt } from '../src/lib/llmsTxt';
 
 /**
  * Bundled by scripts/prerender.mjs via Vite's SSR build, then imported from plain Node -- this is
@@ -57,6 +62,7 @@ export const routes: Record<string, () => string> = {
   // The free statement converter. The tool's first render (consent box unticked) is in the HTML;
   // the rest of the page is the answer, steps, banks and FAQ a crawler needs.
   '/bank-statement-to-excel': page('/bank-statement-to-excel', StatementConverter),
+  '/bank-statement-codes': page('/bank-statement-codes', StatementCodeIndex),
 };
 
 /**
@@ -109,9 +115,18 @@ export const bankPages: Record<string, () => string> = Object.fromEntries(
   }),
 );
 
+/** One page per bank statement code, built from STATEMENT_CODES. */
+export const statementCodePages: Record<string, () => string> = Object.fromEntries(
+  STATEMENT_CODES.map((code) => {
+    const route = statementCodePath(code);
+    return [route, page(route, () => <StatementCodeView code={code} />)];
+  }),
+);
+
 export const pageCollections: PageCollection[] = [
   { route: HELP_ARTICLE_ROUTE, pages: helpArticlePages },
   { route: BANK_PAGE_ROUTE, pages: bankPages },
+  { route: STATEMENT_CODE_ROUTE, pages: statementCodePages },
 ];
 
 /**

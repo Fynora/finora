@@ -1,5 +1,16 @@
+import { Link } from 'react-router-dom';
 import { Brain, ShieldCheck, Target, TrendingUp } from 'lucide-react';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import {
+  GRIEVANCE_EMAIL,
+  GRIEVANCE_MAILTO,
+  LEGAL_NAME,
+  REGISTERED_OFFICE_TEXT,
+  SUPPORT_EMAIL,
+  SUPPORT_MAILTO,
+} from '../lib/contact';
+import { PLAY_STORE_URL } from '../lib/openInApp';
+import { everywhere } from './landing/landing-config';
 
 export default function About() {
   return (
@@ -55,6 +66,28 @@ export default function About() {
           </div>
         ))}
       </div>
+
+      {/* Who is behind Fynora, in crawlable text. Every fact here is one the site already states, read
+          from the same constants: the legal entity and registered office (Contact, Terms, Privacy),
+          the app's availability (the homepage), and the two public mailboxes (Contact). The same
+          entity is the Organization in this page's structured data. */}
+      <PublicSection title="The Company">
+        <p>
+          Fynora is made by {LEGAL_NAME}, a limited liability partnership registered in India, with its
+          registered office at {REGISTERED_OFFICE_TEXT}.
+        </p>
+        <p>
+          {everywhere.nativeNote}{' '}
+          <a href={PLAY_STORE_URL} className="text-primary hover:underline">Fynora on Google Play</a>.
+        </p>
+        <p>
+          For help, see the <Link to="/help" className="text-primary hover:underline">Help Center</Link> or
+          email <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>. For
+          complaints about how your personal data is handled, write to our Grievance Officer at{' '}
+          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>. More on
+          the <Link to="/contact" className="text-primary hover:underline">Contact</Link> page.
+        </p>
+      </PublicSection>
     </PublicLayout>
   );
 }

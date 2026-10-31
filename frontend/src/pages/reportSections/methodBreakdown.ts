@@ -37,6 +37,9 @@ const LABELS: Record<string, string> = {
   UNIDENTIFIED: 'Not identified',
 };
 
+/** The labels, for pages that explain a method by the name the report shows it under. */
+export const PAYMENT_METHOD_LABELS: Readonly<Record<string, string>> = LABELS;
+
 /** "60%", or "<1%" for a share under one percent: a method with real money in it must not read "0%". */
 export function formatShare(share: number): string {
   return share < 1 ? '<1%' : `${Math.round(share)}%`;

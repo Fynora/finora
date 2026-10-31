@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
@@ -77,6 +79,19 @@ describe('Help article content', () => {
       expect(text).toContain('18% GST');
     }
     expect(PRICING_CARDS.map((p) => p.name)).toEqual(['Free', 'Plus']);
+  });
+
+  it('says PDF and CSV only, and that Excel is not accepted, matching what the import picker accepts', () => {
+    // Google's AI Overview told people Fynora takes Excel files (seen 2026-10-31). The backend's
+    // StatementUpload.Format is CSV and PDF only, and both pickers accept nothing else.
+    const formats = helpArticleBySlug('supported-file-formats')!;
+    for (const text of [formats.answer, helpArticleDescription(formats)]) {
+      expect(text).toMatch(/^PDF and CSV only/);
+      expect(text).toContain('Excel files (.xls or .xlsx) are not accepted');
+    }
+    const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, rel), 'utf-8');
+    expect(read('Import.tsx')).toContain('accept=".csv,.pdf"');
+    expect(read('SendStatement.tsx')).toContain('accept=".pdf,.csv,application/pdf,text/csv"');
   });
 
   it('lists only real related articles, never itself, never twice, same category first', () => {

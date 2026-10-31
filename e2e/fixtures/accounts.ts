@@ -1,3 +1,4 @@
+import { randomBytes, randomInt } from 'node:crypto';
 import { query, one } from './db';
 import { API_BASE } from './config';
 
@@ -58,11 +59,13 @@ const PASSWORD = 'E2eSeedPass2026';
  * "Enter a valid 10-digit Indian mobile number" on every run (#1344's E2E smoke failure).
  */
 function syntheticPhone(): string {
-  return `+91987${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
+  // node:crypto rather than Math.random: the number rides in a request with a password, which is
+  // enough for CodeQL's insecure-randomness rule, and the cost is nil.
+  return `+91987${String(randomInt(10_000_000)).padStart(7, '0')}`;
 }
 
 function uniqueEmail(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}@finora.test`;
+  return `${prefix}-${Date.now().toString(36)}-${randomBytes(4).toString('hex')}@finora.test`;
 }
 
 async function post(path: string, body: unknown, token?: string) {

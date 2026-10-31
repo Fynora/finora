@@ -1,6 +1,7 @@
 package com.finora.service;
 
 import com.finora.config.FynProperties;
+import com.finora.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +17,7 @@ class FynAvailabilityGuardTest {
 
     private FynProperties properties;
     private FynCostGovernanceService costGovernanceService;
+    private UserRepository userRepository;
     private FynAvailabilityGuard guard;
     private final UUID userId = UUID.randomUUID();
 
@@ -28,7 +30,11 @@ class FynAvailabilityGuardTest {
                 new FynCostGovernanceService.MonthlyBudget(BigDecimal.ZERO, new BigDecimal("50"),
                         FynCostGovernanceService.BudgetStatus.OK));
         when(costGovernanceService.userDailyCapReached(any())).thenReturn(false);
-        guard = new FynAvailabilityGuard(properties, costGovernanceService);
+        userRepository = mock(UserRepository.class);
+        // Most tests here are about the operator switches, so the user has said yes; the consent
+        // rule has its own tests at the bottom.
+        when(userRepository.existsByIdAndAiProcessingConsentTrue(userId)).thenReturn(true);
+        guard = new FynAvailabilityGuard(properties, costGovernanceService, userRepository);
     }
 
     @Test
@@ -101,5 +107,28 @@ class FynAvailabilityGuardTest {
         assertThat(guard.insightsAvailableFor(userId)).isFalse();
         assertThat(guard.importAssistAvailable()).isTrue();
         assertThat(guard.categorizationAvailableFor(userId)).isFalse();
+    }
+
+    /** V302: no yes, no AI -- whether the user said no or was never asked (the query only matches TRUE). */
+    @Test
+    void everyPerUserFeatureNeedsTheUsersOwnYes() {
+        when(userRepository.existsByIdAndAiProcessingConsentTrue(userId)).thenReturn(false);
+
+        assertThat(guard.aiConsentGiven(userId)).isFalse();
+        assertThat(guard.chatAvailableFor(userId)).isFalse();
+        assertThat(guard.insightsAvailableFor(userId)).isFalse();
+        assertThat(guard.categorizationAvailableFor(userId)).isFalse();
+        // Admin-triggered and tied to no single user's consent (see the spec).
+        assertThat(guard.importAssistAvailable()).isTrue();
+        assertThat(guard.available()).isTrue();
+    }
+
+    @Test
+    void oneUsersYesDoesNotCoverAnother() {
+        UUID other = UUID.randomUUID();
+
+        assertThat(guard.chatAvailableFor(userId)).isTrue();
+        assertThat(guard.chatAvailableFor(other)).isFalse();
+        assertThat(guard.aiConsentGiven(null)).isFalse();
     }
 }

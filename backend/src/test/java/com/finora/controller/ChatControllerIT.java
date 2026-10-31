@@ -60,6 +60,8 @@ class ChatControllerIT extends AbstractIntegrationTest {
         user.setFullName("Chat IT Test User");
         user.setAccountScope(User.SCOPE_USER);
         user.setPhoneVerified(true);
+        // These tests are about AI paths, so the user has said yes to "AI features" (V302).
+        user.recordAiProcessingConsent(true, java.time.Instant.now());
         return userRepository.save(user);
     }
 

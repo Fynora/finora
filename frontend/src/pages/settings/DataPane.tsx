@@ -6,6 +6,7 @@ import { Button } from '../../design-system/Button';
 import { FinoraCard } from '../../design-system/FinoraCard';
 import { SectionHeader } from '../../design-system/SectionHeader';
 import { SavedStatementPasswordsSection } from './SavedStatementPasswordsSection';
+import { AiFeaturesSection } from './AiFeaturesSection';
 
 export function DataPane({
   loading, loadError, signInMethod,
@@ -53,6 +54,8 @@ export function DataPane({
           Export My Data
         </Button>
       </div>
+
+      <AiFeaturesSection />
 
       <SavedStatementPasswordsSection />
 

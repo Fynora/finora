@@ -288,14 +288,22 @@ public class User {
     @Column(name = "spending_tracking_answered_at")
     private Instant spendingTrackingAnsweredAt;
 
-    // Both null for an account created before V223 -- never backfilled, see that migration. Set
-    // together, once, at account creation by AuthService (every sign-up path shows the Terms and
-    // Privacy notice beside the action that creates the account).
+    // The latest acceptance of the Terms and Privacy Policy. Both null for an account that has never
+    // accepted (created before V223, from an app that predates the required box, or by Google/Apple
+    // sign-in before the consent step was answered). The full history is user_terms_acceptances
+    // (V302); TermsConsentService writes both together.
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;
 
     @Column(name = "terms_version", length = 32)
     private String termsVersion;
+
+    // V302: the "AI features" answer. Null = not asked yet, which FynAvailabilityGuard treats as no.
+    @Column(name = "ai_processing_consent")
+    private Boolean aiProcessingConsent;
+
+    @Column(name = "ai_processing_consent_at")
+    private Instant aiProcessingConsentAt;
 
     // --- getters / setters ---
     public UUID getId() { return id; }
@@ -369,5 +377,13 @@ public class User {
     public void recordTermsAcceptance(String version, Instant at) {
         this.termsVersion = version;
         this.termsAcceptedAt = at;
+    }
+    /** Null when the user has not answered yet. */
+    public Boolean getAiProcessingConsent() { return aiProcessingConsent; }
+    public Instant getAiProcessingConsentAt() { return aiProcessingConsentAt; }
+    /** Records the AI features answer; both columns move together (V302's CHECK). */
+    public void recordAiProcessingConsent(boolean enabled, Instant at) {
+        this.aiProcessingConsent = enabled;
+        this.aiProcessingConsentAt = at;
     }
 }

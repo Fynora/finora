@@ -125,8 +125,9 @@ class AuthFlowIT extends AbstractIntegrationTest {
         assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
-    /** The consent the sign-up screen's "By continuing, you agree..." notice asks for is recorded
-     *  on the account row itself, with the version of the terms the user was shown (V223). */
+    /** The required sign-up box (V302) is recorded on the account row itself, with the version of
+     *  the terms the user was shown (V223). TermsConsentIT covers the history rows and the older
+     *  request shape that records nothing. */
     @Test
     void register_recordsAcceptanceOfTheCurrentTermsVersion() {
         String email = "terms-" + UUID.randomUUID() + "@example.com";
@@ -134,7 +135,8 @@ class AuthFlowIT extends AbstractIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String body = """
-                {"email": "%s", "password": "SecurePass123", "fullName": "Terms Test", "phoneNumber": "%s"}
+                {"email": "%s", "password": "SecurePass123", "fullName": "Terms Test", "phoneNumber": "%s",
+                 "acceptedTerms": true, "aiProcessingConsent": false}
                 """.formatted(email, phoneNumber);
         Instant before = Instant.now();
 

@@ -216,6 +216,11 @@ public class FynChatOrchestrationService {
      * same user could change the free-daily-quota outcome in between.
      */
     public void preflightChat(UUID userId) {
+        // Before the availability check, which also says no without consent: this answer is one the
+        // user can act on (the Settings switch), unlike an outage.
+        if (!availabilityGuard.aiConsentGiven(userId)) {
+            throw new ApiException(ErrorCode.FYN_AI_CONSENT_OFF);
+        }
         if (!availabilityGuard.chatAvailableFor(userId)) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Fyn chat is not available right now -- it may be disabled, unconfigured, or "

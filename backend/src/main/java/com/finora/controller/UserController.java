@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.finora.config.CorrelationIdFilter;
 import com.finora.dto.AccountLifecycleDtos.*;
 import com.finora.dto.ApiResponse;
+import com.finora.dto.ConsentRequest;
 import com.finora.dto.MeAccessDto;
 import com.finora.dto.PasswordChangeDtos.*;
 import com.finora.dto.UserSettingsDto;
@@ -23,6 +24,7 @@ import com.finora.service.DataExportService;
 import com.finora.service.EmailChangeService;
 import com.finora.service.PasswordChangeService;
 import com.finora.service.PhoneChangeService;
+import com.finora.service.TermsConsentService;
 import com.finora.service.UserAccountLifecycleService;
 import com.finora.service.UserSettingsService;
 import jakarta.validation.Valid;
@@ -53,13 +55,15 @@ public class UserController {
     private final UserAccountLifecycleService accountLifecycleService;
     private final DataExportService dataExportService;
     private final AuditService auditService;
+    private final TermsConsentService termsConsentService;
 
     public UserController(UserSettingsService userSettingsService, CurrentUser currentUser,
                            UserRepository userRepository, AuthorizationService authorizationService,
                            PasswordChangeService passwordChangeService, PhoneChangeService phoneChangeService,
                            EmailChangeService emailChangeService,
                            UserAccountLifecycleService accountLifecycleService,
-                           DataExportService dataExportService, AuditService auditService) {
+                           DataExportService dataExportService, AuditService auditService,
+                           TermsConsentService termsConsentService) {
         this.userSettingsService = userSettingsService;
         this.currentUser = currentUser;
         this.userRepository = userRepository;
@@ -70,6 +74,7 @@ public class UserController {
         this.accountLifecycleService = accountLifecycleService;
         this.dataExportService = dataExportService;
         this.auditService = auditService;
+        this.termsConsentService = termsConsentService;
     }
 
     @GetMapping
@@ -80,6 +85,20 @@ public class UserController {
     @PutMapping
     public ApiResponse<UserSettingsDto> update(@Valid @RequestBody UserSettingsDto.UpdateRequest request) {
         return ApiResponse.ok(userSettingsService.update(currentUser.id(), request), "Preferences saved");
+    }
+
+    /**
+     * The consent step (Terms acceptance plus the AI choice) and the Settings "AI features" switch --
+     * docs/superpowers/specs/2026-10-31-ai-consent-and-terms-acceptance-design.md. Returns the
+     * refreshed profile so the app can drop the consent step at once.
+     */
+    @PostMapping("/consent")
+    public ApiResponse<UserSettingsDto> consent(@Valid @RequestBody ConsentRequest request) {
+        if (request.acceptTermsVersion() == null && request.aiProcessing() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Nothing to record.");
+        }
+        termsConsentService.submit(currentUser.id(), request.acceptTermsVersion(), request.aiProcessing());
+        return ApiResponse.ok(userSettingsService.get(currentUser.id()), "Saved");
     }
 
     /**

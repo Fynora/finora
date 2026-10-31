@@ -6,6 +6,9 @@ import Settings from './Settings';
 import { ThemeProvider } from '../context/ThemeContext';
 import { AuthProvider } from '../context/AuthContext';
 
+// Covered by AiFeaturesSection.test.tsx.
+vi.mock('./settings/AiFeaturesSection', () => ({ AiFeaturesSection: () => null }));
+
 vi.mock('../api/endpoints', () => ({
   userApi: { get: vi.fn().mockResolvedValue({
     phoneNumber: '', phoneVerified: false, passwordChangedAt: null, signInMethod: 'PASSWORD',

@@ -22,7 +22,7 @@ const KEEP: Record<string, { count: number; why: string }> = {
   'screens/import/ImportScreen.tsx': { count: 1, why: 'resuming an unfinished import' },
   'screens/settings/DeviceSessionsSection.tsx': { count: 1, why: 'a device being signed out' },
   'screens/settings/GmailConnectionSection.tsx': { count: 1, why: 'Gmail syncing' },
-  'navigation/RootNavigator.tsx': { count: 2, why: 'the app starting up' },
+  'navigation/RootNavigator.tsx': { count: 3, why: 'the app starting up, and its two start-up lookups (consent, spending question)' },
 };
 
 const SRC = join(__dirname, '..', '..');

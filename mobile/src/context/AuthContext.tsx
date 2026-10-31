@@ -4,7 +4,7 @@ import { AppAlert, clearAppAlerts } from '../lib/appAlert';
 import { AppBanner } from '../lib/appBanner';
 import { showSystemNotification } from '../lib/systemNotification';
 import { useQueryClient } from '@tanstack/react-query';
-import { authApi } from '../api/endpoints';
+import { authApi, type SignUpConsent } from '../api/endpoints';
 import { markSessionEnded, sessionStorageCleared, setSessionCallbacks } from '../api/client';
 import { safeStorage } from '../lib/safeStorage';
 import { clearPersistedQueryCache, pauseQueryPersistence } from '../api/queryClient';
@@ -59,7 +59,8 @@ interface AuthState {
     password: string,
     fullName: string,
     phoneNumber: string,
-    referralCode?: string
+    referralCode?: string,
+    consent?: SignUpConsent
   ) => Promise<{ phoneVerified: boolean }>;
   // D-23 Phase 2. Mirrors frontend/src/context/AuthContext.tsx's own loginWithGoogle exactly --
   // same contract, same persist() reuse.
@@ -523,9 +524,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     name: string,
     phoneNumber: string,
-    referralCode?: string
+    referralCode?: string,
+    consent?: SignUpConsent
   ): Promise<{ phoneVerified: boolean }> {
-    const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode);
+    const res = await authApi.register(regEmail, password, name, phoneNumber, referralCode, consent);
     await persist(res.data);
     // VerifyPhoneScreen fetches the account's real phone number itself (userApi.get(), now that
     // it's authenticated) rather than being handed it through navigation params.

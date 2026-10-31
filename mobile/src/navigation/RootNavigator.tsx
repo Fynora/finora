@@ -28,6 +28,8 @@ import { useChangePolling } from '../lib/useChangePolling';
 import { useShareIntentDeepLink } from './useShareIntentDeepLink';
 import type { AuthStackParamList, RootParamList } from './types';
 import { useSpendingQuestion } from '../onboarding/useSpendingQuestion';
+import { useConsent } from '../onboarding/useConsent';
+import { ConsentScreen } from '../onboarding/ConsentScreen';
 import { SpendingTrackingQuestionScreen } from '../onboarding/SpendingTrackingQuestionScreen';
 import { GlassScreen } from '../components/GlassScreen';
 
@@ -70,6 +72,8 @@ export function RootNavigator() {
   // The required "How do you keep track of your spending today?" question, shown in place of
   // onboarding and the app alike until answered -- see the hook.
   const spendingQuestion = useSpendingQuestion(token !== null && phoneVerified, email);
+  // The consent step (V302), shown before even the spending question -- see the hook.
+  const consent = useConsent(token !== null && phoneVerified, email);
   const { step: onboardingStep, setStep: setOnboardingStep } = useOnboardingStep();
   const authInitialRoute = useAuthStackInitialRoute(token);
   const c = useTheme();
@@ -84,8 +88,9 @@ export function RootNavigator() {
   // "ready" gate needs exactly this condition, not a slightly different one).
   // Not while the spending question is showing in place of the app, nor while it is still being
   // looked up (see useSpendingQuestion's own comment on `pending`).
-  const isAppTabsActive = token !== null && phoneVerified && !spendingQuestion.needsAnswer
-    && !spendingQuestion.pending && (onboardingCompleted || onboardingStep === 'tour');
+  // Nor while the consent step is showing or still being looked up (useConsent).
+  const isAppTabsActive = token !== null && phoneVerified && !consent.needsAnswer && !consent.pending
+    && !spendingQuestion.needsAnswer && !spendingQuestion.pending && (onboardingCompleted || onboardingStep === 'tour');
   // Picks up changes made on another device (the web app) while this one is open -- see the hook.
   useChangePolling(isAppTabsActive);
   const { onNavigationReady: onEmailChangeReady } = useEmailChangeDeepLink(navigationRef, isAppTabsActive, token !== null);
@@ -219,6 +224,32 @@ export function RootNavigator() {
         // sign-out as the way back.
         <AppStack.Navigator screenOptions={{ headerShown: false }}>
           <AppStack.Screen name="VerifyPhone" component={VerifyPhoneScreen} />
+        </AppStack.Navigator>
+      ) : consent.pending ? (
+        // Held for everyone, not just the not-yet-onboarded: the app must never show and then
+        // disappear behind the consent step. One profile read per signed-in account.
+        <AppStack.Navigator screenOptions={{ headerShown: false }}>
+          <AppStack.Screen name="ConsentLoading">
+            {() => (
+              <GlassScreen testID="consent-loading" style={styles.splash}>
+                <ActivityIndicator size="large" color={c.primary} />
+              </GlassScreen>
+            )}
+          </AppStack.Screen>
+        </AppStack.Navigator>
+      ) : consent.needsAnswer && consent.profile ? (
+        // Single screen, like VerifyPhone above: nothing else is reachable until it is answered.
+        <AppStack.Navigator screenOptions={{ headerShown: false }}>
+          <AppStack.Screen name="Consent">
+            {() => (
+              <ConsentScreen
+                profile={consent.profile!}
+                onSubmit={consent.submit}
+                onOutdated={consent.reload}
+                onSignOut={logout}
+              />
+            )}
+          </AppStack.Screen>
         </AppStack.Navigator>
       ) : spendingQuestion.needsAnswer ? (
         // Single screen, like VerifyPhone above: nothing else is reachable until it is answered.

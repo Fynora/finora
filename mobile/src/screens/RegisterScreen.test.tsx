@@ -109,7 +109,8 @@ describe('RegisterScreen referral code field', () => {
     await settle();
 
     expect(mockRegister).toHaveBeenCalledWith(
-      'jane@example.com', 'Str0ng!Pass', 'Jane Doe', '+919876543210' /* synthetic-ok */, 'AB12CD34'
+      'jane@example.com', 'Str0ng!Pass', 'Jane Doe', '+919876543210' /* synthetic-ok */, 'AB12CD34',
+      { acceptedTerms: true, aiProcessingConsent: false }
     );
   });
 
@@ -121,41 +122,59 @@ describe('RegisterScreen referral code field', () => {
     await settle();
 
     expect(mockRegister).toHaveBeenCalledWith(
-      'jane@example.com', 'Str0ng!Pass', 'Jane Doe', '+919876543210' /* synthetic-ok */, undefined
+      'jane@example.com', 'Str0ng!Pass', 'Jane Doe', '+919876543210' /* synthetic-ok */, undefined,
+      { acceptedTerms: true, aiProcessingConsent: false }
     );
   });
 });
 
-// Store readiness (ST1/S4): the screen must disclose terms/privacy consent, but as an implicit
-// notice rather than an explicit checkbox gate -- covering the Google/Apple buttons too, which an
-// explicit gate on the password path's own Create Account button never could (see the JSX's own
-// comment on this screen for why that changed).
-describe('RegisterScreen terms consent notice', () => {
-  it('shows the consent notice with working Terms of Service and Privacy Policy links', () => {
+// V302 (privacy workstream 8): the standalone notice and an explicit, unticked box that gates
+// Create account. The Google and Apple buttons cannot carry it; ConsentScreen asks those accounts
+// right after their first sign-in.
+describe('RegisterScreen consent', () => {
+  it('shows the notice and both boxes, neither ticked, with the document links', () => {
     renderScreen();
 
-    expect(screen.getByText(/By continuing, you agree to/)).toBeTruthy();
+    expect(screen.getByTestId('consent-notice')).toBeTruthy();
+    expect(screen.getByTestId('consent-terms-box').props.accessibilityState).toEqual({ checked: false });
+    expect(screen.getByTestId('consent-ai-box').props.accessibilityState).toEqual({ checked: false });
     expect(screen.getByText('Terms of Service')).toBeTruthy();
-    expect(screen.getByText('Privacy Policy')).toBeTruthy();
+    expect(screen.getAllByText('Privacy Policy').length).toBeGreaterThan(0);
   });
 
-  it('calls register() once every field is valid, with no separate consent step required', async () => {
+  it('does not register until the required box is ticked', async () => {
+    renderScreen();
+    fillValidForm(false);
+
+    fireEvent.press(screen.getByText('Create account'));
+    await settle();
+    expect(mockRegister).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByTestId('consent-terms-box'));
+    fireEvent.press(screen.getByText('Create account'));
+    await settle();
+    expect(mockRegister).toHaveBeenCalled();
+  });
+
+  it('sends a yes to AI features only when that box is ticked', async () => {
     renderScreen();
     fillValidForm();
+    fireEvent.press(screen.getByTestId('consent-ai-box'));
 
     fireEvent.press(screen.getByText('Create account'));
     await settle();
 
-    expect(mockRegister).toHaveBeenCalled();
+    expect(mockRegister.mock.calls[0][5]).toEqual({ acceptedTerms: true, aiProcessingConsent: true });
   });
 });
 
-function fillValidForm() {
+function fillValidForm(tickTerms = true) {
   fireEvent.changeText(screen.getByLabelText('Full name'), 'Jane Doe');
   fireEvent.changeText(screen.getByLabelText('Email'), 'jane@example.com');
   fireEvent.changeText(screen.getByLabelText('Mobile number'), '9876543210' /* synthetic-ok */);
   fireEvent.changeText(screen.getByLabelText('Password (min 8 characters)'), 'Str0ng!Pass');
   fireEvent.changeText(screen.getByLabelText('Confirm password'), 'Str0ng!Pass');
+  if (tickTerms) fireEvent.press(screen.getByTestId('consent-terms-box'));
 }
 
 /** Lets handleSubmit's `finally` setState land before assertions run -- same helper as

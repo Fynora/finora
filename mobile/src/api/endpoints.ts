@@ -68,8 +68,13 @@ export const authApi = {
   // referralCode: optional -- set only when the user typed one into RegisterScreen's own
   // "Referral code (optional)" field. Mirrors the backend's RegisterRequest.referralCode exactly;
   // an unrecognized or mistyped code is a silent no-op server-side, never a rejected signup.
-  register: (email: string, password: string, fullName: string, phoneNumber: string, referralCode?: string) =>
-    api.post<AuthResponseDto>('/auth/register', { email, password, fullName, phoneNumber, referralCode }),
+  // consent: the two sign-up boxes (V302) -- the required Terms one, and the optional AI one.
+  register: (email: string, password: string, fullName: string, phoneNumber: string, referralCode?: string,
+             consent?: SignUpConsent) =>
+    api.post<AuthResponseDto>('/auth/register', {
+      email, password, fullName, phoneNumber, referralCode,
+      acceptedTerms: consent?.acceptedTerms, aiProcessingConsent: consent?.aiProcessingConsent,
+    }),
   login: (identifier: string, password: string) =>
     api.post<AuthResponseDto>('/auth/login', { identifier, password }),
   // Identifier-first entry step (Phase 3B) -- resolves an email or mobile number to what the
@@ -1574,9 +1579,27 @@ export interface UserSettings {
   // result -- see those files' own doc comments); added now so the new account-lifecycle sheets
   // below can gate correctly instead of repeating that gap a third time.
   signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
+  // V302 (docs/superpowers/specs/2026-10-31-ai-consent-and-terms-acceptance-design.md). RootNavigator
+  // shows ConsentScreen while termsAcceptanceRequired is true or aiProcessingConsent is null.
+  termsAcceptanceRequired: boolean;
+  currentTermsVersion: string;
+  // The "AI features" answer; null = not asked yet, which the backend treats as no.
+  aiProcessingConsent: boolean | null;
 }
+
+/** The two sign-up boxes. acceptedTerms is always true when sent: the form cannot be sent unticked. */
+export interface SignUpConsent {
+  acceptedTerms: true;
+  aiProcessingConsent: boolean;
+}
+
 export const userApi = {
   get: () => api.get<UserSettings>('/users/me').then((r) => r.data),
+  // The consent step (acceptTermsVersion + aiProcessing) and the Settings "AI features" switch
+  // (aiProcessing only). Returns the refreshed profile. A stale acceptTermsVersion is a 409
+  // (TERMS_VERSION_OUTDATED): reload the profile and show the current documents.
+  consent: (body: { acceptTermsVersion?: string; aiProcessing?: boolean }) =>
+    api.post<UserSettings>('/users/me/consent', body).then((r) => r.data),
   update: (body: { lowBalanceThreshold?: number; theme?: string; timezone?: string; fullName?: string }) =>
     api.put<UserSettings>('/users/me', body).then((r) => r.data),
 };

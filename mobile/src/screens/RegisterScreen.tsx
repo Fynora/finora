@@ -6,7 +6,8 @@ import { AppleSignInButton } from '../components/AppleSignInButton';
 import { AuthScreenLayout } from '../components/AuthScreenLayout';
 import { Button } from '../components/Button';
 import { GoogleSignInButton, isGoogleSignInConfigured } from '../components/GoogleSignInButton';
-import { LegalLink } from '../components/LegalLink';
+import { ConsentChoices } from '../components/consent/ConsentChoices';
+import { ConsentNotice } from '../components/consent/ConsentNotice';
 import { TextField } from '../components/TextField';
 import { TrustNote } from '../components/TrustNote';
 import { useAuth } from '../context/AuthContext';
@@ -45,6 +46,10 @@ export function RegisterScreen({ navigation, route }: Props) {
   const [referralCode, setReferralCode] = useState(route.params?.referralCode ?? '');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // V302: neither box is ticked to start with. The required one gates Create account; the AI one
+  // is the user's own choice and is sent as given.
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
   // Only surface field-level errors once a field has been left, so the empty form doesn't mount
   // covered in red.
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -57,7 +62,7 @@ export function RegisterScreen({ navigation, route }: Props) {
   const strength = useMemo(() => passwordStrength(password), [password]);
   const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
-  const formValid = fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch;
+  const formValid = fullNameValid && emailValid && phoneValid && passwordLongEnough && passwordsMatch && termsAccepted;
 
   function markTouched(field: string) {
     setTouched((t) => ({ ...t, [field]: true }));
@@ -72,6 +77,7 @@ export function RegisterScreen({ navigation, route }: Props) {
     if (!phoneValid) { setError('Enter a valid 10-digit mobile number.'); return; }
     if (!passwordLongEnough) { setError('Password must be at least 8 characters.'); return; }
     if (!passwordsMatch) { setError('Passwords do not match.'); return; }
+    if (!termsAccepted) { setError('Please confirm you are 18 or older and agree to the Terms of Service and Privacy Policy.'); return; }
 
     setLoading(true);
     const startedAt = requestStartedAt();
@@ -81,7 +87,8 @@ export function RegisterScreen({ navigation, route }: Props) {
       // referralCode is sent as undefined (not '') when blank -- redeemCode() treats a blank
       // string as "no code" server-side either way, but this keeps the request body honest about
       // what the user actually typed.
-      await register(email.trim(), password, trimmedName, `+91${phoneNumber}`, referralCode.trim() || undefined);
+      await register(email.trim(), password, trimmedName, `+91${phoneNumber}`, referralCode.trim() || undefined,
+        { acceptedTerms: true, aiProcessingConsent: aiEnabled });
       // No navigation: RootNavigator switches stacks off AuthContext state, landing on
       // VerifyPhone since a fresh registration is never phone-verified yet.
     } catch (err) {
@@ -240,20 +247,22 @@ export function RegisterScreen({ navigation, route }: Props) {
         maxLength={20}
       />
 
-      {/* Implicit consent, not an explicit checkbox gate -- covers every sign-up path on this
-          screen (password, Google, Apple) the same way, rather than only blocking the password
-          path's Create Account button below while leaving Google/Apple ungated (the previous
-          checkbox's scope, and still web's -- see frontend/src/pages/auth-entry/RegisterStep.tsx).
-          Continuing with any method implies agreement, so nothing here disables a button. Links
-          out to the web app's Privacy/Terms pages via webUrl -- mobile has no in-app copies of
-          them (see SettingsScreen's own Legal section for the same links, reachable
-          post-registration too). */}
-      <View style={styles.terms}>
-        <Text style={[styles.termsLabel, { color: c.muted }]}>By continuing, you agree to Fynora&apos;s</Text>
-        <View style={styles.termsLinks}>
-          <LegalLink label="Terms of Service" path="/terms" />
-          <LegalLink label="Privacy Policy" path="/privacy" />
-        </View>
+      {/* V302: the notice and an explicit, unticked box that gates Create account -- same as the
+          web app's RegisterStep. The Google and Apple buttons above cannot carry it (their flows
+          finish before this form sees anything), so an account they create has no acceptance yet
+          and RootNavigator shows ConsentScreen right after that first sign-in. Documents open on
+          the website: mobile has no in-app copies of them. */}
+      <View style={[styles.terms, { borderColor: c.border }]}>
+        <ConsentNotice />
+      </View>
+      <View style={styles.choices}>
+        <ConsentChoices
+          showTermsBox
+          termsAccepted={termsAccepted}
+          onTermsAcceptedChange={setTermsAccepted}
+          aiEnabled={aiEnabled}
+          onAiEnabledChange={setAiEnabled}
+        />
       </View>
 
       <Button label="Create account" onPress={handleSubmit} loading={loading} disabled={!formValid} pressScale />
@@ -290,9 +299,8 @@ const styles = StyleSheet.create({
   socialStack: {
     gap: spacing.sm,
   },
-  terms: { marginTop: spacing.sm, marginBottom: spacing.md },
-  termsLabel: { fontSize: 13, lineHeight: 18 },
-  termsLinks: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
+  terms: { marginTop: spacing.sm, borderWidth: 1, borderRadius: 10, padding: spacing.sm },
+  choices: { marginTop: spacing.sm, marginBottom: spacing.md },
   strengthBars: {
     flexDirection: 'row',
     gap: 4,

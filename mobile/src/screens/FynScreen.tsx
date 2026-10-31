@@ -3,6 +3,9 @@ import {
   KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ScrollViewInstance,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { MoreStackParamList } from '../navigation/types';
+import { FYN_AI_CONSENT_OFF } from '../api/errorCodes';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePreventScreenCapture } from '../lib/screenCapture';
 import * as StoreReview from 'expo-store-review';
@@ -127,6 +130,10 @@ function UpgradePrompt() {
 
 function FynChat() {
   const c = useTheme();
+  // Fyn lives in the More stack, beside Settings -> Data (where the AI features switch is).
+  const moreNavigation = useNavigation<NativeStackNavigationProp<MoreStackParamList>>();
+  // V302: the last error was "AI features are off" -- shown with the way to turn them on.
+  const [aiOff, setAiOff] = useState(false);
   const tabBar = useTabBarSpace();
   const keyboardUp = useKeyboardVisible();
   const insets = useSafeAreaInsets();
@@ -213,6 +220,7 @@ function FynChat() {
     } catch (err) {
       reportTransportFailure(err, 'fyn-chat:send', startedAt);
       setError(toUserMessage(err, 'Fyn could not answer that right now.'));
+      setAiOff((err as { response?: { data?: { errorCode?: string } } })?.response?.data?.errorCode === FYN_AI_CONSENT_OFF);
     } finally {
       setSending(false);
       // Content just changed height (a new turn, or the "Fyn is thinking…" line clearing) --
@@ -345,6 +353,16 @@ function FynChat() {
       </ScrollView>
 
       {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
+      {error && aiOff ? (
+        <Pressable
+          onPress={() => moreNavigation.navigate('SettingsData')}
+          accessibilityRole="link"
+          hitSlop={8}
+          style={styles.aiOffLink}
+        >
+          <Text style={[styles.aiOffLinkLabel, { color: c.primary }]}>Open Settings → Data</Text>
+        </Pressable>
+      ) : null}
 
       {attachedImage ? (
         <View style={[styles.attachedPreview, { borderColor: c.border, backgroundColor: c.bg /* glass-exempt: chip/input/attachment control inside the chat composer; opaque bg is its contrast */, marginHorizontal: spacing.md }]}>
@@ -435,6 +453,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth,
   },
+  aiOffLink: { alignSelf: 'center', paddingVertical: 6, marginBottom: 4 },
+  aiOffLinkLabel: { fontSize: 13, fontWeight: '600' },
   attachButton: {
     width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1,
   },

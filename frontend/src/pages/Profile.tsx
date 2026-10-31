@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { User, ShieldCheck, CheckCircle2 } from 'lucide-react';
-import { userApi } from '../api/endpoints';
+import { userApi, type SignInMethod } from '../api/endpoints';
 import { maskPhone } from '../lib/maskPhone';
 import { initials, formatMonthYear, formatRelativeTime, SectionCard, VerifiedBadge, SaveStatus } from '../components/AccountUI';
 import { ChangeEmailModal } from '../components/ChangeEmailModal';
@@ -23,7 +23,7 @@ export default function Profile() {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   const [passwordChangedAt, setPasswordChangedAt] = useState<string | null>(null);
-  const [signInMethod, setSignInMethod] = useState<'PASSWORD' | 'GOOGLE'>('PASSWORD');
+  const [signInMethod, setSignInMethod] = useState<SignInMethod>('PASSWORD');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 

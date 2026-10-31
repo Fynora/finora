@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { DeactivateAccountModal } from './DeactivateAccountModal';
 import { accountLifecycleApi } from '../api/endpoints';
 import { isGoogleLoginConfigured, loadGoogleIdentityServices } from '../lib/googleIdentity';
+import { isAppleLoginConfigured, loadAppleIdServices } from '../lib/appleIdentity';
 
 vi.mock('../api/endpoints', () => ({
   accountLifecycleApi: { deactivate: vi.fn() },
@@ -13,6 +14,12 @@ vi.mock('../api/endpoints', () => ({
 vi.mock('../lib/googleIdentity', () => ({
   isGoogleLoginConfigured: vi.fn(),
   loadGoogleIdentityServices: vi.fn(),
+}));
+
+// Same wholesale mock for Apple's script -- see AppleSignInButton.test.tsx.
+vi.mock('../lib/appleIdentity', () => ({
+  isAppleLoginConfigured: vi.fn(),
+  loadAppleIdServices: vi.fn(),
 }));
 
 describe('DeactivateAccountModal', () => {
@@ -31,7 +38,7 @@ describe('DeactivateAccountModal', () => {
       await user.click(screen.getByRole('button', { name: /deactivate account/i }));
 
       await waitFor(() => expect(accountLifecycleApi.deactivate).toHaveBeenCalledWith(
-        'OldPass123!', null, 'TAKING_A_BREAK', undefined
+        'OldPass123!', null, null, 'TAKING_A_BREAK', undefined
       ));
       expect(onDeactivated).toHaveBeenCalled();
     });
@@ -68,7 +75,39 @@ describe('DeactivateAccountModal', () => {
       callback({ credential: 'fresh-google-id-token' });
 
       await waitFor(() => expect(accountLifecycleApi.deactivate).toHaveBeenCalledWith(
-        null, 'fresh-google-id-token', 'PRIVACY_CONCERNS', undefined
+        null, 'fresh-google-id-token', null, 'PRIVACY_CONCERNS', undefined
+      ));
+      expect(onDeactivated).toHaveBeenCalled();
+    });
+  });
+
+  describe('an Apple Sign-In account', () => {
+    beforeEach(() => {
+      vi.mocked(isAppleLoginConfigured).mockReturnValue(true);
+      vi.mocked(loadAppleIdServices).mockResolvedValue({
+        init: vi.fn(),
+        signIn: vi.fn().mockResolvedValue({ authorization: { id_token: 'fresh-apple-id-token' } }),
+      } as any);
+    });
+
+    it('offers no password field, and withholds the Apple button until a reason is chosen', () => {
+      render(<DeactivateAccountModal onClose={vi.fn()} onDeactivated={vi.fn()} signInMethod="APPLE" />);
+
+      expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /sign in with apple/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/verify with Apple to continue/i)).toBeInTheDocument();
+    });
+
+    it('deactivates with a fresh Apple credential once a reason is chosen', async () => {
+      const user = userEvent.setup();
+      const onDeactivated = vi.fn();
+      render(<DeactivateAccountModal onClose={vi.fn()} onDeactivated={onDeactivated} signInMethod="APPLE" />);
+
+      await user.selectOptions(screen.getByLabelText(/reason/i), 'PRIVACY_CONCERNS');
+      await user.click(screen.getByRole('button', { name: /sign in with apple/i }));
+
+      await waitFor(() => expect(accountLifecycleApi.deactivate).toHaveBeenCalledWith(
+        null, null, 'fresh-apple-id-token', 'PRIVACY_CONCERNS', undefined
       ));
       expect(onDeactivated).toHaveBeenCalled();
     });

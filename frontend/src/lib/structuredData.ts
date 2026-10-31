@@ -2,7 +2,7 @@ import { SITE_ORIGIN, canonicalUrl } from './siteUrl';
 import { SUPPORT_EMAIL } from './contact';
 import { PRICING_CARDS, type Plan } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
-import { HELP_ARTICLES } from '../pages/helpArticles';
+import { helpArticleForPath } from '../pages/helpArticles';
 
 /**
  * Structured data (schema.org JSON-LD) for the prerendered public pages. The site had none at all,
@@ -113,23 +113,47 @@ export function faqPage(items: ReadonlyArray<readonly [string, string]>): JsonLd
   };
 }
 
-/** Home > <this page>. `title` is the page's heading as plain text (not HTML-escaped). */
-export function breadcrumbs(route: string, title: string): JsonLd {
+/** A page between Home and this one in a breadcrumb trail. */
+export interface Crumb {
+  route: string;
+  name: string;
+}
+
+/**
+ * Home > <parents...> > <this page>. `title` is the page's heading as plain text (not HTML-escaped).
+ * A Help article's trail is Home > Help Center > the question.
+ */
+export function breadcrumbs(route: string, title: string, parents: readonly Crumb[] = []): JsonLd {
   if (route === '/') throw new Error('structuredData: the homepage has no breadcrumb trail');
+  const trail: Crumb[] = [...parents, { route, name: title }];
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_ORIGIN}/` },
-      { '@type': 'ListItem', position: 2, name: title, item: canonicalUrl(route) },
+      ...trail.map((crumb, i) => ({
+        '@type': 'ListItem',
+        position: i + 2,
+        name: crumb.name,
+        item: canonicalUrl(crumb.route),
+      })),
     ],
   };
 }
 
+// The /help page's heading, which is the middle crumb of every Help article's trail.
+// structuredData.test.ts checks it is still what Help.tsx renders as its <h1>.
+export const HELP_CENTER_TITLE = 'Help Center';
+
 /**
  * Everything a prerendered route should carry. The homepage describes the organisation, the site,
- * the product with its prices, and the landing page's own FAQ; /help adds its articles as an
- * FAQPage; every other page gets a breadcrumb trail. `title` is unused for the homepage.
+ * the product with its prices, and the landing page's own FAQ. A Help article (/help/<slug>) is its
+ * own question and answer as an FAQPage, under a Home > Help Center > question trail. Every other
+ * page, /help included, gets a breadcrumb trail. `title` is unused for the homepage.
+ *
+ * /help itself carries no FAQPage. It used to mark up all of its answers, but each answer now has
+ * its own page with its own markup, and Google asks for FAQ markup on one instance of a question
+ * only; the article page is the one search results and AI answers should link.
  */
 export function structuredDataFor(route: string, title: string | null): JsonLd[] {
   if (route === '/') {
@@ -138,11 +162,18 @@ export function structuredDataFor(route: string, title: string | null): JsonLd[]
   if (title === null || title.trim() === '') {
     throw new Error(`structuredData: ${route} needs its heading for the breadcrumb trail`);
   }
-  const blocks: JsonLd[] = [breadcrumbs(route, title)];
-  if (route === '/help') {
-    blocks.push(faqPage(HELP_ARTICLES.map((a) => [a.question, a.answer] as const)));
+  if (route.startsWith('/help/')) {
+    const article = helpArticleForPath(route);
+    if (!article) throw new Error(`structuredData: ${route} is under /help/ but no Help article has that slug`);
+    if (article.question !== title) {
+      throw new Error(`structuredData: ${route}'s heading is not its article's question`);
+    }
+    return [
+      breadcrumbs(route, title, [{ route: '/help', name: HELP_CENTER_TITLE }]),
+      faqPage([[article.question, article.answer]]),
+    ];
   }
-  return blocks;
+  return [breadcrumbs(route, title)];
 }
 
 /**

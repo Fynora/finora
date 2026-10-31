@@ -16,6 +16,9 @@ import {
   withRobotsNoindex,
 } from './prerenderTitle.mjs';
 import { spaShellHtml } from './spaShell.mjs';
+import { collectionPageFile } from './prerenderTitle.mjs';
+import { helpArticlePages, pageCollections } from './ssr-entry';
+import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf-8');
@@ -36,6 +39,20 @@ function isDisallowed(p: string): boolean {
 
 const sitemapPaths = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].replace(SITE_ORIGIN, ''));
 const routePaths = [...appSource.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]).filter((p) => p !== '*');
+
+// Every Help answer's address. App.tsx has one pattern route for them (/help/:slug); these are the
+// addresses it actually serves, each prerendered to its own file.
+const helpPaths = HELP_ARTICLES.map(helpArticlePath);
+
+// A collection's pattern route (/help/:slug) stands for the addresses of its pages, every one a
+// prerendered file (ssr-entry's pageCollections). Any other route stands for itself.
+const collectionByRoute = new Map(pageCollections.map((c) => [c.route, Object.keys(c.pages)]));
+function addressesOf(route: string): string[] {
+  return collectionByRoute.get(route) ?? [route];
+}
+const routeAddresses = routePaths.flatMap(addressesOf);
+/** '/help/:slug' -> '/help/'. */
+const sectionOf = (route: string) => route.replace(/:slug$/, '');
 
 describe('the one indexed host', () => {
   it('is the same in the app and in the build script', () => {
@@ -90,8 +107,9 @@ describe('sitemap.xml', () => {
   });
 
   it('lists only real routes that robots.txt lets crawlers fetch', () => {
+    expect(routePaths).toContain(HELP_ARTICLE_ROUTE);
     for (const p of sitemapPaths) {
-      expect(routePaths, `${p} is in the sitemap but is not a route in App.tsx`).toContain(p);
+      expect(routeAddresses, `${p} is in the sitemap but is not a route in App.tsx (or a Help article)`).toContain(p);
       expect(isDisallowed(p), `${p} is in the sitemap but disallowed by robots.txt`).toBe(false);
     }
   });
@@ -99,9 +117,28 @@ describe('sitemap.xml', () => {
   it('forces a decision for every route: each is either in the sitemap or disallowed', () => {
     // A new public route must be added to the sitemap; a new private one to robots.txt. Redirects
     // (/login, /register) are disallowed already. Failing here is the point.
-    for (const p of routePaths) {
+    for (const p of routeAddresses) {
       const listed = sitemapPaths.includes(p);
       expect(listed || isDisallowed(p), `${p} is neither in sitemap.xml nor disallowed in robots.txt`).toBe(true);
+    }
+  });
+
+  it('lists every Help answer once, in helpArticles.ts order, and no address under /help/ that is not one', () => {
+    expect(helpPaths.length).toBeGreaterThanOrEqual(30);
+    expect(sitemapPaths.filter((p) => p.startsWith('/help/'))).toEqual(helpPaths);
+  });
+
+  it('lists every page of every collection once, in order, and nothing else under its section', () => {
+    expect(pageCollections.map((c) => c.route)).toContain(HELP_ARTICLE_ROUTE);
+    for (const collection of pageCollections) {
+      // The one shape prerender.mjs knows how to write: /<section>/:slug, a route in App.tsx.
+      expect(collection.route, collection.route).toMatch(/^\/[a-z0-9]+(-[a-z0-9]+)*\/:slug$/);
+      expect(routePaths, `${collection.route} is in pageCollections but not a <Route> in App.tsx`).toContain(collection.route);
+      const section = sectionOf(collection.route);
+      const pages = Object.keys(collection.pages);
+      expect(pages.length, collection.route).toBeGreaterThan(0);
+      for (const page of pages) expect(page.startsWith(section), `${page} is outside ${collection.route}`).toBe(true);
+      expect(sitemapPaths.filter((p) => p.startsWith(section)), collection.route).toEqual(pages);
     }
   });
 
@@ -110,9 +147,29 @@ describe('sitemap.xml', () => {
     // that does not run JavaScript was handed the HOMEPAGE (title, h1 and all) at each of them.
     const ssrRoutes = [...read('scripts/ssr-entry.tsx').matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     const outputFiles = [...read('scripts/prerender.mjs').matchAll(/^\s*'(\/[^']*)':\s*'[^']+\.html',/gm)].map((m) => m[1]);
+    // Collection pages (the Help answers) are rendered by ssr-entry's pageCollections and written by
+    // prerender.mjs's loop over every collection, each to collectionPageFile(route).
+    const collectionPages = pageCollections.flatMap((c) => Object.keys(c.pages));
+    expect(read('scripts/prerender.mjs')).toContain(
+      'Object.entries(collection.pages).map(([route, render]) => [route, collectionPageFile(route), render])),',
+    );
     for (const p of sitemapPaths) {
+      if (pageCollections.some((c) => p.startsWith(sectionOf(c.route)))) {
+        expect(collectionPages, `${p} is in the sitemap but no collection in ssr-entry's pageCollections renders it`).toContain(p);
+        continue;
+      }
       expect(ssrRoutes, `${p} is in the sitemap but scripts/ssr-entry.tsx does not render it`).toContain(p);
       expect(outputFiles, `${p} is in the sitemap but scripts/prerender.mjs does not write it`).toContain(p);
+    }
+  });
+
+  it('renders each Help answer as its own page: its question as the <h1>, its answer in the body', () => {
+    expect(Object.keys(helpArticlePages)).toEqual(helpPaths);
+    for (const article of HELP_ARTICLES) {
+      const html = helpArticlePages[helpArticlePath(article)]();
+      const decoded = html.replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&');
+      expect(/<h1[^>]*>([^<]*)<\/h1>/.exec(decoded)?.[1], article.slug).toBe(article.question);
+      expect(decoded, article.slug).toContain(article.answer);
     }
   });
 
@@ -130,7 +187,7 @@ describe('sitemap.xml', () => {
     const ssr = read('scripts/ssr-entry.tsx');
     const prerendered = [...ssr.matchAll(/^\s*'(\/[^']*)':\s*page\(/gm)].map((m) => m[1]);
     expect(prerendered.length).toBeGreaterThan(0);
-    for (const p of prerendered) expect(sitemapPaths, p).toContain(p);
+    for (const p of [...prerendered, ...pageCollections.flatMap((c) => Object.keys(c.pages))]) expect(sitemapPaths, p).toContain(p);
   });
 });
 
@@ -200,7 +257,7 @@ describe('the address each built document names', () => {
   });
 
   it('every other prerendered page: exactly one of each, for its own route', () => {
-    const pages = outputRoutes.filter((route) => route !== '/');
+    const pages = [...outputRoutes.filter((route) => route !== '/'), ...helpPaths];
     expect(pages.length).toBeGreaterThan(0);
     expect(outputRoutes).toContain('/');
     for (const route of pages) {
@@ -329,5 +386,21 @@ describe('the address each built document names', () => {
     expect(prerenderSource).toContain('const pageTemplate = templateForNotFound(template, { title, description });');
     // No address tag is added anywhere else in the script.
     expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta|LandingPath)\(/);
+  });
+});
+
+describe('collectionPageFile', () => {
+  it('writes /<section>/<slug> to <section>/<slug>.html, which Cloudflare Pages serves at the extensionless address', () => {
+    expect(collectionPageFile('/help/plans-and-prices')).toBe('help/plans-and-prices.html');
+    expect(collectionPageFile('/banks/some-bank-statement')).toBe('banks/some-bank-statement.html');
+    for (const collection of pageCollections) {
+      for (const path of Object.keys(collection.pages)) expect(collectionPageFile(path)).toBe(`${path.slice(1)}.html`);
+    }
+  });
+
+  it('refuses anything that is not exactly /<section>/<slug> in lower case, rather than write elsewhere in dist/', () => {
+    for (const bad of ['/help', '/help/', '/help/a/b', '/help/../index', '/../a', '/help/Plans', '/help/a_b', '/help/-a', '/terms', 'help/a', '/Help/a']) {
+      expect(() => collectionPageFile(bad), bad).toThrow(/not a \/<section>\/<slug> address/);
+    }
   });
 });

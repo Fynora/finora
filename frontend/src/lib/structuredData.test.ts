@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  HELP_CENTER_TITLE,
   breadcrumbs,
   faqPage,
   jsonLdScripts,
@@ -12,7 +13,7 @@ import {
 } from './structuredData';
 import { PLANS, PRICING_CARDS } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
-import { HELP_ARTICLES } from '../pages/helpArticles';
+import { HELP_ARTICLES, helpArticlePath } from '../pages/helpArticles';
 import { SITE_ORIGIN } from './siteUrl';
 import { SUPPORT_EMAIL } from './contact';
 
@@ -104,6 +105,14 @@ describe('breadcrumbs', () => {
     });
   });
 
+  it('puts the parent pages between Home and the page, in order', () => {
+    expect(breadcrumbs('/help/plans-and-prices', 'What plans does Fynora offer?', [{ route: '/help', name: 'Help Center' }]).itemListElement).toEqual([
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://app.fynora.net/' },
+      { '@type': 'ListItem', position: 2, name: 'Help Center', item: 'https://app.fynora.net/help' },
+      { '@type': 'ListItem', position: 3, name: 'What plans does Fynora offer?', item: 'https://app.fynora.net/help/plans-and-prices' },
+    ]);
+  });
+
   it('has nothing to say on the homepage', () => {
     expect(() => breadcrumbs('/', 'Home')).toThrow(/no breadcrumb/);
   });
@@ -116,12 +125,25 @@ describe('structuredDataFor', () => {
     ]);
   });
 
-  it('gives /help a breadcrumb trail and every Help article as a FAQPage question', () => {
-    const blocks = structuredDataFor('/help', 'Help Center');
-    expect(blocks.map((b) => b['@type'])).toEqual(['BreadcrumbList', 'FAQPage']);
-    const entity = blocks[1].mainEntity as { name: string }[];
-    expect(entity).toHaveLength(HELP_ARTICLES.length);
-    expect(entity.map((q) => q.name)).toEqual(HELP_ARTICLES.map((a) => a.question));
+  it('gives /help a breadcrumb trail only: each answer is marked up once, on its own page', () => {
+    expect(structuredDataFor('/help', HELP_CENTER_TITLE).map((b) => b['@type'])).toEqual(['BreadcrumbList']);
+  });
+
+  it('gives every Help article its own question as a FAQPage, under Home > Help Center > question', () => {
+    for (const article of HELP_ARTICLES) {
+      const route = helpArticlePath(article);
+      const blocks = structuredDataFor(route, article.question);
+      expect(blocks.map((b) => b['@type']), article.slug).toEqual(['BreadcrumbList', 'FAQPage']);
+      expect(blocks[0]).toEqual(breadcrumbs(route, article.question, [{ route: '/help', name: 'Help Center' }]));
+      expect(blocks[1].mainEntity, article.slug).toEqual([
+        { '@type': 'Question', name: article.question, acceptedAnswer: { '@type': 'Answer', text: article.answer } },
+      ]);
+    }
+  });
+
+  it('refuses an address under /help/ that is no article, or a heading that is not its question', () => {
+    expect(() => structuredDataFor('/help/no-such-answer', 'Anything')).toThrow(/no Help article has that slug/);
+    expect(() => structuredDataFor(helpArticlePath(HELP_ARTICLES[0]), 'Some other heading')).toThrow(/not its article's question/);
   });
 
   it('gives every other page a breadcrumb trail and nothing else', () => {

@@ -89,18 +89,6 @@
     "postinstall": "patch-package",
     "generate:types": "npx --yes openapi-typescript@7.13.0 ../backend/openapi/openapi.json -o src/api/generated-types.ts"
   },
-  "jest": {
-    "preset": "jest-expo",
-    "setupFilesAfterEnv": [
-      "<rootDir>/src/test/setup.ts"
-    ],
-    "testTimeout": 15000,
-    "resolver": "react-native-reanimated/jest/resolver",
-    "moduleNameMapper": {
-      "^react-native-reanimated$": "<rootDir>/node_modules/react-native-reanimated/src/index.ts",
-      "^react-native-worklets$": "<rootDir>/node_modules/react-native-worklets/src/index.ts"
-    }
-  },
   "private": true,
   "expo": {
     "install": {

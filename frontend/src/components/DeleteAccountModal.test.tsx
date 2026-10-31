@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DeleteAccountModal } from './DeleteAccountModal';
 import { passwordChangeApi, accountLifecycleApi } from '../api/endpoints';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
 import { isGoogleLoginConfigured, loadGoogleIdentityServices } from '../lib/googleIdentity';
+import { isAppleLoginConfigured, loadAppleIdServices } from '../lib/appleIdentity';
 
 vi.mock('../api/endpoints', () => ({
   passwordChangeApi: { start: vi.fn(), verifyOtp: vi.fn() },
@@ -25,6 +26,12 @@ vi.mock('../lib/phoneAuth', () => ({
 vi.mock('../lib/googleIdentity', () => ({
   isGoogleLoginConfigured: vi.fn(),
   loadGoogleIdentityServices: vi.fn(),
+}));
+
+// Same wholesale mock for Apple's script -- see AppleSignInButton.test.tsx.
+vi.mock('../lib/appleIdentity', () => ({
+  isAppleLoginConfigured: vi.fn(),
+  loadAppleIdServices: vi.fn(),
 }));
 
 const FAKE_CONFIRMATION = { confirm: vi.fn() } as any;
@@ -48,7 +55,7 @@ describe('DeleteAccountModal', () => {
       await user.type(screen.getByLabelText(/current password/i), 'OldPass123!');
       await user.click(screen.getByRole('button', { name: /send code/i }));
 
-      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith('OldPass123!', null));
+      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith('OldPass123!', null, null));
       expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
     });
   });
@@ -78,7 +85,27 @@ describe('DeleteAccountModal', () => {
       const { callback } = initialize.mock.calls[0][0];
       callback({ credential: 'fresh-google-id-token' });
 
-      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith(null, 'fresh-google-id-token'));
+      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith(null, 'fresh-google-id-token', null));
+      expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
+    });
+  });
+
+  describe('an Apple Sign-In account', () => {
+    beforeEach(() => {
+      vi.mocked(isAppleLoginConfigured).mockReturnValue(true);
+      vi.mocked(loadAppleIdServices).mockResolvedValue({
+        init: vi.fn(),
+        signIn: vi.fn().mockResolvedValue({ authorization: { id_token: 'fresh-apple-id-token' } }),
+      } as any);
+    });
+
+    it('starts a session with a fresh Apple credential, with no password field', async () => {
+      render(<DeleteAccountModal onClose={vi.fn()} onDeleted={vi.fn()} signInMethod="APPLE" />);
+      expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /sign in with apple/i }));
+
+      await waitFor(() => expect(passwordChangeApi.start).toHaveBeenCalledWith(null, null, 'fresh-apple-id-token'));
       expect(await screen.findByText(/\+•••••••••705/)).toBeInTheDocument();
     });
   });

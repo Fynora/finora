@@ -1415,6 +1415,13 @@ export const reportsApi = {
     api.get<ReportTrendPoint[]>('/reports/trend', { params: { month, months } }).then((r) => r.data),
 };
 
+// How an account signs in -- the backend User.signInMethod. A GOOGLE or APPLE account's
+// passwordHash is a random value nobody, including the user, ever knows, so every "prove it's
+// you" step (ChangePasswordModal, ChangeEmailModal, DeleteAccountModal, DeactivateAccountModal,
+// ExportDataModal) reads this to render a password field, GoogleReauthPrompt or
+// AppleReauthPrompt, and sends the matching one of currentPassword/googleIdToken/appleIdToken.
+export type SignInMethod = 'PASSWORD' | 'GOOGLE' | 'APPLE';
+
 export interface UserSettings {
   email: string;
   fullName: string;
@@ -1434,12 +1441,8 @@ export interface UserSettings {
   // Null until the account's password has been changed at least once -- never a guessed
   // fallback date (see the backend User.passwordChangedAt's own doc comment).
   passwordChangedAt: string | null;
-  // 'PASSWORD' or 'GOOGLE' -- see the backend User.signInMethod's own doc comment. A 'GOOGLE'
-  // account's passwordHash is a random value nobody, including the user, ever knows, so every
-  // "re-enter your current password" modal (ChangePasswordModal, DeleteAccountModal,
-  // DeactivateAccountModal, ExportDataModal) reads this to decide whether to render a password
-  // field or a GoogleSignInButton instead.
-  signInMethod: 'PASSWORD' | 'GOOGLE';
+  // See SignInMethod below and the backend User.signInMethod's own doc comment.
+  signInMethod: SignInMethod;
   // Same channel phoneVerified already rides -- see docs/superpowers/specs/
   // 2026-09-06-first-login-onboarding-tour-design.md §7. AuthContext's silent-refresh bootstrap
   // reads onboarding state from here, since /auth/refresh itself returns no profile fields.
@@ -1460,12 +1463,12 @@ export const userApi = {
 // returns the real phone number to hand to Firebase directly; verifyOtp() sends the resulting ID
 // token, never a code.
 export const passwordChangeApi = {
-  // Exactly one of the two is required -- currentPassword for an ordinary account, googleIdToken
-  // (a fresh Google Identity Services credential) for one created via Sign in with Google. See
-  // the backend's GoogleReauthVerifier, which is what actually enforces that.
-  start: (currentPassword: string | null, googleIdToken: string | null) =>
+  // Exactly one of the three is required -- currentPassword for an ordinary account, or a fresh
+  // Google/Apple credential for one created via Sign in with Google/Apple. See the backend's
+  // GoogleReauthVerifier, which is what actually enforces that.
+  start: (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) =>
     api.post<{ sessionId: string; phoneNumber: string; maskedPhone: string }>(
-      '/users/me/password-change/start', { currentPassword, googleIdToken }
+      '/users/me/password-change/start', { currentPassword, googleIdToken, appleIdToken }
     ).then((r) => r.data),
   verifyOtp: (sessionId: string, firebaseIdToken: string) =>
     api.post<{ message: string }>(
@@ -1533,10 +1536,15 @@ export const emailChangeApi = {
 // The self-service account lifecycle -- see UserAccountLifecycleService on the backend for
 // deactivate (today) and delete-request/purge (Phase B, to follow).
 export const accountLifecycleApi = {
-  // Exactly one of currentPassword/googleIdToken is required -- see passwordChangeApi.start's
-  // identical shape and the backend's GoogleReauthVerifier.
-  deactivate: (currentPassword: string | null, googleIdToken: string | null, reason: string, note?: string) =>
-    api.post<{ message: string }>('/users/me/account/deactivate', { currentPassword, googleIdToken, reason, note }).then((r) => r.data),
+  // Exactly one of currentPassword/googleIdToken/appleIdToken is required -- see
+  // passwordChangeApi.start's identical shape and the backend's GoogleReauthVerifier.
+  deactivate: (
+    currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null,
+    reason: string, note?: string
+  ) =>
+    api.post<{ message: string }>(
+      '/users/me/account/deactivate', { currentPassword, googleIdToken, appleIdToken, reason, note }
+    ).then((r) => r.data),
   // sessionId proves current-password+OTP -- see PasswordChangeService.consumeForAccountDeletion,
   // reused via the same DELETION_CONFIRMED-gated session DeleteAccountModal builds up through
   // passwordChangeApi.start/verifyOtp.
@@ -1549,9 +1557,12 @@ export const accountLifecycleApi = {
   // the backend). The filename is chosen client-side rather than read back out of
   // Content-Disposition -- nothing else in this codebase parses that header either
   // (statementImportsApi.downloadFile above takes its filename from the caller instead).
-  exportData: async (currentPassword: string | null, googleIdToken: string | null) => {
+  // Exactly one of the three credentials, as for deactivate above.
+  exportData: async (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => {
     try {
-      const res = await api.post('/users/me/data-export', { currentPassword, googleIdToken }, { responseType: 'blob' });
+      const res = await api.post(
+        '/users/me/data-export', { currentPassword, googleIdToken, appleIdToken }, { responseType: 'blob' }
+      );
       downloadBlob(res.data as Blob, `fynora-data-export-${new Date().toISOString().slice(0, 10)}.zip`);
     } catch (err) {
       // responseType: 'blob' applies to error responses too -- see withBlobErrorMessage's own doc

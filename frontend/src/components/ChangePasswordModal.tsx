@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Eye, EyeOff, CheckCircle2, Circle, ChevronDown, ChevronUp } from 'lucide-react';
-import { passwordChangeApi } from '../api/endpoints';
+import { passwordChangeApi, type SignInMethod } from '../api/endpoints';
 import {
   sendPhoneVerificationCode,
   confirmPhoneVerificationCode,
@@ -8,6 +8,7 @@ import {
   friendlySendError,
 } from '../lib/phoneAuth';
 import { reportHandledError } from '../lib/monitoring';
+import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import type { ConfirmationResult } from 'firebase/auth';
 import { useDialogA11y } from '../design-system';
@@ -97,7 +98,7 @@ function PasswordField({ id, label, value, onChange, show, onToggleShow }: {
 }
 
 export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
-  onClose: () => void; onSuccess?: () => void; signInMethod: 'PASSWORD' | 'GOOGLE';
+  onClose: () => void; onSuccess?: () => void; signInMethod: SignInMethod;
 }) {
   const [step, setStep] = useState<Step>('password');
   const [submitting, setSubmitting] = useState(false);
@@ -126,10 +127,12 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
   const otpValid = /^\d{6}$/.test(otp);
   const canSubmitNewPassword = newPassword.length >= 8 && newPassword === confirmPassword && !submitting;
 
-  /** Shared by both re-auth paths below -- once EITHER a current password or a fresh Google
+  /** Shared by every re-auth path below -- once a current password or a fresh Google/Apple
    *  credential has been supplied, everything from here (open the session, send the phone OTP)
-   *  is identical regardless of which one it was. */
-  async function startWithCredential(currentPasswordArg: string | null, googleIdToken: string | null) {
+   *  is identical regardless of which one it was. Exactly one argument is non-null. */
+  async function startWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     // Google's own rendered button has no prop to disable it while a request is in flight
     // (unlike the password path's <button disabled={submitting}>), so this guards against a
     // double-click firing a second concurrent request itself.
@@ -137,7 +140,7 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken);
+      const res = await passwordChangeApi.start(currentPasswordArg, googleIdToken, appleIdToken);
       setSessionId(res.sessionId);
       setMaskedPhone(res.maskedPhone);
       // Firebase sends the code itself, directly to the phone number this response reveals --
@@ -174,7 +177,7 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
 
   function submitCurrentPassword() {
     if (currentPassword.length === 0 || submitting) return;
-    void startWithCredential(currentPassword, null);
+    void startWithCredential(currentPassword, null, null);
   }
 
   async function submitOtp() {
@@ -263,12 +266,19 @@ export function ChangePasswordModal({ onClose, onSuccess, signInMethod }: {
                 it's always present for the whole time the modal is mounted. */}
             <div id={RECAPTCHA_CONTAINER_ID} />
 
-            {step === 'password' && signInMethod === 'GOOGLE' && (
+            {step === 'password' && signInMethod !== 'PASSWORD' && (
               <div className="space-y-3">
-                <GoogleReauthPrompt
-                  onCredential={(idToken) => startWithCredential(null, idToken)}
-                  onError={setError}
-                />
+                {signInMethod === 'GOOGLE' ? (
+                  <GoogleReauthPrompt
+                    onCredential={(idToken) => startWithCredential(null, idToken, null)}
+                    onError={setError}
+                  />
+                ) : (
+                  <AppleReauthPrompt
+                    onCredential={(idToken) => startWithCredential(null, null, idToken)}
+                    onError={setError}
+                  />
+                )}
                 {error && <p className="text-danger text-xs">{error}</p>}
                 <div className="flex items-center justify-end pt-3 border-t border-border">
                   <button onClick={onClose} className="text-muted hover:text-ink text-xs uppercase font-medium px-3 py-2">

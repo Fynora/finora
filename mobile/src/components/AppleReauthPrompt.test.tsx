@@ -16,8 +16,8 @@ function renderPrompt(onCredential = jest.fn(), onError = jest.fn()) {
 /**
  * Phase 4. AppleSignInButton itself already has full SDK-level coverage
  * (AppleSignInButton.test.tsx) -- this only pins what THIS wrapper adds: the explanatory copy, and
- * the explicit off-iOS fallback. Mobile-only, unlike GoogleReauthPrompt -- web has no Apple
- * Sign-In at all, so there is no web precedent this ports.
+ * the explicit off-iOS fallback. The web has its own AppleReauthPrompt on the web Apple popup; the
+ * two share a role, not code.
  */
 describe('AppleReauthPrompt', () => {
   const originalOS = Platform.OS;

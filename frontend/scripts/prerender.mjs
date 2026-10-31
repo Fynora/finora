@@ -50,6 +50,7 @@ const OUTPUT_FILES = {
   '/cookie-policy': 'cookie-policy.html',
   '/trust': 'trust.html',
   '/your-data': 'your-data.html',
+  '/bank-statement-to-excel': 'bank-statement-to-excel.html',
 };
 
 // The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,

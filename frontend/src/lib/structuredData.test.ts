@@ -15,6 +15,7 @@ import { PLANS, PRICING_CARDS } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { HELP_ARTICLES, helpArticlePath } from '../pages/helpArticles';
 import { SITE_ORIGIN } from './siteUrl';
+import { CONVERTER_DESCRIPTION, CONVERTER_FAQ, CONVERTER_ROUTE, CONVERTER_TITLE } from '../pages/converter/converterContent';
 import { SUPPORT_EMAIL } from './contact';
 
 describe('priceAmount', () => {
@@ -153,6 +154,25 @@ describe('structuredDataFor', () => {
   it('refuses to build a breadcrumb without the page heading', () => {
     expect(() => structuredDataFor('/privacy', null)).toThrow(/needs its heading/);
     expect(() => structuredDataFor('/privacy', '  ')).toThrow(/needs its heading/);
+  });
+});
+
+describe('the free statement converter', () => {
+  it('is its own FAQ, a free web application, and a Home > page trail', () => {
+    const blocks = structuredDataFor(CONVERTER_ROUTE, CONVERTER_TITLE);
+    expect(blocks.map((b) => b['@type'])).toEqual(['BreadcrumbList', 'FAQPage', 'WebApplication']);
+    const faqBlock = blocks[1] as { mainEntity: { name: string; acceptedAnswer: { text: string } }[] };
+    expect(faqBlock.mainEntity.map((q) => [q.name, q.acceptedAnswer.text])).toEqual(CONVERTER_FAQ.map(([q, a]) => [q, a]));
+    expect(blocks[2]).toMatchObject({
+      url: `${SITE_ORIGIN}${CONVERTER_ROUTE}`,
+      description: CONVERTER_DESCRIPTION,
+      isAccessibleForFree: true,
+      offers: { price: 0, priceCurrency: 'INR' },
+    });
+  });
+
+  it('refuses a heading that is not the converter title', () => {
+    expect(() => structuredDataFor(CONVERTER_ROUTE, 'Something else')).toThrow();
   });
 });
 

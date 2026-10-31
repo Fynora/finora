@@ -15,6 +15,9 @@ interface ImportMetaEnv {
   // and wrong for any real deployment where the frontend and backend don't share an origin — see
   // client.ts's own doc comment for the full story.
   readonly VITE_API_BASE_URL?: string;
+  /** Cloudflare Turnstile site key for the free statement converter. Unset: the converter page
+   *  says the tool is not available, whatever the server says. */
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
   // Optional, same reasoning again -- unset disables crash reporting entirely rather than being
   // an error, which is what keeps local dev and the test suite free of network calls. See
   // lib/monitoring.ts.

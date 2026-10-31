@@ -56,6 +56,10 @@
   #     Sign In JS may make its own background calls the way GIS's credential-state calls did) --
   #     no real Apple Services ID existed to test that against until now, so this is the one thing
   #     to watch the console for on the next real sign-in attempt rather than a settled fact.
+  #   - script-src and frame-src add https://challenges.cloudflare.com -- Cloudflare Turnstile on the
+  #     free statement converter (/bank-statement-to-excel; src/pages/converter/useTurnstile.ts).
+  #     Cloudflare's own CSP guidance names exactly these two: the loader script, and the iframe the
+  #     check runs in. Loaded only on that page, only once the converter is switched on.
   #   - style-src adds https://fonts.googleapis.com (index.html's Google Fonts <link>) and
   #     'unsafe-inline' -- this app sets style={{...}} inline styles throughout (28 files). Also
   #     https://accounts.google.com/gsi/style -- GIS's own rendered button loads a stylesheet from
@@ -135,7 +139,7 @@
   #     Not confirmed against Razorpay's own runtime behavior or the user's exact navigation
   #     sequence, neither of which this repo's code can show; flagging that plainly rather than
   #     asserting it.
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.gstatic.com https://www.google.com https://accounts.google.com/gsi/client https://appleid.cdn-apple.com https://static.cloudflareinsights.com https://checkout.razorpay.com https://cdn.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https://img.logo.dev; connect-src 'self' https://api.fynora.net https://dev-api.fynora.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://accounts.google.com/gsi/ https://www.google.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.razorpay.com https://lumberjack.razorpay.com; frame-src https://www.google.com https://accounts.google.com/gsi/ https://checkout.razorpay.com https://api.razorpay.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://www.gstatic.com https://www.google.com https://accounts.google.com/gsi/client https://appleid.cdn-apple.com https://static.cloudflareinsights.com https://checkout.razorpay.com https://cdn.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https://img.logo.dev; connect-src 'self' https://api.fynora.net https://dev-api.fynora.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://accounts.google.com/gsi/ https://www.google.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io https://api.razorpay.com https://lumberjack.razorpay.com; frame-src https://challenges.cloudflare.com https://www.google.com https://accounts.google.com/gsi/ https://checkout.razorpay.com https://api.razorpay.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Referrer-Policy: strict-origin-when-cross-origin
 

@@ -3,6 +3,7 @@ import { SUPPORT_EMAIL } from './contact';
 import { PRICING_CARDS, type Plan } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { helpArticleForPath } from '../pages/helpArticles';
+import { CONVERTER_DESCRIPTION, CONVERTER_FAQ, CONVERTER_ROUTE, CONVERTER_TITLE } from '../pages/converter/converterContent';
 
 /**
  * Structured data (schema.org JSON-LD) for the prerendered public pages. The site had none at all,
@@ -113,6 +114,25 @@ export function faqPage(items: ReadonlyArray<readonly [string, string]>): JsonLd
   };
 }
 
+/**
+ * The free statement converter as a free web application. Every value is the page's own: its
+ * description, its route, and a price of nothing.
+ */
+export function converterApplication(): JsonLd {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebApplication',
+    name: 'Fynora bank statement converter',
+    url: canonicalUrl(CONVERTER_ROUTE),
+    description: CONVERTER_DESCRIPTION,
+    applicationCategory: 'FinanceApplication',
+    operatingSystem: 'Web',
+    isAccessibleForFree: true,
+    offers: { '@type': 'Offer', price: 0, priceCurrency: 'INR' },
+    publisher: { '@id': ORGANIZATION_ID },
+  };
+}
+
 /** A page between Home and this one in a breadcrumb trail. */
 export interface Crumb {
   route: string;
@@ -161,6 +181,12 @@ export function structuredDataFor(route: string, title: string | null): JsonLd[]
   }
   if (title === null || title.trim() === '') {
     throw new Error(`structuredData: ${route} needs its heading for the breadcrumb trail`);
+  }
+  if (route === CONVERTER_ROUTE) {
+    if (title !== CONVERTER_TITLE) {
+      throw new Error(`structuredData: ${route}'s heading is not the converter's title`);
+    }
+    return [breadcrumbs(route, title), faqPage(CONVERTER_FAQ), converterApplication()];
   }
   if (route.startsWith('/help/')) {
     const article = helpArticleForPath(route);

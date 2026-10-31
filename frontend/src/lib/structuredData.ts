@@ -3,6 +3,7 @@ import { SUPPORT_EMAIL } from './contact';
 import { PRICING_CARDS, type Plan } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { helpArticleForPath } from '../pages/helpArticles';
+import { BANKS_HUB_PATH, BANKS_HUB_TITLE, bankPageFaq, bankPageForPath } from '../pages/bankPages';
 import { CONVERTER_DESCRIPTION, CONVERTER_FAQ, CONVERTER_ROUTE, CONVERTER_TITLE } from '../pages/converter/converterContent';
 
 /**
@@ -168,8 +169,9 @@ export const HELP_CENTER_TITLE = 'Help Center';
 /**
  * Everything a prerendered route should carry. The homepage describes the organisation, the site,
  * the product with its prices, and the landing page's own FAQ. A Help article (/help/<slug>) is its
- * own question and answer as an FAQPage, under a Home > Help Center > question trail. Every other
- * page, /help included, gets a breadcrumb trail. `title` is unused for the homepage.
+ * own question and answer as an FAQPage, under a Home > Help Center > question trail. A bank page
+ * (/banks/<slug>) carries its FAQ as an FAQPage under Home > Bank statements Fynora reads > page.
+ * Every other page, /help and /banks included, gets a breadcrumb trail. `title` is unused for the homepage.
  *
  * /help itself carries no FAQPage. It used to mark up all of its answers, but each answer now has
  * its own page with its own markup, and Google asks for FAQ markup on one instance of a question
@@ -197,6 +199,16 @@ export function structuredDataFor(route: string, title: string | null): JsonLd[]
     return [
       breadcrumbs(route, title, [{ route: '/help', name: HELP_CENTER_TITLE }]),
       faqPage([[article.question, article.answer]]),
+    ];
+  }
+  if (route.startsWith('/banks/')) {
+    const page = bankPageForPath(route);
+    if (!page) throw new Error(`structuredData: ${route} is under /banks/ but no bank page has that slug`);
+    if (page.title !== title) throw new Error(`structuredData: ${route}'s heading is not its bank page's title`);
+    // The FAQ markup is built from the same list the page shows (bankPageFaq), so they cannot differ.
+    return [
+      breadcrumbs(route, title, [{ route: BANKS_HUB_PATH, name: BANKS_HUB_TITLE }]),
+      faqPage(bankPageFaq(page)),
     ];
   }
   return [breadcrumbs(route, title)];

@@ -70,7 +70,7 @@ Check these before repeating them; they drift.
 | Gmail sync | Dropped for v1 (owner, 2026-09-21). Not described on any public surface: the landing page, the plans and Help. `landing-claims.test.tsx`, `plans.test.ts` and `Help.test.tsx` enforce it. The privacy policy still describes it, because the in-app connection and the `V219` Plus entitlement still exist; remove that section only once the feature is switched off |
 | Bank feed / Account Aggregator | NOT available and not promisable: an FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA and Fynora is not (Sahamati FAQ; Setu docs). Do not say "coming". Settings still shows a Bank Sync tab. Never claim "no connection to your bank". `landing-claims.test.tsx` enforces it |
 | Investments | A small side feature. Not marketed anywhere on the public page |
-| Bank names | Never named on the public page (owner decision, 2026-09-21) |
+| Bank names | Allowed on the bank statement pages (`/banks/*`, `frontend/src/pages/bankPages.ts`) for statement formats and download steps, only for banks measured clean on the real corpus, each page with a not-affiliated line (owner decision, 2026-10-31, replacing the 2026-09-21 ban). Bank password rules are never published. The landing page itself still names no bank (`landing-claims.test.tsx`) |
 | Self-service account deletion | Exists — `POST /account/delete` in `UserController` |
 | Raw transaction export | Not built. Reports CSV and statement download exist |
 

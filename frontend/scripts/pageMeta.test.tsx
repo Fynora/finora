@@ -13,6 +13,9 @@ import DataPromise from '../src/pages/DataPromise';
 import Help from '../src/pages/Help';
 import { HelpArticleView } from '../src/pages/HelpArticle';
 import { HELP_ARTICLES } from '../src/pages/helpArticles';
+import Banks from '../src/pages/Banks';
+import { BankPageView } from '../src/pages/BankPage';
+import { BANK_PAGES } from '../src/pages/bankPages';
 import Privacy from '../src/pages/Privacy';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
@@ -153,10 +156,17 @@ describe('page description', () => {
     Object.defineProperty(Page, 'name', { value: `HelpArticle(${article.slug})` });
     return Page;
   });
+  // Each bank statement page too (/banks/<slug>), and the /banks hub.
+  const BANK_PAGE_VIEWS = BANK_PAGES.map((bankPage) => {
+    const Page = () => <BankPageView page={bankPage} />;
+    Object.defineProperty(Page, 'name', { value: `BankPage(${bankPage.slug})` });
+    return Page;
+  });
   const PRERENDERED_PAGES = [
-    About, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity,
+    About, Banks, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity,
     StatementConverter,
     ...HELP_ARTICLE_PAGES,
+    ...BANK_PAGE_VIEWS,
   ];
 
   it('is the same string in the browser and in the prerendered HTML, for every prerendered page', () => {

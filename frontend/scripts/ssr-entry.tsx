@@ -12,6 +12,9 @@ import Help from '../src/pages/Help';
 import StatementConverter from '../src/pages/StatementConverter';
 import { HelpArticleView } from '../src/pages/HelpArticle';
 import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
+import Banks from '../src/pages/Banks';
+import { BankPageView } from '../src/pages/BankPage';
+import { BANK_PAGES, BANK_PAGE_ROUTE, bankPagePath } from '../src/pages/bankPages';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
@@ -44,6 +47,7 @@ export const routes: Record<string, () => string> = {
   '/refund-policy': page('/refund-policy', RefundPolicy),
   '/shipping-policy': page('/shipping-policy', ShippingPolicy),
   '/help': page('/help', Help),
+  '/banks': page('/banks', Banks),
   // In the sitemap, so a crawler that does not run JavaScript must get the real page. A route
   // this file does not list has no file: it once got the homepage from index.html, and would now
   // get the not-found page with a 404.
@@ -62,7 +66,7 @@ export const routes: Record<string, () => string> = {
  * They need no line in public/_redirects (a rewrite there would replace the file with the blank
  * noindex shell), and a slug with no record has no file, so it gets 404.html with a 404.
  *
- * To add a collection (bank pages at /banks/<slug>, for example):
+ * To add a collection (the bank statement pages at /banks/<slug> were the second):
  *   1. A data module with one record per page, each with a stable lower-case slug (see
  *      src/pages/helpArticles.ts: HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath).
  *   2. A view component that renders one record in PublicLayout, with a plain-text <h1> (it becomes
@@ -97,8 +101,17 @@ export const helpArticlePages: Record<string, () => string> = Object.fromEntries
   }),
 );
 
+/** One page per bank statement, built from BANK_PAGES, so a bank added there needs no edit here. */
+export const bankPages: Record<string, () => string> = Object.fromEntries(
+  BANK_PAGES.map((bankPage) => {
+    const route = bankPagePath(bankPage);
+    return [route, page(route, () => <BankPageView page={bankPage} />)];
+  }),
+);
+
 export const pageCollections: PageCollection[] = [
   { route: HELP_ARTICLE_ROUTE, pages: helpArticlePages },
+  { route: BANK_PAGE_ROUTE, pages: bankPages },
 ];
 
 /**

@@ -34,6 +34,8 @@ const About = lazy(() => import('./pages/About'));
 const Careers = lazy(() => import('./pages/Careers'));
 const Help = lazy(() => import('./pages/Help'));
 const HelpArticle = lazy(() => import('./pages/HelpArticle'));
+const StatementCodeIndex = lazy(() => import('./pages/StatementCodeIndex'));
+const StatementCodePage = lazy(() => import('./pages/StatementCodePage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const AuthEntry = lazy(() => import('./pages/AuthEntry'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -157,6 +159,9 @@ export default function App() {
           {/* One page per Help answer. Each is prerendered to dist/help/<slug>.html, so it needs no
               line in public/_redirects; an unknown slug has no file and gets the 404 page. */}
           <Route path="/help/:slug" element={<HelpArticle />} />
+          {/* The bank statement code glossary: an index and one prerendered page per code. */}
+          <Route path="/bank-statement-codes" element={<StatementCodeIndex />} />
+          <Route path="/bank-statement-codes/:slug" element={<StatementCodePage />} />
 
           {/* Auth */}
           <Route path="/auth" element={<AuthEntry />} />

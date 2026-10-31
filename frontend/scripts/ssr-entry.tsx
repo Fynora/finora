@@ -11,6 +11,9 @@ import ShippingPolicy from '../src/pages/ShippingPolicy';
 import Help from '../src/pages/Help';
 import { HelpArticleView } from '../src/pages/HelpArticle';
 import { HELP_ARTICLES, HELP_ARTICLE_ROUTE, helpArticlePath } from '../src/pages/helpArticles';
+import StatementCodeIndex from '../src/pages/StatementCodeIndex';
+import { StatementCodeView } from '../src/pages/StatementCodePage';
+import { STATEMENT_CODES, STATEMENT_CODE_ROUTE, statementCodePath } from '../src/pages/statementCodes';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import TrustSecurity from '../src/pages/TrustSecurity';
 import DataPromise from '../src/pages/DataPromise';
@@ -51,6 +54,7 @@ export const routes: Record<string, () => string> = {
   '/cookie-policy': page('/cookie-policy', CookiePolicy),
   '/trust': page('/trust', TrustSecurity),
   '/your-data': page('/your-data', DataPromise),
+  '/bank-statement-codes': page('/bank-statement-codes', StatementCodeIndex),
 };
 
 /**
@@ -95,8 +99,17 @@ export const helpArticlePages: Record<string, () => string> = Object.fromEntries
   }),
 );
 
+/** One page per bank statement code, built from STATEMENT_CODES. */
+export const statementCodePages: Record<string, () => string> = Object.fromEntries(
+  STATEMENT_CODES.map((code) => {
+    const route = statementCodePath(code);
+    return [route, page(route, () => <StatementCodeView code={code} />)];
+  }),
+);
+
 export const pageCollections: PageCollection[] = [
   { route: HELP_ARTICLE_ROUTE, pages: helpArticlePages },
+  { route: STATEMENT_CODE_ROUTE, pages: statementCodePages },
 ];
 
 /**

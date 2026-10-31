@@ -3,6 +3,7 @@ import { SUPPORT_EMAIL } from './contact';
 import { PRICING_CARDS, type Plan } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { helpArticleForPath } from '../pages/helpArticles';
+import { STATEMENT_CODES_TITLE, statementCodeFaqs, statementCodeForPath } from '../pages/statementCodes';
 
 /**
  * Structured data (schema.org JSON-LD) for the prerendered public pages. The site had none at all,
@@ -171,6 +172,15 @@ export function structuredDataFor(route: string, title: string | null): JsonLd[]
     return [
       breadcrumbs(route, title, [{ route: '/help', name: HELP_CENTER_TITLE }]),
       faqPage([[article.question, article.answer]]),
+    ];
+  }
+  if (route.startsWith('/bank-statement-codes/')) {
+    const code = statementCodeForPath(route);
+    if (!code) throw new Error(`structuredData: ${route} is under /bank-statement-codes/ but no code has that slug`);
+    if (code.title !== title) throw new Error(`structuredData: ${route}'s heading is not its code's title`);
+    return [
+      breadcrumbs(route, title, [{ route: '/bank-statement-codes', name: STATEMENT_CODES_TITLE }]),
+      faqPage(statementCodeFaqs(code)),
     ];
   }
   return [breadcrumbs(route, title)];

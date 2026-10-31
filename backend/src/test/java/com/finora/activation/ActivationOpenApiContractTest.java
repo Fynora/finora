@@ -32,6 +32,17 @@ class ActivationOpenApiContractTest {
     }
 
     @Test
+    void theReleaseMarkerEndpointHasItsOwnSchemaWithDateAndLabel() throws Exception {
+        JsonNode spec = spec();
+        String ref = spec.at("/paths/~1api~1v1~1admin~1analytics~1activation~1markers/post/requestBody/content/application~1json/schema/$ref")
+                .asText();
+        assertThat(ref).isEqualTo("#/components/schemas/ActivationReleaseMarkerRequest");
+
+        JsonNode properties = spec.at("/components/schemas/ActivationReleaseMarkerRequest/properties");
+        assertThat(properties.fieldNames()).toIterable().containsExactlyInAnyOrder("date", "label");
+    }
+
+    @Test
     void quickSortKeepsItsOwnAnswerSchema() throws Exception {
         JsonNode spec = spec();
         String ref = spec.at("/paths/~1api~1v1~1transactions~1quick-sort~1answer/post/requestBody/content/application~1json/schema/$ref")

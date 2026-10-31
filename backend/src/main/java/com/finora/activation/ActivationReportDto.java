@@ -38,8 +38,28 @@ public record ActivationReportDto(
         List<NudgeMonth> monthStartNudges,
         /** How many of every counted user reached each step of the main path, with the drop from the
          *  step before. The same people as {@code weeks}, summed. */
-        Reached reached
+        Reached reached,
+        /** V303: release markers, oldest first, each with the signups either side of it compared. */
+        List<ReleaseMarker> releaseMarkers
 ) {
+    /**
+     * A dated event an admin marked on the page, such as "Gate 2b live". {@code before} and
+     * {@code after} compare the signups either side over windows of the same number of days:
+     * {@code after} runs from the marker's day to today, {@code before} the same number of days up to
+     * the day before it. Both are null while the marker's day is still to come.
+     */
+    @Schema(name = "ActivationReleaseMarker")
+    public record ReleaseMarker(long id, LocalDate date, String label, MarkerWindow before, MarkerWindow after) {}
+
+    /**
+     * The counted signups whose signup day (IST) falls from {@code from} to {@code to}, inclusive, by
+     * each main-path step they reached, every step present ({@code reached.GOT_DATA_IN} is how many
+     * got data in), and how many of them came back another day.
+     */
+    @Schema(name = "ActivationMarkerWindow")
+    public record MarkerWindow(LocalDate from, LocalDate to, long signups, Map<ReachedStep, Long> reached,
+                               long cameBackLaterDay) {}
+
     /**
      * Counted signups by the furthest step of the main path they reached ({@link ReachedStep}), in
      * path order. {@code signups} is everyone counted; {@code stoppedAt} is the same people at their

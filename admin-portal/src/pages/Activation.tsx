@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useEffect, useState, type FormEvent } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import {
   adminActivationApi, type ActivationLandingPathRow, type ActivationMomentName, type ActivationReached,
-  type ActivationReport, type ActivationWeekRow, type FunnelStep, type ReachedStep,
+  type ActivationReleaseMarker, type ActivationReport, type ActivationWeekRow, type FunnelStep, type ReachedStep,
 } from '../api/endpoints';
+import { comparison, defaultMarker, markersIn } from '../lib/activationMarkers';
 import {
   MIN_SIGNUPS_TO_JUDGE, importRate, sortRates, tooSmall, type RateRow, type RateSort, type RateSortKey,
 } from '../lib/activationRates';
@@ -112,7 +114,9 @@ function sumOf(rows: ActivationWeekRow[], pick: (row: ActivationWeekRow) => numb
  * another day. The last weeks by default; a run of weeks with no signups is one line; a total row
  * sums the weeks shown. A cell is a count and links nowhere.
  */
-function WeeklyTable({ weeks, view, showAll }: { weeks: ActivationWeekRow[]; view: FunnelView; showAll: boolean }) {
+function WeeklyTable({ weeks, view, showAll, markers }: {
+  weeks: ActivationWeekRow[]; view: FunnelView; showAll: boolean; markers: ActivationReleaseMarker[];
+}) {
   if (weeks.length === 0) return <p className="p-4 text-sm text-muted">No signups to count yet.</p>;
   const { lines, shown } = weekLines(weeks, showAll);
   const columns: { key: string; label: string; value: (row: ActivationWeekRow) => number | undefined }[] = [
@@ -135,21 +139,31 @@ function WeeklyTable({ weeks, view, showAll }: { weeks: ActivationWeekRow[]; vie
         </tr>
       </thead>
       <tbody>
-        {lines.map((line) => (line.kind === 'week' ? (
-          <tr key={line.row.weekStart}>
-            <td className={td}>{formatIsoDate(line.row.weekStart)}</td>
-            {columns.map((c) => <td key={c.key} className={`${td} tabular-nums`}>{cell(c.value(line.row))}</td>)}
-          </tr>
-        ) : (
-          <tr key={line.from}>
-            <td className={`${td} text-muted`}>
-              {line.weeks === 1 ? formatIsoDate(line.from) : `${formatIsoDate(line.from)} – ${formatIsoDate(line.to)}`}
-            </td>
-            <td colSpan={columns.length} className={`${td} text-muted`}>
-              {line.weeks === 1 ? 'No signups' : `No signups in ${line.weeks} weeks`}
-            </td>
-          </tr>
-        )))}
+        {lines.map((line) => [
+          // A release marker sits just above the week it falls in.
+          ...markersIn(line, markers).map((m) => (
+            <tr key={`marker-${m.id}`} aria-label={`Release marker: ${m.label}, ${formatIsoDate(m.date)}`}>
+              <td colSpan={columns.length + 1} className="px-3 py-1 border-b border-border text-xs font-semibold text-primary">
+                ◆ {formatIsoDate(m.date)} · {m.label}
+              </td>
+            </tr>
+          )),
+          line.kind === 'week' ? (
+            <tr key={line.row.weekStart}>
+              <td className={td}>{formatIsoDate(line.row.weekStart)}</td>
+              {columns.map((c) => <td key={c.key} className={`${td} tabular-nums`}>{cell(c.value(line.row))}</td>)}
+            </tr>
+          ) : (
+            <tr key={line.from}>
+              <td className={`${td} text-muted`}>
+                {line.weeks === 1 ? formatIsoDate(line.from) : `${formatIsoDate(line.from)} – ${formatIsoDate(line.to)}`}
+              </td>
+              <td colSpan={columns.length} className={`${td} text-muted`}>
+                {line.weeks === 1 ? 'No signups' : `No signups in ${line.weeks} weeks`}
+              </td>
+            </tr>
+          ),
+        ])}
       </tbody>
       <tfoot>
         <tr>
@@ -164,8 +178,199 @@ function WeeklyTable({ weeks, view, showAll }: { weeks: ActivationWeekRow[]; vie
   );
 }
 
+/**
+ * Signups per week as columns, the part that got data in filled darker, for the weeks the table
+ * shows. A release marker flags the week it falls in.
+ */
+function WeeklyChart({ weeks, showAll, markers }: {
+  weeks: ActivationWeekRow[]; showAll: boolean; markers: ActivationReleaseMarker[];
+}) {
+  const { shown } = weekLines(weeks, showAll);
+  if (shown.length === 0) return null;
+  const signupsOf = (w: ActivationWeekRow) => Object.values(w.counts).reduce((s, n) => s + (n ?? 0), 0);
+  const most = Math.max(1, ...shown.map(signupsOf));
+  return (
+    <figure aria-label="Signups and got data in by week" className="p-4">
+      <div className="flex items-end gap-1 h-32">
+        {shown.map((w) => {
+          const signups = signupsOf(w);
+          const gotIn = w.counts.GOT_DATA_IN ?? 0;
+          const flags = markersIn({ kind: 'week', row: w }, markers);
+          return (
+            <div key={w.weekStart} className="flex-1 min-w-0 h-full flex flex-col justify-end items-stretch relative">
+              {flags.length > 0 && (
+                <span aria-label={`Release marker: ${flags.map((m) => m.label).join(', ')}`}
+                  title={flags.map((m) => `${formatIsoDate(m.date)} · ${m.label}`).join('\n')}
+                  className="absolute top-0 inset-x-0 border-l-2 border-dashed border-primary h-full pointer-events-none">
+                  <span className="absolute -top-1 left-1 text-[10px] font-semibold text-primary whitespace-nowrap">
+                    ◆ {flags[0].label}{flags.length > 1 ? ` +${flags.length - 1}` : ''}
+                  </span>
+                </span>
+              )}
+              <div className="bg-primary/30 rounded-t flex flex-col justify-end" style={{ height: `${(signups / most) * 100}%` }}
+                title={`${formatIsoDate(w.weekStart)}: ${signups} signed up, ${gotIn} got data in`}>
+                <div className="bg-primary w-full" style={{ height: signups === 0 ? 0 : `${(gotIn / signups) * 100}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <figcaption className="mt-2 flex justify-between text-xs text-muted">
+        <span>{formatIsoDate(shown[0].weekStart)}</span>
+        <span>
+          <span className="inline-block w-2 h-2 bg-primary/30 mr-1" aria-hidden="true" />signed up
+          <span className="inline-block w-2 h-2 bg-primary ml-3 mr-1" aria-hidden="true" />got data in
+        </span>
+        <span>{formatIsoDate(shown[shown.length - 1].weekStart)}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+function apiMessage(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? fallback;
+}
+
+/**
+ * Release markers: compare the signups either side of one (equal windows of signup days), and, with
+ * SYSTEM_SETTINGS, add or remove them.
+ */
+function ReleaseMarkers({ markers }: { markers: ActivationReleaseMarker[] }) {
+  const { hasPermission } = useAdminAuth();
+  const canManage = hasPermission('SYSTEM_SETTINGS');
+  const queryClient = useQueryClient();
+  const [chosenId, setChosenId] = useState<number | null>(null);
+  const [date, setDate] = useState('');
+  const [label, setLabel] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-activation'] });
+  const add = useMutation({
+    mutationFn: () => adminActivationApi.addMarker(date, label.trim()),
+    onSuccess: () => { setDate(''); setLabel(''); setError(null); void refresh(); },
+    onError: (err) => setError(apiMessage(err, 'Could not add the marker.')),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => adminActivationApi.removeMarker(id),
+    onSuccess: () => { setError(null); void refresh(); },
+    onError: (err) => setError(apiMessage(err, 'Could not remove the marker.')),
+  });
+
+  const comparable = markers.filter((m) => m.before && m.after);
+  const chosen = comparable.find((m) => m.id === chosenId) ?? defaultMarker(markers);
+  const rows = chosen?.before && chosen.after ? comparison(chosen.before, chosen.after) : [];
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!date || !label.trim()) {
+      setError('Choose a date and give the marker a label.');
+      return;
+    }
+    add.mutate();
+  }
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-end gap-3 mb-3">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mr-auto">Before and after a release</h2>
+        {comparable.length > 0 && (
+          <label className="text-xs text-muted flex flex-col gap-1">
+            Release marker
+            <select
+              value={chosen?.id ?? ''}
+              onChange={(e) => setChosenId(Number(e.target.value))}
+              className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card"
+            >
+              {[...comparable].reverse().map((m) => (
+                <option key={m.id} value={m.id}>{formatIsoDate(m.date)} · {m.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
+        {chosen?.before && chosen.after ? (
+          <>
+            <table aria-label="Before and after the release marker" className="w-full">
+              <thead>
+                <tr>
+                  <th className={th}>Signups in the window</th>
+                  <th className={th}>Before ({formatIsoDate(chosen.before.from)} – {formatIsoDate(chosen.before.to)})</th>
+                  <th className={th}>After ({formatIsoDate(chosen.after.from)} – {formatIsoDate(chosen.after.to)})</th>
+                  <th className={th}>Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key}>
+                    <td className={td}>{r.label}</td>
+                    <td className={`${td} tabular-nums`}>{r.before}</td>
+                    <td className={`${td} tabular-nums`}>{r.after}</td>
+                    <td className={`${td} tabular-nums`}>{r.change}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="p-4 text-xs text-muted">
+              Both windows are the same number of days. Signups in the after window have had less time to import, so
+              its later steps can still rise. Counts are small; one person changes them.
+            </p>
+          </>
+        ) : (
+          <p className="p-4 text-sm text-muted">
+            {markers.length === 0
+              ? 'No release markers yet.'
+              : 'No marker to compare yet: a marker is compared once its day has come.'}
+          </p>
+        )}
+      </div>
+
+      {(markers.length > 0 || canManage) && (
+        <div className="mt-3 bg-card border border-border rounded-xl2 shadow-card p-4 space-y-3">
+          {markers.length > 0 && (
+            <ul aria-label="Release markers" className="space-y-1">
+              {markers.map((m) => (
+                <li key={m.id} className="flex items-center gap-3 text-sm text-ink">
+                  <span className="tabular-nums text-muted">{formatIsoDate(m.date)}</span>
+                  <span className="mr-auto">{m.label}</span>
+                  {canManage && (
+                    <button type="button" className="text-xs text-danger hover:underline" disabled={remove.isPending}
+                      onClick={() => remove.mutate(m.id)} aria-label={`Remove marker ${m.label}`}>
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {canManage && (
+            <form onSubmit={onSubmit} aria-label="Add a release marker" className="flex flex-wrap items-end gap-3">
+              <label className="text-xs text-muted flex flex-col gap-1">
+                Date it went live
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+                  className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card" />
+              </label>
+              <label className="text-xs text-muted flex flex-col gap-1 flex-1 min-w-[12rem]">
+                Label
+                <input type="text" value={label} maxLength={80} placeholder="Gate 2b live"
+                  onChange={(e) => setLabel(e.target.value)}
+                  className="border border-border rounded-lg px-2 py-1 text-sm text-ink bg-card" />
+              </label>
+              <button type="submit" disabled={add.isPending}
+                className="px-3 py-1.5 text-sm rounded-lg bg-primary text-on-primary disabled:opacity-60">
+                Add marker
+              </button>
+            </form>
+          )}
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** The funnel: the reached view by default (bars, then by week); the stopped-at table one click away. */
 function Funnel({ report }: { report: ActivationReport }) {
+  const markers = report.releaseMarkers ?? [];
   const [view, setView] = useState<FunnelView>('reached');
   const [showAll, setShowAll] = useState(false);
   // A backend from before the reached counts sends only the stopped-at ones.
@@ -194,8 +399,13 @@ function Funnel({ report }: { report: ActivationReport }) {
             <ReachedBars reached={report.reached} />
           </div>
         )}
+        {report.weeks.length > 0 && (
+          <div className="bg-card border border-border rounded-xl2 shadow-card">
+            <WeeklyChart weeks={report.weeks} showAll={showAll} markers={markers} />
+          </div>
+        )}
         <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
-          <WeeklyTable weeks={report.weeks} view={current} showAll={showAll} />
+          <WeeklyTable weeks={report.weeks} view={current} showAll={showAll} markers={markers} />
         </div>
         {hidden > 0 && (
           <button type="button" className="text-sm text-primary" aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
@@ -578,6 +788,8 @@ function ActivationContent() {
           <Totals report={data} />
 
           <Funnel report={data} />
+
+          {data.releaseMarkers && <ReleaseMarkers markers={data.releaseMarkers} />}
 
           <SourceRates rows={data.bySource} />
 

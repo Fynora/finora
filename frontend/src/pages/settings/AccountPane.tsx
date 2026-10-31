@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { authApi } from '../../api/endpoints';
+import { authApi, type SignInMethod } from '../../api/endpoints';
 import { clearSessionAndRedirect } from '../../api/client';
 import { DeactivateAccountModal } from '../../components/DeactivateAccountModal';
 import { DeleteAccountModal } from '../../components/DeleteAccountModal';
@@ -10,7 +10,7 @@ import { SectionHeader } from '../../design-system/SectionHeader';
 export function AccountPane({
   loading, loadError, signInMethod,
 }: {
-  loading: boolean; loadError: boolean; signInMethod: 'PASSWORD' | 'GOOGLE';
+  loading: boolean; loadError: boolean; signInMethod: SignInMethod;
 }) {
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);

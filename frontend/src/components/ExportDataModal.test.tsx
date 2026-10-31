@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ExportDataModal } from './ExportDataModal';
 import { accountLifecycleApi } from '../api/endpoints';
 import { isGoogleLoginConfigured, loadGoogleIdentityServices } from '../lib/googleIdentity';
+import { isAppleLoginConfigured, loadAppleIdServices } from '../lib/appleIdentity';
 
 vi.mock('../api/endpoints', () => ({
   accountLifecycleApi: { exportData: vi.fn() },
@@ -13,6 +14,12 @@ vi.mock('../api/endpoints', () => ({
 vi.mock('../lib/googleIdentity', () => ({
   isGoogleLoginConfigured: vi.fn(),
   loadGoogleIdentityServices: vi.fn(),
+}));
+
+// Same wholesale mock for Apple's script -- see AppleSignInButton.test.tsx.
+vi.mock('../lib/appleIdentity', () => ({
+  isAppleLoginConfigured: vi.fn(),
+  loadAppleIdServices: vi.fn(),
 }));
 
 describe('ExportDataModal', () => {
@@ -29,7 +36,7 @@ describe('ExportDataModal', () => {
       await user.type(screen.getByLabelText(/current password/i), 'OldPass123!');
       await user.click(screen.getByRole('button', { name: /export my data/i }));
 
-      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalledWith('OldPass123!', null));
+      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalledWith('OldPass123!', null, null));
       expect(onClose).toHaveBeenCalled();
     });
   });
@@ -61,7 +68,34 @@ describe('ExportDataModal', () => {
       const { callback } = initialize.mock.calls[0][0];
       callback({ credential: 'fresh-google-id-token' });
 
-      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalledWith(null, 'fresh-google-id-token'));
+      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalledWith(null, 'fresh-google-id-token', null));
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('an Apple Sign-In account', () => {
+    beforeEach(() => {
+      vi.mocked(isAppleLoginConfigured).mockReturnValue(true);
+      vi.mocked(loadAppleIdServices).mockResolvedValue({
+        init: vi.fn(),
+        signIn: vi.fn().mockResolvedValue({ authorization: { id_token: 'fresh-apple-id-token' } }),
+      } as any);
+    });
+
+    it('asks to verify with Apple, with no password field', () => {
+      render(<ExportDataModal onClose={vi.fn()} signInMethod="APPLE" />);
+
+      expect(screen.queryByLabelText(/current password/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/Verify with Apple to confirm/)).toBeInTheDocument();
+    });
+
+    it('requests the export with a fresh Apple credential instead of a password', async () => {
+      const onClose = vi.fn();
+      render(<ExportDataModal onClose={onClose} signInMethod="APPLE" />);
+
+      fireEvent.click(screen.getByRole('button', { name: /sign in with apple/i }));
+
+      await waitFor(() => expect(accountLifecycleApi.exportData).toHaveBeenCalledWith(null, null, 'fresh-apple-id-token'));
       expect(onClose).toHaveBeenCalled();
     });
   });

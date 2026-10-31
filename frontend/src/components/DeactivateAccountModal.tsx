@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { accountLifecycleApi } from '../api/endpoints';
+import { accountLifecycleApi, type SignInMethod } from '../api/endpoints';
+import { AppleReauthPrompt } from './AppleReauthPrompt';
 import { GoogleReauthPrompt } from './GoogleReauthPrompt';
 import { useDialogA11y } from '../design-system';
 
@@ -26,7 +27,7 @@ const DEACTIVATION_REASONS: { value: string; label: string }[] = [
 export function DeactivateAccountModal({ onClose, onDeactivated, signInMethod }: {
   onClose: () => void;
   onDeactivated: () => void;
-  signInMethod: 'PASSWORD' | 'GOOGLE';
+  signInMethod: SignInMethod;
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [reason, setReason] = useState('');
@@ -40,12 +41,15 @@ export function DeactivateAccountModal({ onClose, onDeactivated, signInMethod }:
   // Google's own rendered button, unlike the password path's <button disabled={submitting}>, has
   // no prop this component can use to stop a second click from firing a second credential
   // callback while the first request is still in flight.
-  async function submitWithCredential(currentPasswordArg: string | null, googleIdToken: string | null) {
+  async function submitWithCredential(
+    currentPasswordArg: string | null, googleIdToken: string | null, appleIdToken: string | null
+  ) {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      await accountLifecycleApi.deactivate(currentPasswordArg, googleIdToken, reason, note.trim() || undefined);
+      await accountLifecycleApi.deactivate(
+        currentPasswordArg, googleIdToken, appleIdToken, reason, note.trim() || undefined);
       onDeactivated();
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Could not deactivate your account. Please try again.');
@@ -60,12 +64,12 @@ export function DeactivateAccountModal({ onClose, onDeactivated, signInMethod }:
     // signInMethod. For a GOOGLE account there is no password field to check (and never will be
     // -- see the JSX below), so falling through to the PASSWORD-only validation below showed
     // "Enter your current password" to a user with no such field on screen. The real submission
-    // for a GOOGLE account happens through GoogleReauthPrompt's own onCredential callback, not
-    // through this form at all.
-    if (signInMethod === 'GOOGLE') return;
+    // for a GOOGLE or APPLE account happens through the reauth prompt's own onCredential
+    // callback, not through this form at all.
+    if (signInMethod !== 'PASSWORD') return;
     if (currentPassword.length === 0) { setError('Enter your current password.'); return; }
     if (reason.length === 0) { setError('Choose a reason for deactivating.'); return; }
-    void submitWithCredential(currentPassword, null);
+    void submitWithCredential(currentPassword, null, null);
   }
 
   const panelRef = useDialogA11y({ onClose });
@@ -132,12 +136,19 @@ export function DeactivateAccountModal({ onClose, onDeactivated, signInMethod }:
           </div>
           {error && <p className="text-danger text-xs">{error}</p>}
 
-          {signInMethod === 'GOOGLE' && (
+          {signInMethod !== 'PASSWORD' && (
             reason.length === 0 ? (
-              <p className="text-xs text-muted">Choose a reason above, then verify with Google to continue.</p>
-            ) : (
+              <p className="text-xs text-muted">
+                Choose a reason above, then verify with {signInMethod === 'GOOGLE' ? 'Google' : 'Apple'} to continue.
+              </p>
+            ) : signInMethod === 'GOOGLE' ? (
               <GoogleReauthPrompt
-                onCredential={(idToken) => submitWithCredential(null, idToken)}
+                onCredential={(idToken) => submitWithCredential(null, idToken, null)}
+                onError={setError}
+              />
+            ) : (
+              <AppleReauthPrompt
+                onCredential={(idToken) => submitWithCredential(null, null, idToken)}
                 onError={setError}
               />
             )

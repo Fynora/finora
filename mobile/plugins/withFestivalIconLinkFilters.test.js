@@ -1,3 +1,4 @@
+const { describe, expect, it } = require('@jest/globals');
 const { keepOnlyLauncherFiltersOnAliases } = require('./withFestivalIconLinkFilters');
 
 const launcher = {

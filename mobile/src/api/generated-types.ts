@@ -14267,6 +14267,8 @@ export interface components {
             signups?: number;
             /** Format: int64 */
             gotDataIn?: number;
+            /** Format: int64 */
+            cameBackLaterDay?: number;
         };
         ActivationLandingPaths: {
             /** Format: date-time */

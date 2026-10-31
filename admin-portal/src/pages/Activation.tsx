@@ -4,9 +4,12 @@ import { Info } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import {
-  adminActivationApi, type ActivationMomentName, type ActivationReached, type ActivationReport, type ActivationWeekRow,
-  type FunnelStep, type ReachedStep,
+  adminActivationApi, type ActivationLandingPathRow, type ActivationMomentName, type ActivationReached,
+  type ActivationReport, type ActivationWeekRow, type FunnelStep, type ReachedStep,
 } from '../api/endpoints';
+import {
+  MIN_SIGNUPS_TO_JUDGE, importRate, sortRates, tooSmall, type RateRow, type RateSort, type RateSortKey,
+} from '../lib/activationRates';
 import {
   ANSWER_LABELS, DELETION_REASON_LABELS, FOCUS_LABELS, MOMENT_QUESTIONS, NO_ANSWER, NO_ANSWER_LABEL,
   SOURCE_LABELS, SPENDING_TRACKING_LABELS, STEP_LABELS, STEP_ORDER, formatDays, formatIsoDate, formatIsoMonth,
@@ -268,34 +271,106 @@ function SourceTable({ rows }: { rows: ActivationReport['bySource'] }) {
  * summed, and accounts with no landing page recorded are their own line.
  */
 function LandingPathTable({ landing }: { landing: NonNullable<ActivationReport['landingPaths']> }) {
-  const named = landing.pages.map((p) => ({ key: p.path ?? '', label: p.path ?? '', row: p }));
-  const lines = [
-    ...named,
-    ...(landing.other.signups > 0 ? [{ key: '(other)', label: 'Other pages', row: landing.other }] : []),
-    ...(landing.none.signups > 0 ? [{ key: '(none)', label: 'No landing page recorded', row: landing.none }] : []),
+  const toRow = (key: string, label: string, row: ActivationLandingPathRow, pinned = false): RateRow => ({
+    key, label, signups: row.signups, gotDataIn: row.gotDataIn, cameBackLaterDay: row.cameBackLaterDay ?? null, pinned,
+  });
+  const rows = [
+    ...landing.pages.map((p) => toRow(p.path ?? '', p.path ?? '', p)),
+    ...(landing.other.signups > 0 ? [toRow('(other)', 'Other pages', landing.other, true)] : []),
+    ...(landing.none.signups > 0 ? [toRow('(none)', 'No landing page recorded', landing.none, true)] : []),
   ];
-  if (lines.length === 0) {
+  if (rows.length === 0) {
     return <p className="p-4 text-sm text-muted">No signups since landing pages began to be recorded.</p>;
   }
+  return <RateTable label="Signups by landing page" firstColumn="Landing page" rows={rows} />;
+}
+
+const RATE_COLUMNS: { key: RateSortKey; label: string }[] = [
+  { key: 'signups', label: 'Signed up' },
+  { key: 'gotDataIn', label: 'Got data in' },
+  { key: 'rate', label: 'Import rate' },
+  { key: 'cameBackLaterDay', label: 'Came back another day' },
+];
+
+/**
+ * Signups, how many got data in, the import rate and who came back another day, one row per
+ * source or page. Every count column sorts; a row with fewer than MIN_SIGNUPS_TO_JUDGE signups is
+ * marked too small to judge, and sorts below the rest by rate.
+ */
+function RateTable({ label, firstColumn, rows, extraHeaders = [] }: {
+  label: string; firstColumn: string; rows: (RateRow & { extra?: string[] })[]; extraHeaders?: string[];
+}) {
+  const [sort, setSort] = useState<RateSort>({ key: 'signups', descending: true });
+  const sorted = sortRates(rows, sort) as (RateRow & { extra?: string[] })[];
+  const toggle = (key: RateSortKey) =>
+    setSort((s) => (s.key === key ? { key, descending: !s.descending } : { key, descending: true }));
   return (
-    <table aria-label="Signups by landing page" className="w-full">
+    <table aria-label={label} className="w-full">
       <thead>
         <tr>
-          <th className={th}>Landing page</th>
-          <th className={th}>Signed up</th>
-          <th className={th}>Got data in</th>
+          <th className={th}>{firstColumn}</th>
+          {RATE_COLUMNS.map((c) => (
+            <th key={c.key} className={th} aria-sort={sort.key === c.key ? (sort.descending ? 'descending' : 'ascending') : 'none'}>
+              <button type="button" className="uppercase tracking-wide font-semibold hover:text-ink" onClick={() => toggle(c.key)}>
+                {c.label}
+                {sort.key === c.key && <span aria-hidden="true">{sort.descending ? ' ↓' : ' ↑'}</span>}
+              </button>
+            </th>
+          ))}
+          {extraHeaders.map((h) => <th key={h} className={th}>{h}</th>)}
         </tr>
       </thead>
       <tbody>
-        {lines.map(({ key, label, row }) => (
-          <tr key={key}>
-            <td className={td}>{label}</td>
-            <td className={`${td} tabular-nums`}>{row.signups}</td>
-            <td className={`${td} tabular-nums`}>{row.gotDataIn}</td>
-          </tr>
-        ))}
+        {sorted.map((r) => {
+          const rate = importRate(r);
+          const small = tooSmall(r);
+          return (
+            <tr key={r.key}>
+              <td className={td}>{r.label}</td>
+              <td className={`${td} tabular-nums`}>{r.signups}</td>
+              <td className={`${td} tabular-nums`}>{r.gotDataIn}</td>
+              <td className={`${td} tabular-nums ${small ? 'text-muted' : ''}`}>
+                {rate === null ? '—' : `${Math.round(rate * 100)}%`}
+                {small && <span className="ml-2 text-xs text-warning">too few to judge</span>}
+              </td>
+              <td className={`${td} tabular-nums`}>{r.cameBackLaterDay ?? '—'}</td>
+              {(r.extra ?? []).map((cell, i) => <td key={extraHeaders[i]} className={`${td} tabular-nums`}>{cell}</td>)}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
+  );
+}
+
+/** Each source with its import rate; the steps each source stopped at are one click away. */
+function SourceRates({ rows }: { rows: ActivationReport['bySource'] }) {
+  const [showSteps, setShowSteps] = useState(false);
+  const rateRows = rows.map((r) => ({
+    key: r.kind === 'UTM' ? `UTM:${r.utmSource}` : r.kind,
+    label: r.kind === 'UTM' ? `utm_source: ${r.utmSource}` : SOURCE_LABELS[r.kind],
+    signups: stepTotal(r.counts),
+    gotDataIn: r.counts.GOT_DATA_IN ?? 0,
+    cameBackLaterDay: r.secondImport.cameBackLaterDay,
+    extra: [String(r.secondImport.users), formatDays(r.secondImport.medianDays)],
+  }));
+  return (
+    <section>
+      <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Signups by source</h2>
+      <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
+        <RateTable label="Signups by source" firstColumn="Source" rows={rateRows}
+          extraHeaders={['Second import', 'Median days to second']} />
+      </div>
+      <button type="button" className="mt-2 text-sm text-muted hover:text-ink" aria-expanded={showSteps}
+        onClick={() => setShowSteps((v) => !v)}>
+        {showSteps ? 'Hide where each source stopped' : 'Show where each source stopped'}
+      </button>
+      {showSteps && (
+        <div className="mt-3 bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
+          <SourceTable rows={rows} />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -484,6 +559,10 @@ function ActivationContent() {
             stop between choosing a file and having one read. Weeks run Monday to Sunday, IST.
           </p>
           <p>Only the answers follow the date range; every other count covers all signups.</p>
+          <p>
+            Import rate is got data in, of signups. A source or page with fewer than {MIN_SIGNUPS_TO_JUDGE} signups is
+            marked too few to judge.
+          </p>
           <p>Counts are small; one person changes them.</p>
         </div>
       </div>
@@ -500,9 +579,7 @@ function ActivationContent() {
 
           <Funnel report={data} />
 
-          <Section title="Funnel by signup source">
-            <SourceTable rows={data.bySource} />
-          </Section>
+          <SourceRates rows={data.bySource} />
 
           {data.landingPaths && (
             <Section title="Signups by landing page">

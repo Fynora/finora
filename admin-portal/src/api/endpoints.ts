@@ -793,7 +793,11 @@ export type ReachedStep = NonNullable<GeneratedSchemas['ActivationReachedRow']['
 export interface ActivationSecondImport { users: number; medianDays: number | null; cameBackLaterDay: number }
 /** One landing path (V300): accounts that started on it, and how many of those got data in. `path`
  *  is null on the `other` and `none` rows. Aggregates only. */
-export interface ActivationLandingPathRow { path: string | null; signups: number; gotDataIn: number }
+export interface ActivationLandingPathRow {
+  path: string | null; signups: number; gotDataIn: number;
+  /** Of them, how many sent a second, different file on a later day (IST). Optional: absent from a backend deployed before it. */
+  cameBackLaterDay?: number;
+}
 export interface ActivationLandingPaths {
   /** When landing paths began to be recorded (an ISO instant), or null when not known. */
   trackingStart: string | null;

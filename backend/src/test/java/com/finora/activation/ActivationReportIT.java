@@ -375,6 +375,10 @@ class ActivationReportIT extends AbstractIntegrationTest {
         imported(a);                           // GOT_DATA_IN
         User b = signupAt(WEEK_A);
         landed(b, page);                       // SIGNED_UP
+        User back = signupAt(WEEK_A);
+        landed(back, page);
+        importedFile(back, Instant.parse("2021-06-06T06:00:00Z"), 10, hash());
+        importedFile(back, Instant.parse("2021-06-09T06:00:00Z"), 10, hash()); // GOT_DATA_IN, came back
         landed(signupAt(WEEK_A), quiet);
         User internal = signupAt(WEEK_A);
         landed(internal, page);
@@ -387,11 +391,13 @@ class ActivationReportIT extends AbstractIntegrationTest {
         assertThat(landing.get("trackingStart").asText()).isNotEmpty();
         JsonNode row = landingPage(report(admin(), null, null), page);
         assertThat(row).as("the page row").isNotNull();
-        assertThat(row.get("signups").asLong()).as("the internal account is left out").isEqualTo(2);
-        assertThat(row.get("gotDataIn").asLong()).isEqualTo(1);
+        assertThat(row.get("signups").asLong()).as("the internal account is left out").isEqualTo(3);
+        assertThat(row.get("gotDataIn").asLong()).isEqualTo(2);
+        assertThat(row.get("cameBackLaterDay").asLong()).isEqualTo(1);
         JsonNode other = landingPage(report(admin(), null, null), quiet);
         assertThat(other.get("signups").asLong()).isEqualTo(1);
         assertThat(other.get("gotDataIn").asLong()).isZero();
+        assertThat(other.get("cameBackLaterDay").asLong()).isZero();
         assertThat(landing.get("none").get("signups").asLong()).isGreaterThanOrEqualTo(1);
         assertThat(landing.get("none").get("path").isNull()).isTrue();
         assertThat(landing.get("other").get("path").isNull()).isTrue();

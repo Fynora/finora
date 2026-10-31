@@ -2,7 +2,8 @@
 <!-- The public, indexable pages only: the routes in src/App.tsx that are not behind login and not
      an auth flow. seoFiles.test.tsx fails if a URL here stops being a real route, or is disallowed
      by robots.txt. The /help/<slug> lines are the Help answers in src/pages/helpArticles.ts, one
-     each, in that file's order; seoFiles.test.tsx fails if one is missing or left over.
+     each, in that file's order, and the /bank-statement-codes/<slug> lines are the codes in
+     src/pages/statementCodes.ts, the same way; seoFiles.test.tsx fails if one is missing or left over.
      No <lastmod>: a hand-typed date goes stale and a wrong one is worse than none. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://app.fynora.net/</loc></url>
@@ -46,6 +47,22 @@
   <url><loc>https://app.fynora.net/help/contact-support</loc></url>
   <url><loc>https://app.fynora.net/help/support-ticket-status</loc></url>
   <url><loc>https://app.fynora.net/help/support-ticket-vs-feedback</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/nach</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/ach-debit</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/ecs</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/nach-return-charges</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/ecs-return-charges</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/imps</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/neft</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/utr-number</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/upi-transaction-id</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/pos-transaction</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/atm-wdl</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/int-pd</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/by-clg</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/tpt</loc></url>
+  <url><loc>https://app.fynora.net/bank-statement-codes/other-codes</loc></url>
   <url><loc>https://app.fynora.net/trust</loc></url>
   <url><loc>https://app.fynora.net/your-data</loc></url>
   <url><loc>https://app.fynora.net/privacy</loc></url>

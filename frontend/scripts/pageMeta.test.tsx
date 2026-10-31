@@ -13,6 +13,9 @@ import DataPromise from '../src/pages/DataPromise';
 import Help from '../src/pages/Help';
 import { HelpArticleView } from '../src/pages/HelpArticle';
 import { HELP_ARTICLES } from '../src/pages/helpArticles';
+import StatementCodeIndex from '../src/pages/StatementCodeIndex';
+import { StatementCodeView } from '../src/pages/StatementCodePage';
+import { STATEMENT_CODES } from '../src/pages/statementCodes';
 import Privacy from '../src/pages/Privacy';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
@@ -152,9 +155,15 @@ describe('page description', () => {
     Object.defineProperty(Page, 'name', { value: `HelpArticle(${article.slug})` });
     return Page;
   });
+  // And each bank statement code (/bank-statement-codes/<slug>).
+  const STATEMENT_CODE_PAGES = STATEMENT_CODES.map((code) => {
+    const Page = () => <StatementCodeView code={code} />;
+    Object.defineProperty(Page, 'name', { value: `StatementCode(${code.slug})` });
+    return Page;
+  });
   const PRERENDERED_PAGES = [
     About, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity,
-    ...HELP_ARTICLE_PAGES,
+    StatementCodeIndex, ...HELP_ARTICLE_PAGES, ...STATEMENT_CODE_PAGES,
   ];
 
   it('is the same string in the browser and in the prerendered HTML, for every prerendered page', () => {

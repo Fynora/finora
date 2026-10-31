@@ -96,6 +96,21 @@ jest.mock('../onboarding/useSpendingQuestion', () => ({
   useSpendingQuestion: (enabled: boolean, userKey: string | null) => mockUseSpendingQuestion(enabled, userKey),
 }));
 
+// The consent step (V302): ConsentScreen.test.tsx and useConsent.test.ts cover them; this file
+// checks where the step sits among the other screens.
+jest.mock('../onboarding/ConsentScreen', () => ({
+  ConsentScreen: () => {
+    const { Text } = require('react-native');
+    return <Text testID="consent-screen">ConsentScreen</Text>;
+  },
+}));
+const mockConsent: { needsAnswer: boolean; pending: boolean; profile: object | null; submit: jest.Mock; reload: jest.Mock } =
+  { needsAnswer: false, pending: false, profile: null, submit: jest.fn(), reload: jest.fn() };
+const mockUseConsent = jest.fn((_enabled: boolean, _userKey: string | null) => mockConsent);
+jest.mock('../onboarding/useConsent', () => ({
+  useConsent: (enabled: boolean, userKey: string | null) => mockUseConsent(enabled, userKey),
+}));
+
 jest.mock('./AppTabs', () => ({
   AppTabs: () => {
     const { Text } = require('react-native');
@@ -184,7 +199,44 @@ describe('RootNavigator', () => {
     mockSpendingQuestion.needsAnswer = false;
     mockSpendingQuestion.pending = false;
     mockUseSpendingQuestion.mockClear();
+    mockConsent.needsAnswer = false;
+    mockConsent.pending = false;
+    mockConsent.profile = null;
+    mockUseConsent.mockClear();
     mockFonts.ready = true;
+  });
+
+  it('shows only the consent step, before the spending question and the app, until it is answered', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockConsent.needsAnswer = true;
+    mockConsent.profile = { termsAcceptanceRequired: true, aiProcessingConsent: null };
+    mockSpendingQuestion.needsAnswer = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('consent-screen')).toBeTruthy();
+    expect(screen.queryByTestId('spending-question')).toBeNull();
+    expect(screen.queryByTestId('app-tabs')).toBeNull();
+  });
+
+  /** Held for a returning user too: the app must never show and then vanish behind the step. */
+  it('holds everyone on a loading screen while the consent answer is looked up', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: true, onboardingCompleted: true }));
+    mockConsent.pending = true;
+
+    render(<RootNavigator />);
+
+    expect(screen.getByTestId('consent-loading')).toBeTruthy();
+    expect(screen.queryByTestId('app-tabs')).toBeNull();
+  });
+
+  it('asks for consent only once signed in and verified, keyed to the account', () => {
+    mockedUseAuth.mockReturnValue(authState({ token: 'tok', phoneVerified: false, email: 'consent@example.com' }));
+
+    render(<RootNavigator />);
+
+    expect(mockUseConsent).toHaveBeenLastCalledWith(false, 'consent@example.com');
+    expect(screen.queryByTestId('consent-screen')).toBeNull();
   });
 
   it('shows only the required spending question, in place of the app, until it is answered', () => {

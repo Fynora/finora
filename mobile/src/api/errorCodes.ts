@@ -50,6 +50,10 @@ export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 // ACCOUNT_LIMIT_REACHED / STATEMENT_PERIOD_TOO_LONG.
 export const ACCOUNT_LIMIT_REACHED = 'ENTITLEMENT_002';
 export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
+// V302: the user has not said yes to "AI features" -- Ask Fyn offers the Settings switch instead of an outage.
+export const FYN_AI_CONSENT_OFF = 'PRIVACY_001';
+// V302: the Terms or Privacy Policy changed while the consent step was open.
+export const TERMS_VERSION_OUTDATED = 'PRIVACY_002';
 
 // VerifyPhoneScreen's change-number step branches on this to offer "Log in instead" rather than a
 // dead-end error -- a Google Sign-In account with no phone number yet, entering a number that

@@ -22,8 +22,9 @@ jest.mock('../lib/fynScreenshot', () => {
 jest.mock('expo-store-review', () => ({ hasAction: jest.fn(), requestReview: jest.fn() }));
 
 const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack }),
+  useNavigation: () => ({ goBack: mockGoBack, navigate: mockNavigate }),
 }));
 
 const fynChat = fynChatApi as jest.Mocked<typeof fynChatApi>;
@@ -214,6 +215,40 @@ describe('FynScreen', () => {
     fireEvent.press(screen.getByLabelText('Send'));
 
     expect(await screen.findByText('Fyn is over budget.')).toBeTruthy();
+  });
+
+  /** V302: "AI features are off" comes with the way to turn them on, not as a dead end. */
+  it('offers Settings -> Data when AI features are off', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    fynChat.send.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 403, data: { errorCode: 'PRIVACY_001', message: 'AI features are off. You can turn them on in Settings.' } },
+    });
+
+    renderScreen();
+    const input = await screen.findByPlaceholderText(/ask about your balance/i);
+    fireEvent.changeText(input, 'hi');
+    fireEvent.press(screen.getByLabelText('Send'));
+
+    expect(await screen.findByText(/AI features are off/)).toBeTruthy();
+    fireEvent.press(screen.getByText('Open Settings → Data'));
+    expect(mockNavigate).toHaveBeenCalledWith('SettingsData');
+  });
+
+  it('offers no Settings link for any other error', async () => {
+    entitlements.mine.mockResolvedValue(granted());
+    fynChat.send.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 503, data: { message: 'Fyn is over budget.' } },
+    });
+
+    renderScreen();
+    const input = await screen.findByPlaceholderText(/ask about your balance/i);
+    fireEvent.changeText(input, 'hi');
+    fireEvent.press(screen.getByLabelText('Send'));
+
+    expect(await screen.findByText('Fyn is over budget.')).toBeTruthy();
+    expect(screen.queryByText('Open Settings → Data')).toBeNull();
   });
 
   it('does not send a blank message', async () => {

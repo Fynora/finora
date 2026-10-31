@@ -33,6 +33,7 @@ const Contact = lazy(() => import('./pages/Contact'));
 const About = lazy(() => import('./pages/About'));
 const Careers = lazy(() => import('./pages/Careers'));
 const Help = lazy(() => import('./pages/Help'));
+const HelpArticle = lazy(() => import('./pages/HelpArticle'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const AuthEntry = lazy(() => import('./pages/AuthEntry'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -153,6 +154,9 @@ export default function App() {
           <Route path="/about" element={<About />} />
           <Route path="/careers" element={<Careers />} />
           <Route path="/help" element={<Help />} />
+          {/* One page per Help answer. Each is prerendered to dist/help/<slug>.html, so it needs no
+              line in public/_redirects; an unknown slug has no file and gets the 404 page. */}
+          <Route path="/help/:slug" element={<HelpArticle />} />
 
           {/* Auth */}
           <Route path="/auth" element={<AuthEntry />} />

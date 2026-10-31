@@ -204,6 +204,22 @@ export function withRobotsNoindex(templateHtml) {
   return templateHtml.replace('</head>', () => '<meta name="robots" content="noindex" />\n</head>');
 }
 
+const SLUG = '[a-z0-9]+(?:-[a-z0-9]+)*';
+const COLLECTION_PAGE = new RegExp(`^/(${SLUG})/(${SLUG})$`);
+
+/**
+ * Where a page of a collection (ssr-entry's pageCollections) is written: '/help/<slug>' ->
+ * 'help/<slug>.html' under dist/, which Cloudflare Pages serves at the extensionless address.
+ * Throws for anything that is not exactly /<section>/<slug> in lower-case words and hyphens, so a
+ * bad slug fails the build instead of writing a file somewhere else in dist/ (a '..' or a third
+ * segment would).
+ */
+export function collectionPageFile(route) {
+  const match = COLLECTION_PAGE.exec(route);
+  if (!match) throw new Error(`prerender: ${JSON.stringify(route)} is not a /<section>/<slug> address in lower-case words and hyphens`);
+  return `${match[1]}/${match[2]}.html`;
+}
+
 // The three kinds of document prerender.mjs writes from the one shared template, each with the
 // address tags it should have and no others. (The fourth document, the blank shell, is
 // spaShellHtml in spaShell.mjs.) They are here, not inline in prerender.mjs, so seoFiles.test.tsx

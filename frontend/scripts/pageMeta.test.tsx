@@ -11,6 +11,8 @@ import Contact from '../src/pages/Contact';
 import CookiePolicy from '../src/pages/CookiePolicy';
 import DataPromise from '../src/pages/DataPromise';
 import Help from '../src/pages/Help';
+import { HelpArticleView } from '../src/pages/HelpArticle';
+import { HELP_ARTICLES } from '../src/pages/helpArticles';
 import Privacy from '../src/pages/Privacy';
 import RefundPolicy from '../src/pages/RefundPolicy';
 import ShippingPolicy from '../src/pages/ShippingPolicy';
@@ -144,7 +146,16 @@ describe('page description', () => {
   });
 
   // Every page scripts/ssr-entry.tsx prerenders, so a page added there is held to the same bar.
-  const PRERENDERED_PAGES = [About, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity];
+  // Each Help answer is a prerendered page too (/help/<slug>), named after its slug in failures.
+  const HELP_ARTICLE_PAGES = HELP_ARTICLES.map((article) => {
+    const Page = () => <HelpArticleView article={article} />;
+    Object.defineProperty(Page, 'name', { value: `HelpArticle(${article.slug})` });
+    return Page;
+  });
+  const PRERENDERED_PAGES = [
+    About, Careers, Contact, CookiePolicy, DataPromise, Help, Privacy, RefundPolicy, ShippingPolicy, Terms, TrustSecurity,
+    ...HELP_ARTICLE_PAGES,
+  ];
 
   it('is the same string in the browser and in the prerendered HTML, for every prerendered page', () => {
     // index.html is not loaded in tests, so provide the tag PublicLayout updates, as the real page has.

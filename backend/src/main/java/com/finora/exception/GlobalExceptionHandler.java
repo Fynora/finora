@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Arrays;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -321,6 +322,10 @@ public class GlobalExceptionHandler {
      *       {@code image}) omitted -- Spring throws this one, not the plain-parameter exception
      *       above, for a missing file part specifically. Found via a real request with the part
      *       omitted, not assumed: it came back 500 before this was added.</li>
+     *   <li>{@code MissingRequestHeaderException} -- a required header omitted. Only the three
+     *       webhook receivers require one (their signature header: Razorpay, RevenueCat, Setu), and
+     *       they are open to the internet, so any request without it came back 500 and was logged
+     *       as an unhandled error. Found by sending one, 2026-10-31.</li>
      * </ul>
      *
      * <p>The messages name the parameter but never echo the submitted value. In non-prod profiles
@@ -331,12 +336,15 @@ public class GlobalExceptionHandler {
             DateTimeParseException.class,
             MethodArgumentTypeMismatchException.class,
             MissingServletRequestParameterException.class,
-            MissingServletRequestPartException.class
+            MissingServletRequestPartException.class,
+            MissingRequestHeaderException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBindingFailure(Exception ex) {
         String message = switch (ex) {
             case MissingServletRequestParameterException missing ->
                     "Required parameter '" + missing.getParameterName() + "' is missing.";
+            case MissingRequestHeaderException missingHeader ->
+                    "Required header '" + missingHeader.getHeaderName() + "' is missing.";
             case MissingServletRequestPartException missingPart ->
                     "Required part '" + missingPart.getRequestPartName() + "' is missing.";
             case MethodArgumentTypeMismatchException mismatch ->

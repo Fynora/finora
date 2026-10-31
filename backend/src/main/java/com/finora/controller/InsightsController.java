@@ -66,9 +66,8 @@ public class InsightsController {
      *  GET/POST /story (with its label and feedback) in its own PR; this stays for the version live now. */
     @GetMapping("/narration")
     public ApiResponse<FynInsightsNarrationDto> narration(@RequestParam(required = false) String month) {
-        if (month != null && !month.matches(com.finora.dto.AiInsightDtos.MONTH_PATTERN)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "month must be yyyy-MM");
-        }
+        // A month that can exist, not only one shaped like it.
+        month = com.finora.util.MonthParam.requestMonth(month);
         AiInsightService.TextView story = aiInsightService.getStory(currentUser.id(), month);
         if (!"ready".equals(story.status()) && story.canGenerate()) {
             story = aiInsightService.generateStory(currentUser.id(), month);

@@ -118,6 +118,43 @@ function SourceTable({ rows }: { rows: ActivationReport['bySource'] }) {
   );
 }
 
+/**
+ * V300: sign-ups by the first public page of the visit, with how many got data in. Counts only, for
+ * accounts made after landing pages began to be recorded. The busiest pages are named; the rest are
+ * summed, and accounts with no landing page recorded are their own line.
+ */
+function LandingPathTable({ landing }: { landing: NonNullable<ActivationReport['landingPaths']> }) {
+  const named = landing.pages.map((p) => ({ key: p.path ?? '', label: p.path ?? '', row: p }));
+  const lines = [
+    ...named,
+    ...(landing.other.signups > 0 ? [{ key: '(other)', label: 'Other pages', row: landing.other }] : []),
+    ...(landing.none.signups > 0 ? [{ key: '(none)', label: 'No landing page recorded', row: landing.none }] : []),
+  ];
+  if (lines.length === 0) {
+    return <p className="p-4 text-sm text-muted">No signups since landing pages began to be recorded.</p>;
+  }
+  return (
+    <table aria-label="Signups by landing page" className="w-full">
+      <thead>
+        <tr>
+          <th className={th}>Landing page</th>
+          <th className={th}>Signed up</th>
+          <th className={th}>Got data in</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map(({ key, label, row }) => (
+          <tr key={key}>
+            <td className={td}>{label}</td>
+            <td className={`${td} tabular-nums`}>{row.signups}</td>
+            <td className={`${td} tabular-nums`}>{row.gotDataIn}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** An ISO instant as its date in IST, the zone the report files days under. */
 function istDate(instant: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -273,6 +310,13 @@ function ActivationContent() {
               : 'When signup sources began to be recorded is not known, so signups with nothing recorded show as unknown.'}
           </p>
         )}
+        {data?.landingPaths && (
+          <p>
+            {data.landingPaths.trackingStart
+              ? `Landing pages are recorded from ${istDate(data.landingPaths.trackingStart)}; only signups made since then are counted in that table. A landing page is the first public Fynora page of the visit; the mobile apps and visits that began off the public pages have none.`
+              : 'When landing pages began to be recorded is not known, so that table is empty.'}
+          </p>
+        )}
         <p>
           A second import is a second, different statement file that brought transactions in. The account sections
           of one statement, and a re-import of the same file, count as one file.
@@ -298,6 +342,12 @@ function ActivationContent() {
           <Section title="Funnel by signup source">
             <SourceTable rows={data.bySource} />
           </Section>
+
+          {data.landingPaths && (
+            <Section title="Signups by landing page">
+              <LandingPathTable landing={data.landingPaths} />
+            </Section>
+          )}
 
           <section>
             <div className="flex flex-wrap items-end gap-3 mb-3">

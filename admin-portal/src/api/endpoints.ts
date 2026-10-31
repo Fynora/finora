@@ -790,6 +790,19 @@ export type SignupSourceKind = NonNullable<GeneratedSchemas['ActivationSourceRow
  * file to the second, and how many of them sent a file on a later day (IST) than their first.
  */
 export interface ActivationSecondImport { users: number; medianDays: number | null; cameBackLaterDay: number }
+/** One landing path (V300): accounts that started on it, and how many of those got data in. `path`
+ *  is null on the `other` and `none` rows. Aggregates only. */
+export interface ActivationLandingPathRow { path: string | null; signups: number; gotDataIn: number }
+export interface ActivationLandingPaths {
+  /** When landing paths began to be recorded (an ISO instant), or null when not known. */
+  trackingStart: string | null;
+  /** The busiest pages, most sign-ups first. */
+  pages: ActivationLandingPathRow[];
+  /** The pages beyond those listed, summed. */
+  other: ActivationLandingPathRow;
+  /** Accounts made after tracking began with no landing page recorded. */
+  none: ActivationLandingPathRow;
+}
 export interface ActivationReport {
   /** The earliest import-funnel date (YYYY-MM-DD), or null before the record has any rows. */
   funnelGoLive: string | null;
@@ -803,6 +816,9 @@ export interface ActivationReport {
   sourceTrackingStart: string | null;
   /** UTM rows first (utmSource set), then every fixed bucket, zeros included. Not range-bound. */
   bySource: { kind: SignupSourceKind; utmSource: string | null; counts: Record<FunnelStep, number>; secondImport: ActivationSecondImport }[];
+  /** V300: sign-ups by the first public page of the visit. Optional: absent from a backend deployed
+   *  before it. */
+  landingPaths?: ActivationLandingPaths;
   secondImport: ActivationSecondImport;
   /** Gate 2b: month-start nudges queued per IST month (YYYY-MM-01), and imports within 3 days of one.
    *  Optional: absent from a backend deployed before it. */

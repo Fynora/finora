@@ -328,6 +328,52 @@ class ActivationReportIT extends AbstractIntegrationTest {
         assertThat(bySourceTotal).isEqualTo(byWeekTotal);
     }
 
+    /** V300: sign-ups by the first public page of the visit, with how many of them got data in. */
+    @Test
+    void landingPathsCountSignupsAndGotDataInPerPage() throws Exception {
+        String page = "/it-" + tag("landing-").toLowerCase();
+        String quiet = "/it-" + tag("quiet-").toLowerCase();
+        User a = signupAt(WEEK_A);
+        landed(a, page);
+        imported(a);                           // GOT_DATA_IN
+        User b = signupAt(WEEK_A);
+        landed(b, page);                       // SIGNED_UP
+        landed(signupAt(WEEK_A), quiet);
+        User internal = signupAt(WEEK_A);
+        landed(internal, page);
+        jdbc.update("UPDATE users SET internal_account = true WHERE id = ?", internal.getId());
+        User none = signupAt(WEEK_A);          // no landing path: counted in "none", on no page
+        attributed(none, "it-utm-" + tag("x").toLowerCase(), null);
+
+        JsonNode landing = report(admin(), null, null).get("landingPaths");
+
+        assertThat(landing.get("trackingStart").asText()).isNotEmpty();
+        JsonNode row = landingPage(report(admin(), null, null), page);
+        assertThat(row).as("the page row").isNotNull();
+        assertThat(row.get("signups").asLong()).as("the internal account is left out").isEqualTo(2);
+        assertThat(row.get("gotDataIn").asLong()).isEqualTo(1);
+        JsonNode other = landingPage(report(admin(), null, null), quiet);
+        assertThat(other.get("signups").asLong()).isEqualTo(1);
+        assertThat(other.get("gotDataIn").asLong()).isZero();
+        assertThat(landing.get("none").get("signups").asLong()).isGreaterThanOrEqualTo(1);
+        assertThat(landing.get("none").get("path").isNull()).isTrue();
+        assertThat(landing.get("other").get("path").isNull()).isTrue();
+    }
+
+    /** V300: the landing tracking start is when V300 was applied, and the page list is aggregates only. */
+    @Test
+    void landingPathsStartIsWhenV300WasApplied_andCarryNoPersonalFields() throws Exception {
+        JsonNode landing = report(admin(), null, null).get("landingPaths");
+
+        Instant applied = jdbc.queryForObject(
+                "SELECT installed_on::timestamptz FROM flyway_schema_history WHERE version = '300'", Timestamp.class)
+                .toInstant();
+        assertThat(Instant.parse(landing.get("trackingStart").asText())).isEqualTo(applied);
+        for (JsonNode row : landing.get("pages")) {
+            assertThat(row.fieldNames()).toIterable().containsExactlyInAnyOrder("path", "signups", "gotDataIn");
+        }
+    }
+
     @Test
     void sourceTrackingStartIsWhenV286WasApplied() throws Exception {
         JsonNode report = report(admin(), null, null);
@@ -583,6 +629,17 @@ class ActivationReportIT extends AbstractIntegrationTest {
     private void referred(User user, User by) {
         jdbc.update("INSERT INTO referrals (referrer_user_id, referred_user_id, status) VALUES (?, ?, 'PENDING')",
                 by.getId(), user.getId());
+    }
+
+    private void landed(User user, String landingPath) {
+        jdbc.update("INSERT INTO signup_attributions (user_id, landing_path) VALUES (?, ?)", user.getId(), landingPath);
+    }
+
+    private static JsonNode landingPage(JsonNode report, String path) {
+        for (JsonNode row : report.get("landingPaths").get("pages")) {
+            if (path.equals(row.get("path").asText())) return row;
+        }
+        return null;
     }
 
     private void attributed(User user, String utmSource, String referrerHost) {

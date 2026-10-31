@@ -3,12 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SITE_ORIGIN, canonicalUrl } from '../src/lib/siteUrl';
+import { LANDING_PATH_META, landingPathOfDocument } from '../src/lib/signupAttribution';
 import {
+  LANDING_PATH_META as SCRIPT_LANDING_PATH_META,
   SITE_ORIGIN as SCRIPT_ORIGIN,
   templateForHomepage,
   templateForNotFound,
   templateForPage,
   withCanonical,
+  withEarlyCapture,
+  withLandingPath,
   withRobotsNoindex,
 } from './prerenderTitle.mjs';
 import { spaShellHtml } from './spaShell.mjs';
@@ -264,6 +268,93 @@ describe('the address each built document names', () => {
     }
   });
 
+  // The landing-path marker (src/lib/signupAttribution.ts reads it): a prerendered public page names
+  // its own route, so the sign-up's landing page can only ever be a real public page.
+  const landingPathMetas = (html: string) =>
+    hrefs(html, /<meta\b[^>]*name=["']fynora-landing-path["'][^>]*>/g, 'content');
+
+  it('the marker name is the one the web app reads', () => {
+    expect(SCRIPT_LANDING_PATH_META).toBe(LANDING_PATH_META);
+  });
+
+  it('homepage and every other prerendered page: exactly one landing-path marker, its own route, which the web app accepts', () => {
+    const pages = outputRoutes.filter((route) => route !== '/');
+    expect(pages.length).toBeGreaterThan(0);
+    const home = templateForHomepage(template, FONT);
+    expect(landingPathMetas(home)).toEqual(['/']);
+    for (const route of pages) {
+      const page = templateForPage(template, { title: 'T — Fynora', description: 'D.', route });
+      expect(landingPathMetas(page), route).toEqual([route]);
+    }
+    // What the client reads back from a real document built that way is the route itself, for
+    // every page the build writes -- so no route is one the client would reject.
+    for (const route of outputRoutes) {
+      const html = route === '/' ? home : templateForPage(template, { title: 'T — Fynora', description: 'D.', route });
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      expect(landingPathOfDocument(parsed, route), route).toBe(route);
+    }
+  });
+
+  // The early copy of the capture (src/signupCapture.ts): a deferred classic script at the top of
+  // every page that has a marker, ahead of the module bundle, so a click made before the bundle
+  // loads cannot lose the referrer or make the next page the landing page.
+  const EARLY = '/assets/signup-capture-abcdef0123.js';
+  const earlyScripts = (html: string) => (html.match(/<script\b[^>]*data-fynora-early-capture[^>]*>/g) ?? []);
+
+  it('every page with a landing-path marker loads the early capture, deferred and before the module bundle', () => {
+    const bundled = template.replace('</head>', '<script type="module" crossorigin src="/assets/index-x.js"></script>\n</head>');
+    const pages = [
+      templateForHomepage(bundled, FONT, EARLY),
+      ...outputRoutes.filter((r) => r !== '/').map((route) =>
+        templateForPage(bundled, { title: 'T — Fynora', description: 'D.', route, earlyCaptureSrc: EARLY })),
+    ];
+    expect(pages).toHaveLength(outputRoutes.length);
+    for (const html of pages) {
+      expect(earlyScripts(html)).toEqual([`<script defer src="${EARLY}" data-fynora-early-capture>`]);
+      // Classic and deferred, not async or a module, and earlier in the document than the bundle: deferred
+      // scripts run in document order, so it neither waits for the bundle nor runs after it.
+      expect(html.indexOf('data-fynora-early-capture')).toBeLessThan(html.indexOf('type="module"'));
+      expect(html.indexOf('data-fynora-early-capture')).toBeLessThan(html.indexOf('<title>'));
+      expect(landingPathMetas(html).length).toBe(1);
+    }
+  });
+
+  it('blank shell, not-found page and the plain template do not load it', () => {
+    expect(earlyScripts(spaShellHtml(template))).toEqual([]);
+    expect(earlyScripts(templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' }))).toEqual([]);
+    expect(earlyScripts(templateForHomepage(template, FONT))).toEqual([]);
+    expect(earlyScripts(templateForPage(template, { title: 'T', description: 'D', route: '/terms' }))).toEqual([]);
+  });
+
+  it('refuses a template that already has it, a src that is not the built script, and a template with no title', () => {
+    const tagged = template.replace('<title>', '<script defer src="/x.js" data-fynora-early-capture></script><title>');
+    expect(() => withEarlyCapture(tagged, EARLY)).toThrow(/already has the early-capture script/);
+    for (const bad of ['', '/assets/index-x.js', 'https://evil.example/assets/signup-capture-abcdef0123.js',
+      '/assets/signup-capture-xyz.js', '/assets/signup-capture-abcdef0123.js?x=1', '/signup-capture-abcdef0123.js']) {
+      expect(() => withEarlyCapture(template, bad), bad).toThrow(/not the built early-capture script/);
+    }
+    expect(() => withEarlyCapture('<html><head></head></html>', EARLY)).toThrow(/no <title>/);
+  });
+
+  it('blank shell and not-found page carry no landing-path marker: they are not landing pages', () => {
+    const shell = spaShellHtml(template);
+    const notFound = templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' });
+    expect(landingPathMetas(shell)).toEqual([]);
+    expect(landingPathMetas(notFound)).toEqual([]);
+    expect(landingPathMetas(template)).toEqual([]);
+  });
+
+  it('refuses a template that already has a marker, and a route that is not a plain page path', () => {
+    const tagged = template.replace('</head>', '<meta name="fynora-landing-path" content="/x" />\n</head>');
+    expect(() => templateForHomepage(tagged, FONT)).toThrow(/already has a landing-path meta/);
+    expect(() => templateForPage(tagged, { title: 'T', description: 'D', route: '/terms' }))
+      .toThrow(/already has a landing-path meta/);
+    expect(() => withLandingPath('<html></html>', '/terms')).toThrow(/no <\/head>/);
+    for (const bad of ['', 'terms', '/Terms', '/terms?x=1', '/terms#a', '//terms', '/a b', '/..', '/a/../b']) {
+      expect(() => withLandingPath(template, bad), bad).toThrow(/not a plain lower-case page path/);
+    }
+  });
+
   it('blank shell (dist/spa-shell.html) and not-found page (dist/404.html): neither tag, and noindex', () => {
     const shell = spaShellHtml(template);
     const notFound = templateForNotFound(template, { title: 'Page not found — Fynora', description: 'Missing.' });
@@ -290,11 +381,11 @@ describe('the address each built document names', () => {
     // `template` is read once, before any page is rendered into it. A document built from an
     // already-tagged copy instead (the loop's `pageTemplate`) would carry another page's address.
     expect(prerenderSource).toContain('fs.writeFileSync(path.join(distDir, SPA_SHELL_FILE), spaShellHtml(template));');
-    expect(prerenderSource).toContain('pageTemplate = templateForHomepage(template, heroFontHref);');
-    expect(prerenderSource).toContain('pageTemplate = templateForPage(template, { title, description, route });');
+    expect(prerenderSource).toContain('pageTemplate = templateForHomepage(template, heroFontHref, earlyCaptureSrc);');
+    expect(prerenderSource).toContain('pageTemplate = templateForPage(template, { title, description, route, earlyCaptureSrc });');
     expect(prerenderSource).toContain('const pageTemplate = templateForNotFound(template, { title, description });');
     // No address tag is added anywhere else in the script.
-    expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta)\(/);
+    expect(prerenderSource).not.toMatch(/\bwith(Canonical|OgUrl|PageMeta|LandingPath)\(/);
   });
 });
 

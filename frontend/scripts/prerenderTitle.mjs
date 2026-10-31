@@ -130,6 +130,59 @@ export function withOgUrl(templateHtml, route) {
   return templateHtml.replace('</head>', () => `<meta property="og:url" content="${SITE_ORIGIN + route}" />\n</head>`);
 }
 
+/** The <meta name> withLandingPath writes and src/lib/signupAttribution.ts reads. A copy of
+ *  LANDING_PATH_META there (a build script cannot import TypeScript from src); seoFiles.test.tsx
+ *  fails if the two differ. */
+export const LANDING_PATH_META = 'fynora-landing-path';
+
+/**
+ * Adds <meta name="fynora-landing-path" content="<route>"> before </head>: the page's own route,
+ * which the web app reads on arrival to record which public page a sign-up began on
+ * (src/lib/signupAttribution.ts). Written from the route this script is rendering, never from
+ * anything a visitor controls, so the value can only be a real public page's address.
+ *
+ * Only the prerendered public pages get it, the homepage included. The blank SPA shell (/auth,
+ * /app/...), the not-found page and the template itself must not: they are not landing pages, and a
+ * mistyped address that is answered with the 404 page must never be recorded as one. Throws if the
+ * template already has one, like withCanonical, since every document is built from one template.
+ */
+export function withLandingPath(templateHtml, route) {
+  if (new RegExp(`<meta name=["']${LANDING_PATH_META}["']`).test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has a landing-path meta; it must not.');
+  }
+  if (!templateHtml.includes('</head>')) throw new Error('prerender: the index.html template has no </head>.');
+  if (!/^\/([a-z0-9_~-][a-z0-9._~-]*(\/[a-z0-9_~-][a-z0-9._~-]*)*)?$/.test(route)) {
+    throw new Error(`prerender: ${JSON.stringify(route)} is not a plain lower-case page path, so it cannot be a landing path.`);
+  }
+  return templateHtml.replace('</head>', () => `<meta name="${LANDING_PATH_META}" content="${route}" />\n</head>`);
+}
+
+/**
+ * Adds <script defer src="<src>"> as the first thing in the page, before the module bundle: the early
+ * copy of the sign-up capture (src/signupCapture.ts). The main bundle is large and deferred, so a
+ * prerendered page can be on screen, links and all, long before main.tsx runs; this ~1 KB classic
+ * script is fetched at the top of the head and, being deferred and earlier in the document, runs
+ * before the bundle does and without waiting for it. Without it a visitor who clicks a link in that
+ * window starts a second page load whose capture would take that page as the landing page and have no
+ * referrer. It is NOT inline: the site's CSP has no 'unsafe-inline' for scripts.
+ *
+ * Only the documents that carry a landing-path marker get it (the homepage and the other prerendered
+ * pages): the blank shell and the 404 page have no content to click in that window and no marker to
+ * read. Throws if the template already has one, like withCanonical.
+ */
+export function withEarlyCapture(templateHtml, src) {
+  if (/data-fynora-early-capture/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has the early-capture script; it must not.');
+  }
+  if (!/^\/assets\/signup-capture-[0-9a-f]{8,}\.js$/.test(src)) {
+    throw new Error(`prerender: ${JSON.stringify(src)} is not the built early-capture script.`);
+  }
+  if (!templateHtml.includes('<title>')) throw new Error('prerender: the index.html template has no <title> to put the early-capture script before.');
+  // Before <title>: ahead of everything that can delay it, and ahead of the module bundle Vite adds
+  // later in the head (deferred scripts, module scripts included, run in document order).
+  return templateHtml.replace('<title>', () => `<script defer src="${src}" data-fynora-early-capture></script>\n  <title>`);
+}
+
 /**
  * Adds the page's JSON-LD <script> tags (src/lib/structuredData.ts, via ssr-entry) before </head>.
  * Throws if the template already carries some: the prerender runs once per route from one shared
@@ -238,13 +291,17 @@ export function collectionPageFile(route) {
  * withCanonical and withOgUrl refuse a template that has the tag, and the local servers (`vite dev`,
  * `wrangler dev`) still answer every unknown path with index.html.
  */
-export function templateForHomepage(templateHtml, heroFontHref) {
-  return withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/');
+export function templateForHomepage(templateHtml, heroFontHref, earlyCaptureSrc) {
+  const page = withLandingPath(withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/'), '/');
+  return earlyCaptureSrc ? withEarlyCapture(page, earlyCaptureSrc) : page;
 }
 
-/** Every other prerendered page: its own title, description, social tags, canonical and og:url. */
-export function templateForPage(templateHtml, { title, description, route }) {
-  return withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route });
+/** Every other prerendered page: its own title, description, social tags, canonical and og:url, and
+ *  its landing-path marker. */
+export function templateForPage(templateHtml, { title, description, route, earlyCaptureSrc }) {
+  const page = withLandingPath(
+    withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route }), route);
+  return earlyCaptureSrc ? withEarlyCapture(page, earlyCaptureSrc) : page;
 }
 
 /**

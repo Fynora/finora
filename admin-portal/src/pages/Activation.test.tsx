@@ -49,6 +49,16 @@ function report(over: Partial<ActivationReport> = {}): ActivationReport {
       { kind: 'DIRECT', utmSource: null, counts: zero({}), secondImport: { users: 0, medianDays: null, cameBackLaterDay: 0 } },
       { kind: 'UNKNOWN_BEFORE_TRACKING', utmSource: null, counts: zero({ GOT_DATA_IN: 1 }), secondImport: { users: 1, medianDays: 1, cameBackLaterDay: 1 } },
     ],
+    landingPaths: {
+      // 23 Oct 2026 20:00 UTC is already 24 Oct in IST.
+      trackingStart: '2026-10-23T20:00:00Z',
+      pages: [
+        { path: '/banks/example-bank', signups: 4, gotDataIn: 3 },
+        { path: '/help', signups: 2, gotDataIn: 0 },
+      ],
+      other: { path: null, signups: 1, gotDataIn: 1 },
+      none: { path: null, signups: 5, gotDataIn: 2 },
+    },
     secondImport: { users: 3, medianDays: 2, cameBackLaterDay: 2 },
     monthStartNudges: [{ month: '2026-11-01', nudgesSent: 5, importedWithin3Days: 2 }],
     ...over,
@@ -186,6 +196,63 @@ describe('Activation', () => {
     expect(rows[1].slice(-3)).toEqual(['0', '—', '0']);
     expect(rows[4].slice(-3)).toEqual(['1', '1.0 day', '1']);
     expect(within(table).queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('shows signups by landing page: the named pages, the rest summed, and those with none recorded', async () => {
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Signups by landing page' });
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent))
+      .toEqual(['Landing page', 'Signed up', 'Got data in']);
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
+    expect(rows).toEqual([
+      ['/banks/example-bank', '4', '3'],
+      ['/help', '2', '0'],
+      ['Other pages', '1', '1'],
+      ['No landing page recorded', '5', '2'],
+    ]);
+  });
+
+  it('leaves out the other and none lines when nobody is on them, and says when there are no signups', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      landingPaths: {
+        trackingStart: '2026-10-23T20:00:00Z', pages: [{ path: '/help', signups: 1, gotDataIn: 0 }],
+        other: { path: null, signups: 0, gotDataIn: 0 }, none: { path: null, signups: 0, gotDataIn: 0 },
+      },
+    }));
+    const { unmount } = renderPage();
+    const table = await screen.findByRole('table', { name: 'Signups by landing page' });
+    expect(within(table).getAllByRole('row')).toHaveLength(2);
+    unmount();
+
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      landingPaths: {
+        trackingStart: '2026-10-23T20:00:00Z', pages: [],
+        other: { path: null, signups: 0, gotDataIn: 0 }, none: { path: null, signups: 0, gotDataIn: 0 },
+      },
+    }));
+    renderPage();
+    expect(await screen.findByText('No signups since landing pages began to be recorded.')).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Signups by landing page' })).not.toBeInTheDocument();
+  });
+
+  it('dates the start of landing-page tracking in IST, says when it is not known, and hides the table from an older backend', async () => {
+    const { unmount } = renderPage();
+    expect(await screen.findByText(/Landing pages are recorded from 24 Oct 2026; only signups made since then are counted/)).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({
+      landingPaths: { trackingStart: null, pages: [], other: { path: null, signups: 0, gotDataIn: 0 }, none: { path: null, signups: 0, gotDataIn: 0 } },
+    }));
+    const second = renderPage();
+    expect(await screen.findByText('When landing pages began to be recorded is not known, so that table is empty.')).toBeInTheDocument();
+    second.unmount();
+
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ landingPaths: undefined }));
+    renderPage();
+    await screen.findByRole('table', { name: 'Funnel by signup source' });
+    expect(screen.queryByRole('table', { name: 'Signups by landing page' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Landing pages are recorded from/)).not.toBeInTheDocument();
   });
 
   it('shows the second import beside the totals', async () => {

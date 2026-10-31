@@ -9,8 +9,11 @@ import {
   priceAmount,
   softwareApplication,
   structuredDataFor,
+  webPage,
   website,
 } from './structuredData';
+import { GRIEVANCE_EMAIL, LEGAL_NAME, REGISTERED_OFFICE } from './contact';
+import { PLAY_STORE_URL } from './openInApp';
 import { PLANS, PRICING_CARDS } from '../pages/landing/plans';
 import { faq, footer, hero } from '../pages/landing/landing-config';
 import { HELP_ARTICLES, helpArticlePath } from '../pages/helpArticles';
@@ -62,7 +65,7 @@ describe('the homepage blocks', () => {
       url: 'https://app.fynora.net/',
       logo: 'https://app.fynora.net/favicon.png',
       email: SUPPORT_EMAIL,
-      sameAs: [footer.instagram],
+      sameAs: [footer.instagram, PLAY_STORE_URL],
     });
     expect(website()).toMatchObject({ '@type': 'WebSite', url: 'https://app.fynora.net/' });
     expect(website().publisher).toEqual({ '@id': organization()['@id'] });
@@ -90,6 +93,59 @@ describe('the homepage blocks', () => {
     expect(entity[0].name).toBe(faq.items[0][0]);
     expect(entity[0].acceptedAnswer.text).toBe(faq.items[0][1]);
     expect(() => faqPage([])).toThrow(/no questions/);
+  });
+});
+
+describe('the Organization', () => {
+  it('has the legal name and registered office the Contact, Terms and Privacy pages print', () => {
+    expect(organization().legalName).toBe(LEGAL_NAME);
+    expect(organization().address).toEqual({
+      '@type': 'PostalAddress',
+      streetAddress: REGISTERED_OFFICE.streetAddress,
+      addressLocality: 'Jhansi',
+      addressRegion: 'Uttar Pradesh',
+      postalCode: '284003',
+      addressCountry: 'IN',
+    });
+  });
+
+  it('gives the support and grievance mailboxes as contact points, both reached from /contact', () => {
+    expect(organization().contactPoint).toEqual([
+      { '@type': 'ContactPoint', contactType: 'customer support', email: SUPPORT_EMAIL, url: 'https://app.fynora.net/contact' },
+      { '@type': 'ContactPoint', contactType: 'data protection grievances', email: GRIEVANCE_EMAIL, url: 'https://app.fynora.net/contact' },
+    ]);
+  });
+
+  it('links only official profiles the site itself links: the footer Instagram and the Play listing', () => {
+    expect(organization().sameAs).toEqual([footer.instagram, PLAY_STORE_URL]);
+    expect(PLAY_STORE_URL).toBe('https://play.google.com/store/apps/details?id=com.fynora.android');
+  });
+
+  it('states no founder, founding date or registration number, which no page states either', () => {
+    for (const key of ['founder', 'founders', 'foundingDate', 'taxID', 'vatID', 'leiCode', 'identifier']) {
+      expect(organization(), key).not.toHaveProperty(key);
+    }
+  });
+});
+
+describe('webPage', () => {
+  it('carries the page\'s month-precision dateModified, on its canonical URL, inside the site', () => {
+    expect(webPage('/privacy', 'Privacy Policy', '2026-10')).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      '@id': 'https://app.fynora.net/privacy#webpage',
+      url: 'https://app.fynora.net/privacy',
+      name: 'Privacy Policy',
+      dateModified: '2026-10',
+      isPartOf: { '@id': website()['@id'] },
+      publisher: { '@id': organization()['@id'] },
+    });
+  });
+
+  it('refuses a date that is not YYYY-MM, rather than publish a wrong or invented one', () => {
+    for (const bad of ['2026-13', '2026-00', '2026-10-01', 'October 2026', '26-10', '']) {
+      expect(() => webPage('/privacy', 'Privacy Policy', bad), bad).toThrow(/not YYYY-MM/);
+    }
   });
 });
 
@@ -148,6 +204,19 @@ describe('structuredDataFor', () => {
 
   it('gives every other page a breadcrumb trail and nothing else', () => {
     expect(structuredDataFor('/privacy', 'Privacy Policy').map((b) => b['@type'])).toEqual(['BreadcrumbList']);
+  });
+
+  it('adds a WebPage with the date when the page has a "Last updated" line', () => {
+    const blocks = structuredDataFor('/privacy', 'Privacy Policy', '2026-10');
+    expect(blocks.map((b) => b['@type'])).toEqual(['BreadcrumbList', 'WebPage']);
+    expect(blocks[1].dateModified).toBe('2026-10');
+  });
+
+  it('gives /about the full Organization, the same entity as the homepage\'s', () => {
+    const blocks = structuredDataFor('/about', 'About Fynora');
+    expect(blocks.map((b) => b['@type'])).toEqual(['BreadcrumbList', 'Organization']);
+    expect(blocks[1]).toEqual(organization());
+    expect(blocks[1]['@id']).toBe(structuredDataFor('/', null)[0]['@id']);
   });
 
   it('refuses to build a breadcrumb without the page heading', () => {

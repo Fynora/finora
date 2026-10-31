@@ -93,6 +93,24 @@ export function pageDescriptionFromMarkup(appHtml) {
   return stripped === '' ? null : stripped;
 }
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
+  'October', 'November', 'December'];
+
+/**
+ * The "Last updated: <Month> <year>." date a page's subtitle opens with, as ISO 8601 year and month
+ * ("2026-10"), or null when the page has none. It becomes that page's dateModified in structured
+ * data. Throws on a month name it does not know rather than publishing a wrong date.
+ */
+export function lastUpdatedFromMarkup(appHtml) {
+  const subtitle = /<p[^>]*data-seo="description"[^>]*>([^<]*)<\/p>/.exec(appHtml);
+  if (!subtitle) return null;
+  const match = /^Last updated: ([A-Za-z]+) (\d{4})\./.exec(subtitle[1]);
+  if (!match) return null;
+  const month = MONTHS.indexOf(match[1]);
+  if (month === -1) throw new Error(`prerender: "Last updated: ${match[1]} ${match[2]}" has no month this script knows`);
+  return `${match[2]}-${String(month + 1).padStart(2, '0')}`;
+}
+
 function setMetaContent(html, attr, key, content) {
   const tag = new RegExp(`(<meta ${attr}="${key}" content=")[^"]*(")`);
   if (!tag.test(html)) {

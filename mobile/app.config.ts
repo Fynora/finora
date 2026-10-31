@@ -327,6 +327,31 @@ const config: ExpoConfig = {
       'expo-local-authentication',
       { faceIDPermission: 'Allow Fynora to use Face ID to unlock the app.' },
     ],
+    // Festival app icon (src/lib/festivalIcon.ts). Every icon the admin schedule can name must be
+    // listed here: a phone can only switch to an icon bundled in the installed build. The server's
+    // list is the AppIcon enum in the backend; a key added there needs this list and a new store
+    // build too. Android adds one launcher entry per icon; iOS adds an alternate icon set.
+    //
+    // The Android foreground is the artwork shrunk so all of it sits inside the circle every
+    // launcher keeps; backgroundColor is the artwork's own background, so the two meet with no
+    // seam. Themed (monochrome) icons reuse the standard F.
+    // Keeps app.fynora.net links on MainActivity only; see the plugin file. Listed BEFORE the
+    // icon plugin on purpose: manifest mods run in reverse list order, so this runs after it.
+    './plugins/withFestivalIconLinkFilters',
+    [
+      'expo-alternate-app-icons',
+      [
+        {
+          name: 'Diwali',
+          ios: './assets/festival-icons/diwali-ios.png',
+          android: {
+            foregroundImage: './assets/festival-icons/diwali-android-foreground.png',
+            backgroundColor: '#232832',
+            monochromeImage: './assets/android-icon-monochrome.png',
+          },
+        },
+      ],
+    ],
     [
       'expo-share-intent',
       {

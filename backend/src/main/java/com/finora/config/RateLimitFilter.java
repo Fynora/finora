@@ -108,6 +108,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     // Gate 2b spec §7: POST /api/v1/send, public. Each call writes an object to storage and a queue
     // row for the code's owner, like /import/jobs, but with no account behind the caller to bound it.
     private final RateLimiter sendStatementLimiter;
+    // The free statement converter's flood guard, per address: POST /api/v1/convert is public and
+    // each call costs a Turnstile check and up to a 7 MB body read. The converter's own limits
+    // (ConverterLimits) do the real counting once Turnstile has passed.
+    private final RateLimiter convertRequestLimiter;
     // Shared across all three password-change steps rather than one limiter each -- a caller
     // working through the flow normally touches all three anyway, so bucketing them together is
     // both simpler and doesn't require guessing a separate reasonable ceiling for each individual
@@ -366,6 +370,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     /** Gate 2b spec §7: the public send-a-statement upload, per address. Five WRONG codes per address
      *  per hour are counted separately, in StatementSendService. */
     static final int DEFAULT_SEND_STATEMENT_MAX = 20, DEFAULT_SEND_STATEMENT_WINDOW = 600;
+    static final int DEFAULT_CONVERT_REQUEST_MAX = 20, DEFAULT_CONVERT_REQUEST_WINDOW = 600;
 
     /**
      * The shipped configuration, for tests.
@@ -402,7 +407,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 DEFAULT_FYN_SCREENSHOT_MAX, DEFAULT_FYN_SCREENSHOT_WINDOW,
                 DEFAULT_STATEMENT_REFRESH_MAX, DEFAULT_STATEMENT_REFRESH_WINDOW,
                 DEFAULT_AUTH_GLOBAL_MAX, DEFAULT_AUTH_GLOBAL_WINDOW,
-                DEFAULT_SEND_STATEMENT_MAX, DEFAULT_SEND_STATEMENT_WINDOW);
+                DEFAULT_SEND_STATEMENT_MAX, DEFAULT_SEND_STATEMENT_WINDOW,
+                DEFAULT_CONVERT_REQUEST_MAX, DEFAULT_CONVERT_REQUEST_WINDOW);
     }
 
     /**
@@ -471,7 +477,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             @Value("${app.rate-limit.auth-global.max:600}") int authGlobalMax,
             @Value("${app.rate-limit.auth-global.window-seconds:60}") int authGlobalWindow,
             @Value("${app.rate-limit.send-statement.max:20}") int sendStatementMax,
-            @Value("${app.rate-limit.send-statement.window-seconds:600}") int sendStatementWindow) {
+            @Value("${app.rate-limit.send-statement.window-seconds:600}") int sendStatementWindow,
+            @Value("${app.rate-limit.convert-request.max:20}") int convertRequestMax,
+            @Value("${app.rate-limit.convert-request.window-seconds:600}") int convertRequestWindow) {
         this.objectMapper = objectMapper;
         this.clientIpResolver = clientIpResolver;
         this.corsConfigurationSource = corsConfigurationSource;
@@ -500,6 +508,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         this.statementRefreshLimiter = new RateLimiter(statementRefreshMax, statementRefreshWindow, "statement-refresh", redisTemplate);
         this.authGlobalLimiter = new RateLimiter(authGlobalMax, authGlobalWindow, "auth-global", redisTemplate);
         this.sendStatementLimiter = new RateLimiter(sendStatementMax, sendStatementWindow, "send-statement", redisTemplate);
+        this.convertRequestLimiter = new RateLimiter(convertRequestMax, convertRequestWindow, "convert-request", redisTemplate);
         this.authGlobalEndpoints = List.of(
                 PARSER.parse("/api/v1/auth/login"),
                 PARSER.parse("/api/v1/auth/register"),
@@ -552,6 +561,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 // question and was simply not being asked.
                 new LimitedEndpoint(PARSER.parse("/api/v1/import/jobs"), importStageLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/send"), sendStatementLimiter),
+                // The free converter. Its real limits (3 an hour, 10 a day, 300 a day for everyone)
+                // are counted after Turnstile, in ConverterLimits. This one only stops a flood of
+                // token-less requests from costing a Cloudflare siteverify call and a 7 MB body
+                // read each.
+                new LimitedEndpoint(PARSER.parse("/api/v1/convert"), convertRequestLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/start"), passwordChangeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/verify-otp"), passwordChangeLimiter),
                 new LimitedEndpoint(PARSER.parse("/api/v1/users/me/password-change/complete"), passwordChangeLimiter),

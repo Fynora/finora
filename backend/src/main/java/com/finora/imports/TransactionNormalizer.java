@@ -32,6 +32,8 @@ public class TransactionNormalizer {
     private final DuplicateDetector duplicateDetector;
     private final RuleEngineService ruleEngineService;
     private final MerchantNormalizationEngine merchantNormalizationEngine;
+    /** Set only by {@link #withoutAccount()}: then the three services above are null by design. */
+    private final boolean withoutAccount;
 
     // Single source of truth for every column name this class recognizes -- shared by normalize(),
     // explainFailure(), and recognizedColumnNames() so the three can never drift out of sync (they
@@ -243,10 +245,34 @@ public class TransactionNormalizer {
     public TransactionNormalizer(CategorizationService categorizationService, DuplicateDetector duplicateDetector,
                                   RuleEngineService ruleEngineService,
                                   MerchantNormalizationEngine merchantNormalizationEngine) {
+        this(categorizationService, duplicateDetector, ruleEngineService, merchantNormalizationEngine, false);
+    }
+
+    private TransactionNormalizer(CategorizationService categorizationService, DuplicateDetector duplicateDetector,
+                                  RuleEngineService ruleEngineService,
+                                  MerchantNormalizationEngine merchantNormalizationEngine, boolean withoutAccount) {
         this.categorizationService = categorizationService;
         this.duplicateDetector = duplicateDetector;
         this.ruleEngineService = ruleEngineService;
         this.merchantNormalizationEngine = merchantNormalizationEngine;
+        this.withoutAccount = withoutAccount;
+    }
+
+    /**
+     * A normalizer for a statement read with no account behind it: the free statement converter.
+     * It reads dates, amounts, directions, balances and references exactly as the regular one does,
+     * and looks nothing up: no category is suggested (every row's category is null, source
+     * {@code "none"}) and no row is checked for duplicates, because there is no ledger to check
+     * against and nothing of anyone's may be read for a stranger's file. Only
+     * {@code PdfPreviewGenerator}'s no-account path (a null user) uses it.
+     */
+    public static TransactionNormalizer withoutAccount() {
+        return new TransactionNormalizer(null, null, null, null, true);
+    }
+
+    /** Whether this is {@link #withoutAccount()}'s normalizer. */
+    public boolean isWithoutAccount() {
+        return withoutAccount;
     }
 
     /**
@@ -837,6 +863,10 @@ public class TransactionNormalizer {
         if (fileCategory != null) {
             suggestedCategory = fileCategory;
             source = "file";
+        } else if (withoutAccount) {
+            // The free converter: no categories exist to suggest from, and none are shown.
+            suggestedCategory = null;
+            source = "none";
         } else {
             // amount is passed as rule-evaluation context (e.g. an AMOUNT-field category_rules
             // row) — accountType isn't known yet at staging time (the account is chosen/created
@@ -885,7 +915,8 @@ public class TransactionNormalizer {
         BigDecimal balanceAfter = withBalanceDirection(row, CsvParser.parseNumeric(balanceRaw));
         // Runs after the balance parse so the index path can match on direction and running
         // balance when the narration differs (F-31); the repository path stays description-only.
-        var duplicateMatch = (duplicateIndex != null
+        // No account, no ledger: nothing to be a duplicate of, and no query is made.
+        var duplicateMatch = withoutAccount ? null : (duplicateIndex != null
                 ? duplicateDetector.findMatch(duplicateIndex, date, amount, description,
                         com.finora.entity.Transaction.Type.valueOf(type), balanceAfter)
                 : duplicateDetector.findMatch(userId, date, amount, description)).orElse(null);
@@ -973,7 +1004,7 @@ public class TransactionNormalizer {
         // normalizer dereferences unconditionally further up (the suggestion above) and in
         // resolutionIndexFor/categoryNamesFor, so a null one would already have failed before this
         // point. The guard contradicted that (CodeQL java/dereferenced-value-may-be-null).
-        if (rules != null) {
+        if (rules != null && !withoutAccount) {
             var investment = categorizationService.investmentRuleFor(rules,
                     CategorizationService.decisionSourceFor(source), description, amount, merchant);
             if (investment.isPresent()) {

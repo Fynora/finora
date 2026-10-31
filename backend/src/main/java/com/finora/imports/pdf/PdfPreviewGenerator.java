@@ -620,19 +620,29 @@ public class PdfPreviewGenerator {
         // Hoisted for the same reason as PreviewGenerator's CSV loop -- see its comment. A
         // multi-account PDF calls this once per section, so the rule set is loaded once per
         // section rather than once per row.
-        List<CategoryRule> rules = ruleEngineService.ruleSet(userId);
+        //
+        // No account (userId null) is the free statement converter: a statement read for someone
+        // with no account, where nothing of anyone's may be looked up -- no rules, no categories, no
+        // existing transactions to flag duplicates against. Only a normalizer built for that
+        // (TransactionNormalizer.withoutAccount) may be asked to; the regular one would fall back to
+        // a per-row duplicate query keyed on a null user.
+        boolean noAccount = userId == null;
+        if (noAccount && !transactionNormalizer.isWithoutAccount()) {
+            throw new IllegalStateException("A statement with no account needs TransactionNormalizer.withoutAccount()");
+        }
+        List<CategoryRule> rules = noAccount ? List.of() : ruleEngineService.ruleSet(userId);
         // Built once per statement for the same reason the rule set is: a user's existing
         // transactions cannot change partway through parsing one file.
-        DuplicateIndex duplicateIndex = transactionNormalizer.duplicateIndexFor(userId);
+        DuplicateIndex duplicateIndex = noAccount ? null : transactionNormalizer.duplicateIndexFor(userId);
         // Same reasoning again, for merchant resolution (Transaction Intelligence Phase A) -- see
         // PreviewGenerator's identical hoist and MerchantIndex's own doc comment.
-        MerchantIndex merchantIndex = transactionNormalizer.merchantIndexFor(userId);
+        MerchantIndex merchantIndex = noAccount ? null : transactionNormalizer.merchantIndexFor(userId);
         // Same reasoning again, for the Tier-2 AI-fallback cache check -- see ResolutionIndex's
         // own doc comment.
-        ResolutionIndex resolutionIndex = transactionNormalizer.resolutionIndexFor(userId);
+        ResolutionIndex resolutionIndex = noAccount ? ResolutionIndex.empty() : transactionNormalizer.resolutionIndexFor(userId);
         // A category a statement prints is the bank's own label, so it is only kept when it names
         // one of the user's categories -- see the normalize overload that takes this.
-        Map<String, String> existingCategoryNames = transactionNormalizer.categoryNamesFor(userId);
+        Map<String, String> existingCategoryNames = noAccount ? Map.of() : transactionNormalizer.categoryNamesFor(userId);
         // A single AMOUNT column that carries its own sign has its credits marked here -- see
         // SignedAmountColumn for the running-balance evidence that decides it. Only accounts whose
         // balance is money HELD (savings, current, wallet): a card's running OUTSTANDING balance also

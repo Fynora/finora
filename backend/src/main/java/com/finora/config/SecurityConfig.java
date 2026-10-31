@@ -182,6 +182,12 @@ public class SecurityConfig {
                     // replaces authentication, and grants only adding one file to its owner's review
                     // queue. POST on this one path only.
                     .requestMatchers(HttpMethod.POST, "/api/v1/send").permitAll()
+                    // The free statement converter (StatementConversionService): a visitor with no
+                    // account converts one statement. Turnstile and per-address limits stand in for
+                    // authentication; it reads nothing of any account and keeps nothing. Off unless
+                    // app.converter.enabled is true.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/convert").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/v1/convert/availability").permitAll()
                     // Actuator lives on its own port (management.server.port), which Railway never
                     // routes a domain to -- so these two rules only ever grant anything to a caller
                     // already inside the private network. On the public port the endpoints are not

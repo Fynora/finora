@@ -123,6 +123,27 @@ public class UploadScanGate {
         if (file == null || file.isEmpty()) {
             return;
         }
+        check(file, file.getSize(), StatementUpload.safeFileName(file, "upload"), userId, context);
+    }
+
+    /**
+     * The same scan for a file with no account and no name behind it: the free statement converter
+     * ({@code statement-convert}), whose visitor is anonymous and whose file is never kept. A
+     * rejection writes its audit row with no user and no file name -- the signature, the size and
+     * the context are enough to see an attack, and a file name can carry a person's name.
+     *
+     * @param content the upload's bytes; null or empty passes, as for {@link #requireClean}
+     */
+    public void requireCleanAnonymous(byte[] content, String context) {
+        if (content == null || content.length == 0) {
+            return;
+        }
+        check(new org.springframework.core.io.ByteArrayResource(content), content.length, null, null, context);
+    }
+
+    /** @param fileName null when no name may be kept (the anonymous path) */
+    private void check(org.springframework.core.io.InputStreamSource file, long size, String fileName,
+                       UUID userId, String context) {
         MalwareScanner active = scanner.getIfAvailable();
         if (active == null) {
             return;
@@ -161,29 +182,30 @@ public class UploadScanGate {
             log.info("Malware scanner {} answered on attempt {} after {} ms", active.describe(), attempt, waitedMs);
         }
 
-        String fileName = StatementUpload.safeFileName(file, "upload");
         // For the log lines only; the audit row below keeps the raw values. safeFileName already
         // strips control characters, but a log argument is not something to leave to a different
         // method's promise, and the detail is the scanner's reply text (or an I/O error message),
         // which nothing here has bounded. The same helper the webhook controllers and the import
         // path already use.
-        String loggedName = LogSanitizer.sanitize(fileName);
+        String loggedName = fileName == null ? "(name not kept)" : LogSanitizer.sanitize(fileName);
         String loggedDetail = LogSanitizer.sanitize(result.detail());
         switch (result.status()) {
             case CLEAN -> log.debug("Upload {} ({} bytes, {}) scanned clean by {}",
-                    loggedName, file.getSize(), context, active.describe());
+                    loggedName, size, context, active.describe());
             case INFECTED -> {
                 log.warn("Upload {} ({} bytes, {}) rejected by {}: {}",
-                        loggedName, file.getSize(), context, active.describe(), loggedDetail);
+                        loggedName, size, context, active.describe(), loggedDetail);
                 // "actorId" alongside the subject, as every admin-reachable audit write does (FG-025):
                 // here they are the same person, since nobody uploads a file on someone else's
-                // behalf -- an admin's analysis upload is the admin's own act.
-                auditService.record(userId, AUDIT_ACTION_REJECTED, "Upload", userId, Map.of(
-                        "fileName", fileName,
-                        "sizeBytes", file.getSize(),
-                        "context", context,
-                        "signature", result.detail(),
-                        "actorId", String.valueOf(userId)));
+                // behalf -- an admin's analysis upload is the admin's own act. The anonymous path
+                // has neither a user nor a name to record.
+                Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+                if (fileName != null) metadata.put("fileName", fileName);
+                metadata.put("sizeBytes", size);
+                metadata.put("context", context);
+                metadata.put("signature", result.detail());
+                if (userId != null) metadata.put("actorId", String.valueOf(userId));
+                auditService.record(userId, AUDIT_ACTION_REJECTED, "Upload", userId, metadata);
                 throw new ApiException(ErrorCode.UPLOAD_MALWARE_DETECTED);
             }
             case UNAVAILABLE -> {

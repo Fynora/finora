@@ -724,6 +724,23 @@ app:
     code-request-per-account:
       max: ${RATE_LIMIT_CODE_REQUEST_PER_ACCOUNT_MAX:5}
       window-seconds: ${RATE_LIMIT_CODE_REQUEST_PER_ACCOUNT_WINDOW_SECONDS:600}
+  # The free statement converter (StatementConversionService; design 2026-10-31, approved by Sid):
+  # a visitor with no account converts one statement PDF to a spreadsheet, and nothing is kept.
+  # OFF by default: Sid switches it on with CONVERTER_ENABLED=true once TURNSTILE_SECRET is set (with
+  # no secret every conversion is refused). The limits are Sid's, from the design.
+  converter:
+    enabled: ${CONVERTER_ENABLED:false}
+    turnstile-secret: ${TURNSTILE_SECRET:}
+    max-bytes: ${CONVERTER_MAX_BYTES:5242880}
+    max-pages: ${CONVERTER_MAX_PAGES:20}
+    # Its own pool, never the import pool: 2, because one 20-page conversion's working set was
+    # measured at up to 268 MB (PR 0) inside a 1,536 MB heap the app also needs.
+    max-concurrent: ${CONVERTER_MAX_CONCURRENT:2}
+    deadline-seconds: ${CONVERTER_DEADLINE_SECONDS:60}
+    limit:
+      per-ip-hour: ${CONVERTER_LIMIT_PER_IP_HOUR:3}
+      per-ip-day: ${CONVERTER_LIMIT_PER_IP_DAY:10}
+      global-day: ${CONVERTER_LIMIT_GLOBAL_DAY:300}
   import:
     # See ImportConcurrencyLimiter's own doc comment for the full reasoning. 6 is deliberately
     # conservative relative to DB_POOL_MAX_SIZE (10, see the datasource config above) -- leaves

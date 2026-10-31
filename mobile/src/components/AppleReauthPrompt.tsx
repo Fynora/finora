@@ -3,9 +3,9 @@ import { AppleSignInButton } from './AppleSignInButton';
 import { spacing, useTheme } from '../theme';
 
 /**
- * Phase 4 (Medium-Tier Parity). Mobile-only counterpart to GoogleReauthPrompt -- web has no Apple
- * Sign-In at all (see AppleSignInButton's own doc comment on why Apple requires it only on iOS,
- * with no web/Android equivalent rule), so there is nothing to port here; this is new.
+ * Phase 4 (Medium-Tier Parity). The Apple counterpart to GoogleReauthPrompt. The web has its own
+ * (frontend/src/components/AppleReauthPrompt.tsx), built on the web Sign in with Apple popup;
+ * this one uses the native iOS sheet, so the two share a role, not code.
  *
  * Same reasoning as GoogleReauthPrompt: an APPLE-method account's password is a random value
  * nobody ever knows, so a password field can never be filled in correctly here -- Apple's own

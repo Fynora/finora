@@ -34944,6 +34944,56 @@
                     }
                 }
             },
+            "ActivationReached": {
+                "type": "object",
+                "properties": {
+                    "signups": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ActivationReachedRow"
+                        }
+                    },
+                    "stoppedAt": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                }
+            },
+            "ActivationReachedRow": {
+                "type": "object",
+                "properties": {
+                    "step": {
+                        "type": "string",
+                        "enum": [
+                            "SIGNED_UP",
+                            "OPENED_IMPORT",
+                            "CHOSE_FILE",
+                            "FILE_READ",
+                            "REVIEW_OPENED",
+                            "GOT_DATA_IN"
+                        ]
+                    },
+                    "reached": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "lost": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "lostBeforeFunnelRecord": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ActivationReportDto": {
                 "type": "object",
                 "properties": {
@@ -35008,6 +35058,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationNudgeMonth"
                         }
+                    },
+                    "reached": {
+                        "$ref": "#/components/schemas/ActivationReached"
                     }
                 }
             },
@@ -35149,6 +35202,17 @@
                             "type": "integer",
                             "format": "int64"
                         }
+                    },
+                    "reached": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    "cameBackLaterDay": {
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             },

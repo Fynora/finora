@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Info } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
-import { adminActivationApi, type ActivationMomentName, type ActivationReport, type FunnelStep } from '../api/endpoints';
+import {
+  adminActivationApi, type ActivationMomentName, type ActivationReached, type ActivationReport, type ActivationWeekRow,
+  type FunnelStep, type ReachedStep,
+} from '../api/endpoints';
 import {
   ANSWER_LABELS, DELETION_REASON_LABELS, FOCUS_LABELS, MOMENT_QUESTIONS, NO_ANSWER, NO_ANSWER_LABEL,
   SOURCE_LABELS, SPENDING_TRACKING_LABELS, STEP_LABELS, STEP_ORDER, formatDays, formatIsoDate, formatIsoMonth,
 } from '../lib/activationLabels';
+import {
+  DEFAULT_WEEKS, FILE_READ_DROP_STEPS, REACHED_LABELS, REACHED_ORDER, biggestDrop, percent, verdict, weekLines,
+} from '../lib/activationFunnel';
 
 const DEFAULT_RANGE_DAYS = 90;
 
@@ -37,26 +44,163 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** Spec §6.1: signups per IST week at their furthest step. A cell is a count and links nowhere. */
-function FunnelTable({ weeks }: { weeks: ActivationReport['weeks'] }) {
-  if (weeks.length === 0) return <p className="p-4 text-sm text-muted">No signups to count yet.</p>;
+type FunnelView = 'reached' | 'stopped';
+
+/** The verdict: where signups get stuck, the activation rate and who came back, in one line. */
+function Verdict({ report }: { report: ActivationReport }) {
+  if (!report.reached) return null;
   return (
-    <table aria-label="Funnel by signup week" className="w-full">
+    <p aria-label="Verdict" className="text-base font-medium text-ink bg-card border border-border rounded-xl2 shadow-card p-4">
+      {verdict(report.reached, report.secondImport.cameBackLaterDay)}
+    </p>
+  );
+}
+
+/** "Refused 1 · Read failed 2": where the people who chose a file but never had one read stopped. */
+function fileReadSplit(reached: ActivationReached): string {
+  return FILE_READ_DROP_STEPS.filter((s) => (reached.stoppedAt[s] ?? 0) > 0)
+    .map((s) => `${s === 'CHOSE_FILE' ? 'No result' : STEP_LABELS[s]} ${reached.stoppedAt[s]}`)
+    .join(' · ');
+}
+
+/**
+ * Each main-path step as a bar: how many of every counted signup reached it, and how many the step
+ * before lost. The biggest drop is marked. Between a chosen file and a read one, the drop is split
+ * into where those people stopped.
+ */
+function ReachedBars({ reached }: { reached: ActivationReached }) {
+  if (reached.signups === 0) return <p className="p-4 text-sm text-muted">No signups to count yet.</p>;
+  const biggest = biggestDrop(reached)?.row.step;
+  return (
+    <ol aria-label="Steps reached" className="p-4 space-y-3">
+      {reached.steps.map((row, i) => {
+        const previous = i === 0 ? null : reached.steps[i - 1];
+        const split = row.step === 'FILE_READ' ? fileReadSplit(reached) : '';
+        return (
+          <li key={row.step} aria-label={REACHED_LABELS[row.step]} className="grid grid-cols-[8rem_1fr_6rem] gap-x-3 gap-y-1 items-center">
+            <span className="text-sm text-ink">{REACHED_LABELS[row.step]}</span>
+            <span className="h-5 bg-surface border border-border rounded" aria-hidden="true">
+              <span className="block h-full bg-primary rounded" style={{ width: `${(row.reached / reached.signups) * 100}%` }} />
+            </span>
+            <span className="text-sm text-ink tabular-nums text-right">
+              {row.reached} <span className="text-muted">({percent(row.reached, reached.signups)})</span>
+            </span>
+            {previous && row.lost > 0 && (
+              <span className={`col-start-2 col-span-2 text-xs tabular-nums ${row.step === biggest ? 'text-danger font-semibold' : 'text-muted'}`}>
+                −{row.lost} of {previous.reached} ({percent(row.lost, previous.reached)})
+                {row.step === biggest && ' · biggest drop'}
+                {row.lostBeforeFunnelRecord > 0 && ` · ${row.lostBeforeFunnelRecord} signed up before this step was recorded`}
+                {split && ` · ${split}`}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function sumOf(rows: ActivationWeekRow[], pick: (row: ActivationWeekRow) => number | undefined): number {
+  return rows.reduce((sum, row) => sum + (pick(row) ?? 0), 0);
+}
+
+/**
+ * Signups per IST week, as main-path steps reached or at their furthest step, with how many came back
+ * another day. The last weeks by default; a run of weeks with no signups is one line; a total row
+ * sums the weeks shown. A cell is a count and links nowhere.
+ */
+function WeeklyTable({ weeks, view, showAll }: { weeks: ActivationWeekRow[]; view: FunnelView; showAll: boolean }) {
+  if (weeks.length === 0) return <p className="p-4 text-sm text-muted">No signups to count yet.</p>;
+  const { lines, shown } = weekLines(weeks, showAll);
+  const columns: { key: string; label: string; value: (row: ActivationWeekRow) => number | undefined }[] = [
+    ...(view === 'reached'
+      ? REACHED_ORDER.map((step: ReachedStep) => ({
+        key: step, label: REACHED_LABELS[step], value: (r: ActivationWeekRow) => r.reached?.[step],
+      }))
+      : STEP_ORDER.map((step: FunnelStep) => ({
+        key: step, label: STEP_LABELS[step], value: (r: ActivationWeekRow) => r.counts[step] ?? 0,
+      }))),
+    { key: 'cameBack', label: 'Came back another day', value: (r) => r.cameBackLaterDay },
+  ];
+  const cell = (n: number | undefined) => (n === undefined ? '—' : String(n));
+  return (
+    <table aria-label={view === 'reached' ? 'Steps reached by signup week' : 'Furthest step by signup week'} className="w-full">
       <thead>
         <tr>
           <th className={th}>Signup week</th>
-          {STEP_ORDER.map((step) => <th key={step} className={th}>{STEP_LABELS[step]}</th>)}
+          {columns.map((c) => <th key={c.key} className={th}>{c.label}</th>)}
         </tr>
       </thead>
       <tbody>
-        {weeks.map((w) => (
-          <tr key={w.weekStart}>
-            <td className={td}>{formatIsoDate(w.weekStart)}</td>
-            {STEP_ORDER.map((step) => <td key={step} className={`${td} tabular-nums`}>{w.counts[step] ?? 0}</td>)}
+        {lines.map((line) => (line.kind === 'week' ? (
+          <tr key={line.row.weekStart}>
+            <td className={td}>{formatIsoDate(line.row.weekStart)}</td>
+            {columns.map((c) => <td key={c.key} className={`${td} tabular-nums`}>{cell(c.value(line.row))}</td>)}
           </tr>
-        ))}
+        ) : (
+          <tr key={line.from}>
+            <td className={`${td} text-muted`}>
+              {line.weeks === 1 ? formatIsoDate(line.from) : `${formatIsoDate(line.from)} – ${formatIsoDate(line.to)}`}
+            </td>
+            <td colSpan={columns.length} className={`${td} text-muted`}>
+              {line.weeks === 1 ? 'No signups' : `No signups in ${line.weeks} weeks`}
+            </td>
+          </tr>
+        )))}
       </tbody>
+      <tfoot>
+        <tr>
+          <th scope="row" className={`${td} text-left font-semibold`}>Total</th>
+          {columns.map((c) => {
+            const missing = shown.some((r) => c.value(r) === undefined);
+            return <td key={c.key} className={`${td} tabular-nums font-semibold`}>{missing ? '—' : sumOf(shown, c.value)}</td>;
+          })}
+        </tr>
+      </tfoot>
     </table>
+  );
+}
+
+/** The funnel: the reached view by default (bars, then by week); the stopped-at table one click away. */
+function Funnel({ report }: { report: ActivationReport }) {
+  const [view, setView] = useState<FunnelView>('reached');
+  const [showAll, setShowAll] = useState(false);
+  // A backend from before the reached counts sends only the stopped-at ones.
+  const current: FunnelView = report.reached ? view : 'stopped';
+  const hidden = report.weeks.length - DEFAULT_WEEKS;
+  const toggle = (active: boolean) =>
+    `px-3 py-1 text-sm rounded-lg border ${active ? 'bg-primary text-on-primary border-primary' : 'bg-card text-ink border-border'}`;
+  return (
+    <section>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mr-auto">Funnel</h2>
+        {report.reached && (
+          <div role="group" aria-label="Funnel view" className="flex gap-1">
+            <button type="button" aria-pressed={current === 'reached'} className={toggle(current === 'reached')} onClick={() => setView('reached')}>
+              Reached
+            </button>
+            <button type="button" aria-pressed={current === 'stopped'} className={toggle(current === 'stopped')} onClick={() => setView('stopped')}>
+              Stopped at
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="space-y-4">
+        {current === 'reached' && report.reached && (
+          <div className="bg-card border border-border rounded-xl2 shadow-card">
+            <ReachedBars reached={report.reached} />
+          </div>
+        )}
+        <div className="bg-card border border-border rounded-xl2 shadow-card overflow-x-auto">
+          <WeeklyTable weeks={report.weeks} view={current} showAll={showAll} />
+        </div>
+        {hidden > 0 && (
+          <button type="button" className="text-sm text-primary" aria-expanded={showAll} onClick={() => setShowAll((v) => !v)}>
+            {showAll ? `Show the last ${DEFAULT_WEEKS} weeks only` : `Show all ${report.weeks.length} weeks`}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -293,36 +437,55 @@ function ActivationContent() {
   const setFrom = (from: string) => { if (from && from <= range.to) setRange((r) => ({ ...r, from })); };
   const setTo = (to: string) => { if (to && to >= range.from) setRange((r) => ({ ...r, to })); };
 
+  const [aboutOpen, setAboutOpen] = useState(false);
+
   return (
     <div className="space-y-8">
-      <div className="text-sm text-muted space-y-1 max-w-2xl">
-        {data && (
+      {data && <Verdict report={data} />}
+      <div>
+        <button
+          type="button"
+          aria-expanded={aboutOpen}
+          aria-controls="activation-about"
+          onClick={() => setAboutOpen((v) => !v)}
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink"
+        >
+          <Info size={16} aria-hidden="true" />
+          {aboutOpen ? 'Hide notes on these numbers' : 'About these numbers'}
+        </button>
+        <div id="activation-about" hidden={!aboutOpen} className="mt-2 text-sm text-muted space-y-1 max-w-2xl">
+          {data && (
+            <p>
+              {data.funnelGoLive
+                ? `Funnel steps that use the import-funnel record count from ${formatIsoDate(data.funnelGoLive)}.`
+                : 'The import-funnel record has no rows yet.'}
+            </p>
+          )}
+          {data && (
+            <p>
+              {data.sourceTrackingStart
+                ? `Signup sources are recorded from ${istDate(data.sourceTrackingStart)}; earlier signups with nothing recorded show as unknown, not direct.`
+                : 'When signup sources began to be recorded is not known, so signups with nothing recorded show as unknown.'}
+            </p>
+          )}
+          {data?.landingPaths && (
+            <p>
+              {data.landingPaths.trackingStart
+                ? `Landing pages are recorded from ${istDate(data.landingPaths.trackingStart)}; only signups made since then are counted in that table. A landing page is the first public Fynora page of the visit; the mobile apps and visits that began off the public pages have none.`
+                : 'When landing pages began to be recorded is not known, so that table is empty.'}
+            </p>
+          )}
           <p>
-            {data.funnelGoLive
-              ? `Funnel steps that use the import-funnel record count from ${formatIsoDate(data.funnelGoLive)}.`
-              : 'The import-funnel record has no rows yet.'}
+            A second import is a second, different statement file that brought transactions in. The account sections
+            of one statement, and a re-import of the same file, count as one file.
           </p>
-        )}
-        {data && (
           <p>
-            {data.sourceTrackingStart
-              ? `Signup sources are recorded from ${istDate(data.sourceTrackingStart)}; earlier signups with nothing recorded show as unknown, not direct.`
-              : 'When signup sources began to be recorded is not known, so signups with nothing recorded show as unknown.'}
+            Reached counts a signup at every step up to the furthest one they reached. Refused, read failed and held
+            stop between choosing a file and having one read. Weeks run Monday to Sunday, IST.
           </p>
-        )}
-        {data?.landingPaths && (
-          <p>
-            {data.landingPaths.trackingStart
-              ? `Landing pages are recorded from ${istDate(data.landingPaths.trackingStart)}; only signups made since then are counted in that table. A landing page is the first public Fynora page of the visit; the mobile apps and visits that began off the public pages have none.`
-              : 'When landing pages began to be recorded is not known, so that table is empty.'}
-          </p>
-        )}
-        <p>
-          A second import is a second, different statement file that brought transactions in. The account sections
-          of one statement, and a re-import of the same file, count as one file.
-        </p>
-        <p>Only the answers follow the date range; every other count covers all signups.</p>
-        <p>Counts are small; one person changes them.</p>
+          <p>Only the answers follow the date range; every other count covers all signups.</p>
+          <p>Counts are small; one person changes them.</p>
+        </div>
       </div>
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
@@ -335,9 +498,7 @@ function ActivationContent() {
         <>
           <Totals report={data} />
 
-          <Section title="Funnel by signup week">
-            <FunnelTable weeks={data.weeks} />
-          </Section>
+          <Funnel report={data} />
 
           <Section title="Funnel by signup source">
             <SourceTable rows={data.bySource} />

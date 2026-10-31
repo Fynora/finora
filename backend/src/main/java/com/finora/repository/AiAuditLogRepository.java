@@ -33,4 +33,12 @@ public interface AiAuditLogRepository extends JpaRepository<AiAuditLog, UUID> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM AiAuditLog a WHERE a.userId = :userId")
     int deleteByUserId(@Param("userId") UUID userId);
+
+    /** TermsConsentService, when a user turns AI features off: the rows stay as the record of calls
+     *  made and what they cost (FynCostGovernanceService reads cost), but the facts that were sent
+     *  and returned are cleared. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AiAuditLog a SET a.toolInputs = NULL, a.toolOutputs = NULL WHERE a.userId = :userId "
+            + "AND (a.toolInputs IS NOT NULL OR a.toolOutputs IS NOT NULL)")
+    int clearToolPayloadsByUserId(@Param("userId") UUID userId);
 }

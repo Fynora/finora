@@ -137,6 +137,8 @@ class DataExportServiceTest {
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
     private final com.finora.repository.SignupAttributionRepository signupAttributionRepository =
             mock(com.finora.repository.SignupAttributionRepository.class);
+    private final com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository =
+            mock(com.finora.repository.UserTermsAcceptanceRepository.class);
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository =
             mock(com.finora.repository.AiInsightTextRepository.class);
     private final com.finora.people.PeopleData peopleData = mock(com.finora.people.PeopleData.class);
@@ -276,7 +278,8 @@ class DataExportServiceTest {
         when(gmailConnectionRepository.findByUserIdOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(userSettingsService.get(any()))
                 .thenReturn(new UserSettingsDto("jane@example.com", "Jane Doe", null, "light", "Asia/Kolkata",
-                        null, false, Instant.now(), null, User.SIGN_IN_METHOD_PASSWORD, true));
+                        null, false, Instant.now(), null, User.SIGN_IN_METHOD_PASSWORD, true,
+                        false, "2026-10", true));
         when(workspaceSettingsService.get(any())).thenReturn(new WorkspaceSettingsDto(90, Instant.now()));
         when(subscriptionRepository.findByUserIdIncludingDeletedOrderByCreatedAtDesc(any())).thenReturn(List.of());
         when(planRepository.findAllById(any())).thenReturn(List.of());
@@ -328,7 +331,7 @@ class DataExportServiceTest {
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
 paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, aiInsightTextRepository, peopleData,
-                statementContentService);
+                statementContentService, termsAcceptanceRepository);
     }
 
     private User user() {
@@ -442,6 +445,24 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
         Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
         assertThat(new String(entries.get("signup_source.json"), java.nio.charset.StandardCharsets.UTF_8).trim())
                 .isEqualTo("[]");
+    }
+
+    /** V302: every acceptance of the Terms is a record about the user, so it is theirs to see. */
+    @Test
+    void writeZip_exportsTheTermsAcceptanceHistory() throws IOException {
+        java.time.Instant at = java.time.Instant.parse("2026-10-31T10:00:00Z");
+        when(termsAcceptanceRepository.findByUserIdOrderByAcceptedAtAsc(userId)).thenReturn(List.of(
+                new com.finora.entity.UserTermsAcceptance(userId, "2026-10", at, com.finora.entity.ClientPlatform.MOBILE_IOS)));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.termsAcceptances()).singleElement().isEqualTo(
+                new com.finora.dto.DataExportDto.TermsAcceptanceExportDto("2026-10", at, "MOBILE_IOS", "CHECKBOX"));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("terms_acceptances.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("2026-10").contains("MOBILE_IOS").contains("CHECKBOX");
+        assertThat(new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("terms_acceptances.json");
     }
 
     /** The exported account says the same as the app: a card summed from zero is not known. */
@@ -1183,7 +1204,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {

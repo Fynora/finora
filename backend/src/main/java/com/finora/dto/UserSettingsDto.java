@@ -27,7 +27,13 @@ public record UserSettingsDto(
         // 2026-09-06-first-login-onboarding-tour-design.md §7. This is what a returning user's
         // silent-refresh bootstrap (AuthContext, web and mobile) reads onboarding state from,
         // since /auth/refresh itself returns no profile fields.
-        boolean onboardingCompleted
+        boolean onboardingCompleted,
+        // V302 (privacy workstreams 7 and 8). The apps show the consent step when
+        // termsAcceptanceRequired is true or aiProcessingConsent is null.
+        boolean termsAcceptanceRequired,
+        String currentTermsVersion,
+        // The "AI features" answer; null = not asked yet, treated as no.
+        Boolean aiProcessingConsent
 ) {
     /**
      * <p>Bug fix: this record declared NO constraints at all, and UserController.update() applied

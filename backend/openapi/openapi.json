@@ -2109,6 +2109,36 @@
                 }
             }
         },
+        "/api/v1/users/me/consent": {
+            "post": {
+                "tags": [
+                    "user-controller"
+                ],
+                "operationId": "consent",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConsentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseUserSettingsDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/users/me/account/delete": {
             "post": {
                 "tags": [
@@ -14641,6 +14671,15 @@
                     },
                     "onboardingCompleted": {
                         "type": "boolean"
+                    },
+                    "termsAcceptanceRequired": {
+                        "type": "boolean"
+                    },
+                    "currentTermsVersion": {
+                        "type": "string"
+                    },
+                    "aiProcessingConsent": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -17204,6 +17243,19 @@
                 }
             },
             "StreamingResponseBody": {},
+            "ConsentRequest": {
+                "type": "object",
+                "properties": {
+                    "acceptTermsVersion": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "minLength": 0
+                    },
+                    "aiProcessing": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "DeleteAccountRequest": {
                 "type": "object",
                 "properties": {
@@ -18729,6 +18781,12 @@
                     },
                     "attribution": {
                         "$ref": "#/components/schemas/SignupAttributionRequest"
+                    },
+                    "acceptedTerms": {
+                        "type": "boolean"
+                    },
+                    "aiProcessingConsent": {
+                        "type": "boolean"
                     }
                 },
                 "required": [

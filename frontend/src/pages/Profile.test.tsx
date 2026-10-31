@@ -25,7 +25,7 @@ function userSettings(overrides: Partial<UserSettings> = {}): UserSettings {
     createdAt: '2026-05-01T00:00:00Z',
     passwordChangedAt: null,
     signInMethod: 'PASSWORD',
-    onboardingCompleted: true,
+    onboardingCompleted: true, termsAcceptanceRequired: false, currentTermsVersion: '2026-10', aiProcessingConsent: true,
     ...overrides,
   };
 }

@@ -101,6 +101,8 @@ class AiInsightControllerIT extends AbstractIntegrationTest {
         u.setFullName("Sample User");
         u.setAccountScope(User.SCOPE_USER);
         u.setPhoneVerified(true);
+        // These tests are about AI paths, so the user has said yes to "AI features" (V302).
+        u.recordAiProcessingConsent(true, java.time.Instant.now());
         u = userRepository.save(u);
         subscriptionService.provisionFreeSubscription(u.getId());
         Account a = new Account();

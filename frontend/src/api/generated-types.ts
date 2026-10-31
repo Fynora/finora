@@ -644,6 +644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["consent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/account/delete": {
         parameters: {
             query?: never;
@@ -6526,6 +6542,9 @@ export interface components {
             passwordChangedAt?: string;
             signInMethod?: string;
             onboardingCompleted?: boolean;
+            termsAcceptanceRequired?: boolean;
+            currentTermsVersion?: string;
+            aiProcessingConsent?: boolean;
         };
         TransactionUpdateRequest: {
             /** Format: date */
@@ -7462,6 +7481,10 @@ export interface components {
             appleIdToken?: string;
         };
         StreamingResponseBody: unknown;
+        ConsentRequest: {
+            acceptTermsVersion?: string;
+            aiProcessing?: boolean;
+        };
         DeleteAccountRequest: {
             sessionId: string;
             /** @enum {string} */
@@ -8014,6 +8037,8 @@ export interface components {
             phoneNumber: string;
             referralCode?: string;
             attribution?: components["schemas"]["SignupAttributionRequest"];
+            acceptedTerms?: boolean;
+            aiProcessingConsent?: boolean;
         };
         SignupAttributionRequest: {
             referrerHost?: string;
@@ -15922,6 +15947,30 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["StreamingResponseBody"];
+                };
+            };
+        };
+    };
+    consent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseUserSettingsDto"];
                 };
             };
         };

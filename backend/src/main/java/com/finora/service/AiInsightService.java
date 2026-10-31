@@ -125,6 +125,8 @@ public class AiInsightService {
 
     /** Reads only: the stored story for this month's facts, if any. Never calls the model. */
     public TextView getStory(UUID userId, String month) {
+        // AI features off (V302): no stored AI text either -- the rules text stands alone.
+        if (!guard.aiConsentGiven(userId)) return none(false);
         Optional<FactSheet> maybeSheet = monthSheets.build(userId, month);
         if (maybeSheet.isEmpty()) return none(false);
         FactSheet sheet = maybeSheet.get();
@@ -224,6 +226,8 @@ public class AiInsightService {
 
         Key key = new Key(AiInsightText.KIND_WHY, rowKey, sheet.month(), sheet.hash(), AiInsightGenerator.WHY_PROMPT_VERSION,
                 properties.getModel(), AiInsightChecker.POLICY_VERSION);
+        // AI features off (V302): the rules answer only, stored AI answers included.
+        if (!guard.aiConsentGiven(userId)) return refuse(userId, AiInsightReason.AI_CONSENT_OFF, rules);
         Optional<AiInsightText> exact = findByKey(userId, key);
         // A stored answer is the user's to reread, whatever their plan or allowance now.
         if (exact.isPresent() && AiInsightText.STATUS_READY.equals(exact.get().getStatus())) {
@@ -276,7 +280,7 @@ public class AiInsightService {
         List<LookAtRowDto> rules = lookAtService.rows(userId, built);
         String plan = planOf(userId);
         String reportingMonth = built.dto().reportingMonth();
-        if (!wantsOrder(plan) || reportingMonth == null) return new LookAt(rules, false);
+        if (!wantsOrder(plan) || reportingMonth == null || !guard.aiConsentGiven(userId)) return new LookAt(rules, false);
         Optional<AiInsightText> story = texts.findLatestReadyOfVersion(userId, AiInsightText.KIND_STORY, STORY_SUBJECT,
                         reportingMonth, AiInsightGenerator.storyPromptVersion(true), AiInsightChecker.POLICY_VERSION)
                 .filter(t -> t.getRowOrderJson() != null);
@@ -325,6 +329,7 @@ public class AiInsightService {
     private AiInsightReason refusal(UUID userId) {
         if (!entitlements.hasEntitlement(userId, FeatureEntitlement.FYN_INSIGHTS)) return AiInsightReason.NOT_IN_AUDIENCE;
         if (!inAudience(userId)) return AiInsightReason.NOT_IN_AUDIENCE;
+        if (!guard.aiConsentGiven(userId)) return AiInsightReason.AI_CONSENT_OFF;
         if (!guard.insightsAvailableFor(userId)) {
             if (costGovernance.monthlyBudget().status() == FynCostGovernanceService.BudgetStatus.STOPPED) {
                 return AiInsightReason.ORG_BUDGET_SPENT;

@@ -71,6 +71,10 @@ export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 // frontend has to TELL THEM APART" reasoning ErrorCode.ACCOUNT_LIMIT_REACHED's own comment gives.
 export const ACCOUNT_LIMIT_REACHED = 'ENTITLEMENT_002';
 export const STATEMENT_PERIOD_TOO_LONG = 'ENTITLEMENT_003';
+// V302: the user has not said yes to "AI features" -- Ask Fyn shows the Settings link instead of an outage.
+export const FYN_AI_CONSENT_OFF = 'PRIVACY_001';
+// V302: the Terms or Privacy Policy changed while the consent step was open.
+export const TERMS_VERSION_OUTDATED = 'PRIVACY_002';
 
 // The OTP login endpoints answer a wrong/expired code AND an unknown account on the request step with
 // this one code (deliberately generic). On the request step, "code invalid or expired" makes no

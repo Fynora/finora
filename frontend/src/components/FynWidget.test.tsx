@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -24,11 +25,15 @@ function entitled(featureKey: string) {
 function renderWidget() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <FynWidget />
-      </AuthProvider>
-    </QueryClientProvider>
+    // A router like the real app's (TopBar mounts the widget inside it): the "AI features are
+    // off" message links to Settings.
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <FynWidget />
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -198,6 +203,37 @@ describe('FynWidget', () => {
     await userEvent.click(screen.getByRole('button', { name: /send/i }));
 
     expect(await screen.findByText('Fyn is over budget.')).toBeInTheDocument();
+  });
+
+  /** V302: "AI features are off" comes with the way to turn them on, not as a dead end. */
+  it('links to Settings when AI features are off', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockRejectedValueOnce({
+      response: { status: 403, data: { errorCode: 'PRIVACY_001', message: 'AI features are off. You can turn them on in Settings.' } },
+    });
+    renderWidget();
+    await openDrawer();
+
+    const input = await screen.findByPlaceholderText(/ask about your balance/i);
+    await userEvent.type(input, 'hi');
+    await userEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    expect(await screen.findByText(/AI features are off/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Settings' })).toHaveAttribute('href', '/app/settings?tab=data');
+  });
+
+  it('shows no Settings link for any other error', async () => {
+    entitled('FYN_CHAT');
+    vi.mocked(fynChatApi.send).mockRejectedValueOnce({ response: { data: { message: 'Fyn is over budget.' } } });
+    renderWidget();
+    await openDrawer();
+
+    const input = await screen.findByPlaceholderText(/ask about your balance/i);
+    await userEvent.type(input, 'hi');
+    await userEvent.click(screen.getByRole('button', { name: /send/i }));
+
+    expect(await screen.findByText('Fyn is over budget.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open Settings' })).not.toBeInTheDocument();
   });
 
   it('does not send on the Enter keystroke that confirms an IME composition', async () => {

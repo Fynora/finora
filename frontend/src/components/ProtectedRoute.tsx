@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useOnboardingUI } from '../onboarding/OnboardingUIContext';
 import { OnboardingFlow } from '../onboarding/OnboardingFlow';
 import { SpendingQuestionGate } from '../onboarding/SpendingQuestionGate';
+import { ConsentGate } from './consent/ConsentGate';
 import { TourOverlay } from '../onboarding/TourOverlay';
 import { TOUR_STEPS } from '../onboarding/tourSteps';
 import { safeReturnTo } from '../lib/returnTo';
@@ -74,9 +75,14 @@ export function ProtectedRoute({ children, allowUnverified = false }: ProtectedR
       </>
     );
   }
-  // The required spending question comes first, before onboarding and the app alike -- see
-  // SpendingQuestionGate. Never on allowUnverified routes (VerifyPhone), for the reason above.
+  // The consent step comes first of all (ConsentGate, V302), then the required spending question,
+  // before onboarding and the app alike -- see SpendingQuestionGate. Never on allowUnverified
+  // routes (VerifyPhone), for the reason above.
   return allowUnverified
     ? content
-    : <SpendingQuestionGate holdWhileLoading={!onboardingCompleted && step !== 'tour'}>{content}</SpendingQuestionGate>;
+    : (
+      <ConsentGate>
+        <SpendingQuestionGate holdWhileLoading={!onboardingCompleted && step !== 'tour'}>{content}</SpendingQuestionGate>
+      </ConsentGate>
+    );
 }

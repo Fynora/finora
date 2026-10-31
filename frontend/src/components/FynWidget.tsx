@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { MessageCircle, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { fynChatApi } from '../api/endpoints';
+import { FYN_AI_CONSENT_OFF } from '../api/errorCodes';
 import type { FynFeedback } from '../api/endpoints';
 import { PremiumFeatureGate } from './PremiumFeatureGate';
 import { useAuth } from '../context/AuthContext';
@@ -142,6 +144,8 @@ function FynChat() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // V302: the error was "AI features are off" -- shown with the way to turn them on.
+  const [aiOff, setAiOff] = useState(false);
   const [attachedImage, setAttachedImage] = useState<File | null>(null);
   // Starts true so the empty state (suggested questions) doesn't flash before a real, resumed
   // conversation has had a chance to load in -- see the effect below.
@@ -224,6 +228,7 @@ function FynChat() {
       setTurns((t) => [...t, { id: result.messageId, role: 'assistant', content: result.reply, feedback: null }]);
     } catch (err) {
       setError(onErrorMessage(err));
+      setAiOff((err as { response?: { data?: { errorCode?: string } } })?.response?.data?.errorCode === FYN_AI_CONSENT_OFF);
     } finally {
       setSending(false);
     }
@@ -327,7 +332,23 @@ function FynChat() {
         {sending && <p className="text-sm text-muted">Fyn is thinking…</p>}
       </div>
 
-      {error && <p className="text-sm text-danger mb-3 flex-shrink-0">{error}</p>}
+      {error && (
+        <p className="text-sm text-danger mb-3 flex-shrink-0">
+          {error}
+          {aiOff && error && (
+            <>
+              {' '}
+              <Link
+                to="/app/settings?tab=data"
+                onClick={() => trackNavigation('settings', 'contextual')}
+                className="text-primary font-medium underline"
+              >
+                Open Settings
+              </Link>
+            </>
+          )}
+        </p>
+      )}
 
       <div className="flex flex-col gap-2 flex-shrink-0">
         {attachedImage && (

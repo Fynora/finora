@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -36,6 +37,7 @@ class AuthServiceRegisterTest {
     private PlatformSettingsService platformSettingsService;
     private AuditService auditService;
     private AuthService authService;
+    private TermsConsentService termsConsentService;
 
     @BeforeEach
     void setUp() {
@@ -69,6 +71,7 @@ class AuthServiceRegisterTest {
                 .thenReturn(EmailResult.success(ProviderType.RESEND, "test-message-id"));
 
         auditService = mock(AuditService.class);
+        termsConsentService = mock(TermsConsentService.class);
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), mock(PasswordResetTokenRepository.class),
                 mock(com.finora.repository.AccountReactivationTokenRepository.class),
@@ -89,7 +92,8 @@ class AuthServiceRegisterTest {
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
                 mock(com.finora.service.SignupAttributionService.class),
-                mock(com.finora.service.AccountRequestThrottle.class)
+                mock(com.finora.service.AccountRequestThrottle.class),
+                termsConsentService
         );
     }
 
@@ -243,9 +247,9 @@ class AuthServiceRegisterTest {
         verify(userRepository).save(any(User.class));
     }
 
-    /** Self-service sign-up shows the Terms/Privacy notice beside Create Account, so it records acceptance (V223). */
+    /** V302: the two sign-up boxes go to TermsConsentService with the saved account, as sent. */
     @Test
-    void register_recordsAcceptanceOfTheCurrentTerms() {
+    void register_passesTheTwoBoxesToTheConsentService() {
         when(userRepository.existsByEmailIgnoreCaseAndAccountScope("terms@example.com", "USER")).thenReturn(false);
         when(userRepository.existsByPhoneNumberAndAccountScope("+919876500011", "USER")).thenReturn(false);  // synthetic-ok: sequential test number, not a real subscriber
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
@@ -254,12 +258,43 @@ class AuthServiceRegisterTest {
             return u;
         });
 
-        authService.register(request("terms@example.com", "+919876500011"));  // synthetic-ok: sequential test number, not a real subscriber
+        authService.register(new RegisterRequest("terms@example.com", "Password123", "Jane Doe",
+                "+919876500011", null, null, true, false));  // synthetic-ok: sequential test number, not a real subscriber
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
-        assertThat(captor.getValue().getTermsAcceptedAt()).isNotNull();
+        verify(termsConsentService).applySignUpChoices(captor.capture(), eq(true), eq(false));
+        assertThat(captor.getValue().getEmail()).isEqualTo("terms@example.com");
+        // Nothing is stamped by AuthService itself any more.
+        assertThat(captor.getValue().getTermsVersion()).isNull();
+    }
+
+    /** An app released before the required box sends neither field: passed on as null, not as yes. */
+    @Test
+    void register_fromAnOlderAppPassesNullsOn() {
+        when(userRepository.existsByEmailIgnoreCaseAndAccountScope("old@example.com", "USER")).thenReturn(false);
+        when(userRepository.existsByPhoneNumberAndAccountScope("+919876500013", "USER")).thenReturn(false);  // synthetic-ok: sequential test number, not a real subscriber
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            ReflectionTestUtils.setField(u, "id", UUID.randomUUID());
+            return u;
+        });
+
+        authService.register(request("old@example.com", "+919876500013"));  // synthetic-ok: sequential test number, not a real subscriber
+
+        verify(termsConsentService).applySignUpChoices(any(User.class), isNull(), isNull());
+    }
+
+    @Test
+    void register_withTheBoxUnticked_isRejectedBeforeAnyUserIsSaved() {
+        RegisterRequest unticked = new RegisterRequest("no@example.com", "Password123", "Jane Doe",
+                "+919876500014", null, null, false, null);  // synthetic-ok: sequential test number, not a real subscriber
+
+        assertThatThrownBy(() -> authService.register(unticked))
+                .isInstanceOf(com.finora.exception.ApiException.class)
+                .extracting(e -> ((com.finora.exception.ApiException) e).getCode())
+                .isEqualTo(com.finora.exception.ErrorCode.TERMS_NOT_ACCEPTED);
+        verify(userRepository, never()).save(any(User.class));
+        verify(termsConsentService, never()).applySignUpChoices(any(), any(), any());
     }
 
     /** An account an admin creates for someone else was never shown the terms by anyone, so it

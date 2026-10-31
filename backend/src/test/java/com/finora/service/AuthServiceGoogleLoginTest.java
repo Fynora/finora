@@ -102,7 +102,8 @@ class AuthServiceGoogleLoginTest {
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
                 signupAttributionService,
-                mock(AccountRequestThrottle.class)
+                mock(AccountRequestThrottle.class),
+                mock(com.finora.service.TermsConsentService.class)
         );
         // AuthService's own constructor calls passwordEncoder.encode() once, to build the BH-014
         // timing-parity hash (see that field's own doc comment) -- clearing invocations here so
@@ -176,18 +177,18 @@ class AuthServiceGoogleLoginTest {
     }
 
     @Test
-    @DisplayName("no existing account -- the new account records acceptance of the current Terms/Privacy version")
-    void newAccount_recordsTermsAcceptance() {
+    @DisplayName("no existing account -- no acceptance yet: the consent step asks right after this sign-in (V302)")
+    void newAccount_recordsNoTermsAcceptance() {
         when(userRepository.findByEmailIgnoreCaseAndAccountScope("amy@example.test", "USER"))
                 .thenReturn(Optional.empty());
-        java.time.Instant before = java.time.Instant.now();
 
         authService.loginWithGoogle(new GoogleIdentity("amy@example.test", "Amy Santiago"));
 
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
-        assertThat(captor.getValue().getTermsVersion()).isEqualTo(LegalTerms.CURRENT_VERSION);
-        assertThat(captor.getValue().getTermsAcceptedAt()).isBetween(before, java.time.Instant.now());
+        assertThat(captor.getValue().getTermsVersion()).isNull();
+        assertThat(captor.getValue().getTermsAcceptedAt()).isNull();
+        assertThat(captor.getValue().getAiProcessingConsent()).isNull();
     }
 
     @Test

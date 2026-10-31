@@ -467,6 +467,16 @@ public enum ErrorCode {
     FYN_FREE_DAILY_LIMIT_REACHED("ENTITLEMENT_005", HttpStatus.FORBIDDEN,
             "You've used today's free Fyn questions. Upgrade to Plus or Premium for unlimited access."),
 
+    // Privacy workstreams 7 and 8 (docs/superpowers/specs/2026-10-31-ai-consent-and-terms-acceptance-design.md).
+    // Own codes so the apps can tell "AI is off, here is the switch" apart from an outage, and
+    // "these Terms changed while you were reading" apart from a generic conflict.
+    FYN_AI_CONSENT_OFF("PRIVACY_001", HttpStatus.FORBIDDEN,
+            "AI features are off. You can turn them on in Settings."),
+    TERMS_VERSION_OUTDATED("PRIVACY_002", HttpStatus.CONFLICT,
+            "The Terms of Service or Privacy Policy changed. Please read the current version and try again."),
+    TERMS_NOT_ACCEPTED("PRIVACY_003", HttpStatus.BAD_REQUEST,
+            "Please confirm you are 18 or older and agree to the Terms of Service and Privacy Policy."),
+
     // Goals. Each contribution can be within the request limit and the running total still pass
     // what the goals table can hold (NUMERIC(14,2)); see GoalService.addContribution.
     GOAL_AMOUNT_TOO_LARGE("GOAL_001", HttpStatus.BAD_REQUEST,

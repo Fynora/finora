@@ -235,6 +235,10 @@ public final class DataExportDto {
                                              String utmCampaign, String utmContent, String landingPath,
                                              Instant recordedAt) {}
 
+    /** V302. One acceptance of the Terms of Service and Privacy Policy: the version, when, the app
+     *  it came from (UNKNOWN for one recorded before V302) and how (CHECKBOX or the earlier NOTICE). */
+    public record TermsAcceptanceExportDto(String termsVersion, Instant acceptedAt, String channel, String method) {}
+
     /** V283. One AI month story or "Why?" answer written for the user, and the thumbs they gave it.
      *  The fact sheet it was written from is not repeated: its figures come from the transactions
      *  already in transactions.json. */

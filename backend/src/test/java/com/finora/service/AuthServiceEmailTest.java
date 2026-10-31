@@ -82,7 +82,8 @@ class AuthServiceEmailTest {
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
                 mock(com.finora.service.SignupAttributionService.class),
-                accountRequestThrottle
+                accountRequestThrottle,
+                mock(com.finora.service.TermsConsentService.class)
         );
     }
 
@@ -243,7 +244,8 @@ class AuthServiceEmailTest {
                 mock(AdminMfaService.class),
                 mock(com.finora.repository.EmailLoginOtpRepository.class),
                 mock(com.finora.service.SignupAttributionService.class),
-                mock(com.finora.service.AccountRequestThrottle.class)
+                mock(com.finora.service.AccountRequestThrottle.class),
+                mock(com.finora.service.TermsConsentService.class)
         );
         when(emailProvider.isConfigured()).thenReturn(true);
         when(emailProvider.sendPasswordResetEmail(any(), any()))

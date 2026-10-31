@@ -3,6 +3,9 @@ import { render, screen } from '@testing-library/react';
 import { DataPane } from './DataPane';
 import { analyticsApi } from '../../api/endpoints';
 
+// Covered by AiFeaturesSection.test.tsx.
+vi.mock('./AiFeaturesSection', () => ({ AiFeaturesSection: () => null }));
+
 vi.mock('../../api/endpoints', () => ({
   analyticsApi: { importStatistics: vi.fn() },
   statementPasswordsApi: { list: vi.fn().mockResolvedValue({ saveAvailable: false, items: [] }) },

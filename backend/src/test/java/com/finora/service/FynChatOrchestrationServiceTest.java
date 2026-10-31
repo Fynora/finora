@@ -68,6 +68,7 @@ class FynChatOrchestrationServiceTest {
         when(stubTool.toLlmTool()).thenReturn(new LlmClient.LlmTool("GET_BALANCE", "d", Map.of()));
 
         when(availabilityGuard.chatAvailableFor(userId)).thenReturn(true);
+        when(availabilityGuard.aiConsentGiven(userId)).thenReturn(true);
         // PREMIUM by default -- most tests exercise the chat loop itself, not the Free-tier
         // question cap, and PREMIUM keeps that cap out of their way without every test needing to
         // stub it. Tests that DO exercise the cap override this explicitly.
@@ -95,6 +96,27 @@ class FynChatOrchestrationServiceTest {
     private static LlmCompletion toolUseCompletion(String toolName) {
         return new LlmCompletion(null, List.of(new ToolUse("toolu_01", toolName, Map.of())),
                 "claude-haiku-4-5-20251001", 100, 20, "tool_use");
+    }
+
+    /** V302: its own code, so the apps can offer the Settings switch instead of an outage message. */
+    @Test
+    void refusesWithTheConsentCodeWhenAiFeaturesAreOff() {
+        when(availabilityGuard.aiConsentGiven(userId)).thenReturn(false);
+        when(availabilityGuard.chatAvailableFor(userId)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.sendMessage(userId, null, "hi"))
+                .isInstanceOf(ApiException.class)
+                .satisfies(e -> {
+                    assertThat(((ApiException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(((ApiException) e).getCode()).isEqualTo(com.finora.exception.ErrorCode.FYN_AI_CONSENT_OFF);
+                });
+        assertThatThrownBy(() -> service.preflightChat(userId))
+                .isInstanceOf(ApiException.class)
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        verify(llmClient, never()).complete(any());
+        verify(conversationRepository, never()).save(any());
     }
 
     @Test

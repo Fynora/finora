@@ -85,6 +85,24 @@ env:
 # and everything after it would fail on the review screen, not the summary -- confirmed by
 # reproducing exactly that against a stale local database before tightening this.
 - assertVisible: "File into"
+# A new account needs its bank chosen before the statement can be imported (#2410, 2026-10-30):
+# maestro-statement.csv names no bank, so ImportScreen shows the Bank field open with no choice and
+# keeps "Import N transactions" blocked until one is picked. The nightlies of 2026-10-30 and
+# 2026-10-31 both failed here on both attempts, and the saved UI hierarchy of the 2026-10-31 failure
+# shows the review list with `import-bank-gate-notice` ("Choose the new account's bank above, or
+# Other bank, before this can be imported.") while the backend log shows the CSV stage request and
+# no confirm. "Other bank" is the choice that is always offered (BankField adds it itself, last,
+# even if GET /banks fails), so the flow does not depend on which banks the registry holds.
+#
+# scrollUntilVisible rather than a bare tapOn: tapOn never scrolls, and this screen is too short to
+# be sure the field is on screen (see the scroll comment below). Maestro's text match is a full
+# match, so this cannot hit the hint or notice sentences that merely mention "Other bank".
+- scrollUntilVisible:
+    element:
+      text: "Other bank"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Other bank"
 # Same reason as dashboard.yaml's scrollUntilVisible: the button is ImportScreen.tsx's
 # ListFooterComponent, past the transaction rows above it, and this emulator's 320x640 screen is
 # too short to reach it without scrolling -- confirmed via a real run's UI-hierarchy dump, which

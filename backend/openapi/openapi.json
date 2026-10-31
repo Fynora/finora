@@ -28145,6 +28145,9 @@
                     },
                     "autoRenewResumable": {
                         "type": "boolean"
+                    },
+                    "storePlatform": {
+                        "type": "string"
                     }
                 }
             },

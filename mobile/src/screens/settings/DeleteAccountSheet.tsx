@@ -13,6 +13,7 @@ import { useSingleFlight } from '../../lib/useSingleFlight';
 import { sanitizeOtp } from '../../lib/validation';
 import { radius, spacing, useTheme } from '../../theme';
 import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
+import { StoreSubscriptionDeletionWarning } from './StoreSubscriptionDeletionWarning';
 
 type Step = 'password' | 'otp' | 'confirm';
 
@@ -147,6 +148,8 @@ export function DeleteAccountSheet({ onClose, onDeleted, signInMethod }: {
   return (
     <AccountActionSheet onClose={onClose} dismissable={dismissable} closeLabel="Close delete account">
       <Text style={[sheetStyles.title, { color: c.ink }]}>Delete Account</Text>
+      {/* Every step, the confirm step included: that one is the point of no return. */}
+      <StoreSubscriptionDeletionWarning />
 
       <>
           {step === 'password' && signInMethod === 'PASSWORD' ? (

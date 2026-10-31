@@ -1988,6 +1988,10 @@ export interface MySubscription {
   paymentProvider: string | null;
   paymentMethod: PaymentMethod | null;
   autoRenewResumable: boolean;
+  // 'IOS' or 'ANDROID' for an App Store / Google Play subscription (paymentProvider REVENUECAT),
+  // null otherwise. Deleting the account cannot cancel a store subscription, so the delete
+  // modal uses this to say where to cancel it.
+  storePlatform: 'IOS' | 'ANDROID' | null;
 }
 
 // Mirrors backend BillingDtos.CheckoutResponseDto exactly. `null` from changePlan() means the

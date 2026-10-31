@@ -759,6 +759,20 @@ public class AccountPurgeSweepService {
                     }
                 });
 
+        // An App Store or Google Play subscription cannot be cancelled from here: only the store
+        // can, and only the user can ask it (the delete screens warn them first, using
+        // MySubscriptionDto.storePlatform). If one is still set to renew, the store keeps charging
+        // after this purge hard-deletes the only local record of it. Recorded so support can show
+        // when the account was deleted and that the subscription was still renewing then, if the
+        // person later asks why they were charged. Platform only, no store transaction id.
+        subscriptionRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .filter(s -> "REVENUECAT".equals(s.getPaymentProvider()) && s.isAutoRenew()
+                        && LIVE_RAZORPAY_MANDATE_STATUSES.contains(s.getStatus()))
+                .findFirst()
+                .ifPresent(s -> auditService.record(userId, "STORE_SUBSCRIPTION_STILL_RENEWING", "User", userId,
+                        Map.of("platform", s.getStorePlatform() != null ? s.getStorePlatform() : "UNKNOWN",
+                                "actorId", actingAdminId.toString())));
+
         // A checkout order can also be PENDING here, independent of the block above -- the local
         // Subscription row only gets razorpaySubscriptionId (and the LIVE_RAZORPAY_MANDATE_STATUSES
         // status the block above scans for) once RazorpayWebhookDispatcher.handleActivated actually

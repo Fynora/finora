@@ -708,6 +708,34 @@ class BillingCheckoutServiceTest {
         assertThat(dto.pendingChange()).isNull();
         assertThat(dto.pendingOrder()).isNull();
         assertThat(dto.autoRenewResumable()).isFalse(); // autoRenew is already true in this fixture
+        assertThat(dto.storePlatform()).as("a Razorpay subscription has no store").isNull();
+    }
+
+    /** The delete screens read storePlatform to say where a store subscription must be cancelled:
+     *  deleting the account cannot cancel it. */
+    @Test
+    void mySubscriptionSaysWhichStoreAStoreSubscriptionWasBoughtIn() {
+        Plan plus = new Plan();
+        ReflectionTestUtils.setField(plus, "id", planId);
+        plus.setCode("PLUS");
+        plus.setName("Plus");
+        when(planRepository.findById(planId)).thenReturn(Optional.of(plus));
+        Subscription subscription = new Subscription();
+        ReflectionTestUtils.setField(subscription, "id", UUID.randomUUID());
+        subscription.setPlanId(planId);
+        subscription.setBillingCycle("MONTHLY");
+        subscription.setStatus(Subscription.STATUS_ACTIVE);
+        subscription.setPaymentProvider("REVENUECAT");
+        subscription.setStorePlatform("ANDROID");
+        subscription.setAutoRenew(true);
+        when(subscriptionRepository.findByUserIdAndStatusIn(userId, List.of(Subscription.STATUS_ACTIVE, Subscription.STATUS_TRIAL, Subscription.STATUS_PAUSED))).thenReturn(Optional.of(subscription));
+        when(planChangeRepository.findBySubscriptionIdOrderByCreatedAtDesc(subscription.getId())).thenReturn(List.of());
+
+        var dto = service.mySubscription(userId);
+
+        assertThat(dto.paymentProvider()).isEqualTo("REVENUECAT");
+        assertThat(dto.storePlatform()).isEqualTo("ANDROID");
+        assertThat(dto.autoRenew()).isTrue();
     }
 
     private void freeUserWithPendingOrder(com.finora.entity.SubscriptionOrder pending) {

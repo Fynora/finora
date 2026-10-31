@@ -606,6 +606,7 @@ public class BillingCheckoutService {
                 plan.getCode(), plan.getName(), subscription.getBillingCycle(), subscription.getStatus(),
                 subscription.getRenewalDate(), subscription.isAutoRenew(),
                 hasBillingSubscription, pendingChange, pendingOrder,
-                subscription.getPaymentProvider(), paymentMethod, autoRenewResumable);
+                subscription.getPaymentProvider(), paymentMethod, autoRenewResumable,
+                subscription.getStorePlatform());
     }
 }

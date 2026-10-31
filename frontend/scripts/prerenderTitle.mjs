@@ -158,6 +158,32 @@ export function withLandingPath(templateHtml, route) {
 }
 
 /**
+ * Adds <script defer src="<src>"> as the first thing in the page, before the module bundle: the early
+ * copy of the sign-up capture (src/signupCapture.ts). The main bundle is large and deferred, so a
+ * prerendered page can be on screen, links and all, long before main.tsx runs; this ~1 KB classic
+ * script is fetched at the top of the head and, being deferred and earlier in the document, runs
+ * before the bundle does and without waiting for it. Without it a visitor who clicks a link in that
+ * window starts a second page load whose capture would take that page as the landing page and have no
+ * referrer. It is NOT inline: the site's CSP has no 'unsafe-inline' for scripts.
+ *
+ * Only the documents that carry a landing-path marker get it (the homepage and the other prerendered
+ * pages): the blank shell and the 404 page have no content to click in that window and no marker to
+ * read. Throws if the template already has one, like withCanonical.
+ */
+export function withEarlyCapture(templateHtml, src) {
+  if (/data-fynora-early-capture/.test(templateHtml)) {
+    throw new Error('prerender: the index.html template already has the early-capture script; it must not.');
+  }
+  if (!/^\/assets\/signup-capture-[0-9a-f]{8,}\.js$/.test(src)) {
+    throw new Error(`prerender: ${JSON.stringify(src)} is not the built early-capture script.`);
+  }
+  if (!templateHtml.includes('<title>')) throw new Error('prerender: the index.html template has no <title> to put the early-capture script before.');
+  // Before <title>: ahead of everything that can delay it, and ahead of the module bundle Vite adds
+  // later in the head (deferred scripts, module scripts included, run in document order).
+  return templateHtml.replace('<title>', () => `<script defer src="${src}" data-fynora-early-capture></script>\n  <title>`);
+}
+
+/**
  * Adds the page's JSON-LD <script> tags (src/lib/structuredData.ts, via ssr-entry) before </head>.
  * Throws if the template already carries some: the prerender runs once per route from one shared
  * template, so a block already there would be another page's.
@@ -249,15 +275,17 @@ export function withRobotsNoindex(templateHtml) {
  * withCanonical and withOgUrl refuse a template that has the tag, and the local servers (`vite dev`,
  * `wrangler dev`) still answer every unknown path with index.html.
  */
-export function templateForHomepage(templateHtml, heroFontHref) {
-  return withLandingPath(withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/'), '/');
+export function templateForHomepage(templateHtml, heroFontHref, earlyCaptureSrc) {
+  const page = withLandingPath(withOgUrl(withCanonical(withFontPreload(templateHtml, heroFontHref), '/'), '/'), '/');
+  return earlyCaptureSrc ? withEarlyCapture(page, earlyCaptureSrc) : page;
 }
 
 /** Every other prerendered page: its own title, description, social tags, canonical and og:url, and
  *  its landing-path marker. */
-export function templateForPage(templateHtml, { title, description, route }) {
-  return withLandingPath(
+export function templateForPage(templateHtml, { title, description, route, earlyCaptureSrc }) {
+  const page = withLandingPath(
     withPageMeta(withCanonical(withTitle(templateHtml, title), route), { title, description, route }), route);
+  return earlyCaptureSrc ? withEarlyCapture(page, earlyCaptureSrc) : page;
 }
 
 /**

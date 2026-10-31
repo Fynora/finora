@@ -32,6 +32,11 @@ export default function Help() {
       subtitle="Search for an answer, or browse by topic."
       description="Answers to common questions about Fynora: importing bank and card statements, categorization, budgets, goals, billing, and how to reach support."
     >
+      <p className="text-sm text-muted mb-6">
+        Not sure what a code on your bank statement means, such as NACH, IMPS or INT PD? See{' '}
+        <Link to="/bank-statement-codes" className="text-primary hover:underline">bank statement codes explained</Link>.
+      </p>
+
       <div className="relative mb-6">
         <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
         <input

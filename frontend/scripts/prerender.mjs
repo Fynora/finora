@@ -16,6 +16,7 @@ import {
   decodeEntities,
   collectionPageFile,
   heroFontAsset,
+  lastUpdatedFromMarkup,
   pageDescriptionFromMarkup,
   pageHeadingFromMarkup,
   pageTitleFromMarkup,
@@ -52,6 +53,7 @@ const OUTPUT_FILES = {
   '/trust': 'trust.html',
   '/your-data': 'your-data.html',
   '/bank-statement-to-excel': 'bank-statement-to-excel.html',
+  '/bank-statement-codes': 'bank-statement-codes.html',
 };
 
 // The not-found page. Written beside the routes above but NOT one of them: it is not in the sitemap,
@@ -143,7 +145,7 @@ async function main() {
     logLevel: 'warn',
   });
 
-  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
+  const { routes, pageCollections, notFoundPage, structuredDataFor, jsonLdScripts, llmsTxt, llmsFullTxt } = await import(pathToFileURL(path.join(ssrOutDir, 'ssr-entry.mjs')));
 
   const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
   if (!template.includes(ROOT_DIV)) {
@@ -193,7 +195,10 @@ async function main() {
     // JSON-LD for the page (Organization/WebSite/SoftwareApplication/FAQPage on the homepage,
     // breadcrumbs elsewhere, the Help articles as an FAQPage on /help). Built from the pages' own
     // data in src/lib/structuredData.ts, so it cannot say something the page does not.
-    pageTemplate = withStructuredData(pageTemplate, jsonLdScripts(structuredDataFor(route, heading)));
+    // A page whose subtitle opens "Last updated: <Month> <year>." also gets that date as its
+    // dateModified (the policy pages); every other page passes null and gets none.
+    const lastUpdated = route === '/' ? null : lastUpdatedFromMarkup(appHtml);
+    pageTemplate = withStructuredData(pageTemplate, jsonLdScripts(structuredDataFor(route, heading, lastUpdated)));
     const outHtml = pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`);
     fs.writeFileSync(path.join(distDir, fileName), outHtml);
     console.log(`prerender: ${route} -> dist/${fileName} (${appHtml.length} chars of markup)`);
@@ -210,6 +215,13 @@ async function main() {
     const pageTemplate = templateForNotFound(template, { title, description });
     fs.writeFileSync(path.join(distDir, NOT_FOUND_FILE), pageTemplate.replace(ROOT_DIV, `<div id="root">${appHtml}</div>`));
     console.log(`prerender: not-found page -> dist/${NOT_FOUND_FILE} (${appHtml.length} chars of markup)`);
+  }
+
+  // The plain-text description for AI assistants (llmstxt.org), at the site root. Built from the
+  // same copy and plan data as the pages above, so it cannot quote a price or a claim they don't.
+  for (const [fileName, text] of [['llms.txt', llmsTxt()], ['llms-full.txt', llmsFullTxt()]]) {
+    fs.writeFileSync(path.join(distDir, fileName), text);
+    console.log(`prerender: ${fileName} -> dist/${fileName} (${text.length} chars)`);
   }
 
   fs.rmSync(ssrOutDir, { recursive: true, force: true });

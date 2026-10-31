@@ -36,3 +36,29 @@ export const GRIEVANCE_OFFICER_NAME = 'Vishnu Narayan Tiwari';
  */
 export const GENERAL_EMAIL = 'admin@fynora.net'; // synthetic-ok: Finora's own general/admin mailbox, not customer PII
 export const GENERAL_MAILTO = `mailto:${GENERAL_EMAIL}`;
+
+/**
+ * The legal entity behind Fynora and its registered office, as Contact, Terms and Privacy state
+ * them. One copy, so the pages and the Organization structured data (src/lib/structuredData.ts)
+ * cannot drift apart; it was typed inline in all three pages before.
+ */
+export const LEGAL_NAME = 'Fynora Technovation LLP';
+
+export const REGISTERED_OFFICE = {
+  streetAddress: '463, Sita Ram Compound, Chaman Ganj, Sipri Bazaar',
+  addressLocality: 'Jhansi',
+  addressRegion: 'Uttar Pradesh',
+  postalCode: '284003',
+  /** ISO 3166-1 alpha-2, for structured data. */
+  addressCountry: 'IN',
+  countryName: 'India',
+} as const;
+
+/** The registered office as one line, as the pages print it. */
+export const REGISTERED_OFFICE_TEXT = [
+  REGISTERED_OFFICE.streetAddress,
+  REGISTERED_OFFICE.addressLocality,
+  REGISTERED_OFFICE.addressRegion,
+  REGISTERED_OFFICE.postalCode,
+  REGISTERED_OFFICE.countryName,
+].join(', ');

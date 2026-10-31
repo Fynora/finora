@@ -2173,6 +2173,10 @@ export interface MySubscription {
   autoRenew: boolean;
   hasBillingSubscription: boolean;
   paymentProvider: string | null;
+  // 'IOS' or 'ANDROID' for an App Store / Google Play subscription (paymentProvider REVENUECAT),
+  // null otherwise. Deleting the account cannot cancel a store subscription, so the delete
+  // screen uses this to say where to cancel it.
+  storePlatform: 'IOS' | 'ANDROID' | null;
 }
 
 // Per-user, per-feature view counts (backend FeatureUsageController) -- same two calls as

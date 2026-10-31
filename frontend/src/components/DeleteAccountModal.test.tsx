@@ -12,6 +12,10 @@ vi.mock('../api/endpoints', () => ({
   accountLifecycleApi: { deleteAccount: vi.fn() },
 }));
 
+// Has its own coverage (StoreSubscriptionDeletionWarning.test.tsx); this suite pins the deletion
+// flow itself, which renders the same with or without it.
+vi.mock('./StoreSubscriptionDeletionWarning', () => ({ StoreSubscriptionDeletionWarning: () => null }));
+
 vi.mock('../lib/phoneAuth', () => ({
   sendPhoneVerificationCode: vi.fn(),
   confirmPhoneVerificationCode: vi.fn(),

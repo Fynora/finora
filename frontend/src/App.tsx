@@ -34,6 +34,8 @@ const About = lazy(() => import('./pages/About'));
 const Careers = lazy(() => import('./pages/Careers'));
 const Help = lazy(() => import('./pages/Help'));
 const HelpArticle = lazy(() => import('./pages/HelpArticle'));
+const Banks = lazy(() => import('./pages/Banks'));
+const BankPage = lazy(() => import('./pages/BankPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const AuthEntry = lazy(() => import('./pages/AuthEntry'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
@@ -157,6 +159,10 @@ export default function App() {
           {/* One page per Help answer. Each is prerendered to dist/help/<slug>.html, so it needs no
               line in public/_redirects; an unknown slug has no file and gets the 404 page. */}
           <Route path="/help/:slug" element={<HelpArticle />} />
+          {/* One page per bank statement (src/pages/bankPages.ts), each prerendered to
+              dist/banks/<slug>.html like the Help answers; /banks is the hub that lists them. */}
+          <Route path="/banks" element={<Banks />} />
+          <Route path="/banks/:slug" element={<BankPage />} />
 
           {/* Auth */}
           <Route path="/auth" element={<AuthEntry />} />

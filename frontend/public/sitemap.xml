@@ -2,7 +2,8 @@
 <!-- The public, indexable pages only: the routes in src/App.tsx that are not behind login and not
      an auth flow. seoFiles.test.tsx fails if a URL here stops being a real route, or is disallowed
      by robots.txt. The /help/<slug> lines are the Help answers in src/pages/helpArticles.ts, one
-     each, in that file's order; seoFiles.test.tsx fails if one is missing or left over.
+     each, in that file's order; the /banks/<slug> lines are the bank statement pages in
+     src/pages/bankPages.ts, the same way. seoFiles.test.tsx fails if one is missing or left over.
      No <lastmod>: a hand-typed date goes stale and a wrong one is worse than none. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://app.fynora.net/</loc></url>
@@ -10,6 +11,7 @@
   <url><loc>https://app.fynora.net/careers</loc></url>
   <url><loc>https://app.fynora.net/contact</loc></url>
   <url><loc>https://app.fynora.net/help</loc></url>
+  <url><loc>https://app.fynora.net/banks</loc></url>
   <url><loc>https://app.fynora.net/help/what-is-fynora</loc></url>
   <url><loc>https://app.fynora.net/help/do-i-need-to-connect-my-bank-account</loc></url>
   <url><loc>https://app.fynora.net/help/what-do-i-need-to-sign-up</loc></url>
@@ -53,4 +55,16 @@
   <url><loc>https://app.fynora.net/cookie-policy</loc></url>
   <url><loc>https://app.fynora.net/refund-policy</loc></url>
   <url><loc>https://app.fynora.net/shipping-policy</loc></url>
+  <url><loc>https://app.fynora.net/banks/hdfc-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/sbi-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/bank-of-baroda-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/canara-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/hdfc-credit-card-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/icici-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/icici-credit-card-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/kotak-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/pnb-bank-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/axis-credit-card-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/kotak-credit-card-statement</loc></url>
+  <url><loc>https://app.fynora.net/banks/indusind-credit-card-statement</loc></url>
 </urlset>

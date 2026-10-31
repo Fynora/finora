@@ -130,6 +130,7 @@ export function PublicFooter() {
           <Link to="/contact" className="hover:text-ink">Contact</Link>
           <Link to="/about" className="hover:text-ink">About</Link>
           <Link to="/help" className="hover:text-ink">Help</Link>
+          <Link to="/banks" className="hover:text-ink">Bank statements</Link>
         </div>
       </div>
     </footer>

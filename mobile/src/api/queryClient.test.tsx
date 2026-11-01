@@ -25,7 +25,7 @@ jest.mock('../lib/queryCacheCipher', () => ({
 }));
 
 function blob(clientState: unknown, over: Partial<{ timestamp: number; buster: string }> = {}) {
-  return JSON.stringify({ timestamp: Date.now(), buster: '1', clientState, ...over });
+  return JSON.stringify({ timestamp: Date.now(), buster: '2', clientState, ...over });
 }
 
 // `seed` QueryClients below exist only to build a dehydrated payload -- cleared immediately after,
@@ -120,6 +120,21 @@ describe('startQueryPersistence', () => {
 
     await waitFor(async () => expect(await AsyncStorage.getItem(PERSIST_KEY)).toBeNull());
     expect(queryClient.getQueryData(['dashboard-summary'])).toBeUndefined();
+  });
+
+  it('discards a cache written under buster 1, which may hold category names where objects belong', async () => {
+    // Builds before the ImportScreen fix persisted a list of category NAMES under ['categories'];
+    // restoring it handed RecurringQuestion strings (FYNORA-MOBILE-K). Bumping the buster to '2'
+    // is what throws that cache away, so a blob still carrying '1' must not come back.
+    await AsyncStorage.setItem(
+      PERSIST_KEY,
+      blob(seededDehydratedState(['categories'], ['Rent', 'Dining']), { buster: '1' })
+    );
+
+    stopPersistence = startQueryPersistence();
+
+    await waitFor(async () => expect(await AsyncStorage.getItem(PERSIST_KEY)).toBeNull());
+    expect(queryClient.getQueryData(['categories'])).toBeUndefined();
   });
 
   it('treats restored data as stale immediately and refetches it in the background, even though it is still within staleTime', async () => {

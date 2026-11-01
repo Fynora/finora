@@ -89,7 +89,7 @@ describe('trimForPersistence', () => {
     setup(qc);
     const clientState = dehydrate(qc);
     qc.clear();
-    return { timestamp: 1, buster: '1', clientState };
+    return { timestamp: 1, buster: '2', clientState };
   }
 
   const page = (n: number) => ({ content: [{ id: `t-${n}` }], page: n, totalPages: 5 });

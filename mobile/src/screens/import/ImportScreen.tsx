@@ -346,9 +346,17 @@ export function ImportScreen() {
   const [passwordState, setPasswordState] = useState<'required' | 'invalid' | null>(null);
 
   // Non-critical: the screen still works with empty lists, just with fewer prefilled defaults.
+  //
+  // `select`, not a `.then(map)` inside queryFn: ['categories'] is one cache entry shared with the
+  // category picker, the Ledger, Reports and RecurringQuestion, which all read the full objects.
+  // This used to store just the names under that key, so after a visit here those readers got
+  // strings -- RecurringQuestion's `cat.name.toLowerCase()` threw "Cannot read property
+  // 'toLowerCase' of undefined" (FYNORA-MOBILE-K) -- and the names were also persisted to disk
+  // (categories is on the persisted allowlist) and restored on the next launch.
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => categoriesApi.list().then((cs) => cs.map((x) => x.name)),
+    queryFn: () => categoriesApi.list(),
+    select: (cs) => cs.map((x) => x.name),
   });
   const accountsQ = useQuery({
     queryKey: ['accounts'],

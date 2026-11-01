@@ -1,5 +1,6 @@
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME } from '../../lib/contact';
+import { openMailto } from '../../lib/openMailto';
 import { LegalLink } from '../LegalLink';
 import { spacing, useTheme } from '../../theme';
 
@@ -39,7 +40,7 @@ export function ConsentNotice() {
         answer, you can complain to the Data Protection Board of India.
       </Text>
       <View style={styles.links}>
-        <Pressable onPress={() => void Linking.openURL(GRIEVANCE_MAILTO)} hitSlop={6} accessibilityRole="link" style={styles.mail}>
+        <Pressable onPress={() => openMailto(GRIEVANCE_MAILTO, GRIEVANCE_EMAIL)} hitSlop={6} accessibilityRole="link" style={styles.mail}>
           <Text style={[styles.mailLabel, { color: c.primary }]}>{GRIEVANCE_EMAIL}</Text>
         </Pressable>
         <LegalLink label="Privacy Policy" path="/privacy" />

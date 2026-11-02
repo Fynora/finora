@@ -67,6 +67,11 @@ const androidGoogleServices =
 // An EAS-provided path is already absolute; only a repo-relative default needs resolving.
 const here = (p: string) => (path.isAbsolute(p) ? p : path.join(__dirname, p));
 
+// The statement file types Android may hand to Fynora, used by both entry points below: "Share"
+// (ACTION_SEND, expo-share-intent's androidIntentFilters) and "Open with" (ACTION_VIEW, the
+// content:// filter in android.intentFilters).
+const STATEMENT_MIME_TYPES = ['application/pdf', 'text/csv', 'text/comma-separated-values'];
+
 const config: ExpoConfig = {
   // Distinct on the home screen, because the whole point of the dev variant is that both are
   // installed at once and you have to be able to tell which one you just tapped.
@@ -184,6 +189,20 @@ const config: ExpoConfig = {
         ],
         category: ['BROWSABLE', 'DEFAULT'],
       },
+      // "Open with" for a statement file. Gmail's attachment viewer and the Files app open a file
+      // with ACTION_VIEW on a content:// URI, not ACTION_SEND, so without this filter Fynora is
+      // missing from their "Open with" list and the only way in was download, then Share from Files.
+      // content:// only: Android 7+ refuses to hand a file:// URI to another app.
+      // The intent is read by expo-share-intent, which only handles ACTION_SEND for files out of the
+      // box; patches/expo-share-intent+9.0.0.patch adds the ACTION_VIEW case, so the file lands in
+      // the same import flow as a share. Not BROWSABLE: a web page must not be able to fire it.
+      // MainActivity keeps this filter alone: withFestivalIconLinkFilters strips it from the icon
+      // aliases, so Android lists Fynora once.
+      {
+        action: 'VIEW',
+        data: STATEMENT_MIME_TYPES.map((mimeType) => ({ scheme: 'content', mimeType })),
+        category: ['DEFAULT'],
+      },
     ],
     // Adaptive icon: a solid graphite plate with the Finora mark as the foreground layer.
     //
@@ -262,6 +281,8 @@ const config: ExpoConfig = {
     },
   },
   plugins: [
+    // First on purpose: its manifest mod must run after expo-dev-client's (see the file).
+    './plugins/withStatementOpenWithFilter',
     'expo-secure-store',
     'expo-sharing',
     // Mobile Phase 3 (Gmail Sync). No build-time options -- lib/gmailAuth.ts calls
@@ -371,7 +392,7 @@ const config: ExpoConfig = {
         // arbitrary shared text with no result when tapped, and would never actually deliver a CSV a
         // provider happens to report as text/plain through the `files` path this feature reads.
         // Verify after any expo-share-intent upgrade against a fresh `expo prebuild` manifest.
-        androidIntentFilters: ['application/pdf', 'text/csv', 'text/comma-separated-values'],
+        androidIntentFilters: STATEMENT_MIME_TYPES,
         // iOS Share Extension. UTIs confirmed by running a Swift snippet against this machine's own
         // UniformTypeIdentifiers framework (`xcrun swift`), not taken from the library's README:
         // CSV's real system UTI is "public.comma-separated-values-text" (note the "-text" suffix --

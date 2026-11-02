@@ -39,7 +39,11 @@ describe.each(variants)('app.config.ts, $name variant', ({ name, host }) => {
   });
 
   it('claims exactly the shared path list on Android, verified, for the same origin', () => {
-    const filters = config.android?.intentFilters ?? [];
+    // The other VIEW filter is the content:// "Open with" for statement files
+    // (statementFileEntryPoints.test.ts); only https filters claim web links.
+    const filters = (config.android?.intentFilters ?? []).filter((f) =>
+      (Array.isArray(f.data) ? f.data : [f.data]).some((d) => d?.scheme === 'https'),
+    );
     expect(filters).toHaveLength(1);
     const [filter] = filters;
     expect(filter.autoVerify).toBe(true);

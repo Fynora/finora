@@ -1,0 +1,81 @@
+diff --git a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+index ff5b100..c619d3c 100644
+--- a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
++++ b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+@@ -121,8 +121,14 @@ class ExpoShareIntentModule : Module() {
+                 activity.finish()
+                 return
+             }
+-            if (intent.type == null) return
+-            if (intent.type!!.startsWith("text/plain")) {
++            // Fynora patch: an "Open with" may carry only the content:// URI, leaving the type for
++            // the receiver to resolve (the manifest filter already matched on the resolved type).
++            val data = intent.data
++            val type = intent.type ?: if (intent.action == Intent.ACTION_VIEW && data != null && data.scheme == "content") {
++                (instance?.currentActivity?.contentResolver ?: instance?.context?.contentResolver)?.getType(data)
++            } else null
++            if (type == null) return
++            if (type.startsWith("text/plain")) {
+                 // text / urls
+                 if (intent.action == Intent.ACTION_SEND) {
+                     notifyShareIntent(mapOf(
+@@ -153,6 +159,19 @@ class ExpoShareIntentModule : Module() {
+                     } else {
+                         notifyError("empty uris array for file sharing: " + intent.action)
+                     }
++                } else if (intent.action == Intent.ACTION_VIEW) {
++                    // Fynora patch: "Open with" (e.g. a Gmail attachment) hands the file as the
++                    // intent's data URI rather than EXTRA_STREAM. Read it now, while this activity
++                    // still holds the sender's read grant; getFileInfo copies it into the cache.
++                    if (data != null && data.scheme == "content") {
++                        try {
++                            notifyShareIntent(mapOf("files" to arrayOf(getFileInfo(data)), "type" to "file"))
++                        } catch (e: Exception) {
++                            notifyError("cannot read opened file: " + e.message)
++                        }
++                    } else {
++                        notifyError("unsupported uri for file opening: " + data?.scheme)
++                    }
+                 } else {
+                     notifyError("Invalid action for file sharing: " + intent.action)
+                 }
+@@ -182,7 +201,7 @@ class ExpoShareIntentModule : Module() {
+         AsyncFunction("getShareIntent") { _: String ->
+             // get the Intent from onCreate activity (app not running in background)
+             ExpoShareIntentSingleton.isPending = false
+-            if (ExpoShareIntentSingleton.intent?.type != null) {
++            if (ExpoShareIntentSingleton.isShareOrOpenFile(ExpoShareIntentSingleton.intent)) {
+                 handleShareIntent(ExpoShareIntentSingleton.intent!!);
+                 ExpoShareIntentSingleton.intent = null
+             }
+diff --git a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentReactActivityLifecycleListener.kt b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentReactActivityLifecycleListener.kt
+index db573ec..daea187 100644
+--- a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentReactActivityLifecycleListener.kt
++++ b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentReactActivityLifecycleListener.kt
+@@ -14,7 +14,7 @@ class ExpoShareIntentReactActivityLifecycleListener(activityContext: Context) :
+ 
+     override fun onCreate(activity: Activity?, savedInstanceState: Bundle?) {
+         // only store when the new intent is not empty
+-        if (activity?.intent?.type != null) {
++        if (ExpoShareIntentSingleton.isShareOrOpenFile(activity?.intent)) {
+             ExpoShareIntentSingleton.intent = activity?.intent
+             ExpoShareIntentSingleton.isPending = true
+         }
+diff --git a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentSingleton.kt b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentSingleton.kt
+index 7f93abe..43b6386 100644
+--- a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentSingleton.kt
++++ b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentSingleton.kt
+@@ -12,4 +12,12 @@ object ExpoShareIntentSingleton : SingletonModule {
+   // members to store the initial launch intent
+   var intent: Intent? = null
+   var isPending: Boolean = false
++
++  // Fynora patch: a share (has a mime type) or an "Open with" of a file (ACTION_VIEW on a
++  // content:// URI, whose type may be left for the receiver to resolve).
++  fun isShareOrOpenFile(intent: Intent?): Boolean {
++    if (intent == null) return false
++    if (intent.type != null) return true
++    return intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "content"
++  }
+ }
+\ No newline at end of file

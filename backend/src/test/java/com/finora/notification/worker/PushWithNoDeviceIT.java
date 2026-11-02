@@ -56,6 +56,7 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
     @Autowired private PushTokenRevocations revocations;
     @Autowired private WorkerObservability observability;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private com.finora.notification.api.NotificationPreferenceResolver preferenceResolver;
     @Autowired private UserRepository userRepository;
 
     @Test
@@ -109,7 +110,7 @@ class PushWithNoDeviceIT extends AbstractIntegrationTest {
         FcmPushProvider push = new FcmPushProvider(deviceTokenService, mock(FcmMessageSender.class),
                 revocations);
         NotificationDispatcher dispatcher = new NotificationDispatcher(notificationRepository,
-                logRepository, List.of(push, email), observability, transactionManager);
+                logRepository, List.of(push, email), observability, transactionManager, preferenceResolver);
 
         for (int pass = 0; pass < 20; pass++) {
             if (statusOf(requestKey, NotificationChannel.PUSH).isTerminal()

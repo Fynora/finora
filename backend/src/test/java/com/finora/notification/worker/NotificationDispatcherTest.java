@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.finora.notification.api.NotificationPreferenceResolver;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
@@ -58,6 +59,7 @@ class NotificationDispatcherTest {
     private NotificationChannelProvider emailProvider;
     private WorkerObservability observability;
     private PlatformTransactionManager transactionManager;
+    private NotificationPreferenceResolver preferences;
     private NotificationDispatcher dispatcher;
 
     private Notification pending;
@@ -69,6 +71,8 @@ class NotificationDispatcherTest {
         emailProvider = mock(NotificationChannelProvider.class);
         observability = mock(WorkerObservability.class);
         transactionManager = mock(PlatformTransactionManager.class);
+        preferences = mock(NotificationPreferenceResolver.class);
+        when(preferences.isEnabled(any(), any(), any())).thenReturn(true);
 
         when(observability.beginScheduled(any(), any())).thenReturn(mock(WorkerExecution.class));
         when(observability.begin(any(), any())).thenReturn(mock(WorkerExecution.class));
@@ -86,7 +90,48 @@ class NotificationDispatcherTest {
         when(repository.findOldestPendingAt()).thenReturn(Optional.empty());
 
         dispatcher = new NotificationDispatcher(repository, logRepository, List.of(emailProvider),
-                observability, transactionManager);
+                observability, transactionManager, preferences);
+    }
+
+    /** The preference was only checked when a row was queued. A campaign is queued for everyone at
+     *  once and sent at the dispatcher's pace, and a failed send retries for about half an hour, so
+     *  a user who switched the category off (or stepped away) in between was still sent it. */
+    @Test
+    void drainOnce_aNotificationSwitchedOffAfterItWasQueued_isWithdrawnWithoutCallingTheProvider() {
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(preferences.isEnabled(pending.getUserId(), NotificationCategory.FINANCIAL, NotificationChannel.EMAIL))
+                .thenReturn(false);
+
+        dispatcher.drainOnce();
+
+        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.CANCELLED);
+        assertThat(pending.getSentAt()).isNull();
+        assertThat(pending.getLastError()).contains("switched off");
+        verify(emailProvider, org.mockito.Mockito.never()).send(any());
+    }
+
+    @Test
+    void drainOnce_checksTheRowsOwnUserCategoryAndChannel_andStillSendsWhenOn() {
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(emailProvider.send(any())).thenReturn(ChannelSendResult.success("resend", "ok"));
+
+        dispatcher.drainOnce();
+
+        verify(preferences).isEnabled(pending.getUserId(), NotificationCategory.FINANCIAL, NotificationChannel.EMAIL);
+        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.SENT);
+    }
+
+    /** A failure to read the preference sends anyway: it was on when the row was queued, and
+     *  silently dropping a statement-ready email is the worse outcome. */
+    @Test
+    void drainOnce_aPreferenceLookupThatThrows_stillSends() {
+        when(repository.claimDue(any(), anyInt())).thenReturn(List.of(pending));
+        when(preferences.isEnabled(any(), any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(emailProvider.send(any())).thenReturn(ChannelSendResult.success("resend", "ok"));
+
+        dispatcher.drainOnce();
+
+        assertThat(pending.getStatus()).isEqualTo(NotificationStatus.SENT);
     }
 
     @Test
@@ -389,7 +434,7 @@ class NotificationDispatcherTest {
         WorkerObservability obs = mock(WorkerObservability.class);
         when(obs.begin(any(), any())).thenReturn(execution);
         when(obs.beginScheduled(any(), any())).thenReturn(execution);
-        return new NotificationDispatcher(repository, logRepository, List.of(push), obs, transactionManager);
+        return new NotificationDispatcher(repository, logRepository, List.of(push), obs, transactionManager, preferences);
     }
 
     private Notification pushNotification(NotificationType type) {
@@ -470,7 +515,7 @@ class NotificationDispatcherTest {
         WorkerObservability obs = mock(WorkerObservability.class);
         when(obs.begin(any(), any())).thenReturn(execution);
         NotificationDispatcher d = new NotificationDispatcher(repository, logRepository, List.of(push),
-                obs, transactionManager);
+                obs, transactionManager, preferences);
 
         d.drainOnce();
 

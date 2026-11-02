@@ -1071,12 +1071,12 @@ public class CategorizationService {
         if (existing.isPresent()) {
             return existing.get();
         }
-        Category c = new Category();
-        c.setUserId(userId);
-        c.setName(safeName);
-        c.setSystem(false);
-        c.setAiCreationReason(aiCreationReason);
-        return categoryRepository.save(c);
+        // Insert-if-absent, then read back: two requests creating the same new category at once
+        // used to lose all but one to a 409 (CategoryRepository#insertIfAbsent). A request that loses
+        // the race gets the winner's row, without its own AI reason: it did not create it.
+        categoryRepository.insertIfAbsent(userId, safeName, aiCreationReason);
+        return findCategoryNamed(userId, safeName)
+                .orElseThrow(() -> new IllegalStateException("Category not found right after it was created"));
     }
 
     /**

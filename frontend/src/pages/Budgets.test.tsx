@@ -7,7 +7,7 @@ import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints
 import type { Budget } from '../types';
 
 vi.mock('../api/endpoints', () => ({
-  budgetsApi: { list: vi.fn(), upsert: vi.fn() },
+  budgetsApi: { list: vi.fn(), upsert: vi.fn(), remove: vi.fn() },
   categoriesApi: { list: vi.fn() },
 }));
 
@@ -223,5 +223,42 @@ describe('Budgets', () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText('Could not load budgets.')).toBeInTheDocument());
+  });
+
+  it('removes a budget after the user confirms, then reloads the list', async () => {
+    vi.mocked(budgetsApi.list)
+      .mockResolvedValueOnce([budget({ id: 'b1', categoryName: 'Dining' })])
+      .mockResolvedValueOnce([]);
+    vi.mocked(budgetsApi.remove).mockResolvedValue({} as never);
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    expect(screen.getByText('Remove the Dining budget?')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => expect(budgetsApi.remove).toHaveBeenCalledWith('b1'));
+    expect(await screen.findByText('No budgets set')).toBeInTheDocument();
+  });
+
+  it('does not remove anything when the user cancels', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ id: 'b1', categoryName: 'Dining' })]);
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(budgetsApi.remove).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId('budget-row')).toHaveLength(1);
+  });
+
+  it('shows the server\'s message when removing fails', async () => {
+    vi.mocked(budgetsApi.list).mockResolvedValue([budget({ id: 'b1', categoryName: 'Dining' })]);
+    vi.mocked(budgetsApi.remove).mockRejectedValue({ response: { data: { message: 'No such budget.' } } });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove the Dining budget' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(await screen.findByText('No such budget.')).toBeInTheDocument();
   });
 });

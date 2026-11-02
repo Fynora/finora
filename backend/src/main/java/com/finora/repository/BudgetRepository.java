@@ -14,6 +14,25 @@ public interface BudgetRepository extends JpaRepository<Budget, UUID> {
     List<Budget> findByUserId(UUID userId);
     Optional<Budget> findByUserIdAndCategoryId(UUID userId, UUID categoryId);
 
+    /**
+     * Sets a category's monthly limit in one statement. UNIQUE(user_id, category_id) also covers
+     * soft-deleted rows, so a find-then-insert broke twice: a removed budget could never be set again
+     * for that category, and two saves of the same new budget at once lost one to a 409. A removed
+     * row is brought back with the new limit.
+     */
+    // Its own transaction when the caller has none (save() used to give it one); joins the caller's otherwise.
+    @org.springframework.transaction.annotation.Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO budgets (id, user_id, category_id, monthly_limit, version, created_at, updated_at)
+            VALUES (gen_random_uuid(), :userId, :categoryId, :monthlyLimit, 0, now(), now())
+            ON CONFLICT (user_id, category_id) DO UPDATE
+               SET monthly_limit = EXCLUDED.monthly_limit, deleted_at = NULL,
+                   version = budgets.version + 1, updated_at = now()
+            """, nativeQuery = true)
+    int upsertLimit(@Param("userId") UUID userId, @Param("categoryId") UUID categoryId,
+                    @Param("monthlyLimit") java.math.BigDecimal monthlyLimit);
+
     /** D-27 PR3-D: the "first budget" activation-funnel stage -- how many distinct users have
      *  EVER created a budget. Native, deliberately bypassing {@code @SQLRestriction
      *  ("deleted_at IS NULL")} (same bypass {@code hardDeleteByUserId} above already uses, for a

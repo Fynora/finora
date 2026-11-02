@@ -819,6 +819,39 @@ class CategorizationServiceTest {
         assertThat(result).isEqualTo(merchantId);
     }
 
+    /** Stands in for the database: insertIfAbsent stores the row, the name lookup then finds it. */
+    private void createsOnInsert(String name) {
+        List<Category> stored = new java.util.ArrayList<>();
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, name))
+                .thenAnswer(inv -> List.copyOf(stored));
+        when(categoryRepository.insertIfAbsent(eq(userId), eq(name), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenAnswer(inv -> {
+                    Category c = new Category();
+                    c.setUserId(userId);
+                    c.setName(name);
+                    c.setAiCreationReason(inv.getArgument(2));
+                    stored.add(c);
+                    return 1;
+                });
+    }
+
+    /** Two requests creating one new category at once: the loser's insert does nothing, and it gets
+     *  the winner's row rather than a 409 (CategoryRepository#insertIfAbsent). */
+    @Test
+    void resolveOrCreateCategory_losingTheCreateRace_returnsTheWinnersRow() {
+        Category winners = new Category();
+        winners.setUserId(userId);
+        winners.setName("Plants");
+        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Plants"))
+                .thenReturn(List.of()).thenReturn(List.of(winners));
+        when(categoryRepository.insertIfAbsent(userId, "Plants", "a reason")).thenReturn(0);
+
+        Category result = categorizationService.resolveOrCreateCategory(userId, "Plants", "a reason");
+
+        assertThat(result).isSameAs(winners);
+        assertThat(result.getAiCreationReason()).isNull();
+    }
+
     @Test
     void resolveOrCreateCategory_returnsExisting_whenNameAlreadyExists() {
         Category existing = new Category();
@@ -830,24 +863,24 @@ class CategorizationServiceTest {
 
         assertThat(result).isSameAs(existing);
         verify(categoryRepository, never()).save(any());
+        verify(categoryRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
     void resolveOrCreateCategory_createsNew_whenNameDoesNotExist() {
-        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Custom Category")).thenReturn(List.of());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        createsOnInsert("Custom Category");
 
         Category result = categorizationService.resolveOrCreateCategory(userId, "Custom Category");
 
         assertThat(result.getName()).isEqualTo("Custom Category");
         assertThat(result.isSystem()).isFalse();
-        verify(categoryRepository).save(any(Category.class));
+        verify(categoryRepository).insertIfAbsent(userId, "Custom Category", null);
+        verify(categoryRepository, never()).save(any());
     }
 
     @Test
     void resolveOrCreateCategory_newName_withReason_setsReason() {
-        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Pet Care")).thenReturn(List.of());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        createsOnInsert("Pet Care");
 
         Category created = categorizationService.resolveOrCreateCategory(userId, "Pet Care", "Pet store, no existing match");
 
@@ -869,8 +902,7 @@ class CategorizationServiceTest {
 
     @Test
     void resolveOrCreateCategory_twoArgOverload_stillWorksUnchanged() {
-        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Groceries")).thenReturn(List.of());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        createsOnInsert("Groceries");
 
         Category created = categorizationService.resolveOrCreateCategory(userId, "Groceries");
 
@@ -889,8 +921,7 @@ class CategorizationServiceTest {
     void resolveOrCreateCategory_truncatesAnOversizedName_ratherThanFailingTheInsert() {
         String oversized = "x".repeat(100);
         String truncated = "x".repeat(80);
-        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, truncated)).thenReturn(List.of());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        createsOnInsert(truncated);
 
         Category result = categorizationService.resolveOrCreateCategory(userId, oversized);
 
@@ -901,8 +932,7 @@ class CategorizationServiceTest {
     @Test
     void resolveOrCreateCategory_trimsSurroundingWhitespace_beforeCheckingLength() {
         String padded = " ".repeat(5) + "Dining" + " ".repeat(5);
-        when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of());
-        when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        createsOnInsert("Dining");
 
         Category result = categorizationService.resolveOrCreateCategory(userId, padded);
 

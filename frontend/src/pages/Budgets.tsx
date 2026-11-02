@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
-import { PiggyBank, Wallet, CheckCircle2, CalendarClock, PieChart } from 'lucide-react';
+import { PiggyBank, Wallet, CheckCircle2, CalendarClock, PieChart, Trash2 } from 'lucide-react';
 import { budgetsApi, categoriesApi, type CategoryOption } from '../api/endpoints';
 import type { Budget } from '../types';
-import { FinoraCard, EmptyState, Button, Skeleton, MetricCard, Badge, SectionHeader, ChartContainer, baseChartOptions } from '../design-system';
+import { FinoraCard, EmptyState, Button, IconButton, ConfirmDialog, Skeleton, MetricCard, Badge, SectionHeader, ChartContainer, baseChartOptions } from '../design-system';
 import { useDelayedLoading } from '../hooks/useDelayedLoading';
 import { ICON_COMPONENTS, COLOR_HEX } from '../lib/categoryIcons';
 
@@ -36,6 +36,8 @@ export default function Budgets() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<Budget | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   // Bug fix: this page had no loading flag at all -- `budgets` started `[]`, which is
   // indistinguishable from "genuinely no budgets set," so the EmptyState rendered immediately on
   // every mount and then popped to real content once the fetch resolved. `loading` now gates the
@@ -101,6 +103,23 @@ export default function Budgets() {
       setError(e.response?.data?.message ?? 'Could not save this budget. Try again.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function remove(budget: Budget) {
+    setError(null);
+    setRemovingId(budget.id);
+    try {
+      await budgetsApi.remove(budget.id);
+      load();
+      // Same caches as a save: the Dashboard's budget widget and notices, and the checklist.
+      void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      void queryClient.invalidateQueries({ queryKey: ['onboarding'] });
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Could not remove this budget. Try again.');
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -216,6 +235,16 @@ export default function Budgets() {
                   </div>
                   <span className="w-36 flex-shrink-0 text-right">{fmt(b.spentThisMonth)} / {fmt(b.monthlyLimit)}</span>
                   <Badge tone={status.tone} label={status.label} className="flex-shrink-0" />
+                  <IconButton
+                    variant="danger"
+                    size="sm"
+                    icon={<Trash2 size={14} />}
+                    aria-label={`Remove the ${b.categoryName} budget`}
+                    title="Remove budget"
+                    onClick={() => setConfirmRemove(b)}
+                    loading={removingId === b.id}
+                    className="flex-shrink-0"
+                  />
                 </div>
               );
             })
@@ -253,6 +282,21 @@ export default function Budgets() {
           </ChartContainer>
         </FinoraCard>
       </div>
+
+      {confirmRemove && (
+        <ConfirmDialog
+          title={`Remove the ${confirmRemove.categoryName} budget?`}
+          message="Your transactions stay as they are. You can set a budget for this category again at any time."
+          confirmLabel="Remove"
+          danger
+          onConfirm={() => {
+            const budget = confirmRemove;
+            setConfirmRemove(null);
+            void remove(budget);
+          }}
+          onCancel={() => setConfirmRemove(null)}
+        />
+      )}
     </div>
   );
 }

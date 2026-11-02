@@ -7,10 +7,11 @@ import { budgetsApi, categoriesApi } from '../api/endpoints';
 import { currentYearMonth, monthDateRange, monthLabel } from '../lib/format';
 import { hapticError, hapticSuccess, hapticWarning } from '../lib/haptics';
 import type { Budget } from '../types';
+import { AppAlert } from '../lib/appAlert';
 import { expectSkeletonNotSpinner, never } from '../test/loadingStates';
 
 jest.mock('../api/endpoints', () => ({
-  budgetsApi: { list: jest.fn(), upsert: jest.fn() },
+  budgetsApi: { list: jest.fn(), upsert: jest.fn(), remove: jest.fn() },
   categoriesApi: { list: jest.fn() },
 }));
 
@@ -45,6 +46,7 @@ describe('BudgetsScreen', () => {
   beforeEach(() => {
     api.list.mockReset().mockResolvedValue(budgets);
     api.upsert.mockReset().mockResolvedValue(budgets[0]);
+    api.remove.mockReset().mockResolvedValue({} as never);
     categories.list.mockReset().mockResolvedValue([
       { id: 'c-1', name: 'Groceries', isSystem: true, icon: 'shopping-cart', color: 'green' },
       { id: 'c-2', name: 'Dining', isSystem: true, icon: 'utensils', color: 'orange' },
@@ -253,5 +255,54 @@ describe('BudgetsScreen first load', () => {
     api.list.mockReturnValue(never());
     renderScreen();
     expectSkeletonNotSpinner();
+  });
+});
+
+describe('BudgetsScreen — removing a budget', () => {
+  beforeEach(() => {
+    api.list.mockReset().mockResolvedValue(budgets);
+    api.remove.mockReset().mockResolvedValue({} as never);
+    categories.list.mockReset().mockResolvedValue([]);
+  });
+
+  it('asks first, then removes that budget and refreshes the list', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Remove the Dining budget'));
+    expect(alertSpy.mock.calls[0][0]).toBe('Remove the Dining budget?');
+    expect(api.remove).not.toHaveBeenCalled();
+
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Remove')!.onPress!(); });
+
+    await waitFor(() => expect(api.remove).toHaveBeenCalledWith('b-2'));
+    await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
+    expect(hapticSuccess).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  it('a removal the server refuses shows its message', async () => {
+    api.remove.mockRejectedValueOnce(new Error('down'));
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Remove the Groceries budget'));
+    const buttons = alertSpy.mock.calls[0][2]!;
+    await act(async () => { buttons.find((b) => b.text === 'Remove')!.onPress!(); });
+
+    expect(await screen.findByText('Could not remove this budget. Try again.')).toBeTruthy();
+    expect(hapticError).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  it('pressing Remove does not also open the transactions', async () => {
+    const alertSpy = jest.spyOn(AppAlert, 'alert').mockImplementation(() => {});
+    renderScreen();
+    const removeButton = await screen.findByLabelText('Remove the Dining budget');
+    const { navigate } = useNavigation<never>() as unknown as { navigate: jest.Mock };
+    navigate.mockClear();
+    fireEvent.press(removeButton);
+
+    expect(navigate).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
   });
 });

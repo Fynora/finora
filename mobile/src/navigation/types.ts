@@ -215,7 +215,8 @@ export type AppTabParamList = {
   Import:
     | { reimport?: ReimportParams; sharedFile?: SharedStatementFile; sharedFileError?: SharedStatementError }
     | undefined;
-  Insights: undefined;
+  // Set only when Import's Done step sends the person to one month; nonce re-applies a repeat visit.
+  Insights: { month?: string; nonce?: number } | undefined;
   // NavigatorScreenParams (not plain `undefined`, though nothing pushes a param onto it directly
   // today) is what tells React Navigation's linking types that this tab hosts a nested navigator
   // with MoreStackParamList's own routes -- RootNavigator's `linking` config needs this to type

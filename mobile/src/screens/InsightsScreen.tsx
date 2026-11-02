@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppRefreshControl } from '../components/AppRefreshControl';
@@ -72,10 +72,40 @@ export function InsightsScreen() {
   // This IS the Tab.Navigator's navigation: Transactions and Import are direct navigates, a screen
   // in the More stack is navigate('More', { screen }).
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  // Set only when another screen sends the person to one month (Import's Done step).
+  const params = useRoute<RouteProp<AppTabParamList, 'Insights'>>().params;
 
   // `undefined` = no pick yet, the server's newest month. The literal ['insights'] key until a pick
   // is shared with the Dashboard's own insights query, so opening this screen costs no extra call.
-  const [month, setMonth] = useState<string | undefined>(undefined);
+  const [month, setMonth] = useState<string | undefined>(() => params?.month);
+  // The tab stays mounted, so a later visit arrives as new params on this same screen: each
+  // nonce is applied once, during render (React's "adjusting state when a prop changes").
+  const [seenNonce, setSeenNonce] = useState(params?.nonce);
+  // A month another screen sent is for that visit only. Set while it is still showing; cleared
+  // when the person picks a month themselves (theirs stays, as any pick does).
+  const [sentMonth, setSentMonth] = useState<string | undefined>(() => params?.month);
+  if (params?.nonce !== undefined && params.nonce !== seenNonce) {
+    setSeenNonce(params.nonce);
+    if (params.month) {
+      setMonth(params.month);
+      setSentMonth(params.month);
+    }
+  }
+  // Read on leaving, so the focus callback below can stay the same function for the whole visit.
+  const sentMonthRef = useRef(sentMonth);
+  useEffect(() => {
+    sentMonthRef.current = sentMonth;
+  }, [sentMonth]);
+  // Leaving after a sent visit: back to the newest month, and the params cleared so nothing
+  // re-applies them later.
+  useFocusEffect(
+    useCallback(() => () => {
+      if (sentMonthRef.current === undefined) return;
+      setMonth(undefined);
+      setSentMonth(undefined);
+      navigation.setParams({ month: undefined, nonce: undefined });
+    }, [navigation]),
+  );
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
 
   const insightsQ = useQuery({
@@ -536,7 +566,10 @@ export function InsightsScreen() {
         selected={monthLong}
         onSelect={(label) => {
           const picked = monthOptions.find((m) => monthLabelLong(m) === label);
-          if (picked) setMonth(picked);
+          if (picked) {
+            setMonth(picked);
+            setSentMonth(undefined);
+          }
           setMonthPickerOpen(false);
         }}
         onClose={() => setMonthPickerOpen(false)}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View
 } from 'react-native';
 import { AppSwitch } from '../../components/AppSwitch';
 import { AppAlert } from '../../lib/appAlert';
@@ -37,7 +37,18 @@ import {
 } from '../../api/importFailureMessages';
 import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
-import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
+import { fmtCurrency, fmtDate, fmtRelativeTime, toLocalDateString } from '../../lib/format';
+import { qualifiesForMonths } from '../../lib/statementMonths';
+import {
+  categoryGuessCount, fileIntoCollapsed, importBarMessage, questionRows, undismissedFlagCount,
+} from '../../lib/importQuestions';
+import { doneCountsLine, statementMonthOf } from '../../lib/importDone';
+import { SkeletonBox, SkeletonGroup } from '../../components/skeletons/Skeletons';
+import { DoneChanges } from './DoneChanges';
+import { FoldLine } from './FoldLine';
+import { ImportBar } from './ImportBar';
+import { ReviewSummary } from './ReviewSummary';
+import { YourStatements } from './YourStatements';
 import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
@@ -92,10 +103,19 @@ function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
 // register as a real confirmation, short enough not to feel like a delay.
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
+/**
+ * iOS's first accessibility text size (AX1, about 1.65x). From here, both seen on the simulator at
+ * the largest size: the pinned Import bar covered half the screen, so it sits at the end of the
+ * list instead; and Review/Discard squeezed a waiting statement's name to nothing, so they go under
+ * it. Up to XXXL (about 1.35x) both keep their standard layout.
+ */
+const ACCESSIBILITY_TEXT_FONT_SCALE = 1.6;
+
 export function ImportScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
+  const accessibilityText = useWindowDimensions().fontScale >= ACCESSIBILITY_TEXT_FONT_SCALE;
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
@@ -113,6 +133,12 @@ export function ImportScreen() {
   const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
   // Gate 2b spec §7: the "My statement is on my computer" sheet.
   const [sendFromComputerOpen, setSendFromComputerOpen] = useState(false);
+  // Idea B: "From your email" opens the share-sheet hint in place.
+  const [emailHintOpen, setEmailHintOpen] = useState(false);
+  // Idea B: Quick sort's waiting count on the done step, so "See Insights" leads when it is 0.
+  // Null until Quick sort answers: the main-button spot waits rather than showing one button
+  // and swapping it for another a moment later.
+  const [quickSortCount, setQuickSortCount] = useState<number | null>(null);
   // A send code still unused after its sheet closed, watched by WaitingForComputerFile. `code` is
   // known only when this screen saw it; after a restart the server can say a code is waiting but
   // not what it was.
@@ -363,6 +389,8 @@ export function ImportScreen() {
     queryFn: () => accountsApi.list(),
   });
   const existingAccounts = accountsQ.data ?? [];
+  // Idea B: someone with a statement account sees "Your statements" instead of the first-statement lead.
+  const hasStatementAccounts = existingAccounts.some(qualifiesForMonths);
   // An empty list and a list that failed to load are the same [] -- and here the difference
   // decides where a statement gets filed. With the list unavailable, matchExistingAccount finds
   // nothing, the flow silently defaults to "A new account" with the detected name prefilled, and
@@ -399,6 +427,26 @@ export function ImportScreen() {
       return review.decisions[i] === 'unresolved' ? Math.max(total - 1, 0) : total;
     });
   }, [rows, review.decisions]);
+
+  // Idea B (spec 2026-11-02, Step 2). Marked rows the person said look right (kept on this phone
+  // only, never sent), whether the full row list is open, whether "File into" was opened by hand,
+  // and the pinned bar's height (the list pads by it so the last row and Cancel stay reachable).
+  // All of it belongs to one statement: a new set of rows starts over.
+  const [dismissedFlags, setDismissedFlags] = useState<ReadonlySet<number>>(() => new Set());
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [fileIntoOpen, setFileIntoOpen] = useState(false);
+  const [barHeight, setBarHeight] = useState(0);
+  const listRef = useRef<FlatList<number>>(null);
+  const needYouY = useRef(0);
+  // Adjusted during render rather than in an effect (React's "adjusting state when a prop
+  // changes"): a new set of rows is a new statement, so its view starts over before it paints.
+  const [viewRows, setViewRows] = useState(rows);
+  if (viewRows !== rows) {
+    setViewRows(rows);
+    setDismissedFlags(new Set());
+    setShowAllRows(false);
+    setFileIntoOpen(false);
+  }
 
   /**
    * Arriving from "Re-import" on the Statement History screen: the rows were already staged there,
@@ -480,6 +528,8 @@ export function ImportScreen() {
 
   function resetToUpload() {
     setStep('upload');
+    // The next import's done step asks Quick sort again.
+    setQuickSortCount(null);
     setError(null);
     setAskMoment(null);
     // A new import is a new attempt, never a retry of the last one.
@@ -973,6 +1023,17 @@ export function ImportScreen() {
     ? sameBankAccounts(accountForm.bankId, accountForm.accountType, detected?.accountNumberMasked, existingAccounts)
     : [];
 
+  // Idea B: "File into" can be one line only while its form asks nothing -- an account picked,
+  // nothing invalid, and neither the amount-owed question nor the holder switch on show (folding
+  // would hide a question the screen means to ask). Once the form has been open for a statement it
+  // stays open: picking an account inside it must not snap it shut under the person's finger.
+  const fileIntoFoldable = fileIntoCollapsed({
+    isReimport: reimport !== null, accountChoice, selectedAccountId, amountOwedInvalid, newAccountBankMissing,
+  }) && !askAmountOwed && !holderClaimAvailable();
+  // Same during-render adjustment as viewRows above: the first render that needs the form open
+  // marks it open, and nothing marks it shut again until a new statement arrives.
+  if (!fileIntoFoldable && !fileIntoOpen && viewRows === rows) setFileIntoOpen(true);
+
   function chooseNewAccountBank(bank: BankOption) {
     setNewAccountBank(bank);
     setAccountForm((f) => ({ ...f, bankId: bank.id, name: nameAfterBankChoice(f.name, nameEdited, bank) }));
@@ -1075,7 +1136,13 @@ export function ImportScreen() {
 
   const header = (
     <View>
-      <Text style={[styles.title, { color: c.ink }]}>Import</Text>
+      <Text accessibilityRole="header" style={[styles.title, { color: c.ink }]}>
+        {step === 'review'
+          ? 'Check your statement'
+          : step === 'summary' && summary
+            ? `Imported ${summary.imported} transaction${summary.imported === 1 ? '' : 's'}`
+            : 'Import'}
+      </Text>
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
           <Text style={[styles.errorText, { color: c.dangerInk }]}>{error}</Text>
@@ -1126,13 +1193,14 @@ export function ImportScreen() {
               {unfinished.map((sess) => (
                 <View
                   key={sess.id}
-                  style={[styles.unfinishedRow, { borderBottomColor: c.border }]}
+                  testID={`ready-row-${sess.id}`}
+                  style={[styles.unfinishedRow, accessibilityText && styles.unfinishedRowStacked, { borderBottomColor: c.border }]}
                 >
                   <View style={styles.unfinishedMain}>
-                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={largeText ? undefined : 1}>
                       {sess.fileName}
                     </Text>
-                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                       {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
                       {expiresInLabel(sess.expiresAt)}
                     </Text>
@@ -1202,33 +1270,26 @@ export function ImportScreen() {
               />
             </>
           ) : (
+          <>
+          {/* Idea B (spec 2026-11-02, Step 1): which months each statement account already has,
+              and which statement comes next. Only while nothing is being imported. */}
+          {uploadProgress === null ? <YourStatements accounts={existingAccounts} today={toLocalDateString(new Date())} /> : null}
           <Card>
             <SectionHeading title="Import a statement" />
-            {uploadProgress === null && (
+            {uploadProgress === null && !hasStatementAccounts && (
               // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+              // Idea B: only for someone with no statement account yet -- "Your statements" above
+              // says which statement to add for everyone else.
               <Text testID="first-ask" style={[styles.body, { color: c.ink }]}>
                 <Text style={{ fontWeight: '700' }}>Start with one statement:</Text> last month, from the account you use most.
               </Text>
             )}
-            {uploadProgress === null && (
+            {uploadProgress === null && !hasStatementAccounts && (
               // Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named.
               <Text style={[styles.helpText, { color: c.muted }]}>
                 No bank statement to hand? A credit card statement works too.
               </Text>
             )}
-            <Text style={[styles.body, { color: c.muted }]}>
-              Choose a CSV or PDF statement from your bank. You'll review every transaction before
-              anything is added.
-            </Text>
-            {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's identical
-                dropzone caption -- the parser reads a PDF's own embedded text, not pixels, so a
-                scanned/photographed statement (no selectable text) silently produces zero rows.
-                Said up front rather than left to be discovered as a confusing empty review step. */}
-            <Text style={[styles.helpText, { color: c.muted }]}>
-              PDF support covers digital, text-based statements for now — a scanned or
-              photographed PDF won't have selectable text for us to read, so those still need a
-              CSV export instead.
-            </Text>
 
             {showPasswordPanel ? null : (
               <>
@@ -1237,22 +1298,35 @@ export function ImportScreen() {
                   progress={uploadProgress ?? 0}
                   idle={<Button label="Choose a file" onPress={handlePick} />}
                 />
-                {/* Gate 2b (spec §3): most statements arrive by email, and the share sheet is the
-                    shortest way in -- Android's intent filters and the iOS Share Extension already
-                    accept one PDF or CSV (app.config.ts), but nothing said so. */}
+                {/* Idea B: the other ways in, one tap each. Gate 2b (spec §3): most statements
+                    arrive by email, and the share sheet is the shortest way in -- Android's intent
+                    filters and the iOS Share Extension already accept one PDF or CSV
+                    (app.config.ts). Gate 2b spec §7: a code to type into app.fynora.net/send, only
+                    where queued uploads are on -- the file from the computer goes through the queue.
+                    Two buttons, not links inside a sentence, so a screen reader can reach each. */}
                 {uploadProgress === null && (
-                  <Text style={[styles.helpText, { color: c.muted }]}>
-                    Statement in your email? Open the email, tap the PDF, then Share → Fynora.
-                  </Text>
-                )}
-                {/* Gate 2b spec §7: a code to type into app.fynora.net/send. Only where queued
-                    uploads are on: the file from the computer goes through the queue. */}
-                {uploadProgress === null && asyncAvailable && (
-                  <Button
-                    label="My statement is on my computer"
-                    variant="link"
-                    onPress={() => setSendFromComputerOpen(true)}
-                  />
+                  <View style={styles.otherWays} testID="other-ways">
+                    <Text style={[styles.fieldLabel, { color: c.muted }]}>Other ways</Text>
+                    <View style={styles.otherWaysRow}>
+                      <Button
+                        label="From your email"
+                        variant="link"
+                        onPress={() => setEmailHintOpen((open) => !open)}
+                      />
+                      {asyncAvailable && (
+                        <Button
+                          label="From your computer"
+                          variant="link"
+                          onPress={() => setSendFromComputerOpen(true)}
+                        />
+                      )}
+                    </View>
+                    {emailHintOpen && (
+                      <Text style={[styles.helpText, { color: c.muted }]}>
+                        Open the email, tap the PDF, then Share → Fynora.
+                      </Text>
+                    )}
+                  </View>
                 )}
                 {/* The only way out of this screen while an upload is in flight. It matters most
                     on the request that can never time out on its own (see toUploadProgressConfig):
@@ -1361,8 +1435,27 @@ export function ImportScreen() {
             {/* Gate 2b (spec §5.2): what happens to the statement, closed, below the picker -- or
                 below the password card, which takes the picker's place and is where the panel's
                 password line matters most. */}
+            {uploadProgress === null && (
+              <FoldLine label="Which files work?">
+                <Text style={[styles.helpText, { color: c.muted }]}>
+                  Choose a CSV or PDF statement from your bank. You&apos;ll review every transaction
+                  before anything is added.
+                </Text>
+                {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's
+                    identical dropzone caption -- the parser reads a PDF's own embedded text, not
+                    pixels, so a scanned/photographed statement (no selectable text) silently
+                    produces zero rows. Idea B folds it with the line above: both answer "which
+                    files work?", and neither is needed to pick one. */}
+                <Text style={[styles.helpText, { color: c.muted }]}>
+                  PDF support covers digital, text-based statements for now — a scanned or
+                  photographed PDF won&apos;t have selectable text for us to read, so those still need a
+                  CSV export instead.
+                </Text>
+              </FoldLine>
+            )}
             {uploadProgress === null && <StatementHandlingPanel />}
           </Card>
+          </>
           )}
 
           {/* Same "only when there's something to show" rule as "Ready to review" at the top of
@@ -1381,16 +1474,19 @@ export function ImportScreen() {
                 These couldn&apos;t be read. Nothing was added to your accounts.
               </Text>
               {recentFailures.map((f) => (
-                <View key={f.reference} style={[styles.unfinishedRow, { borderBottomColor: c.border }]}>
+                <View
+                  key={f.reference}
+                  style={[styles.unfinishedRow, accessibilityText && styles.unfinishedRowStacked, { borderBottomColor: c.border }]}
+                >
                   <View style={styles.unfinishedMain}>
-                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={largeText ? undefined : 1}>
                       {f.fileName}
                     </Text>
-                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={2}>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 2}>
                       {importFailureMessage(f.failureCode) ?? "Fynora couldn't complete this import."}
                     </Text>
                     {fmtRelativeTime(f.createdAt) ? (
-                      <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                      <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                         {fmtRelativeTime(f.createdAt)}
                       </Text>
                     ) : null}
@@ -1433,16 +1529,20 @@ export function ImportScreen() {
           scrollIndicatorInsets={{ bottom: tabBar }}
         >
           {header}
+          {/* Idea B (spec 2026-11-02, Step 3): where the rows went and what was left out, then
+              what the statement's month now shows, then what to do next. */}
           <Card>
-            <SectionHeading title="Import complete" />
-            <View style={styles.statRow}>
-              <Stat label="Imported" value={String(summary.imported)} />
-              <Stat label="Skipped" value={String(summary.skipped)} />
-              <Stat label="Duplicates" value={String(summary.duplicatesDetected)} />
-            </View>
-            <View style={styles.statRow}>
-              <Stat label="Credits" value={fmtCurrency(summary.totalCredits)} />
-              <Stat label="Debits" value={fmtCurrency(summary.totalDebits)} />
+            {summary.account?.name ? (
+              <Text style={[styles.body, { color: c.ink }]}>{`Into ${summary.account.name}`}</Text>
+            ) : null}
+            {doneCountsLine(summary.skipped, summary.duplicatesDetected) ? (
+              <Text style={[styles.body, { color: c.muted }]}>
+                {doneCountsLine(summary.skipped, summary.duplicatesDetected)}
+              </Text>
+            ) : null}
+            <View style={styles.doneTotals}>
+              <Text style={[styles.doneTotal, { color: c.successInk }]}>{`In ${fmtCurrency(summary.totalCredits)}`}</Text>
+              <Text style={[styles.doneTotal, { color: c.dangerInk }]}>{`Out ${fmtCurrency(summary.totalDebits)}`}</Text>
             </View>
             {summary.warnings?.length ? (
               <View style={styles.warnings}>
@@ -1453,21 +1553,50 @@ export function ImportScreen() {
                 ))}
               </View>
             ) : null}
-            <View testID="import-summary-actions" style={styles.summaryActions}>
-              <QuickSortCta
+          </Card>
+          <View style={styles.doneChanges}>
+            <DoneChanges
+              month={statementMonthOf(summary.statementPeriodEnd)}
+              onOpen={(month) => {
+                trackNavigation('insights', 'contextual');
+                navigation.navigate('Insights', { month, nonce: Date.now() });
+              }}
+            />
+          </View>
+          <View testID="import-summary-actions" style={styles.summaryActions}>
+            <QuickSortCta
+              onCount={setQuickSortCount}
+              onPress={() => {
+                trackNavigation('review-categories', 'contextual');
+                navigation.navigate('More', { screen: 'CategoryReview' });
+              }}
+            />
+            {quickSortCount === null ? (
+              // Until Quick sort answers, its spot and See Insights' wait as one button-sized
+              // placeholder; the links below never wait.
+              <SkeletonGroup testID="summary-main-loading">
+                <SkeletonBox size="button" />
+              </SkeletonGroup>
+            ) : (
+              <Button
+                label="See Insights"
+                variant={quickSortCount > 0 ? 'secondary' : 'primary'}
+                testID={quickSortCount > 0 ? 'summary-see-insights' : 'summary-see-insights-primary'}
                 onPress={() => {
-                  trackNavigation('review-categories', 'contextual');
-                  navigation.navigate('More', { screen: 'CategoryReview' });
+                  const month = statementMonthOf(summary.statementPeriodEnd);
+                  trackNavigation('insights', 'contextual');
+                  navigation.navigate('Insights', month ? { month, nonce: Date.now() } : undefined);
                 }}
               />
-              <Button label="Import another" onPress={resetToUpload} />
+            )}
+            <Button label="Import another" variant="link" onPress={resetToUpload} />
               {/* Track C/C6. Depended on C4's Ledger filters existing at all -- without them this
                   would land on the whole, unfiltered ledger, no more useful than the Transactions
                   tab a user could already reach on their own. account can genuinely be null (see
                   ImportSummary's own type); the period alone still narrows down to this import
                   when it is. */}
               <Button
-                label="View in Ledger"
+                label="See them in Transactions"
                 variant="link"
                 onPress={() => {
                   const period = summary.statementPeriodStart && summary.statementPeriodEnd
@@ -1485,20 +1614,82 @@ export function ImportScreen() {
                   });
                 }}
               />
-            </View>
-          </Card>
+          </View>
         </ScrollView>
       </GlassScreen>
     );
   }
 
   // ---- review ----
+  // Idea B (spec 2026-11-02, Step 2): the rows that need an answer open, the rest folded, and
+  // Import pinned above the tab bar. Whether Import may run is still canConfirmImport alone.
+  const isReimport = reimport !== null;
+  const gate = {
+    includedCount,
+    outstanding,
+    isReimport,
+    accountChoice,
+    selectedAccountId,
+    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
+    amountOwedInvalid,
+    newAccountBankMissing,
+  };
+  const questions = questionRows(rows, review.decisions, flagged, dismissedFlags);
+  // An answered duplicate stays while identical rows are still open: "Apply to N identical rows"
+  // lives on the answered card, and taking the card away would take the bulk answer with it.
+  const needYou = rows
+    .map((_, i) => i)
+    .filter((i) => questions.includes(i)
+      || (isUnderReview(rows[i]) && review.decisions[i] !== 'unresolved' && (similarUnresolved[i] ?? 0) > 0));
+  const flaggedIndexes = new Set([...(flagged.balance ?? []), ...(flagged.description ?? [])]);
+  const lookFine = rows.length - questions.length;
+  const guesses = categoryGuessCount(rows, review.included);
+  const fileIntoFolded = !fileIntoOpen && fileIntoFoldable;
+  const fileIntoName = reimport?.accountName ?? existingAccounts.find((a) => a.id === selectedAccountId)?.name ?? '';
+  const barMessage = importBarMessage(gate, undismissedFlagCount(flagged, dismissedFlags));
+
+  const importBar = (
+    <ImportBar
+      style={accessibilityText ? styles.importBarInList : [styles.importBar, { bottom: tabBar + spacing.sm }]}
+      message={barMessage}
+      buttonLabel={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
+      // Every reason this button may refuse lives in canConfirmImport, with tests -- see that
+      // function's own comment for why it is not inline here. The bar's line only names it.
+      disabled={!canConfirmImport(gate)}
+      loading={confirming}
+      onImport={confirmImport}
+      onShowMe={() => listRef.current?.scrollToOffset({ offset: needYouY.current, animated: true })}
+      onLayoutHeight={setBarHeight}
+    />
+  );
+
+  const rowCard = (index: number) => (
+    <StagedRowCard
+      row={rows[index]}
+      included={review.included[index]}
+      category={chosenCategory[index]}
+      onToggleIncluded={() =>
+        setReview((prev) => setIncluded(prev, index, !prev.included[index]))
+      }
+      onPressCategory={() => setCategoryPickerFor(index)}
+      balanceFlagged={flagged.balance?.includes(index) ?? false}
+      descriptionFlagged={flagged.description?.includes(index) ?? false}
+      decision={review.decisions[index]}
+      onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
+      similarUnresolved={similarUnresolved[index] ?? 0}
+      onApplyToSimilar={() => setReview((prev) => applyDecisionToSimilar(rows, prev, index))}
+    />
+  );
+
   return (
     <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <FlatList
-        data={rows}
-        keyExtractor={(_, i) => String(i)}
-        contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
+        ref={listRef}
+        // Positions in `rows`: the ones that need an answer, or every row once "See all" is open.
+        data={showAllRows ? rows.map((_, i) => i) : needYou}
+        keyExtractor={(i) => String(i)}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar + (accessibilityText ? 0 : barHeight + spacing.md))}
+        scrollIndicatorInsets={{ bottom: tabBar + (accessibilityText ? 0 : barHeight) }}
         // Rendering every row of a long statement up front is the difference between a list that
         // opens instantly and one that stalls; a card is a fixed shape, so windowing is safe here.
         initialNumToRender={12}
@@ -1507,35 +1698,26 @@ export function ImportScreen() {
         ListHeaderComponent={
           <View>
             {header}
+            <View style={styles.section}>
+              <ReviewSummary
+                name={detected?.suggestedName ?? 'Statement'}
+                masked={detected?.accountNumberMasked ?? null}
+                periodStart={detected?.statementPeriodStart ?? null}
+                periodEnd={detected?.statementPeriodEnd ?? null}
+                fileFormat={fileFormat}
+                rows={rows}
+                included={review.included}
+              />
+            </View>
             <Text testID="review-promise" accessibilityRole="text" style={[styles.body, styles.section, { color: c.ink }]}>
               {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
             </Text>
-            <Card style={styles.section}>
-              {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill bug
-                  found and fixed elsewhere in the app; a border makes the badge's own boundary
-                  visible without changing its fill color. */}
-              <SectionHeading
-                title="Detected"
-                action={
-                  fileFormat ? (
-                    <Text style={[styles.formatBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>
-                      {fileFormat}
-                    </Text>
-                  ) : undefined
-                }
-              />
-              <Text style={[styles.detectedName, { color: c.ink }]}>
-                {detected?.suggestedName ?? 'Statement'}
-              </Text>
-              {detected?.accountNumberMasked ? (
-                <Text style={[styles.body, { color: c.muted }]}>{detected.accountNumberMasked}</Text>
-              ) : null}
-              {detected?.statementPeriodStart && detected?.statementPeriodEnd ? (
-                <Text style={[styles.body, { color: c.muted }]}>
-                  {detected.statementPeriodStart} to {detected.statementPeriodEnd}
-                </Text>
-              ) : null}
-            </Card>
+
+            {verification ? (
+              <View style={styles.section}>
+                <VerificationPanel verification={verification} flagged={flagged} />
+              </View>
+            ) : null}
 
             {freePlanLimit && !reimport ? (
               <View
@@ -1565,13 +1747,25 @@ export function ImportScreen() {
               </View>
             ) : null}
 
-            {verification ? (
-              <View style={styles.section}>
-                <VerificationPanel verification={verification} flagged={flagged} />
-              </View>
-            ) : null}
-
-            {reimport ? (
+            {fileIntoFolded ? (
+              // Nothing in the form stands between the person and Import, so it is one line.
+              // "Change" opens today's full form in place; a re-import's account is fixed.
+              <Card style={styles.section} testID="file-into-line">
+                <View style={styles.fileIntoLine}>
+                  <Text style={[styles.body, styles.fileIntoText, { color: c.ink }]}>{`File into: ${fileIntoName}`}</Text>
+                  {!isReimport ? (
+                    <Pressable
+                      onPress={() => setFileIntoOpen(true)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change"
+                    >
+                      <Text style={[styles.body, { color: c.primary, fontWeight: '600' }]}>Change</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </Card>
+            ) : reimport ? (
               <Card style={styles.section}>
                 <SectionHeading title="File into" />
                 {/* No choice to offer: a re-import replays this statement into the account it
@@ -1794,33 +1988,63 @@ export function ImportScreen() {
             </Card>
             )}
 
-            <View style={styles.rowsHeading}>
-              <Text style={[styles.rowsTitle, { color: c.ink }]}>
-                {rows.length} transaction{rows.length === 1 ? '' : 's'}
-              </Text>
-              <Text style={[styles.body, { color: c.muted }]}>{includedCount} selected</Text>
+            {/* The list's heading, and where "Show me" scrolls to. The rows themselves are the
+                FlatList's items, so a statement that is all duplicates is windowed like any other. */}
+            <View testID="need-you" onLayout={(e) => { needYouY.current = e.nativeEvent.layout.y; }}>
+              {showAllRows ? (
+                <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
+                  {`All ${rows.length} transaction${rows.length === 1 ? '' : 's'}`}
+                </Text>
+              ) : questions.length > 0 ? (
+                <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
+                  {`${questions.length} need${questions.length === 1 ? 's' : ''} you`}
+                </Text>
+              ) : null}
             </View>
           </View>
         }
-        renderItem={({ item, index }) => (
-          <StagedRowCard
-            row={item}
-            included={review.included[index]}
-            category={chosenCategory[index]}
-            onToggleIncluded={() =>
-              setReview((prev) => setIncluded(prev, index, !prev.included[index]))
-            }
-            onPressCategory={() => setCategoryPickerFor(index)}
-            balanceFlagged={flagged.balance?.includes(index) ?? false}
-            descriptionFlagged={flagged.description?.includes(index) ?? false}
-            decision={review.decisions[index]}
-            onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
-            similarUnresolved={similarUnresolved[index] ?? 0}
-            onApplyToSimilar={() => setReview((prev) => applyDecisionToSimilar(rows, prev, index))}
-          />
+        renderItem={({ item: i }) => (
+          <View>
+            {rowCard(i)}
+            {flaggedIndexes.has(i) && !dismissedFlags.has(i) ? (
+              <View style={styles.looksRight}>
+                <Button
+                  label="Looks right"
+                  variant="link"
+                  onPress={() => setDismissedFlags((prev) => new Set(prev).add(i))}
+                />
+              </View>
+            ) : null}
+          </View>
         )}
         ListFooterComponent={
           <View>
+            <Card style={styles.section} testID="look-fine">
+              <View style={styles.fileIntoLine}>
+                <Text style={[styles.rowsTitle, styles.fileIntoText, { color: c.ink }]}>
+                  {`${lookFine} look${lookFine === 1 ? 's' : ''} fine`}
+                </Text>
+                <Pressable
+                  onPress={() => setShowAllRows((open) => !open)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={showAllRows ? 'Hide all' : 'See all'}
+                  accessibilityState={{ expanded: showAllRows }}
+                >
+                  <Text style={[styles.body, { color: c.primary, fontWeight: '600' }]}>{showAllRows ? 'Hide all' : 'See all'}</Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.body, { color: c.muted }]}>{`${includedCount} of ${rows.length} selected to import`}</Text>
+            </Card>
+
+            {guesses > 0 ? (
+              <Text testID="category-guesses" style={[styles.body, styles.section, { color: c.muted }]}>
+                {guesses === 1
+                  ? '1 category is a guess — sort it after import'
+                  : `${guesses} categories are guesses — sort them after import`}
+              </Text>
+            ) : null}
+
             {/* "Never lose information": rows the parser couldn't read are shown rather than
                 silently dropped, even though they can never be imported. */}
             {unparseableRows.length > 0 ? (
@@ -1855,25 +2079,9 @@ export function ImportScreen() {
                   Choose the new account&apos;s bank above, or Other bank, before this can be imported.
                 </Text>
               ) : null}
-              <Button
-                label={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
-                onPress={confirmImport}
-                loading={confirming}
-                // Every reason this button may refuse lives in canConfirmImport, with tests --
-                // see that function's own comment for why it is not inline here.
-                disabled={
-                  !canConfirmImport({
-                    includedCount,
-                    outstanding,
-                    isReimport: reimport !== null,
-                    accountChoice,
-                    selectedAccountId,
-                    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
-                    amountOwedInvalid,
-                    newAccountBankMissing,
-                  })
-                }
-              />
+              {/* The Import button is in the pinned bar below the list, or here at the largest
+                  text sizes (ACCESSIBILITY_TEXT_FONT_SCALE). */}
+              {accessibilityText ? importBar : null}
               <View style={styles.cancel}>
                 <Button
                   label="Cancel"
@@ -1890,6 +2098,8 @@ export function ImportScreen() {
           </View>
         }
       />
+
+      {accessibilityText ? null : importBar}
 
       <OptionPickerModal
         visible={categoryPickerFor !== null}
@@ -1908,15 +2118,6 @@ export function ImportScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  const c = useTheme();
-  return (
-    <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[styles.statValue, { color: c.ink }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: c.muted }]}>{label}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   unfinishedCard: { marginTop: spacing.md },
@@ -1928,6 +2129,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // At accessibility text sizes (ACCESSIBILITY_TEXT_FONT_SCALE) the buttons go under the name.
+  unfinishedRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: spacing.sm },
   unfinishedMain: { flex: 1, marginRight: spacing.sm },
   unfinishedName: { fontSize: 14, fontWeight: '600' },
   unfinishedMeta: { fontSize: 12, marginTop: 2 },
@@ -1948,15 +2151,8 @@ const styles = StyleSheet.create({
   savePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   savePasswordText: { flex: 1, gap: 2 },
   helpText: { fontSize: 12, lineHeight: 17 },
-  formatBadge: {
-    fontSize: 10,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  detectedName: { fontSize: 16, fontWeight: '600', marginBottom: 2 },
+  otherWays: { marginTop: spacing.sm },
+  otherWaysRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
   choiceRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   choiceChip: {
     flex: 1,
@@ -2015,14 +2211,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   typeText: { fontSize: 12, fontWeight: '600' },
-  rowsHeading: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-  },
   rowsTitle: { fontSize: 15, fontWeight: '700' },
+  needYouTitle: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  looksRight: { alignItems: 'flex-start', marginTop: -spacing.xs, marginBottom: spacing.sm },
+  fileIntoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  fileIntoText: { flex: 1 },
+  importBar: { position: 'absolute', left: spacing.sm, right: spacing.sm },
+  importBarInList: { marginTop: spacing.sm },
   unparseable: { fontSize: 12, marginTop: 6 },
   actions: { marginTop: spacing.md },
   // Button has no margin of its own, so the stack carries the space between "Sort N questions"
@@ -2043,9 +2238,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cancel: { marginTop: spacing.sm },
-  statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.sm },
-  stat: { flex: 1 },
-  statValue: { fontSize: 20, fontWeight: '700' },
-  statLabel: { fontSize: 11, marginTop: 2 },
+  doneTotals: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, marginTop: spacing.xs },
+  doneTotal: { fontSize: 15, fontWeight: '600' },
+  doneChanges: { marginTop: spacing.md },
   warnings: { marginTop: spacing.sm, gap: 4 },
 });

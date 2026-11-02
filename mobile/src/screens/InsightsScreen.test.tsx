@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -676,5 +677,68 @@ describe('kept from the old screen', () => {
       const calls = (useScrollToTop as jest.Mock).mock.calls;
       expect(typeof calls[calls.length - 1][0].current?.scrollTo).toBe('function');
     });
+  });
+});
+
+// Import's Done step (spec 2026-11-02, Step 3) opens Insights on the statement's month. That month
+// is for that visit: once the person leaves, the screen goes back to the newest month, unless they
+// picked a month themselves while they were here.
+describe('InsightsScreen — opened on a month', () => {
+  type Nav = {
+    useRoute: () => unknown;
+    useFocusEffect: (effect: () => void | (() => void)) => void;
+    useNavigation: () => Record<string, unknown>;
+  };
+  const navModule = jest.requireMock('@react-navigation/native') as Nav;
+  let blurs: (() => void)[] = [];
+  let setParams: jest.Mock;
+  let restore: (() => void)[] = [];
+
+  beforeEach(() => {
+    blurs = [];
+    setParams = jest.fn();
+    const stub = navModule.useNavigation();
+    stub.setParams = setParams;
+    const useRoute = jest.spyOn(navModule, 'useRoute').mockReturnValue({ params: { month: '2026-08', nonce: 1 } });
+    // Focus effects run on mount as before; their clean-ups are kept so a test can "leave" the tab.
+    const useFocusEffect = jest.spyOn(navModule, 'useFocusEffect').mockImplementation((effect) => {
+      // The screen passes useCallback'd effects, so this runs once per mount, as a focus would.
+      useEffect(() => {
+        const cleanup = effect();
+        if (typeof cleanup === 'function') blurs.push(cleanup);
+      }, [effect]);
+    });
+    restore = [() => useRoute.mockRestore(), () => useFocusEffect.mockRestore(), () => { delete stub.setParams; }];
+  });
+  afterEach(() => restore.forEach((r) => r()));
+
+  const leave = () => act(() => { blurs.forEach((b) => b()); });
+
+  it('shows the month it was opened with', async () => {
+    renderScreen();
+    await waitFor(() => expect(jest.mocked(aiInsightsApi.lookAt)).toHaveBeenCalledWith('2026-08'));
+    expect(jest.mocked(insightsApi.get)).toHaveBeenCalledWith('2026-08');
+  });
+
+  it('goes back to the newest month once the person leaves', async () => {
+    renderScreen();
+    await waitFor(() => expect(jest.mocked(aiInsightsApi.lookAt)).toHaveBeenCalledWith('2026-08'));
+
+    leave();
+
+    await waitFor(() => expect(jest.mocked(aiInsightsApi.lookAt)).toHaveBeenLastCalledWith(undefined));
+    expect(setParams).toHaveBeenCalledWith({ month: undefined, nonce: undefined });
+  });
+
+  it('keeps a month the person picked while here', async () => {
+    renderScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'Change month, currently August 2026' }));
+    fireEvent.press(await screen.findByText('September 2026'));
+    await waitFor(() => expect(jest.mocked(aiInsightsApi.lookAt)).toHaveBeenLastCalledWith('2026-09'));
+
+    leave();
+
+    expect(await screen.findByRole('button', { name: 'Change month, currently September 2026' })).toBeOnTheScreen();
+    expect(setParams).not.toHaveBeenCalled();
   });
 });

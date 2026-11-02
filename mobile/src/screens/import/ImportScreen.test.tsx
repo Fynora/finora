@@ -3,7 +3,7 @@ import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT } from '../../api/importFail
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi } from '../../api/endpoints';
@@ -22,7 +22,19 @@ jest.mock('../../api/endpoints', () => ({
   transactionsApi: {
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
   },
-  accountsApi: { list: jest.fn() },
+  // The done step's "{Month} in Fynora" (Insights' "To look at"). Nothing to show by default.
+  aiInsightsApi: { lookAt: jest.fn().mockResolvedValue({ rows: [], orderedByAi: false }) },
+  insightsApi: { acknowledgements: jest.fn().mockResolvedValue([]) },
+  // coverage: the add step's "Your statements" months. No statements by default; the add-step
+  // describe block below gives one account real months.
+  accountsApi: {
+    list: jest.fn(),
+    coverage: jest.fn().mockResolvedValue({
+      accountId: 'x', coverageStatus: 'NONE', coveredDays: 0, missingDays: 0, coveragePercentage: null,
+      hasGaps: false, hasOverlaps: false, hasNonStandardPeriods: false, hasDuplicatePeriods: false,
+      segments: [], gaps: [], overlaps: [],
+    }),
+  },
   // The new-account Bank field's list (GET /banks). Two banks are enough to search and pick.
   banksApi: {
     list: jest.fn().mockResolvedValue([
@@ -264,7 +276,7 @@ describe('ImportScreen — re-import confirm attempt key', () => {
     // The actual bug: without the fix this is the SAME key as the first, doomed attempt, and the
     // mock's claimedKeys check rejects it exactly as the real backend would.
     expect(secondCall[1].idempotencyKey).not.toBe(firstCall[1].idempotencyKey);
-    expect(await screen.findByText('Import complete')).toBeTruthy();
+    expect(await screen.findByText(/^Imported \d+ transaction/)).toBeTruthy();
   });
 
   /**
@@ -370,7 +382,7 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
     mockRouteParams = reimportParams('stmt-1', 1);
     render(tree());
     await pressImport();
-    await screen.findByText('Import complete');
+    await screen.findByText(/^Imported \d+ transaction/);
   }
 
   it('filters by the confirmed account and the statement\'s own period', async () => {
@@ -383,13 +395,101 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       importDurationMs: 1, source: 'reimport',
     });
 
-    fireEvent.press(screen.getByText('View in Ledger'));
+    fireEvent.press(screen.getByText('See them in Transactions'));
 
     expect(mockNavigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({
         accountId: 'acct-1', dateFrom: '2026-07-01', dateTo: '2026-07-31',
         label: 'HDFC Savings · 2026-07-01 to 2026-07-31',
       }),
+    });
+  });
+
+  // Idea B (spec 2026-11-02, Step 3).
+  describe('done step, idea B', () => {
+    const base = {
+      imported: 12, skipped: 1, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: ['One row had no date.'],
+      account: { id: 'acct-1', name: 'Sample Bank Savings' }, totalCredits: 62400, totalDebits: 47551,
+      statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: '2026-09-01', statementPeriodEnd: '2026-09-30',
+      importDurationMs: 1, source: 'reimport',
+    };
+    const quickSortReturns = (n: number) => {
+      const { transactionsApi } = jest.requireMock('../../api/endpoints');
+      transactionsApi.quickSort.mockResolvedValueOnce({
+        questions: Array.from({ length: n }, () => ({})), waitingTotal: n,
+        rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+      });
+    };
+    // Each button's own text, top to bottom.
+    const buttonLabels = () =>
+      within(screen.getByTestId('import-summary-actions')).getAllByRole('button')
+        .map((b) => within(b).queryAllByText(/.+/).map((t) => t.props.children).join(''));
+
+    it('says how many were imported, where, and what was left out', async () => {
+      await reachSummary(base);
+
+      expect(screen.getByText('Imported 12 transactions')).toBeOnTheScreen();
+      expect(screen.getByText('Into Sample Bank Savings')).toBeOnTheScreen();
+      expect(screen.getByText('1 skipped')).toBeOnTheScreen();
+      expect(screen.getByText('In ₹62,400')).toBeOnTheScreen();
+      expect(screen.getByText('Out ₹47,551')).toBeOnTheScreen();
+      expect(screen.getByText('• One row had no date.')).toBeOnTheScreen();
+    });
+
+    it('puts Sort first when there are questions waiting', async () => {
+      quickSortReturns(3);
+      await reachSummary(base);
+
+      expect(await screen.findByText('Sort 3 questions')).toBeOnTheScreen();
+      expect(buttonLabels()).toEqual(['Sort 3 questions', 'See Insights', 'Import another', 'See them in Transactions']);
+    });
+
+    it('holds the main button until Quick sort says how many are waiting', async () => {
+      const { transactionsApi } = jest.requireMock('../../api/endpoints');
+      transactionsApi.quickSort.mockReturnValueOnce(new Promise(() => {}));
+      await reachSummary(base);
+
+      expect(screen.getByTestId('summary-main-loading')).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'See Insights' })).toBeNull();
+      // The other ways on never wait.
+      expect(screen.getByRole('button', { name: 'Import another' })).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'See them in Transactions' })).toBeOnTheScreen();
+    });
+
+    it('makes See Insights the main button when nothing is waiting', async () => {
+      await reachSummary(base);
+
+      await screen.findByTestId('summary-see-insights-primary');
+      expect(screen.queryByTestId('summary-main-loading')).toBeNull();
+      const seeInsights = screen.getByRole('button', { name: 'See Insights' });
+      expect(within(seeInsights).getByText('See Insights')).toBeOnTheScreen();
+      expect(buttonLabels()).toEqual(['See Insights', 'Import another', 'See them in Transactions']);
+      expect(screen.getByTestId('summary-see-insights-primary')).toBeOnTheScreen();
+    });
+
+    it('opens Insights on the statement month', async () => {
+      await reachSummary(base);
+
+      fireEvent.press(await screen.findByRole('button', { name: 'See Insights' }));
+      expect(mockNavigate).toHaveBeenCalledWith('Insights', { month: '2026-09', nonce: expect.any(Number) });
+    });
+
+    it('shows what the month now shows', async () => {
+      const { aiInsightsApi } = jest.requireMock('../../api/endpoints');
+      aiInsightsApi.lookAt.mockResolvedValueOnce({
+        orderedByAi: false,
+        rows: [{
+          kind: 'running-high', key: 'high-Food', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food', month: '2026-09',
+          total: null, count: null, cardName: null, cardLast4: null, people: null, recurring: null, merchant: null,
+          category: 'Food', latestAmount: null, latestDate: null, current: 9400, priorAverage: 6300, whyAvailable: null,
+        }],
+      });
+      await reachSummary(base);
+
+      expect(await screen.findByText('September 2026 in Fynora')).toBeOnTheScreen();
+      expect(aiInsightsApi.lookAt).toHaveBeenCalledWith('2026-09');
     });
   });
 
@@ -405,7 +505,7 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       importDurationMs: 1, source: 'reimport',
     });
 
-    fireEvent.press(screen.getByText('View in Ledger'));
+    fireEvent.press(screen.getByText('See them in Transactions'));
 
     expect(mockNavigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({
@@ -698,10 +798,12 @@ describe('ImportScreen — upload completion dwell', () => {
   });
 
   // Gate 2b PR 3 (spec §3): tell people a statement can be shared in from their email.
+  // Idea B (2026-11-02): the hint sits behind "From your email" among the other ways in.
   it('showsShareHint', async () => {
     render(tree());
 
-    expect(await screen.findByText('Statement in your email? Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'From your email' }));
+    expect(screen.getByText('Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
   });
 
   // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.
@@ -1540,7 +1642,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
 
     expect(await screen.findByText('AB3K7M')).toBeOnTheScreen();
   });
@@ -1552,7 +1654,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
 
     await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-7'), { timeout: 9000 });
     expect(screen.queryByText('AB3K7M')).toBeNull();
@@ -1563,7 +1665,7 @@ describe('ImportScreen — send from a computer', () => {
     render(tree());
 
     await screen.findByText('Choose a file');
-    expect(screen.queryByText('My statement is on my computer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'From your computer' })).toBeNull();
   });
 
   // A customer report (2026-10-30): the sheet closed in the second the computer sent the file, the
@@ -1574,7 +1676,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
     await screen.findByText('AB3K7M');
     fireEvent.press(screen.getByText('Close'));
 
@@ -1637,6 +1739,331 @@ describe('ImportScreen — send from a computer', () => {
     expect(screen.getByLabelText('Review import of card.pdf')).toBeOnTheScreen();
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf('Ready to review')).toBeLessThan(rendered.indexOf('Import a statement'));
+  });
+});
+
+// Idea B (spec 2026-11-02, Step 1): your statement months, one way to pick a file, the rest folded.
+describe('upload step, idea B', () => {
+  function savings(over: Partial<Account> = {}): Account {
+    return {
+      id: 'sav-1', name: 'Sample Bank Savings', accountType: 'SAVINGS', balance: 0,
+      bank: { id: 'SAMPLE', initials: 'S' } as Account['bank'],
+      lastImportedAt: '2026-10-05T10:00:00Z', lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+      statementsCount: 2, transactionsCount: 20, status: 'ACTIVE', primarySource: 'MANUAL', ...over,
+    };
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'NONE', importJobId: null });
+    // An earlier block leaves queued uploads switched on; this block starts with them off.
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+  });
+
+  // Seen on the simulator at the largest text size: Review and Discard took the whole row and
+  // squeezed the file name to nothing. From the first accessibility size they go under the name.
+  describe('a statement ready to review, by text size', () => {
+    let dims: jest.SpyInstance;
+    afterEach(() => dims?.mockRestore());
+    const session = { id: 'sess-1', fileName: 'sample.csv', rowCount: 8, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' };
+    const direction = async () => StyleSheet.flatten((await screen.findByTestId('ready-row-sess-1')).props.style).flexDirection;
+
+    it('keeps the name and its buttons on one line at standard sizes', async () => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.35 });
+      api.import.listSessions.mockResolvedValue([session] as never);
+      render(tree());
+      expect(await direction()).toBe('row');
+    });
+
+    it('puts the buttons under the name from the first accessibility size', async () => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.65 });
+      api.import.listSessions.mockResolvedValue([session] as never);
+      render(tree());
+      expect(await direction()).toBe('column');
+      expect(screen.getByText('sample.csv')).toBeOnTheScreen();
+      // Wraps rather than clipping, as the app does at large text (useLargeFontScale).
+      expect(screen.getByText(/^8 transactions/).props.numberOfLines).toBeUndefined();
+    });
+  });
+
+  it('shows Your statements when an account qualifies', async () => {
+    api.accounts.list.mockResolvedValue([savings()]);
+    api.accounts.coverage.mockResolvedValueOnce({
+      accountId: 'sav-1', coverageStatus: 'OK', coveredDays: 61, missingDays: 0, coveragePercentage: 100,
+      hasGaps: false, hasOverlaps: false, hasNonStandardPeriods: false, hasDuplicatePeriods: false,
+      segments: [
+        { statementImportId: 's1', periodStart: '2026-08-01', periodEnd: '2026-08-31', classification: 'STANDARD' },
+        { statementImportId: 's2', periodStart: '2026-09-01', periodEnd: '2026-09-30', classification: 'STANDARD' },
+      ],
+      gaps: [], overlaps: [],
+    });
+    render(tree());
+
+    expect(await screen.findByText('Your statements')).toBeOnTheScreen();
+    expect(await screen.findByText(/^Next: /)).toBeOnTheScreen();
+    expect(screen.queryByTestId('first-ask')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Choose a file' })).toBeOnTheScreen();
+  });
+
+  it('shows the first-statement lead when none qualifies', async () => {
+    api.accounts.list.mockResolvedValue([savings({ primarySource: 'ACCOUNT_AGGREGATOR' })]);
+    render(tree());
+
+    expect(await screen.findByTestId('first-ask')).toBeOnTheScreen();
+    expect(screen.getByText('No bank statement to hand? A credit card statement works too.')).toBeOnTheScreen();
+    expect(screen.queryByText('Your statements')).toBeNull();
+  });
+
+  it('folds the file notes until asked', async () => {
+    render(tree());
+
+    await screen.findByText('Choose a file');
+    expect(screen.queryByText(/scanned or\s+photographed PDF/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Which files work?' }));
+    expect(screen.getByText(/scanned or\s+photographed PDF/)).toBeOnTheScreen();
+    expect(screen.getByText(/Choose a CSV or PDF statement from your bank/)).toBeOnTheScreen();
+  });
+
+  it('lists the other ways in, with the email hint behind its button', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Other ways')).toBeOnTheScreen();
+    expect(screen.queryByText('Open the email, tap the PDF, then Share → Fynora.')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'From your email' }));
+    expect(screen.getByText('Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+    // Queued uploads are off in tree(): no computer route to offer.
+    expect(screen.queryByRole('button', { name: 'From your computer' })).toBeNull();
+  });
+});
+
+// Idea B (spec 2026-11-02, Step 2): only the rows that need an answer are open; Import is pinned.
+describe('check step, idea B', () => {
+  const match = {
+    existingTransactionId: 't-1', existingAccountId: null, existingDate: '2026-07-10', existingDescription: 'Sample Tv',
+    existingAmount: 45, existingType: 'EXPENSE' as const, existingImportedAt: '2026-08-01T00:00:00Z', matchCount: 1,
+    confidence: 'EXACT' as const, reason: 'Same date and amount as a payment already in Fynora.',
+  };
+  const duplicate = (description: string): StagedRow => ({ ...stagedRow(description), likelyDuplicate: true, duplicateMatch: match });
+  const guess = (description: string): StagedRow => ({ ...stagedRow(description), categorySource: 'default' });
+  const savingsAccount: Account = {
+    id: 'sav-1', name: 'Sample Bank Savings', accountType: 'SAVINGS', balance: 0,
+    // A holder name already on file, so the "This is my account" switch has nothing to ask.
+    bank: { id: 'HDFC', initials: 'H' } as Account['bank'], accountNumberMasked: 'XXXX0001', accountHolderName: 'Test User',
+    lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL',
+  };
+  const matchedDetected = { ...detectedWithBank, suggestedName: 'Sample Bank Savings', accountNumberMasked: 'XXXX0001', suggestedAccountType: 'SAVINGS' } as DetectedAccountInfo;
+  const descriptionFlag = (displayIndex: number) => ({
+    reliabilityStatus: 'REVIEW_RECOMMENDED', textSource: 'NATIVE_PDF', headerReconstructionUncertain: false,
+    findings: [{
+      rule: 'DESCRIPTION_CORRUPTION', outcome: 'WARNING',
+      details: { rowsChecked: 5, sectionMedianLength: 5, outliers: [{ rowIndex: displayIndex, displayIndex, length: 162, sectionMedianLength: 5, sentenceBreaks: 2 }] },
+    }],
+  });
+
+  function stage(rows: StagedRow[], opts: { detected?: DetectedAccountInfo; verification?: object } = {}) {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows, totalParsed: rows.length, flaggedDuplicates: 0, detectedAccount: opts.detected ?? detectedWithBank,
+        unparseableRows: [], verification: opts.verification ?? null,
+      },
+    } as never);
+  }
+
+  async function reachReview() {
+    render(tree());
+    // Let the accounts list land first: the account match reads it when the file is staged. React
+    // Query hands a result to the screen on a timer, so one microtask flush is not enough.
+    await waitFor(() => expect(api.accounts.list).toHaveBeenCalled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await act(async () => {});
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  const rowCards = () => screen.queryAllByLabelText(/^Include /);
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.confirm.mockReset();
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('"need you" holds only unresolved duplicates and flagged rows', async () => {
+    stage(
+      [stagedRow('Row A'), stagedRow('Row B'), stagedRow('Row C'), duplicate('Row D'), stagedRow('Row E')],
+      { verification: descriptionFlag(1) },
+    );
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    expect(rowCards()).toHaveLength(2);
+    expect(screen.getByText('Row B')).toBeOnTheScreen();
+    expect(screen.getByText('Row D')).toBeOnTheScreen();
+    expect(screen.queryByText('Row A')).toBeNull();
+    expect(screen.getByText('3 look fine')).toBeOnTheScreen();
+  });
+
+  it('answering a duplicate removes its card', async () => {
+    stage([stagedRow('Row A'), duplicate('Row B'), duplicate('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    fireEvent.press(screen.getAllByText('Skip this row')[0]);
+    expect(screen.getByText('1 needs you')).toBeOnTheScreen();
+  });
+
+  it('"Apply to similar" clears several cards in one press', async () => {
+    stage([duplicate('Sample Tv'), duplicate('Sample Tv'), stagedRow('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    fireEvent.press(screen.getAllByText('Skip this row')[0]);
+    // The answered card stays while its identical row is open, so its bulk action stays in reach.
+    expect(screen.getByText('1 needs you')).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Apply this answer to 1 identical row' }));
+    expect(screen.queryByText(/need you/)).toBeNull();
+    expect(rowCards()).toHaveLength(0);
+  });
+
+  it('"Looks right" hides a flagged row from "need you" only', async () => {
+    stage([stagedRow('Row A'), stagedRow('Row B')], { verification: descriptionFlag(1) });
+    await reachReview();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Looks right' }));
+    expect(screen.queryByText(/need you/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'See all' }));
+    expect(screen.getByText('Check description')).toBeOnTheScreen();
+  });
+
+  // A statement uploaded again is all possible duplicates: those rows go through the list's own
+  // windowing, never all at once (the screen's FlatList comment names the stall this avoids).
+  it('windows a long "need you" list instead of drawing every card at once', async () => {
+    stage(Array.from({ length: 60 }, (_, i) => duplicate(`Repeat ${i}`)));
+    await reachReview();
+
+    expect(screen.getByText('60 need you')).toBeOnTheScreen();
+    expect(rowCards().length).toBeLessThan(60);
+  });
+
+  // Seen on the simulator at the largest text size: pinned, the bar covered half the screen.
+  describe('where the Import bar sits', () => {
+    let dims: jest.SpyInstance;
+    afterEach(() => dims?.mockRestore());
+    const atFontScale = (fontScale: number) => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale });
+    };
+    const isPinned = () => StyleSheet.flatten(screen.getByTestId('import-bar').props.style).position === 'absolute';
+
+    it('is pinned above the tab bar up to the largest standard text size', async () => {
+      atFontScale(1.35);
+      stage([stagedRow('Row A')]);
+      await reachReview();
+      expect(isPinned()).toBe(true);
+    });
+
+    it('sits at the end of the list from the first accessibility text size', async () => {
+      atFontScale(1.65);
+      stage([stagedRow('Row A')]);
+      await reachReview();
+      expect(isPinned()).toBe(false);
+      // Still the one Import button, and still enabled exactly as before.
+      expect(screen.getByRole('button', { name: /^Import 1 transaction/ })).not.toBeDisabled();
+    });
+  });
+
+  it('See all shows every row', async () => {
+    stage([stagedRow('Row A'), stagedRow('Row B'), duplicate('Row C')]);
+    await reachReview();
+
+    expect(rowCards()).toHaveLength(1);
+    fireEvent.press(screen.getByRole('button', { name: 'See all' }));
+    expect(rowCards().length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText('Row A')).toBeOnTheScreen();
+  });
+
+  it('counts category guesses on one line', async () => {
+    stage([guess('Row A'), guess('Row B'), stagedRow('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 categories are guesses — sort them after import')).toBeOnTheScreen();
+  });
+
+  it('shows no guesses line when there are none', async () => {
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    expect(screen.queryByText(/categories are guesses|category is a guess/)).toBeNull();
+  });
+
+  it('folds File into for a matched existing account', async () => {
+    api.accounts.list.mockResolvedValue([savingsAccount]);
+    stage([stagedRow('Row A')], { detected: matchedDetected });
+    await reachReview();
+
+    expect(await screen.findByText('File into: Sample Bank Savings')).toBeOnTheScreen();
+    expect(screen.queryByText('An existing account')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Change' }));
+    expect(screen.getByText('An existing account')).toBeOnTheScreen();
+  });
+
+  it('keeps File into open after an account is picked in it', async () => {
+    api.accounts.list.mockResolvedValue([savingsAccount]);
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    fireEvent.press(screen.getByText('An existing account'));
+    fireEvent.press(screen.getByText('Sample Bank Savings', { exact: true }));
+    expect(screen.queryByText(/^File into: /)).toBeNull();
+    expect(screen.getByText('A new account')).toBeOnTheScreen();
+  });
+
+  it('keeps File into open for a new account', async () => {
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    expect(screen.getByLabelText('Account name')).toBeOnTheScreen();
+    expect(screen.queryByText(/^File into: /)).toBeNull();
+  });
+
+  it('re-import shows the account with no Change', async () => {
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(tree());
+    await screen.findByText(/^Import \d+ transaction/);
+
+    expect(screen.getByText('File into: HDFC Savings')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull();
+    expect(screen.queryByText('Choose an account to import into')).toBeNull();
+  });
+
+  it('all duplicates skipped leaves nothing to import', async () => {
+    stage([duplicate('Row A'), duplicate('Row B')]);
+    await reachReview();
+
+    for (const skip of screen.getAllByText('Skip this row')) fireEvent.press(skip);
+    expect(screen.getByText('Choose at least one transaction to import')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^Import 0 transactions/ })).toBeDisabled();
+  });
+
+  it('the bar names the outstanding question', async () => {
+    stage([stagedRow('Row A'), duplicate('Row B')]);
+    await reachReview();
+
+    expect(screen.getByText('Answer 1 question to import')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^Import 1 transaction/ })).toBeDisabled();
   });
 });
 
@@ -2401,12 +2828,12 @@ describe('ImportScreen — the summary under the floating tab pill', () => {
       </TabBarSpaceContext.Provider>
     );
     await pressImport();
-    expect(await screen.findByText('Import complete')).toBeTruthy();
+    expect(await screen.findByText(/^Imported \d+ transaction/)).toBeTruthy();
 
     const scroll = screen.getByTestId('import-summary');
     // 92 cover + 12 clearance; styles.padded has no bottom padding of its own.
     expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom).toBe(104);
-    expect(within(scroll).getByText('View in Ledger')).toBeTruthy();
+    expect(within(scroll).getByText('See them in Transactions')).toBeTruthy();
   });
 
   // Reported on an Android phone: with questions waiting, "Sort 2 questions" and "Import another"

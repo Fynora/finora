@@ -3,7 +3,7 @@ import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT } from '../../api/importFail
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, Platform, StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi } from '../../api/endpoints';
@@ -804,6 +804,23 @@ describe('ImportScreen — upload completion dwell', () => {
 
     fireEvent.press(await screen.findByRole('button', { name: 'From your email' }));
     expect(screen.getByText('Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+  });
+
+  // Gmail on Android offers no Share to Fynora from its PDF viewer; Fynora is listed under
+  // "Open with" instead, with saving and opening from Files as the fallback.
+  it('gives the Open with route, with Files as the fallback, on Android', async () => {
+    const originalOS = Platform.OS;
+    Platform.OS = 'android';
+    try {
+      render(tree());
+
+      fireEvent.press(await screen.findByRole('button', { name: 'From your email' }));
+      expect(screen.getByText(/tap the attachment, then choose Fynora/)).toBeOnTheScreen();
+      expect(screen.getByText(/open it from Files and choose Fynora/)).toBeOnTheScreen();
+      expect(screen.queryByText(/Share → Fynora/)).toBeNull();
+    } finally {
+      Platform.OS = originalOS;
+    }
   });
 
   // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.

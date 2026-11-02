@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View
+  ActivityIndicator, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View
 } from 'react-native';
 import { AppSwitch } from '../../components/AppSwitch';
 import { AppAlert } from '../../lib/appAlert';
@@ -110,6 +110,20 @@ export const UPLOAD_COMPLETE_DWELL_MS = 900;
  * it. Up to XXXL (about 1.35x) both keep their standard layout.
  */
 const ACCESSIBILITY_TEXT_FONT_SCALE = 1.6;
+
+/**
+ * "From your email". iOS: an attachment's Share sheet reaches the Share Extension. Android: Gmail's
+ * PDF viewer offers no Share to Fynora (reported 2026-11-02), and Fynora is now listed under
+ * "Open with" for a PDF/CSV (app.config.ts). Whether Gmail itself shows that list was not tested,
+ * so the Android text also gives the route that was seen working on the emulator: save the file,
+ * then open it from Files. Either way the password is typed into Fynora, not Gmail. Read at render
+ * so a test can switch Platform.OS.
+ */
+function emailHint(): string {
+  return Platform.OS === 'android'
+    ? 'Open the email and tap the attachment, then choose Fynora. If it opens in Gmail instead, save it, then open it from Files and choose Fynora.'
+    : 'Open the email, tap the PDF, then Share → Fynora.';
+}
 
 export function ImportScreen() {
   const c = useTheme();
@@ -1322,9 +1336,7 @@ export function ImportScreen() {
                       )}
                     </View>
                     {emailHintOpen && (
-                      <Text style={[styles.helpText, { color: c.muted }]}>
-                        Open the email, tap the PDF, then Share → Fynora.
-                      </Text>
+                      <Text style={[styles.helpText, { color: c.muted }]}>{emailHint()}</Text>
                     )}
                   </View>
                 )}

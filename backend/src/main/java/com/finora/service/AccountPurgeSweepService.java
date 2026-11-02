@@ -179,6 +179,9 @@ public class AccountPurgeSweepService {
      *  {@link #scheduledSweep}'s own interval rather than hours. */
     static final Duration MINIMUM_SAFETY_BUFFER = Duration.ofMinutes(30);
 
+    /** What a deleted user's accounts are renamed to -- the same text V304 writes. */
+    static final String DELETED_ACCOUNT_NAME = "Deleted account";
+
     /** Every status that still means a live, uncancelled Razorpay mandate -- deliberately wider
      *  than {@code SubscriptionRepository.findActiveOrTrial}'s ACTIVE/TRIAL. {@code
      *  RazorpayWebhookDispatcher.handlePending}'s own doc comment establishes PAST_DUE as "not a
@@ -994,6 +997,12 @@ public class AccountPurgeSweepService {
                 account.setAccountNumberMasked(null);
                 account.setBranchName(null);
                 account.setIfscCode(null);
+                // Privacy workstream 6 (V304 clears accounts deleted before this): the name the
+                // user typed ("Salary HDFC") is theirs, and the identity hash is of the bank plus
+                // the account's full number. Nothing reads either once the account is deleted.
+                // name is NOT NULL, hence a placeholder rather than null.
+                account.setName(DELETED_ACCOUNT_NAME);
+                account.setProductIdentityHash(null);
             }
             accountRepository.saveAll(accounts);
         });

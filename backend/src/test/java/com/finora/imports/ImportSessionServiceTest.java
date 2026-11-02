@@ -42,6 +42,20 @@ import org.springframework.data.domain.Pageable;
  */
 class ImportSessionServiceTest {
 
+    /** Real AES-GCM over a fixed test key, and no object storage -- what staging always uses. */
+    private static final com.finora.imports.storage.StatementContentService CONTENT = contentService();
+
+    private static com.finora.imports.storage.StatementContentService contentService() {
+        com.finora.security.crypto.CryptoProperties crypto = new com.finora.security.crypto.CryptoProperties();
+        crypto.setActiveKeyId("v1");
+        byte[] raw = new byte[32];
+        java.util.Arrays.fill(raw, (byte) 7);
+        crypto.setKeys(new java.util.LinkedHashMap<>(java.util.Map.of("v1", java.util.Base64.getEncoder().encodeToString(raw))));
+        return new com.finora.imports.storage.StatementContentService(Optional.empty(),
+                new com.finora.security.crypto.EncryptionService(new com.finora.security.crypto.EnvironmentKeyProvider(crypto)),
+                "", "");
+    }
+
     private ImportSessionRepository importSessionRepository;
     private ImportJobRepository importJobRepository;
     private HeldStatementRepository heldStatementRepository;
@@ -66,7 +80,8 @@ class ImportSessionServiceTest {
                 heldStatementRepository, objectMapper, buildVersionResolver,
                 org.mockito.Mockito.mock(com.finora.repository.StatementPasswordRepository.class),
                 org.mockito.Mockito.mock(com.finora.imports.analysis.StatementAnalysisSessionRepository.class),
-                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                CONTENT);
         when(importSessionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         // No test in this class is about a trust hold unless it says so -- default to "nothing is
         // held" so every existing claimForConfirmation/listResumableSessions test keeps exercising
@@ -228,9 +243,63 @@ class ImportSessionServiceTest {
         ImportSession created = service.createSession(userId, "statement.csv", fileBytes,
                 List.of(sampleRow()), sampleDetected());
 
-        assertThat(created.getFileContent()).isEqualTo(fileBytes);
+        assertThat(created.getFileContent()).isNotNull();
         assertThat(created.getObjectKey()).isNull();
         assertThat(created.getContentHash()).isEqualTo(com.finora.imports.storage.ContentAddress.hashOf(fileBytes));
+    }
+
+    /**
+     * Privacy workstream 6 (V304): the staged copy is encrypted, not the plain file, and reads back
+     * as the original. The hash stays the ORIGINAL bytes' hash, so dedupe and the confirmed row's
+     * hash are unchanged.
+     */
+    @Test
+    void createSession_storesTheFileEncrypted_andItReadsBackAsTheOriginal() {
+        byte[] fileBytes = "Date,Narration,Amount\n01/07/2026,Coffee Shop,150.00\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        ImportSession created = service.createSession(userId, "statement.csv", fileBytes,
+                List.of(sampleRow()), sampleDetected());
+
+        assertThat(created.getEncryptionKeyId()).isEqualTo("v1");
+        assertThat(created.getFileContent()).isNotEqualTo(fileBytes);
+        assertThat(new String(created.getFileContent(), java.nio.charset.StandardCharsets.ISO_8859_1))
+                .doesNotContain("Coffee Shop");
+        assertThat(CONTENT.read(created)).isEqualTo(fileBytes);
+        assertThat(created.getContentHash()).isEqualTo(com.finora.imports.storage.ContentAddress.hashOf(fileBytes));
+    }
+
+    /** Two uploads of the same file get different ciphertext (a fresh IV each time) but the same
+     *  hash -- the hash, not the bytes, is what dedupe compares. */
+    @Test
+    void createSession_sameFileTwice_differentCiphertextSameHash() {
+        byte[] fileBytes = {4, 5, 6, 7};
+
+        ImportSession first = service.createSession(userId, "a.csv", fileBytes, List.of(sampleRow()), sampleDetected());
+        ImportSession second = service.createSession(userId, "a.csv", fileBytes, List.of(sampleRow()), sampleDetected());
+
+        assertThat(first.getFileContent()).isNotEqualTo(second.getFileContent());
+        assertThat(first.getContentHash()).isEqualTo(second.getContentHash());
+    }
+
+    /** Export reads the staged file decrypted. */
+    @Test
+    void readOwnedFileContent_returnsTheOriginalBytes() {
+        byte[] fileBytes = {9, 8, 7};
+        ImportSession created = service.createSession(userId, "statement.csv", fileBytes,
+                List.of(sampleRow()), sampleDetected());
+        org.springframework.test.util.ReflectionTestUtils.setField(created, "id", UUID.randomUUID());
+        when(importSessionRepository.findById(created.getId())).thenReturn(Optional.of(created));
+
+        assertThat(service.readOwnedFileContent(userId, created.getId())).isEqualTo(fileBytes);
+    }
+
+    /** A row staged before V304 (plain file, no key id) still reads back as it is. */
+    @Test
+    void readOwnedFileContent_rowStagedBeforeEncryption_readsThePlainBytes() {
+        ImportSession legacy = sessionOwnedBy(userId, Instant.now().plusSeconds(3600), ImportSession.STATUS_STAGED);
+        when(importSessionRepository.findById(legacy.getId())).thenReturn(Optional.of(legacy));
+
+        assertThat(service.readOwnedFileContent(userId, legacy.getId())).isEqualTo(new byte[]{1, 2, 3});
     }
 
     /**
@@ -246,7 +315,8 @@ class ImportSessionServiceTest {
         ImportSession created = service.createMultiSection(userId, "composite.pdf",
                 new byte[]{1, 2, 3}, List.of(section));
 
-        assertThat(created.getFileContent()).isEqualTo(new byte[]{1, 2, 3});
+        assertThat(created.getEncryptionKeyId()).isEqualTo("v1");
+        assertThat(CONTENT.read(created)).isEqualTo(new byte[]{1, 2, 3});
         assertThat(created.getObjectKey()).isNull();
     }
 

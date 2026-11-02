@@ -74,6 +74,53 @@ class StatementContentServiceTest {
         static Row legacy(byte[] bytes) { return new Row(null, null, bytes, CompressionType.NONE, null); }
     }
 
+    /** Privacy workstream 6 (V304): a staged upload keeps its bytes in the column, encrypted, with a
+     *  key id. read() decrypts them by that key, with or without object storage configured. */
+    @Test
+    void aColumnHeldRowWithAKeyId_isDecrypted() {
+        StatementContentService service = new StatementContentService(Optional.empty(), ENCRYPTION, "", "");
+        EncryptedBytes encrypted = service.encryptForDatabase(CONTENT);
+        Row staged = new Row(ContentAddress.hashOf(CONTENT), null, encrypted.data(), CompressionType.NONE, encrypted.keyId());
+
+        assertThat(encrypted.data()).isNotEqualTo(CONTENT);
+        assertThat(encrypted.keyId()).isEqualTo(TEST_KEY_ID);
+        assertThat(service.read(staged)).isEqualTo(CONTENT);
+    }
+
+    /** No content hash (not something staging writes, but the read must not depend on one). */
+    @Test
+    void aColumnHeldRowWithAKeyIdAndNoHash_isStillDecrypted() {
+        StatementContentService service = new StatementContentService(Optional.empty(), ENCRYPTION, "", "");
+        EncryptedBytes encrypted = service.encryptForDatabase(CONTENT);
+
+        assertThat(service.read(new Row(null, null, encrypted.data(), CompressionType.NONE, encrypted.keyId())))
+                .isEqualTo(CONTENT);
+    }
+
+    /** Decrypted bytes that do not match the row's hash fail loudly rather than reaching a parser. */
+    @Test
+    void aColumnHeldRowWhoseDecryptedBytesDoNotMatchItsHash_isRefused() {
+        StatementContentService service = new StatementContentService(Optional.empty(), ENCRYPTION, "", "");
+        EncryptedBytes encrypted = service.encryptForDatabase(CONTENT);
+        Row wrongHash = new Row(ContentAddress.hashOf("another file".getBytes(StandardCharsets.UTF_8)), null,
+                encrypted.data(), CompressionType.NONE, encrypted.keyId());
+
+        assertThatThrownBy(() -> service.read(wrongHash)).isInstanceOf(StatementIntegrityException.class);
+    }
+
+    /** Changed ciphertext fails GCM's check instead of yielding different bytes. */
+    @Test
+    void aColumnHeldRowWithAlteredCiphertext_isRefused() {
+        StatementContentService service = new StatementContentService(Optional.empty(), ENCRYPTION, "", "");
+        EncryptedBytes encrypted = service.encryptForDatabase(CONTENT);
+        byte[] altered = encrypted.data().clone();
+        altered[altered.length - 1] ^= 1;
+
+        assertThatThrownBy(() -> service.read(new Row(ContentAddress.hashOf(CONTENT), null, altered,
+                CompressionType.NONE, encrypted.keyId())))
+                .isInstanceOf(com.finora.security.crypto.EncryptionException.class);
+    }
+
     @Test
     void withNoProviderConfigured_storeIsANoOpAndReadsComeFromTheColumn() {
         // The default. Adding this layer must not change behaviour for anyone who has not opted in.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useNavigation, useScrollToTop } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, useScrollToTop, type RouteProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppRefreshControl } from '../components/AppRefreshControl';
@@ -72,10 +72,19 @@ export function InsightsScreen() {
   // This IS the Tab.Navigator's navigation: Transactions and Import are direct navigates, a screen
   // in the More stack is navigate('More', { screen }).
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
+  // Set only when another screen sends the person to one month (Import's Done step).
+  const params = useRoute<RouteProp<AppTabParamList, 'Insights'>>().params;
 
   // `undefined` = no pick yet, the server's newest month. The literal ['insights'] key until a pick
   // is shared with the Dashboard's own insights query, so opening this screen costs no extra call.
-  const [month, setMonth] = useState<string | undefined>(undefined);
+  const [month, setMonth] = useState<string | undefined>(() => params?.month);
+  // The tab stays mounted, so a later visit arrives as new params on this same screen: each
+  // nonce is applied once, during render (React's "adjusting state when a prop changes").
+  const [seenNonce, setSeenNonce] = useState(params?.nonce);
+  if (params?.nonce !== undefined && params.nonce !== seenNonce) {
+    setSeenNonce(params.nonce);
+    if (params.month) setMonth(params.month);
+  }
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
 
   const insightsQ = useQuery({

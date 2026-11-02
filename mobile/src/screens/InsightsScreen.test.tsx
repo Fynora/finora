@@ -678,3 +678,18 @@ describe('kept from the old screen', () => {
     });
   });
 });
+
+// Import's Done step (spec 2026-11-02, Step 3) opens Insights on the statement's month.
+describe('InsightsScreen — opened on a month', () => {
+  it('shows the month it was opened with', async () => {
+    const navigation = jest.requireMock('@react-navigation/native') as { useRoute: () => unknown };
+    const useRoute = jest.spyOn(navigation, 'useRoute').mockReturnValue({ params: { month: '2026-09', nonce: 1 } });
+    try {
+      renderScreen();
+      await waitFor(() => expect(jest.mocked(aiInsightsApi.lookAt)).toHaveBeenCalledWith('2026-09'));
+      expect(jest.mocked(insightsApi.get)).toHaveBeenCalledWith('2026-09');
+    } finally {
+      useRoute.mockRestore();
+    }
+  });
+});

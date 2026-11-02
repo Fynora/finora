@@ -8,7 +8,7 @@ import { AiText } from './AiText';
 import { PeopleLookAtRow } from './PeopleLookAtRow';
 import { fmtCurrency, monthLabelLong } from '../../lib/format';
 import { aiInsightsApi, type AiWhy, type PeopleSuggestion } from '../../api/endpoints';
-import type { LookAtRow } from '../../lib/insightsFeed';
+import { cardPhrase, type LookAtRow } from '../../lib/insightsFeed';
 import { radius, spacing, typography, useTheme } from '../../theme';
 
 interface Props {
@@ -42,13 +42,6 @@ const NO_ANSWER: AiWhy = {
   status: 'none', id: null, text: null, writtenByAi: false, basis: null, freeLeftThisMonth: null, rating: null,
   ratingReason: null,
 };
-
-function cardPhrase(row: Extract<LookAtRow, { kind: 'card-statement' }>): string {
-  if (!row.cardName) return 'a credit card';
-  // The account's own name, often just its bank's ("Sample Bank"): say "card" unless it already does.
-  const name = /\bcard\b/i.test(row.cardName) ? row.cardName : `${row.cardName} card`;
-  return row.cardLast4 ? `your ${name} ending ${row.cardLast4}` : `your ${name}`;
-}
 
 /**
  * "To look at": what changed and needs the user, each row something they can act on. Every row's

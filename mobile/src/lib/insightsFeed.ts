@@ -50,6 +50,15 @@ export type LookAtRow =
       whyAvailable?: boolean;
     } & Dismissible);
 
+/** "your Sample Card ending 0002": how a card-statement row names its card (Insights and Import's
+ *  Done step say it the same way). */
+export function cardPhrase(row: Pick<UnlinkedCardBills, 'cardName' | 'cardLast4'>): string {
+  if (!row.cardName) return 'a credit card';
+  // The account's own name, often just its bank's ("Sample Bank"): say "card" unless it already does.
+  const name = /\bcard\b/i.test(row.cardName) ? row.cardName : `${row.cardName} card`;
+  return row.cardLast4 ? `your ${name} ending ${row.cardLast4}` : `your ${name}`;
+}
+
 /** The key an acknowledgement is stored under for each kind, exactly as V277 documents it. The
  *  people kinds (V281) carry their key from the server instead. */
 export function ackKey(

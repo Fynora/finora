@@ -64,6 +64,23 @@ describe('NotificationPreferencesSection', () => {
     expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
   });
 
+  // V305: "Offers and news" is opt-in. Promotional push campaigns reach only people who turned it on.
+  it('shows offers and news off until turned on, and turning it on saves MARKETING push only', async () => {
+    const withOffers = (offers: boolean) => [
+      ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: offers },
+    ];
+    api.list.mockResolvedValue(withOffers(false));
+    api.set.mockResolvedValue(withOffers(true));
+    renderSection();
+
+    expect(await screen.findByLabelText('Offers and news')).toHaveProp('value', false);
+    fireEvent(screen.getByLabelText('Offers and news'), 'valueChange', true);
+
+    await waitFor(() => expect(screen.getByLabelText('Offers and news')).toHaveProp('value', true));
+    expect(api.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true);
+    expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
+  });
+
   it('keeps the old state and says so when saving fails', async () => {
     api.list.mockResolvedValue(both(true, true));
     api.set.mockRejectedValue(new Error('network'));

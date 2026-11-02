@@ -44,6 +44,11 @@ public class PushCampaign {
     @Column(name = "schedule_kind", nullable = false, length = 16)
     private ScheduleKind scheduleKind;
 
+    /** V305: decides the notification category, and so who may receive it. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private CampaignPurpose purpose = CampaignPurpose.OPERATIONAL;
+
     @Column(name = "run_at")
     private Instant runAt;
 
@@ -97,6 +102,15 @@ public class PushCampaign {
         this.createdBy = createdBy;
         this.createdAt = now;
         this.updatedAt = now;
+    }
+
+    public CampaignPurpose getPurpose() {
+        return purpose;
+    }
+
+    /** Set on create and on edit (so only while {@link #isEditable()}); null keeps OPERATIONAL. */
+    public void setPurpose(CampaignPurpose purpose) {
+        this.purpose = purpose == null ? CampaignPurpose.OPERATIONAL : purpose;
     }
 
     /** Whether the words, audience and schedule may be edited: only before it runs, or while paused. */

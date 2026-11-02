@@ -9,7 +9,7 @@ import { BrandMark } from '../../components/BrandMark';
 // Lifted verbatim from Login.tsx/Register.tsx, which had the identical array duplicated in
 // both -- one copy now, shared by every step that shows the marketing panel.
 const FEATURES = [
-  { icon: ShieldCheck, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', title: 'Secure & Private', desc: 'Your data is encrypted and bank-level secure.' },
+  { icon: ShieldCheck, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', title: 'Secure & Private', desc: 'Statements are stored encrypted, every connection uses HTTPS, and your data is never sold.' },
   { icon: UploadCloud, iconBg: 'bg-accent-green-bg', iconColor: 'text-accent-green', title: 'Auto Statement Import', desc: 'Import bank & credit card statements in seconds.' },
   { icon: TrendingUp, iconBg: 'bg-accent-orange-bg', iconColor: 'text-accent-orange', title: 'AI Financial Insights', desc: 'AI-powered insights to help you save more.' },
   { icon: PiggyBank, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple', title: 'Budget Tracking', desc: 'Set budgets and stay effortlessly on track.' },

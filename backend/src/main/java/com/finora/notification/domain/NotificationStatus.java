@@ -21,9 +21,11 @@ public enum NotificationStatus {
     FAILED,
     RETRYING,
     DEAD_LETTER,
-    /** Withdrawn before delivery: an admin cancelled a push campaign's still-queued sends. Never a
-     *  failure (it is not counted as one) and never claimed by the dispatcher, which only claims
-     *  CREATED, QUEUED and RETRYING rows. A row already PROCESSING cannot be cancelled. */
+    /** Withdrawn before delivery. Either an admin cancelled a push campaign's still-queued sends (a
+     *  row already PROCESSING cannot be cancelled that way), or the dispatcher, just before sending,
+     *  found the user had switched the category off or stepped away since the row was queued
+     *  (NotificationDispatcher#switchedOffSinceQueued). Never a failure (it is not counted as one)
+     *  and never claimed by the dispatcher, which only claims CREATED, QUEUED and RETRYING rows. */
     CANCELLED,
     /** Nothing to deliver to: a push found no device for its user (the app was never installed, was
      *  uninstalled, or every token expired). Routine -- a user who only uses the web has no device

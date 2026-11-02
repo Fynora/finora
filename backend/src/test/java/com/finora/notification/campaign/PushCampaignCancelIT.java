@@ -321,11 +321,11 @@ class PushCampaignCancelIT extends AbstractIntegrationTest {
         doAnswer(invocation -> {
             service.cancelSending(adminId, campaign.id());
             return invocation.callRealMethod();
-        }).doCallRealMethod().when(enqueuer).enqueuePage(any(), anyString(), anyString(), any(), anyList());
+        }).doCallRealMethod().when(enqueuer).enqueuePage(any(), anyString(), anyString(), any(), anyList(), any());
 
         runner.execute(run.getId());
 
-        verify(enqueuer, times(1)).enqueuePage(any(), anyString(), anyString(), any(), anyList());
+        verify(enqueuer, times(1)).enqueuePage(any(), anyString(), anyString(), any(), anyList(), any());
         assertThat(runs.findById(run.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.CANCELLED);
         assertThat(rowsWithStatus(campaign.id(), "QUEUED")).isZero();
         assertThat(rowsWithStatus(campaign.id(), "CANCELLED")).isEqualTo(1);
@@ -346,11 +346,11 @@ class PushCampaignCancelIT extends AbstractIntegrationTest {
             jdbc.update("UPDATE push_campaign_runs SET status = 'FAILED', note = 'Interrupted' WHERE id = ?",
                     run.getId());
             return result;
-        }).doCallRealMethod().when(enqueuer).enqueuePage(any(), anyString(), anyString(), any(), anyList());
+        }).doCallRealMethod().when(enqueuer).enqueuePage(any(), anyString(), anyString(), any(), anyList(), any());
 
         runner.execute(run.getId());
 
-        verify(enqueuer, times(1)).enqueuePage(any(), anyString(), anyString(), any(), anyList());
+        verify(enqueuer, times(1)).enqueuePage(any(), anyString(), anyString(), any(), anyList(), any());
         assertThat(runs.findById(run.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.FAILED);
         // What was legitimately queued is not taken away from the person who got it.
         assertThat(rowsWithStatus(campaign.id(), "QUEUED")).isEqualTo(1);

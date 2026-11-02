@@ -30,7 +30,7 @@ import type {
   StatementAnalysisSummaryDto,
   LearningQueueEvent, LearningQueueSummary,
   NotificationAdminRow, NotificationAdminDetail, NotificationAdminSummary,
-  PushCampaign, PushCampaignDetail, PushCampaignRun, PushCampaignSaveRequest, PushCampaignAudienceCount,
+  PushCampaign, PushCampaignDetail, PushCampaignRun, PushCampaignSaveRequest, PushCampaignAudienceCount, PushCampaignPurpose,
   PushCampaignTestResult, PushCampaignCancelResult, PushCampaignSettings, PushAudienceType,
   MerchantReviewItem,
   LayoutSummary,
@@ -470,8 +470,8 @@ export const adminPushCampaignApi = {
   updateSettings: (dailyLimitPerPerson: number) =>
     api.put<PushCampaignSettings>('/admin/push-campaigns/settings', { dailyLimitPerPerson }).then((r) => r.data),
   get: (id: string) => api.get<PushCampaignDetail>(`/admin/push-campaigns/${id}`).then((r) => r.data),
-  audienceCount: (audienceType: PushAudienceType) =>
-    api.get<PushCampaignAudienceCount>('/admin/push-campaigns/audience-count', { params: { audienceType } }).then((r) => r.data),
+  audienceCount: (audienceType: PushAudienceType, purpose: PushCampaignPurpose = 'OPERATIONAL') =>
+    api.get<PushCampaignAudienceCount>('/admin/push-campaigns/audience-count', { params: { audienceType, purpose } }).then((r) => r.data),
   create: (body: PushCampaignSaveRequest) =>
     api.post<PushCampaign>('/admin/push-campaigns', body).then((r) => r.data),
   update: (id: string, body: PushCampaignSaveRequest) =>

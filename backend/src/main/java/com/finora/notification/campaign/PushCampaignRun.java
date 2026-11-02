@@ -78,6 +78,10 @@ public class PushCampaignRun {
     @Column(name = "audience_snapshot", nullable = false, updatable = false, length = 32)
     private AudienceType audienceSnapshot;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose_snapshot", nullable = false, updatable = false, length = 16)
+    private CampaignPurpose purposeSnapshot = CampaignPurpose.OPERATIONAL;
+
     @Column(length = 300)
     private String note;
 
@@ -100,7 +104,10 @@ public class PushCampaignRun {
         this.titleSnapshot = campaign.getTitle();
         this.messageSnapshot = campaign.getMessage();
         this.audienceSnapshot = campaign.getAudienceType();
+        this.purposeSnapshot = campaign.getPurpose();
     }
+
+    public CampaignPurpose getPurposeSnapshot() { return purposeSnapshot; }
 
     /** A run that is about to start sending. */
     public static PushCampaignRun starting(PushCampaign campaign, LocalDate runDateIst,

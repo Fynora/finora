@@ -181,7 +181,14 @@ public class PushCampaignService {
     /** The dry run. Needs no saved campaign, so the editor can show it while the admin is still typing. */
     @Transactional(readOnly = true)
     public PushCampaignAudienceCountDto audienceCount(AudienceType type) {
-        return new PushCampaignAudienceCountDto(type, runner.resolverFor(type).count(), runner.maxAudience());
+        return audienceCount(type, CampaignPurpose.OPERATIONAL);
+    }
+
+    /** The audience a campaign of this purpose would reach: for PROMOTIONAL, only users who turned
+     *  marketing push on. */
+    public PushCampaignAudienceCountDto audienceCount(AudienceType type, CampaignPurpose purpose) {
+        CampaignPurpose p = purpose == null ? CampaignPurpose.OPERATIONAL : purpose;
+        return new PushCampaignAudienceCountDto(type, runner.resolverFor(type).count(p), runner.maxAudience(), p);
     }
 
     // ---------------------------------------------------------------- create / edit / clone
@@ -193,8 +200,9 @@ public class PushCampaignService {
         PushCampaign campaign = new PushCampaign(cleaned.name, cleaned.title, cleaned.message,
                 request.audienceType(), request.scheduleKind(), cleaned.runAt, cleaned.sendTime,
                 request.endsOn(), actingAdminId, now);
+        campaign.setPurpose(request.purpose());
         campaigns.save(campaign);
-        audit(actingAdminId, "PUSH_CAMPAIGN_CREATED", campaign, Map.of());
+        audit(actingAdminId, "PUSH_CAMPAIGN_CREATED", campaign, Map.of("purpose", campaign.getPurpose().name()));
         return toDto(campaign);
     }
 
@@ -213,8 +221,12 @@ public class PushCampaignService {
         Cleaned cleaned = validate(request, now);
         campaign.edit(cleaned.name, cleaned.title, cleaned.message, request.audienceType(),
                 request.scheduleKind(), cleaned.runAt, cleaned.sendTime, request.endsOn(), now);
+        // An edit from an older admin portal sends no purpose: the campaign keeps its own.
+        if (request.purpose() != null) {
+            campaign.setPurpose(request.purpose());
+        }
         campaigns.save(campaign);
-        audit(actingAdminId, "PUSH_CAMPAIGN_UPDATED", campaign, Map.of());
+        audit(actingAdminId, "PUSH_CAMPAIGN_UPDATED", campaign, Map.of("purpose", campaign.getPurpose().name()));
         return toDto(campaign);
     }
 
@@ -229,6 +241,7 @@ public class PushCampaignService {
         PushCampaign copy = new PushCampaign(name, source.getTitle(), source.getMessage(),
                 source.getAudienceType(), source.getScheduleKind(), source.getRunAt(),
                 source.getSendTimeIst(), source.getEndsOn(), actingAdminId, clock.now());
+        copy.setPurpose(source.getPurpose());
         campaigns.save(copy);
         audit(actingAdminId, "PUSH_CAMPAIGN_CLONED", copy, Map.of("sourceCampaignId", source.getId().toString()));
         return toDto(copy);
@@ -319,7 +332,7 @@ public class PushCampaignService {
             throw badRequest("This campaign has no schedule. Use Send now, or edit it to pick a time.");
         }
         Instant now = clock.now();
-        checkRolloutLimit(campaign.getAudienceType());
+        checkRolloutLimit(campaign.getAudienceType(), campaign.getPurpose());
         Instant first;
         if (campaign.getScheduleKind() == ScheduleKind.ONCE_AT) {
             Instant runAt = campaign.getRunAt();
@@ -364,7 +377,7 @@ public class PushCampaignService {
                 now.minus(STALE_RUN_MINUTES, ChronoUnit.MINUTES))) {
             throw conflict("This campaign is already sending. Wait for it to finish.");
         }
-        long audience = checkRolloutLimit(campaign.getAudienceType());
+        long audience = checkRolloutLimit(campaign.getAudienceType(), campaign.getPurpose());
         LocalDate today = clock.today();
 
         consumeScheduleForSendNow(campaign, now, today);
@@ -445,13 +458,15 @@ public class PushCampaignService {
                     "Nothing was sent: this account has no registered device (the app has not been "
                             + "opened signed in on a phone with notifications allowed).");
         }
-        if (!preferenceResolver.isEnabled(target.getId(), NotificationCategory.FINANCIAL,
-                NotificationChannel.PUSH)) {
-            return new PushCampaignTestResultDto(false, "Nothing was sent: this account has push notifications switched off.");
+        NotificationCategory category = campaign.getPurpose().category();
+        if (!preferenceResolver.isEnabled(target.getId(), category, NotificationChannel.PUSH)) {
+            return new PushCampaignTestResultDto(false, campaign.getPurpose() == CampaignPurpose.PROMOTIONAL
+                    ? "Nothing was sent: this account has not turned on offers and news."
+                    : "Nothing was sent: this account has push notifications switched off.");
         }
         String key = "PUSHCAMPAIGNTEST_" + campaign.getId() + "_" + UUID.randomUUID();
         List<UUID> written = notificationService.request(NotificationRequest.of(target.getId(),
-                NotificationType.CUSTOM_PUSH, NotificationCategory.FINANCIAL,
+                NotificationType.CUSTOM_PUSH, category,
                 NotificationPriority.NORMAL, key, Set.of(NotificationChannel.PUSH),
                 Map.of("title", campaign.getTitle(), "message", campaign.getMessage())));
         if (written.isEmpty()) {
@@ -559,8 +574,8 @@ public class PushCampaignService {
     }
 
     /** @return the current audience count, for the audit entry */
-    private long checkRolloutLimit(AudienceType type) {
-        long audience = runner.resolverFor(type).count();
+    private long checkRolloutLimit(AudienceType type, CampaignPurpose purpose) {
+        long audience = runner.resolverFor(type).count(purpose);
         if (audience > runner.maxAudience()) {
             throw conflict("This audience is " + audience + " people, over the current rollout limit of "
                     + runner.maxAudience() + ". Raise app.push-campaigns.max-audience to allow a larger send.");
@@ -659,7 +674,7 @@ public class PushCampaignService {
         return new PushCampaignDto(c.getId(), c.getName(), c.getTitle(), c.getMessage(), c.getAudienceType(),
                 c.getScheduleKind(), c.getRunAt(), c.getSendTimeIst(), c.getEndsOn(), c.getStatus(),
                 c.getNextRunAt(), c.getLastTestedAt(), c.getLastTestedBy(), c.getCreatedBy(),
-                c.getCreatedAt(), c.getUpdatedAt(), c.getVersion());
+                c.getCreatedAt(), c.getUpdatedAt(), c.getVersion(), c.getPurpose());
     }
 
     static PushCampaignRunDto toDto(PushCampaignRun r, CampaignDeliveryStats.Delivery delivery) {

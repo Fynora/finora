@@ -82,4 +82,53 @@ class AudienceResolverAgreementIT extends AbstractIntegrationTest {
                 .filter(e -> e.getValue().equals(User.STATUS_ACTIVE)).map(Map.Entry::getKey))
                 .allMatch(inAudience::contains);
     }
+
+    /** The same agreement for a PROMOTIONAL campaign (V305): in the audience exactly when the account
+     *  is ACTIVE and the resolver says MARKETING push is on. Marketing is opt-in, so "never set" must
+     *  be out, alongside "turned off". */
+    @Test
+    void promotionalAudienceMembershipEqualsTheResolversMarketingAnswer() {
+        Map<UUID, String> label = new LinkedHashMap<>();
+        for (String status : List.of(User.STATUS_ACTIVE, User.STATUS_SUSPENDED, User.STATUS_DEACTIVATED,
+                User.STATUS_PENDING_DELETION, User.STATUS_DELETED)) {
+            for (String marketing : List.of("unset", "on", "off")) {
+                User user = new User();
+                user.setEmail("agreement-promo-it-" + UUID.randomUUID() + "@example.com");
+                user.setPasswordHash("irrelevant-for-this-test");
+                user.setFullName("Agreement IT User");
+                user.setStatus(status);
+                UUID id = userRepository.save(user).getId();
+                deviceTokenService.register(id, "ANDROID", "agreement-promo-token-" + UUID.randomUUID());
+                if (!marketing.equals("unset")) {
+                    jdbc.update("INSERT INTO notification_preferences (id, user_id, category, channel, enabled) "
+                            + "VALUES (gen_random_uuid(), ?, 'MARKETING', 'PUSH', ?)", id, marketing.equals("on"));
+                }
+                label.put(id, status + " + marketing " + marketing);
+            }
+        }
+
+        Set<UUID> inAudience = new java.util.HashSet<>();
+        UUID after = AudienceSql.FIRST;
+        while (true) {
+            List<UUID> page = audience.page(CampaignPurpose.PROMOTIONAL, after, 500);
+            if (page.isEmpty()) {
+                break;
+            }
+            inAudience.addAll(page);
+            after = page.get(page.size() - 1);
+        }
+
+        List<String> disagreements = new ArrayList<>();
+        label.forEach((id, description) -> {
+            boolean expected = description.startsWith(User.STATUS_ACTIVE + " ")
+                    && preferenceResolver.isEnabled(id, NotificationCategory.MARKETING, NotificationChannel.PUSH);
+            if (inAudience.contains(id) != expected) {
+                disagreements.add(description + ": audience=" + inAudience.contains(id) + " expected=" + expected);
+            }
+        });
+        assertThat(disagreements).isEmpty();
+        assertThat(label.entrySet().stream()
+                .filter(e -> e.getValue().equals(User.STATUS_ACTIVE + " + marketing on")).map(Map.Entry::getKey))
+                .allMatch(inAudience::contains);
+    }
 }

@@ -34,7 +34,9 @@ public interface StoredStatement {
     /** Provider-internal key for {@link #getContentHash()}, or null. */
     String getObjectKey();
 
-    /** The bytes, when still held in the database — null for an addressed row (see class doc). */
+    /** The bytes, when still held in the database — null for an addressed row (see class doc).
+     *  Encrypted when {@link #getEncryptionKeyId()} is set; read them through
+     *  {@code StatementContentService.read}, never directly. */
     byte[] getFileContent();
 
     /**
@@ -46,13 +48,13 @@ public interface StoredStatement {
     CompressionType getCompressionType();
 
     /**
-     * The {@code EncryptionService}/{@code KeyProvider} key id the addressed object's bytes were
-     * encrypted under, or null. Null means one of two things, both meaning "do not decrypt": a
-     * legacy row ({@link #getObjectKey()} null), or an addressed row written before encryption
-     * shipped (V107) -- exactly the same either-or {@link #getCompressionType()} already handles
-     * for compression, and decided the same way: explicit per-row metadata, not a guess from the
-     * bytes. Implementations that never address an object at all may return null unconditionally,
-     * same as {@link #getCompressionType()}'s equivalent carve-out.
+     * The {@code EncryptionService}/{@code KeyProvider} key id the row's bytes were encrypted
+     * under, or null, meaning "do not decrypt". For an addressed row it covers the object; null
+     * there is an object written before encryption shipped (V107). For a legacy row it covers
+     * {@link #getFileContent()}: an {@code ImportSession} staged since V304 has one, while a
+     * {@code StatementImport} legacy row and a session staged before V304 hold the plain file and
+     * have none. Explicit per-row metadata, not a guess from the bytes, the same way
+     * {@link #getCompressionType()} works.
      */
     String getEncryptionKeyId();
 }

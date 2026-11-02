@@ -313,7 +313,7 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
       <div className="flex items-start gap-2.5 bg-primary-light rounded-lg p-3 mb-6">
         <ShieldCheck size={16} className="text-primary flex-shrink-0 mt-0.5" />
         <p className="text-xs text-ink">
-          Your financial data is encrypted and securely protected.{' '}
+          Statements you upload are stored encrypted. Your data is never sold.{' '}
           <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">Read our Privacy Policy</Link>
         </p>
       </div>

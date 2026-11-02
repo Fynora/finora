@@ -2,8 +2,8 @@ package com.finora.notification.domain;
 
 /**
  * Preference grouping. SECURITY notifications default on and are the ones a user should not be
- * able to silence on their only verified channel; MARKETING is a placeholder with no send logic
- * in v1 (proposal section 4, explicitly out of scope).
+ * able to silence on their only verified channel. MARKETING is opt-in (off unless the user turns
+ * it on, push only): PROMOTIONAL push campaigns (V305) are its only sender.
  */
 public enum NotificationCategory {
     SECURITY,

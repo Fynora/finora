@@ -12397,6 +12397,18 @@
                                 "NO_STATEMENT_UPLOADED"
                             ]
                         }
+                    },
+                    {
+                        "name": "purpose",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "OPERATIONAL",
+                                "PROMOTIONAL"
+                            ]
+                        }
                     }
                 ],
                 "responses": {
@@ -16151,6 +16163,13 @@
                     "expectedVersion": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "enum": [
+                            "OPERATIONAL",
+                            "PROMOTIONAL"
+                        ]
                     }
                 },
                 "required": [
@@ -16268,6 +16287,13 @@
                     "version": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "enum": [
+                            "OPERATIONAL",
+                            "PROMOTIONAL"
+                        ]
                     }
                 }
             },
@@ -31502,6 +31528,13 @@
                     "rolloutLimit": {
                         "type": "integer",
                         "format": "int64"
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "enum": [
+                            "OPERATIONAL",
+                            "PROMOTIONAL"
+                        ]
                     }
                 }
             },

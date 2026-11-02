@@ -77,8 +77,8 @@ export function CampaignDetail({
   const runs = detail.data?.runs ?? [];
 
   const audience = useQuery({
-    queryKey: ['push-campaign-audience-count', campaign?.audienceType],
-    queryFn: () => adminPushCampaignApi.audienceCount(campaign!.audienceType),
+    queryKey: ['push-campaign-audience-count', campaign?.audienceType, campaign?.purpose],
+    queryFn: () => adminPushCampaignApi.audienceCount(campaign!.audienceType, campaign!.purpose ?? 'OPERATIONAL'),
     enabled: confirm === 'send-now' && campaign !== undefined,
     // The number in a send confirmation must be today's, not whatever was cached half a minute ago.
     staleTime: 0,
@@ -265,6 +265,11 @@ export function CampaignDetail({
             <p className="text-sm text-muted">Next send: {formatIst(campaign.nextRunAt)}</p>
           )}
           <p className="text-sm text-muted">Audience: {AUDIENCE_LABELS[campaign.audienceType]}</p>
+          <p className="text-sm text-muted">
+            {campaign.purpose === 'PROMOTIONAL'
+              ? 'An offer or news: only people who turned on "Offers and news"'
+              : 'About using the app: everyone who has not switched push off'}
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">

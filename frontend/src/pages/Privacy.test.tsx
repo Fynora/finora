@@ -278,6 +278,100 @@ describe('Privacy policy matches what the product does', () => {
   // V286, V300: lib/signupAttribution.ts captures the referring host, the four utm tags and the first
   // public page (its route, from the build's marker) on a website sign-up; SignupAttributionService
   // stores the host and the path only, and AccountPurgeSweepService deletes the row with the account.
+  // Privacy workstream 6. Each claim below matches code merged by workstreams 2-8:
+  //   - consent box and acceptance record: TermsConsentService, user_terms_acceptances (V302), channel
+  //     from X-Client-Platform; AI consent off until yes (FynAvailabilityGuard.aiConsentGiven).
+  //   - switching AI off: TermsConsentService.eraseAiOutput deletes ai_insight_texts and clears
+  //     ai_audit_log.tool_inputs/tool_outputs; chats are kept (Free daily count reads them).
+  //   - the AI log holds each lookup's inputs and returned figures: FynChatOrchestrationService.writeAuditLog.
+  //   - encryption: StatementContentService (confirmed files, V107), staged uploads (V304),
+  //     saved passwords (StatementPasswordService), all EncryptionService AES-256-GCM.
+  //   - deletion: StatementImport @SQLDelete scrub (#2428), Firebase phone user (#2429), Google and
+  //     Apple deletion in both apps (#2435, #2437), store-subscription warning (#2442), account names
+  //     cleared on purge (V304). Acceptance rows are not purged.
+  describe('workstream 6: consent, AI choice, encryption and deletion', () => {
+    it('describes the Terms box and the record kept of each acceptance', () => {
+      const t = policyText();
+      expect(t).toMatch(/asks you to tick a box agreeing to the Terms of Service and this policy when you sign up/i);
+      expect(t).toMatch(/We record which\s+version you agreed to, when, and whether it was on the website, the iPhone app or the Android app/i);
+    });
+
+    it('no longer says withdrawing consent can only mean deleting the account', () => {
+      const t = policyText();
+      expect(t).not.toMatch(/withdrawing consent in practice means deleting your account/i);
+      expect(t).toMatch(/AI features need a separate yes: they stay off unless you turn them on/i);
+      expect(t).toMatch(/withdrawing consent to them means deleting your\s+account/i);
+      expect(t).toMatch(/including consent to AI features \(Settings → Data → AI features\)/i);
+    });
+
+    it('explains the AI switch: off by default, where to change it, and what off means', () => {
+      policyText();
+      const section = document.getElementById('ai-features')?.textContent ?? '';
+      expect(section).toMatch(/^AI Features: Your Choice/);
+      expect(section).toMatch(/they are off unless you turn them on/);
+      expect(section).toMatch(/Settings → Data → AI features/);
+      expect(section).toMatch(/nothing about you is sent to Anthropic: Ask Fyn does not answer/);
+    });
+
+    it('says what turning AI off deletes and what it keeps', () => {
+      policyText();
+      const section = (document.getElementById('ai-features')?.textContent ?? '').replace(/\s+/g, ' ');
+      expect(section).toContain('Fynora deletes the AI-written insight texts it stored for you');
+      expect(section).toContain('the figures that were sent to the AI and returned to it');
+      expect(section).toContain('your Ask Fyn conversations, which it uses to count the Free plan\'s daily questions');
+      expect(section).toContain('We keep a record of each time you turn AI features on or off.');
+    });
+
+    it('says the AI log holds the figures a lookup returned, not only which lookup ran', () => {
+      const t = policyText();
+      expect(t).not.toMatch(/only\s+which lookup was used and how it performed/i);
+      expect(t).toMatch(/the figures it returned \(such as a balance or a category total\)/i);
+      expect(t).toMatch(/That log does not contain the text of your conversation/i);
+    });
+
+    it('says statement files are encrypted by Fynora, including while waiting for import, and other data is not', () => {
+      const t = policyText();
+      expect(t).not.toMatch(/statements, budgets, goals\) is protected by the security/i);
+      expect(t).toMatch(/Fynora encrypts your statement files itself, with AES-256-GCM, before they are stored: the file you\s+upload while it waits for you to review and import it, and the copy kept after you import it/i);
+      expect(t).toMatch(/other financial data \(transactions, accounts, budgets, goals\) is protected by the security/i);
+    });
+
+    it('drops the old deleted-statement exception and says what deleting a statement removes', () => {
+      const t = policyText();
+      expect(t).not.toMatch(/not\s+currently erased/i);
+      expect(t).not.toMatch(/working to close it/i);
+      expect(t).toMatch(/When you delete a statement, Fynora removes at once its file name, the account-holder name it read\s+from the statement/i);
+      expect(t).toMatch(/keep the file's name until you delete your\s+account/i);
+    });
+
+    it('covers deleting a Google or Apple account, Firebase, account names and store subscriptions', () => {
+      const t = policyText();
+      expect(t).toMatch(/whether you sign in with a password, Google or Apple/i);
+      expect(t).toMatch(/The names you gave your accounts, and the account details Fynora read from\s+your statements, are removed too/i);
+      expect(t).toMatch(/Your phone number is also deleted from Firebase Authentication/i);
+      expect(t).toMatch(/It cannot cancel one\s+bought through the App Store or Google Play/i);
+      expect(t).toMatch(/The deletion screen reminds you if you have one/i);
+    });
+
+    it('lists what is kept after account deletion, including the acceptance record', () => {
+      expect(policyText()).toMatch(/What we keep after you delete your account: a record of each version of the Terms of Service and\s+this policy you agreed to/i);
+    });
+
+    it('says how long an upload that is never imported is kept', () => {
+      expect(policyText().replace(/\s+/g, ' ')).toContain(
+        'If you upload a statement and never import it, the copy waiting for your review is deleted 48 hours '
+          + 'after you upload it (or, if we hold it for our own review first, 48 hours after that review ends), and '
+          + 'the uploaded file itself is deleted from our storage 90 days after we finish reading it.');
+    });
+
+    it('adds the acceptance record to the export, the age confirmation, and re-asking on a material change', () => {
+      const t = policyText();
+      expect(t).toMatch(/the record of each version of the Terms of Service and this policy you\s+agreed to, plus the original statement files/i);
+      expect(t).toMatch(/you confirm that you are 18 or older/i);
+      expect(t).toMatch(/ask you to read and agree to the new version before you continue/i);
+    });
+  });
+
   it('discloses the sign-up source: the referring site and the first page landed on by address only, the four utm tags, and deletion with the account', () => {
     const t = policyText();
     expect(t).toMatch(/When you sign up on the website, Fynora also notes where that visit came from/i);

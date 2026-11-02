@@ -93,6 +93,8 @@ public class ImportSessionService {
     private final com.finora.imports.analysis.StatementAnalysisSessionRepository analysisSessionRepository;
     /** {@code REQUIRES_NEW}, for {@link #stampAbandoned} -- see there for why it must be separate. */
     private final org.springframework.transaction.support.TransactionTemplate separateTransaction;
+    /** Encrypts the staged copy and reads it back -- see {@link #storeContent}. */
+    private final com.finora.imports.storage.StatementContentService statementContentService;
 
     public ImportSessionService(ImportSessionRepository importSessionRepository,
                                  ImportJobRepository importJobRepository,
@@ -100,7 +102,9 @@ public class ImportSessionService {
                                  BuildVersionResolver buildVersionResolver,
                                  com.finora.repository.StatementPasswordRepository statementPasswordRepository,
                                  com.finora.imports.analysis.StatementAnalysisSessionRepository analysisSessionRepository,
-                                 org.springframework.transaction.PlatformTransactionManager transactionManager) {
+                                 org.springframework.transaction.PlatformTransactionManager transactionManager,
+                                 com.finora.imports.storage.StatementContentService statementContentService) {
+        this.statementContentService = statementContentService;
         this.analysisSessionRepository = analysisSessionRepository;
         this.separateTransaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
         this.separateTransaction.setPropagationBehavior(
@@ -445,9 +449,18 @@ public class ImportSessionService {
      * Computing it directly via {@link com.finora.imports.storage.ContentAddress#hashOf} costs one
      * SHA-256 over bytes already fully in memory -- negligible next to the parse this method's
      * caller just ran.
+     *
+     * <p><b>Encrypted (privacy workstream 6, V304).</b> The staged copy used to be the plain file,
+     * while every confirmed copy has been encrypted since V107, so the one window in which a
+     * statement sat unprotected in the database was the one before the user pressed Import. It now
+     * goes through the same {@code EncryptionService}, and the session records the key id, which
+     * {@code StatementContentService.read} uses to decrypt. The hash is of the ORIGINAL bytes,
+     * computed before encrypting, so it still matches the confirmed row's and the dedupe above.
      */
     private void storeContent(ImportSession session, byte[] fileContent) {
-        session.setFileContent(fileContent);
+        com.finora.security.crypto.EncryptedBytes encrypted = statementContentService.encryptForDatabase(fileContent);
+        session.setFileContent(encrypted.data());
+        session.setEncryptionKeyId(encrypted.keyId());
         session.setContentHash(com.finora.imports.storage.ContentAddress.hashOf(fileContent));
     }
 
@@ -493,11 +506,11 @@ public class ImportSessionService {
     public byte[] readOwnedFileContent(UUID userId, UUID sessionId) {
         ImportSession session = OwnershipGuard.requireOwned(importSessionRepository.findById(sessionId),
                 ImportSession::getUserId, userId, "Import session");
-        byte[] content = session.getFileContent();
-        if (content == null) {
+        if (session.getFileContent() == null) {
             throw new IllegalStateException("Import session " + sessionId + " holds no file content");
         }
-        return content;
+        // Decrypted by the session's own key id (plain bytes for a row staged before V304).
+        return statementContentService.read(session);
     }
 
     /** Package-private -- {@link #listResumableSessions} is the only caller and the only

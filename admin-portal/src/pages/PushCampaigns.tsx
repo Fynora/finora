@@ -107,6 +107,7 @@ function PushCampaignsContent() {
       ),
     },
     { header: 'Who', render: (c) => AUDIENCE_LABELS[c.audienceType], cellClassName: 'text-muted' },
+    { header: 'What', render: (c) => (c.purpose === 'PROMOTIONAL' ? 'Offer or news' : 'About the app'), cellClassName: 'text-muted' },
     { header: 'When', render: (c) => scheduleSummary(c), cellClassName: 'text-muted' },
     {
       header: 'Next send',

@@ -52,7 +52,7 @@ public class ImportSession implements com.finora.imports.storage.StoredStatement
     private String fileName;
 
     /**
-     * The staged file's original bytes -- ALWAYS populated. Staging deliberately keeps a file in
+     * The staged file's bytes, encrypted (see {@link #encryptionKeyId}) -- ALWAYS populated. Staging deliberately keeps a file in
      * temporary (database) storage only; nothing is written to object storage until the user
      * confirms the import (see {@code ImportSessionService.storeContent} and
      * {@code ImportService.persistSection}'s own doc comments). A session therefore never reaches
@@ -74,6 +74,12 @@ public class ImportSession implements com.finora.imports.storage.StoredStatement
     @Basic(fetch = FetchType.LAZY)
     @Column(name = "file_content")
     private byte[] fileContent;
+
+    /** Privacy workstream 6 (V304): {@link #fileContent} is encrypted under this key, the same
+     *  {@code EncryptionService} confirmed statements use (V107). Null only for a row staged before
+     *  that change: its bytes are the plain file, read back as they are. */
+    @Column(name = "encryption_key_id", length = 50)
+    private String encryptionKeyId;
 
     /** Hex SHA-256 of the staged file -- the document's identity, always computed regardless of
      *  whether object storage is configured (see ImportSessionService.storeContent). Nullable only
@@ -206,11 +212,10 @@ public class ImportSession implements com.finora.imports.storage.StoredStatement
     @Override public com.finora.imports.storage.CompressionType getCompressionType() {
         return com.finora.imports.storage.CompressionType.NONE;
     }
-    // Always null, same reasoning: a session's objectKey is always null (see its own doc comment),
-    // so there is never anything to decrypt and no encryption_key_id column of its own to persist.
-    @Override public String getEncryptionKeyId() {
-        return null;
-    }
+    /** The key {@link #fileContent} was encrypted under (V304), or null for a row staged before
+     *  staging encrypted, whose bytes are the plain file. */
+    @Override public String getEncryptionKeyId() { return encryptionKeyId; }
+    public void setEncryptionKeyId(String encryptionKeyId) { this.encryptionKeyId = encryptionKeyId; }
     public String getStagedRowsJson() { return stagedRowsJson; }
     public void setStagedRowsJson(String stagedRowsJson) { this.stagedRowsJson = stagedRowsJson; }
     public String getDetectedAccountJson() { return detectedAccountJson; }

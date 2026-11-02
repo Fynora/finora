@@ -61,6 +61,25 @@ describe('NotificationsPane', () => {
     expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
   });
 
+  // V305: "Offers and news" is opt-in. Promotional push campaigns reach only people who turned it on.
+  it('shows offers and news off until turned on, and turning it on saves MARKETING push only', async () => {
+    const user = userEvent.setup();
+    const withOffers = (offers: boolean) => [
+      ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: offers },
+    ];
+    vi.mocked(notificationPreferencesApi.list).mockResolvedValue(withOffers(false));
+    vi.mocked(notificationPreferencesApi.set).mockResolvedValue(withOffers(true));
+    render(<NotificationsPane />);
+
+    const offers = await screen.findByRole('switch', { name: 'Offers and news' });
+    expect(offers).toHaveAttribute('aria-checked', 'false');
+    await user.click(offers);
+
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true);
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Offers and news' })).toHaveAttribute('aria-checked', 'true'));
+    expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('keeps the old state and says so when saving fails', async () => {
     const user = userEvent.setup();
     vi.mocked(notificationPreferencesApi.list).mockResolvedValue(both(true, true));

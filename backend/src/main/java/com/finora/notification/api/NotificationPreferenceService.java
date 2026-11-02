@@ -27,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>FINANCIAL on EMAIL and PUSH -- the two channels FINANCIAL notifications are actually sent
  *       on (StatementStatusNotifier, ReferralService, ReferralGrantSweepService).</li>
  *   <li>SECURITY is not exposed: the resolver forces it on, so a toggle would be a lie.</li>
- *   <li>MARKETING is not exposed: it is opt-in and nothing sends it (NotificationCategory's own
- *       doc comment), so there is nothing to turn off yet.</li>
+ *   <li>MARKETING on PUSH (V305, "Offers and news"): opt-in, so off until the user turns it on.
+ *       PROMOTIONAL push campaigns are its only sender. Listed only for a client that asks for it,
+ *       like REMINDERS.</li>
  *   <li>REMINDERS on PUSH (Gate 2b): the month-start statement reminder, listed only for a client
  *       that asks for it -- see {@link #list(UUID, Set)}.</li>
  * </ul>
@@ -46,6 +47,9 @@ public class NotificationPreferenceService {
 
     /** Gate 2b: the month-start reminder is push only (spec §6), so REMINDERS has one switch. */
     static final List<NotificationChannel> REMINDERS_CHANNELS = List.of(NotificationChannel.PUSH);
+    /** V305: "Offers and news". Push only, off unless the user turns it on (the resolver's default
+     *  for MARKETING); PROMOTIONAL push campaigns reach only users who did. */
+    static final List<NotificationChannel> MARKETING_CHANNELS = List.of(NotificationChannel.PUSH);
 
     public record PreferenceView(NotificationCategory category, NotificationChannel channel,
             boolean enabled) {
@@ -65,8 +69,8 @@ public class NotificationPreferenceService {
     }
 
     /**
-     * The exposed preferences of the requested categories, FINANCIAL first. A category with nothing
-     * to change (SECURITY, MARKETING) contributes nothing. REMINDERS is listed only when asked for:
+     * The exposed preferences of the requested categories, FINANCIAL first. SECURITY, with nothing
+     * to change, contributes nothing. REMINDERS and MARKETING are listed only when asked for:
      * the 1.0.0 app keys its switches by channel alone and sends every change as FINANCIAL, so a
      * second PUSH row would give it a switch that toggles the wrong category.
      */
@@ -76,7 +80,8 @@ public class NotificationPreferenceService {
                 .collect(Collectors.toMap(p -> p.getCategory() + ":" + p.getChannel(),
                         NotificationPreference::isEnabled, (a, b) -> a));
         List<PreferenceView> views = new ArrayList<>();
-        for (NotificationCategory category : List.of(NotificationCategory.FINANCIAL, NotificationCategory.REMINDERS)) {
+        for (NotificationCategory category : List.of(NotificationCategory.FINANCIAL, NotificationCategory.REMINDERS,
+                NotificationCategory.MARKETING)) {
             if (!categories.contains(category)) continue;
             for (NotificationChannel channel : channelsOf(category)) {
                 // Both are opt-out: no row means enabled, the same default the resolver applies --
@@ -86,7 +91,8 @@ public class NotificationPreferenceService {
                 boolean enabled = own != null ? own
                         : category == NotificationCategory.REMINDERS
                                 ? stored.getOrDefault(NotificationCategory.FINANCIAL + ":" + channel, true)
-                                : true;
+                                // Marketing is opt-in: no row means off.
+                                : category != NotificationCategory.MARKETING;
                 views.add(new PreferenceView(category, channel, enabled));
             }
         }
@@ -105,7 +111,7 @@ public class NotificationPreferenceService {
             NotificationChannel channel, boolean enabled, Set<NotificationCategory> listed) {
         if (!channelsOf(category).contains(channel)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR,
-                    "Only FINANCIAL notifications on EMAIL or PUSH, and REMINDERS on PUSH, can be changed");
+                    "Only FINANCIAL notifications on EMAIL or PUSH, and REMINDERS and MARKETING on PUSH, can be changed");
         }
         repository.upsert(UUID.randomUUID(), userId, category.name(), channel.name(), enabled);
         return list(userId, listed);
@@ -115,7 +121,8 @@ public class NotificationPreferenceService {
         return switch (category) {
             case FINANCIAL -> FINANCIAL_CHANNELS;
             case REMINDERS -> REMINDERS_CHANNELS;
-            case SECURITY, MARKETING -> List.of();
+            case MARKETING -> MARKETING_CHANNELS;
+            case SECURITY -> List.of();
         };
     }
 }

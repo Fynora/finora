@@ -155,7 +155,7 @@ export default function AuthEntry() {
       </div>
 
       <p className="text-xs text-muted flex items-center gap-2">
-        <ShieldCheck size={13} /> Bank-grade encryption. Your data is never sold.
+        <ShieldCheck size={13} /> Statements are stored encrypted. Your data is never sold.
       </p>
       {/* This screen is the one place someone creating an account has no route to the legal
           pages at all -- PublicLayout (Terms.tsx/Privacy.tsx/About.tsx/...) carries this same

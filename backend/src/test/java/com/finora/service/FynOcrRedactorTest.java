@@ -281,4 +281,30 @@ class FynOcrRedactorTest {
     void redactNarration_isNullSafe() {
         assertThat(FynOcrRedactor.redactNarration(null)).isNull();
     }
+
+    // Privacy workstream 9: a labelled reference shorter than the 8-digit long-number rule.
+
+    @Test
+    void aLabelledShortReferenceIsRedacted_inANarrationAndInOcrText() {
+        assertThat(FynOcrRedactor.redactNarration("UPI-QZX HARDWARE STORE-REF881234")) // synthetic-ok
+                .isEqualTo("UPI-QZX HARDWARE STORE-[redacted-number]")
+                .doesNotContain("881234");
+        assertThat(FynOcrRedactor.redact("UTR: 556677 credited")).doesNotContain("556677"); // synthetic-ok
+        assertThat(FynOcrRedactor.redact("Txn No. 12345")).doesNotContain("12345"); // synthetic-ok
+        assertThat(FynOcrRedactor.redactNarration("RRN#7654321")).doesNotContain("7654321"); // synthetic-ok
+    }
+
+    @Test
+    void anUnlabelledAmountAndWordsThatMerelyStartWithALabelAreLeftAlone() {
+        assertThat(FynOcrRedactor.redact("Paid 25000 for groceries")).contains("25000");
+        assertThat(FynOcrRedactor.redactNarration("REFUND 123456 FROM SHOP")).contains("REFUND"); // synthetic-ok
+        assertThat(FynOcrRedactor.redactNarration("TRANSFER TO SAVINGS")).isEqualTo("TRANSFER TO SAVINGS");
+        assertThat(FynOcrRedactor.redact("REF 12")).isEqualTo("REF 12");
+    }
+
+    @Test
+    void redactingTwiceChangesNothingMore() {
+        String once = FynOcrRedactor.redactNarration("UPI-SHOP-shop@okaxis-REF881234"); // synthetic-ok
+        assertThat(FynOcrRedactor.redactNarration(once)).isEqualTo(once);
+    }
 }

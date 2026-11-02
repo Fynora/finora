@@ -94,6 +94,15 @@ final class FynOcrRedactor {
     // pattern is deliberately looser than a general-purpose PII scrubber would be.
     private static final Pattern LONG_NUMBER = Pattern.compile("\\+?(?:\\d[ .\\-()]{0,2}){7,}\\d");
 
+    // A reference number shorter than LONG_NUMBER's 8 digits, recognisable by its label instead of
+    // its length ("REF881234", "UTR: 556677", "TXN NO 12345"). Privacy workstream 9: the Privacy
+    // Policy says reference numbers are removed from a hand-typed description, and the outbound-
+    // payload test (AiOutboundPayloadIT) found a labelled six-digit one sent as typed. The label is
+    // the evidence, so an unlabelled short number -- an amount -- stays readable. Five digits or
+    // more, so "REF 12" in free text is not taken for one.
+    private static final Pattern LABELLED_REFERENCE = Pattern.compile(
+            "\\b(?:REF|UTR|RRN|TXN|TRN)(?:\\s*(?:NO|ID)\\b)?\\.?\\s*[:#\\-]?\\s*\\d{5,}\\b", Pattern.CASE_INSENSITIVE);
+
     /** Null-safe -- returns null for null input, same convention {@code PiiRedactor.redact}
      *  already establishes, so a caller can pipe this straight into further processing without an
      *  extra guard. Order matters: IFSC before the generic long-number sweep (see that pattern's
@@ -167,6 +176,7 @@ final class FynOcrRedactor {
 
     private static String redactNumbers(String value) {
         String redacted = IFSC.matcher(value).replaceAll("[redacted-ifsc]");
+        redacted = LABELLED_REFERENCE.matcher(redacted).replaceAll("[redacted-number]");
         return LONG_NUMBER.matcher(redacted).replaceAll("[redacted-number]");
     }
 }

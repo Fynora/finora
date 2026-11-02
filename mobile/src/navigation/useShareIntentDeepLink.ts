@@ -106,7 +106,10 @@ function toPending(file: ShareIntentFile, currentUserId: string | null): Pending
 
 /**
  * Android's share sheet arrival path: sharing a PDF/CSV straight out of another app (e.g. a bank
- * app's own Share action) rather than picking one from "Choose a file". expo-share-intent's own
+ * app's own Share action) rather than picking one from "Choose a file". "Open with" arrives here
+ * too -- a Gmail attachment or a file in Files opened with Fynora (ACTION_VIEW on a content:// URI),
+ * which patches/expo-share-intent+9.0.0.patch turns into the same `files` entry as a share, so the
+ * code below treats both alike. expo-share-intent's own
  * useShareIntentContext() already collapses cold-start (app launched by the share) and warm-start
  * (app already running, resumed by the share) into one reactive `shareIntent` value -- unlike
  * useAppPathDeepLink's own https-link handling, no separate Linking.getInitialURL()/

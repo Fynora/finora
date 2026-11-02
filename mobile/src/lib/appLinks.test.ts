@@ -37,6 +37,12 @@ describe('parseAppLink', () => {
     expect(parseAppLink('https://app.fynora.net/verify-phone')).toEqual({ path: '/verify-phone', params: {} });
   });
 
+  it('ignores a file opened with Fynora, which React Native also reports as a launch URL', () => {
+    // "Open with" from Gmail delivers ACTION_VIEW on a content:// URI; Linking.getInitialURL
+    // returns that URI too, so every link hook sees it. It must not be read as an app link.
+    expect(parseAppLink('content://com.example.provider/attachment/1?mimeType=application%2Fpdf')).toBeNull();
+  });
+
   it('ignores a bare key with no "="', () => {
     expect(parseAppLink('https://app.fynora.net/register?ref')?.params).toEqual({});
   });

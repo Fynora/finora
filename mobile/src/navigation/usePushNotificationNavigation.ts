@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
+import { reportHandledError } from '../lib/monitoring';
 import { defaultMessaging, type PushMessaging, type RemoteMessage } from '../lib/pushRegistration';
 import type { RootParamList } from './types';
 
@@ -127,7 +128,9 @@ export function usePushNotificationNavigation(
     try {
       const messaging = deps.messaging ?? defaultMessaging();
       unsubscribeOpened = messaging.onNotificationOpenedApp(handleMessage);
-      void messaging.getInitialNotification().then((message) => { if (message) handleMessage(message); });
+      void messaging.getInitialNotification()
+        .then((message) => { if (message) handleMessage(message); })
+        .catch((error: unknown) => reportHandledError(error, 'push-navigation:initial-notification'));
     } catch {
       // Same "push is an enhancement, not a requirement" posture as pushRegistration.ts's own
       // functions -- a broken/absent native messaging module must never break navigation.

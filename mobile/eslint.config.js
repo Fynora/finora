@@ -108,6 +108,33 @@ module.exports = defineConfig([
     },
   },
   {
+    // Linking.openURL() REJECTS when the device cannot open the link -- no mail account for a
+    // mailto:, no handler for the scheme. Fired as `void Linking.openURL(x)` or as a bare statement,
+    // that rejection is nobody's to catch and reaches Sentry as an Error with mechanism
+    // onunhandledrejection, while the person's tap does nothing (FYNORA-MOBILE-V: ConsentNotice's
+    // address link on an iPad; earlier, /trust and /your-data on an iPhone). An `await` inside
+    // try/catch, or a `.catch(...)` chained on, is fine and not matched here.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "UnaryExpression[operator='void'] > CallExpression[callee.object.name='Linking'][callee.property.name='openURL']",
+          message:
+            "Linking.openURL() can reject and `void` leaves it unhandled. Use openWebUrl (lib/webUrl) for web pages or openMailto (lib/openMailto) for mail, or await it inside try/catch.",
+        },
+        {
+          selector:
+            "ExpressionStatement > CallExpression[callee.object.name='Linking'][callee.property.name='openURL']",
+          message:
+            "Linking.openURL() can reject and a bare call leaves it unhandled. Use openWebUrl (lib/webUrl) for web pages or openMailto (lib/openMailto) for mail, or await it inside try/catch.",
+        },
+      ],
+    },
+  },
+  {
     // Test files legitimately do things production code must not.
     files: ['**/*.test.ts', '**/*.test.tsx', 'src/test/**'],
     rules: {

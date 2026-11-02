@@ -103,7 +103,11 @@ const PERSIST_KEY = 'finora_query_cache';
 // below -- e.g. after a change to one of the persisted keys' response shape that hydrate() can no
 // longer safely restore. maxAge alone wouldn't catch that: a cache written five minutes ago is
 // well within 24h but can still be a shape the new code can't use.
-const PERSIST_BUSTER = '1';
+//
+// '2': builds before the fix in ImportScreen persisted a list of category NAMES under ['categories']
+// (see the comment on that query), which RecurringQuestion and the pickers then read as category
+// objects after a restart. A cache written by those builds is discarded once, on first launch.
+const PERSIST_BUSTER = '2';
 
 // 24h: long enough that reopening the app the next morning still shows real figures instantly
 // instead of a skeleton; short enough that a persisted balance from days ago never survives to be

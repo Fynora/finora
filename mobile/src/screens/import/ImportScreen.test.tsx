@@ -3024,3 +3024,32 @@ describe('ImportScreen — the new account\'s bank', () => {
     expect(importButtonDisabled()).toBe(false);
   });
 });
+
+// FYNORA-MOBILE-K: this screen used to store a list of category NAMES under the shared
+// ['categories'] key, while the category picker, Ledger, Reports and RecurringQuestion read the
+// full objects from it. After a visit here RecurringQuestion's `cat.name.toLowerCase()` threw, and
+// the names were persisted to disk and restored on the next launch.
+describe('ImportScreen — shared categories cache', () => {
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+  });
+
+  it('leaves the full category objects under the shared categories key, not just their names', async () => {
+    const cats = [
+      { id: 'cat-1', name: 'Rent', isSystem: true, icon: 'tag', color: 'gray' },
+      { id: 'cat-2', name: 'Dining', isSystem: true, icon: 'tag', color: 'gray' },
+    ];
+    api.categories.list.mockReset().mockResolvedValue(cats as never);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ImportScreen />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(queryClient.getQueryData(['categories'])).toEqual(cats));
+  });
+});

@@ -57,7 +57,7 @@ describe('signing out clears the AsyncStorage-persisted query cache', () => {
     seed.setQueryData(['dashboard-summary'], { currentBalance: 555000 });
     await AsyncStorage.setItem(
       PERSIST_KEY,
-      JSON.stringify({ timestamp: Date.now(), buster: '1', clientState: dehydrate(seed) })
+      JSON.stringify({ timestamp: Date.now(), buster: '2', clientState: dehydrate(seed) })
     );
     seed.clear();
 

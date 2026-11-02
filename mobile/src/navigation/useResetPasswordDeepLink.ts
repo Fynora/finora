@@ -3,6 +3,7 @@ import { Linking } from 'react-native';
 import { AppAlert } from '../lib/appAlert';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import { createLaunchUrlGuard, parseAppLink } from '../lib/appLinks';
+import { reportHandledError } from '../lib/monitoring';
 import type { RootParamList } from './types';
 
 /**
@@ -106,10 +107,12 @@ export function useResetPasswordDeepLink(
     // A mount torn down before this resolves must not claim the URL: its replacement is the one that
     // can act on it, and a dead mount's handler would consume the link against a stale navigation ref.
     let cancelled = false;
-    void Linking.getInitialURL().then((url) => {
-      if (cancelled || !url || !isFirstLaunchDelivery(url)) return;
-      handleUrl(url);
-    });
+    void Linking.getInitialURL()
+      .then((url) => {
+        if (cancelled || !url || !isFirstLaunchDelivery(url)) return;
+        handleUrl(url);
+      })
+      .catch((error: unknown) => reportHandledError(error, 'reset-password-deep-link:initial-url'));
     const subscription = Linking.addEventListener('url', (event) => handleUrl(event.url));
     return () => {
       cancelled = true;

@@ -4,11 +4,20 @@ import { useShareIntentContext, type ShareIntentFile } from 'expo-share-intent';
 import type { NavigationContainerRefWithCurrent } from '@react-navigation/native';
 import { detectStatementFormat, type StatementFormat } from '../lib/statementFile';
 import { safeStorage } from '../lib/safeStorage';
+import { reportHandledError } from '../lib/monitoring';
 import type { RootParamList, SharedStatementFile, SharedStatementError } from './types';
 import { UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
 
 // The same words the picker and the web app use (importFailureMessages.ts).
 const UNSUPPORTED_MESSAGE = UNSUPPORTED_FILE_MESSAGE;
+
+/**
+ * The `.catch` for every AsyncStorage / safeStorage call below, which were fired as a bare `void`
+ * and so reported a rejected read or write as an unhandled promise rejection. A failed stash only
+ * means a share is not recovered after a process kill, and a failed read or clear leaves nothing
+ * to act on, so each is reported (not shown) and the hook carries on.
+ */
+const onStorageError = (context: string) => (error: unknown) => reportHandledError(error, context);
 
 /**
  * Same `finora_` key convention as useNavigationStatePersistence's own NAV_STATE_KEY and
@@ -167,7 +176,7 @@ export function useShareIntentDeepLink(
       navigationRef.navigate('Import', { sharedFileError: pending.value });
       return;
     }
-    void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+    void AsyncStorage.removeItem(PENDING_SHARE_KEY).catch(onStorageError('share-intent:remove-pending'));
     const { userId } = pending.stored;
     if (userId !== null && userId !== currentUserIdRef.current) {
       // Belongs to a different account than the one currently signed in -- see
@@ -191,7 +200,7 @@ export function useShareIntentDeepLink(
       currentUserIdRef.current = id;
       identityLoadedRef.current = true;
       tryConsume();
-    });
+    }).catch(onStorageError('share-intent:read-user-id'));
     return () => { cancelled = true; };
   }, [signedIn, tryConsume]);
 
@@ -214,7 +223,8 @@ export function useShareIntentDeepLink(
     const pending = toPending(file, currentUserIdRef.current);
     pendingRef.current = pending;
     if (pending.kind === 'file') {
-      void AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(pending.stored));
+      void AsyncStorage.setItem(PENDING_SHARE_KEY, JSON.stringify(pending.stored))
+        .catch(onStorageError('share-intent:stash-pending'));
     }
     tryConsume();
   }, [hasShareIntent, shareIntent, tryConsume]);
@@ -234,16 +244,16 @@ export function useShareIntentDeepLink(
       try {
         stored = JSON.parse(raw) as StoredShare;
       } catch {
-        void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+        void AsyncStorage.removeItem(PENDING_SHARE_KEY).catch(onStorageError('share-intent:remove-pending'));
         return;
       }
       if (Date.now() - stored.value.nonce > PENDING_SHARE_MAX_AGE_MS) {
-        void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+        void AsyncStorage.removeItem(PENDING_SHARE_KEY).catch(onStorageError('share-intent:remove-pending'));
         return;
       }
       pendingRef.current = { kind: 'file', stored };
       tryConsume();
-    });
+    }).catch(onStorageError('share-intent:read-pending'));
     return () => { cancelled = true; };
     // Deliberately [] -- a one-time recovery check for this mount's cold start, not something that
     // should re-run as `tryConsume`'s identity changes with navigationRef/ready.
@@ -254,7 +264,7 @@ export function useShareIntentDeepLink(
     readyRef.current = ready;
     if (wasSignedInRef.current && !signedIn) {
       pendingRef.current = null;
-      void AsyncStorage.removeItem(PENDING_SHARE_KEY);
+      void AsyncStorage.removeItem(PENDING_SHARE_KEY).catch(onStorageError('share-intent:remove-pending'));
     }
     wasSignedInRef.current = signedIn;
     tryConsume();

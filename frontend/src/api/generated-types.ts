@@ -6468,7 +6468,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/users/{userId}/transactions/{transactionId}": {
+    "/api/v1/budgets/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -6479,6 +6479,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["delete_10"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{userId}/transactions/{transactionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_11"];
         options?: never;
         head?: never;
         patch?: never;
@@ -25107,6 +25123,28 @@ export interface operations {
         };
     };
     delete_10: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
+            };
+        };
+    };
+    delete_11: {
         parameters: {
             query?: never;
             header?: never;

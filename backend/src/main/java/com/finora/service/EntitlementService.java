@@ -11,6 +11,7 @@ import com.finora.repository.SubscriptionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -56,7 +57,12 @@ public class EntitlementService {
                 .flatMap(sub -> planRepository.findById(sub.getPlanId()))
                 .map(Plan::getCode)
                 .orElse(null);
+        // A grant past its end date gives nothing, even while the row still says ACTIVE: only the
+        // hourly ReferralGrantSweepService moves it to EXPIRED. A null end date (activation always
+        // sets one) is left counted, as the sweep also never expires such a row.
+        Instant now = Instant.now();
         String grantTier = referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)
+                .filter(grant -> grant.getExpiresAt() == null || grant.getExpiresAt().isAfter(now))
                 .map(ReferralGrant::getTier)
                 .orElse(null);
         if (grantTier == null) return realPlanCode;

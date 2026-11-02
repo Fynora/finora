@@ -82,6 +82,58 @@ class EntitlementServiceTest {
         assertThat(service.planCodeFor(userId)).isEqualTo("PREMIUM");
     }
 
+    /** The hourly ReferralGrantSweepService is what moves an ended grant to EXPIRED. Until it runs,
+     *  the row still says ACTIVE; its own end date decides (measured locally 2026-11-02: a grant
+     *  ended a minute earlier still gave PLUS until the job ran). */
+    @Test
+    void planCodeFor_aGrantPastItsEndDate_isNotCountedEvenBeforeTheJobMarksItExpired() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(freePlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
+
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PLUS);
+        grant.setStatus(ReferralGrant.STATUS_ACTIVE);
+        grant.setExpiresAt(java.time.Instant.now().minusSeconds(60));
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
+
+        assertThat(service.planCodeFor(userId)).isEqualTo("FREE");
+    }
+
+    @Test
+    void planCodeFor_aGrantBeforeItsEndDate_stillCounts() {
+        Subscription sub = new Subscription();
+        sub.setPlanId(freePlanId);
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.of(sub));
+
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PLUS);
+        grant.setStatus(ReferralGrant.STATUS_ACTIVE);
+        grant.setExpiresAt(java.time.Instant.now().plusSeconds(60));
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
+
+        assertThat(service.planCodeFor(userId)).isEqualTo("PLUS");
+    }
+
+    @Test
+    void hasEntitlement_aGrantPastItsEndDate_unlocksNothing() {
+        when(subscriptionRepository.findActiveOrTrial(userId)).thenReturn(Optional.empty());
+
+        ReferralGrant grant = new ReferralGrant();
+        grant.setTier(ReferralGrant.TIER_PLUS);
+        grant.setStatus(ReferralGrant.STATUS_ACTIVE);
+        grant.setExpiresAt(java.time.Instant.now().minusSeconds(1));
+        when(referralGrantRepository.findByUserIdAndStatus(userId, ReferralGrant.STATUS_ACTIVE)).thenReturn(Optional.of(grant));
+
+        FeatureEntitlement fe = new FeatureEntitlement();
+        fe.setEnabled(true);
+        when(featureEntitlementRepository.findByPlanIdAndFeatureKey(plusPlanId, FeatureEntitlement.FINO_AI))
+                .thenReturn(Optional.of(fe));
+
+        assertThat(service.hasEntitlement(userId, FeatureEntitlement.FINO_AI)).isFalse();
+        assertThat(service.planCodeFor(userId)).isNull();
+    }
+
     @Test
     void hasEntitlement_activeGrantUnlocksFeatureRealPlanDoesNotHave() {
         Subscription sub = new Subscription();

@@ -224,7 +224,7 @@
     <dependency>
       <groupId>com.auth0</groupId>
       <artifactId>jwks-rsa</artifactId>
-      <version>0.24.1</version>
+      <version>0.24.2</version>
     </dependency>
 
     <!-- Validation -->
@@ -311,7 +311,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
-      <version>2.57.4</version>
+      <version>2.57.7</version>
       <exclusions>
         <exclusion>
           <groupId>software.amazon.awssdk</groupId>
@@ -322,7 +322,7 @@
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>apache-client</artifactId>
-      <version>2.57.4</version>
+      <version>2.57.7</version>
     </dependency>
 
     <!-- Firebase Admin SDK: server-side verification of Firebase ID tokens issued by Firebase

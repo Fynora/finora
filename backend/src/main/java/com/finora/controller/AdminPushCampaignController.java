@@ -77,8 +77,10 @@ public class AdminPushCampaignController {
 
     /** The dry run: how many people the audience reaches right now. An estimate, not a promise. */
     @GetMapping("/audience-count")
-    public ApiResponse<PushCampaignAudienceCountDto> countPushCampaignAudience(@RequestParam AudienceType audienceType) {
-        return ApiResponse.ok(service.audienceCount(audienceType));
+    public ApiResponse<PushCampaignAudienceCountDto> countPushCampaignAudience(
+            @RequestParam AudienceType audienceType,
+            @RequestParam(required = false) com.finora.notification.campaign.CampaignPurpose purpose) {
+        return ApiResponse.ok(service.audienceCount(audienceType, purpose));
     }
 
     @PostMapping

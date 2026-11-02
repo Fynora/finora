@@ -21,12 +21,12 @@ public class AllWithDeviceAudience implements AudienceResolver {
     }
 
     @Override
-    public long count() {
-        return AudienceSql.count(jdbc, "");
+    public long count(CampaignPurpose purpose) {
+        return AudienceSql.count(jdbc, purpose, "");
     }
 
     @Override
-    public List<UUID> page(UUID afterUserId, int limit) {
-        return AudienceSql.page(jdbc, "", afterUserId, limit);
+    public List<UUID> page(CampaignPurpose purpose, UUID afterUserId, int limit) {
+        return AudienceSql.page(jdbc, purpose, "", afterUserId, limit);
     }
 }

@@ -2272,14 +2272,16 @@ export interface BillingOffer {
  *  NotificationPreferenceService). Mirrors web's notificationPreferencesApi. */
 export interface NotificationPreference {
   // REMINDERS (Gate 2b): the month-start statement reminder, PUSH only.
-  category: 'FINANCIAL' | 'REMINDERS';
+  // MARKETING (V305): "Offers and news", PUSH only, off until the user turns it on.
+  category: 'FINANCIAL' | 'REMINDERS' | 'MARKETING';
   channel: 'EMAIL' | 'PUSH';
   enabled: boolean;
 }
 
 // The server lists REMINDERS only when asked (the 1.0.0 app draws one switch per channel, so it must
-// never see a second PUSH row). This build draws the reminders switch, so it always asks.
-const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS' } };
+// never see a second PUSH row). This build draws the reminders and the offers switches, so it always
+// asks for both.
+const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } };
 
 export const notificationPreferencesApi = {
   list: () => api.get<NotificationPreference[]>('/notification-preferences', PREFERENCE_CATEGORIES).then((r) => r.data),

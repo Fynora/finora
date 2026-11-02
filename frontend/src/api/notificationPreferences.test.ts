@@ -23,17 +23,17 @@ describe('notificationPreferencesApi', () => {
     put.mockClear();
   });
 
-  it('asks for FINANCIAL and REMINDERS when listing', async () => {
+  it('asks for FINANCIAL, REMINDERS and MARKETING when listing', async () => {
     await notificationPreferencesApi.list();
 
-    expect(get).toHaveBeenCalledWith('/notification-preferences', { params: { categories: 'FINANCIAL,REMINDERS' } });
+    expect(get).toHaveBeenCalledWith('/notification-preferences', { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
   });
 
-  it('sends the category with a change, and asks for both categories back', async () => {
+  it('sends the category with a change, and asks for every listed category back', async () => {
     await notificationPreferencesApi.set('REMINDERS', 'PUSH', false);
 
     expect(put).toHaveBeenCalledWith('/notification-preferences',
       { category: 'REMINDERS', channel: 'PUSH', enabled: false },
-      { params: { categories: 'FINANCIAL,REMINDERS' } });
+      { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
   });
 });

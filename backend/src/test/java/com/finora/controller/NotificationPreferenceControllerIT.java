@@ -289,4 +289,44 @@ class NotificationPreferenceControllerIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+
+    // ---- V305: "Offers and news" (MARKETING push), opt-in ----
+
+    private static final String WITH_MARKETING = "/api/v1/notification-preferences?categories=FINANCIAL,REMINDERS,MARKETING";
+
+    @Test
+    void marketingPushIsListedOffByDefault_andOnlyWhenAskedFor() throws Exception {
+        User user = createUser();
+
+        JsonNode asked = mapper.readTree(get(user, WITH_MARKETING).getBody()).get("data");
+        JsonNode notAsked = mapper.readTree(get(user, WITH_REMINDERS).getBody()).get("data");
+
+        assertThat(asked).hasSize(4);
+        assertThat(enabledIn(asked, "MARKETING", "PUSH")).isFalse();
+        assertThat(enabledIn(asked, "MARKETING", "EMAIL")).isNull();
+        assertThat(enabledIn(notAsked, "MARKETING", "PUSH")).isNull();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.MARKETING, NotificationChannel.PUSH)).isFalse();
+    }
+
+    @Test
+    void marketingPushCanBeTurnedOnAndOff_andTouchesNothingElse() throws Exception {
+        User user = createUser();
+
+        JsonNode on = mapper.readTree(put(user, WITH_MARKETING, "MARKETING", "PUSH", true).getBody()).get("data");
+        assertThat(enabledIn(on, "MARKETING", "PUSH")).isTrue();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.MARKETING, NotificationChannel.PUSH)).isTrue();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isTrue();
+
+        put(user, WITH_MARKETING, "MARKETING", "PUSH", false);
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.MARKETING, NotificationChannel.PUSH)).isFalse();
+        assertThat(resolver.isEnabled(user.getId(), NotificationCategory.FINANCIAL, NotificationChannel.PUSH)).isTrue();
+    }
+
+    @Test
+    void marketingEmailIsRefused() {
+        User user = createUser();
+
+        assertThat(put(user, WITH_MARKETING, "MARKETING", "EMAIL", true).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(preferenceRepository.findByUserId(user.getId())).isEmpty();
+    }
 }

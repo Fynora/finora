@@ -23,7 +23,7 @@ describe('notificationPreferencesApi', () => {
   it('asks for FINANCIAL and REMINDERS when listing', async () => {
     await notificationPreferencesApi.list();
 
-    expect(get).toHaveBeenCalledWith('/notification-preferences', { params: { categories: 'FINANCIAL,REMINDERS' } });
+    expect(get).toHaveBeenCalledWith('/notification-preferences', { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
   });
 
   it('sends the category with a change, and asks for both categories back', async () => {
@@ -31,6 +31,6 @@ describe('notificationPreferencesApi', () => {
 
     expect(put).toHaveBeenCalledWith('/notification-preferences',
       { category: 'REMINDERS', channel: 'PUSH', enabled: false },
-      { params: { categories: 'FINANCIAL,REMINDERS' } });
+      { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
   });
 });

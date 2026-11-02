@@ -24,6 +24,11 @@ const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>
     label: 'Statement reminders',
     description: 'A push at the start of the month when a new statement has probably arrived.',
   },
+  // V305: off until the user turns it on. Promotional campaigns reach only people who did.
+  'MARKETING:PUSH': {
+    label: 'Offers and news',
+    description: 'Occasional push notifications about offers, discounts and new features. Off unless you turn it on.',
+  },
 };
 
 const keyOf = (pref: NotificationPreference): PrefKey => `${pref.category}:${pref.channel}`;

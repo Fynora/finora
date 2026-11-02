@@ -138,7 +138,7 @@ class DatabaseNotificationPreferenceResolverTest {
         when(repository.findByUserIdAndCategoryAndChannel(any(), any(), any()))
                 .thenReturn(Optional.empty());
 
-        // Opt-in, not opt-out -- no send logic exists for MARKETING in v1 regardless.
+        // Opt-in, not opt-out: PROMOTIONAL push campaigns (V305) reach only users who turned it on.
         assertThat(resolver.isEnabled(userId, NotificationCategory.MARKETING,
                 NotificationChannel.EMAIL)).isFalse();
     }

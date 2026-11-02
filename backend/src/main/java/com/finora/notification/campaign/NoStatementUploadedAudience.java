@@ -33,12 +33,12 @@ public class NoStatementUploadedAudience implements AudienceResolver {
     }
 
     @Override
-    public long count() {
-        return AudienceSql.count(jdbc, NO_STATEMENT);
+    public long count(CampaignPurpose purpose) {
+        return AudienceSql.count(jdbc, purpose, NO_STATEMENT);
     }
 
     @Override
-    public List<UUID> page(UUID afterUserId, int limit) {
-        return AudienceSql.page(jdbc, NO_STATEMENT, afterUserId, limit);
+    public List<UUID> page(CampaignPurpose purpose, UUID afterUserId, int limit) {
+        return AudienceSql.page(jdbc, purpose, NO_STATEMENT, afterUserId, limit);
     }
 }

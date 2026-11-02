@@ -68,9 +68,18 @@ public class CampaignEnqueuer {
         return KEY_PREFIX + campaignId + "_" + KEY_DATE.format(runDate) + "_";
     }
 
+    /** An OPERATIONAL campaign's page: queued as FINANCIAL, the only kind before V305. */
     @Transactional
     public PageResult enqueuePage(UUID campaignId, String title, String message, LocalDate runDate,
             List<UUID> userIds) {
+        return enqueuePage(campaignId, title, message, runDate, userIds, CampaignPurpose.OPERATIONAL);
+    }
+
+    /** Queued under the purpose's category (FINANCIAL or MARKETING), which the dispatcher and the
+     *  user's switches then judge it by. */
+    @Transactional
+    public PageResult enqueuePage(UUID campaignId, String title, String message, LocalDate runDate,
+            List<UUID> userIds, CampaignPurpose purpose) {
         RenderedMessage rendered = templateRenderer.render(NotificationType.CUSTOM_PUSH,
                 NotificationChannel.PUSH, Map.of("title", title, "message", message));
         String prefix = keyPrefix(campaignId, runDate);
@@ -85,7 +94,7 @@ public class CampaignEnqueuer {
             if (dailyCap.claim(userId, runDate, campaignId, dailyLimit)) {
                 String key = prefix + userId + ":" + NotificationChannel.PUSH.name();
                 boolean inserted = notifications.insertIfAbsent(userId, key,
-                        NotificationType.CUSTOM_PUSH.name(), NotificationCategory.FINANCIAL.name(),
+                        NotificationType.CUSTOM_PUSH.name(), purpose.category().name(),
                         NotificationChannel.PUSH.name(), NotificationPriority.LOW.name(),
                         rendered.title(), rendered.body(), null, now).isPresent();
                 if (inserted) {

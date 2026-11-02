@@ -88,6 +88,59 @@ class AccountCoverageServiceTest {
         assertThat(dto.gaps().get(0).gapStart()).isEqualTo(LocalDate.of(2026, 6, 1));
     }
 
+    private StatementImportRepository.UndatedRange undated(UUID statementId, LocalDate first, LocalDate last) {
+        StatementImportRepository.UndatedRange r = mock(StatementImportRepository.UndatedRange.class);
+        when(r.getStatementImportId()).thenReturn(statementId);
+        when(r.getFirstDate()).thenReturn(first);
+        when(r.getLastDate()).thenReturn(last);
+        return r;
+    }
+
+    /** A CSV statement prints no period. The app's months view counts it by its own transactions'
+     *  dates, and says so: the segment is marked approximate. Printed ones are not. */
+    @Test
+    void forAccount_countsAnUndatedStatementByItsTransactionDates_markedApproximate() {
+        UUID septemberId = UUID.randomUUID();
+        UUID octoberCsvId = UUID.randomUUID();
+        StatementMetadata september = metadata(septemberId, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30),
+                new BigDecimal("1000"), new BigDecimal("2000"));
+        StatementImportRepository.UndatedRange octoberCsv =
+                undated(octoberCsvId, LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 15));
+
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, userId)));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountId))
+                .thenReturn(List.of(september));
+        when(statementImportRepository.findUndatedStatementRanges(
+                org.mockito.ArgumentMatchers.eq(userId), org.mockito.ArgumentMatchers.eq(accountId),
+                org.mockito.ArgumentMatchers.any(LocalDate.class)))
+                .thenReturn(List.of(octoberCsv));
+
+        var dto = service.forAccount(userId, accountId);
+
+        assertThat(dto.segments()).hasSize(2);
+        var sep = dto.segments().stream().filter(s -> s.statementImportId().equals(septemberId)).findFirst().orElseThrow();
+        var oct = dto.segments().stream().filter(s -> s.statementImportId().equals(octoberCsvId)).findFirst().orElseThrow();
+        assertThat(sep.approximate()).isFalse();
+        assertThat(oct.approximate()).isTrue();
+        assertThat(oct.periodStart()).isEqualTo(LocalDate.of(2026, 10, 5));
+        assertThat(oct.periodEnd()).isEqualTo(LocalDate.of(2026, 10, 15));
+    }
+
+    /** The admin view is diagnostics: it shows only what statements printed, as before. */
+    @Test
+    void forAccountAsAdmin_leavesUndatedStatementsOut() {
+        when(accountRepository.findById(accountId)).thenReturn(Optional.of(account(accountId, userId)));
+        when(statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountId))
+                .thenReturn(List.of());
+
+        var dto = service.forAccountAsAdmin(accountId);
+
+        assertThat(dto.segments()).isEmpty();
+        org.mockito.Mockito.verify(statementImportRepository, org.mockito.Mockito.never())
+                .findUndatedStatementRanges(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
     @Test
     void forAccount_throws404_whenNoSuchAccountExists() {
         when(accountRepository.findById(accountId)).thenReturn(Optional.empty());

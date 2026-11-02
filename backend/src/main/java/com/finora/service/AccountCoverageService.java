@@ -60,7 +60,7 @@ public class AccountCoverageService {
     @Transactional(readOnly = true)
     public CoverageDto forAccount(UUID userId, UUID accountId) {
         OwnershipGuard.requireOwned(accountRepository.findById(accountId), Account::getUserId, userId, "Account");
-        return buildReport(userId, accountId);
+        return buildReport(userId, accountId, true);
     }
 
     /** The admin path (§9: {@code GET /api/v1/admin/accounts/{accountId}/coverage}) looks up by
@@ -72,17 +72,38 @@ public class AccountCoverageService {
     public CoverageDto forAccountAsAdmin(UUID accountId) {
         Account account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Account not found"));
-        return buildReport(account.getUserId(), accountId);
+        return buildReport(account.getUserId(), accountId, false);
     }
 
-    private CoverageDto buildReport(UUID userId, UUID accountId) {
-        var periods = statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountId)
-                .stream()
-                .map(AccountCoverageService::toStatementPeriod)
-                .toList();
+    /**
+     * @param withUndated the user-facing view only (the app's "Your statements" months): a
+     *        statement that prints no period -- a CSV export, almost always -- is counted by the first
+     *        and last date of its own transactions, and its segment is marked approximate. Without
+     *        it, a person importing CSVs never sees their months fill in. The admin view stays on
+     *        printed periods alone, and nothing here changes the stored period (ImportService's
+     *        confirm deliberately keeps that to what was printed).
+     */
+    private CoverageDto buildReport(UUID userId, UUID accountId, boolean withUndated) {
+        List<StatementPeriod> periods = new ArrayList<>(
+                statementImportRepository.findMetadataWithPeriodByUserIdAndAccountId(userId, accountId)
+                        .stream()
+                        .map(AccountCoverageService::toStatementPeriod)
+                        .toList());
+        java.util.Set<UUID> approximate = new java.util.HashSet<>();
+        if (withUndated) {
+            LocalDate through = ReportableDates.latestAllowed(
+                    LocalDate.now(com.finora.util.UserZone.forUser(userRepository, userId)));
+            for (StatementImportRepository.UndatedRange range
+                    : statementImportRepository.findUndatedStatementRanges(userId, accountId, through)) {
+                // No balances: an approximate range never claims a gap's balance delta.
+                periods.add(new StatementPeriod(range.getStatementImportId(), range.getFirstDate(),
+                        range.getLastDate(), null, null));
+                approximate.add(range.getStatementImportId());
+            }
+        }
 
         var report = StatementCoverageAnalyzer.analyze(periods);
-        return CoverageDto.from(accountId, report);
+        return CoverageDto.from(accountId, report, approximate);
     }
 
     // Package-private (not private): FinancialMemoryCompleteness's caller (WorkspaceDashboardService)

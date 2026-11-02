@@ -166,6 +166,37 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     List<StatementMetadata> findMetadataWithPeriodByUserIdAndAccountId(@Param("userId") UUID userId,
                                                                         @Param("accountId") UUID accountId);
 
+    /** One undated statement and the first and last date of its own transactions. */
+    interface UndatedRange {
+        UUID getStatementImportId();
+        LocalDate getFirstDate();
+        LocalDate getLastDate();
+    }
+
+    /**
+     * For this account's active statements that print no period (a CSV export, almost always): the
+     * earliest and latest date of the transactions each one brought in. Only the user-facing coverage
+     * view reads this, and marks what it builds from it as approximate -- the stored statement
+     * period stays exactly what was printed (see ImportService's confirm, which removed the same
+     * fallback for the stored value). A statement with no transactions left has no row. Nothing
+     * after {@code through} counts: see {@code ReportableDates}.
+     */
+    @Query("""
+           SELECT s.id AS statementImportId, MIN(t.txnDate) AS firstDate, MAX(t.txnDate) AS lastDate
+             FROM StatementImport s, Transaction t
+            WHERE t.statementImportId = s.id
+              AND s.userId = :userId AND s.accountId = :accountId
+              AND t.userId = :userId AND t.accountId = :accountId
+              AND (s.statementPeriodStart IS NULL OR s.statementPeriodEnd IS NULL)
+              AND s.supersededBy IS NULL
+              AND t.txnDate <= :through
+            GROUP BY s.id
+            ORDER BY MIN(t.txnDate)
+           """)
+    List<UndatedRange> findUndatedStatementRanges(@Param("userId") UUID userId,
+                                                  @Param("accountId") UUID accountId,
+                                                  @Param("through") LocalDate through);
+
     /** One row per account: how far its newest active statement reaches. */
     interface LatestPeriodEnd {
         UUID getAccountId();

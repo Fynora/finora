@@ -122,7 +122,8 @@ public class PushCampaignRunner {
     private boolean queueAudience(PushCampaignRun run) {
         UUID runId = run.getId();
         AudienceResolver resolver = resolverFor(run.getAudienceSnapshot());
-        long audience = resolver.count();
+        CampaignPurpose purpose = run.getPurposeSnapshot();
+        long audience = resolver.count(purpose);
         if (audience > maxAudience) {
             runs.updateProgress(runId, (int) Math.min(audience, Integer.MAX_VALUE), 0, 0, 0, clock.now());
             runs.markFailed(runId, clock.now(), "Audience of " + audience
@@ -134,12 +135,12 @@ public class PushCampaignRunner {
         int skippedAlreadyQueued = 0;
         UUID after = AudienceSql.FIRST;
         while (true) {
-            List<UUID> page = resolver.page(after, pageSize);
+            List<UUID> page = resolver.page(purpose, after, pageSize);
             if (page.isEmpty()) {
                 break;
             }
             CampaignEnqueuer.PageResult result = enqueuer.enqueuePage(run.getCampaignId(),
-                    run.getTitleSnapshot(), run.getMessageSnapshot(), run.getRunDateIst(), page);
+                    run.getTitleSnapshot(), run.getMessageSnapshot(), run.getRunDateIst(), page, purpose);
             queued += result.queued();
             skippedCap += result.skippedCap();
             skippedAlreadyQueued += result.skippedAlreadyQueued();

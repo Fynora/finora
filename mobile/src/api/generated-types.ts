@@ -7064,6 +7064,8 @@ export interface components {
             endsOn?: string;
             /** Format: int64 */
             expectedVersion?: number;
+            /** @enum {string} */
+            purpose?: "OPERATIONAL" | "PROMOTIONAL";
         };
         ApiResponsePushCampaignDto: {
             success?: boolean;
@@ -7108,6 +7110,8 @@ export interface components {
             updatedAt?: string;
             /** Format: int64 */
             version?: number;
+            /** @enum {string} */
+            purpose?: "OPERATIONAL" | "PROMOTIONAL";
         };
         PushCampaignSettingsRequest: {
             /** Format: int32 */
@@ -12894,6 +12898,8 @@ export interface components {
             count?: number;
             /** Format: int64 */
             rolloutLimit?: number;
+            /** @enum {string} */
+            purpose?: "OPERATIONAL" | "PROMOTIONAL";
         };
         ApiResponseListPermissionDto: {
             success?: boolean;
@@ -23625,6 +23631,7 @@ export interface operations {
         parameters: {
             query: {
                 audienceType: "ALL_WITH_DEVICE" | "NO_STATEMENT_UPLOADED";
+                purpose?: "OPERATIONAL" | "PROMOTIONAL";
             };
             header?: never;
             path?: never;

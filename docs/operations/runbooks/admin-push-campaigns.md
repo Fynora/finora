@@ -10,7 +10,7 @@ counted), and shows the same live delivery counts the API returns.
 ## How it sends
 
 Campaign run -> batched enqueue into the notification outbox (`type = CUSTOM_PUSH`, PUSH only,
-category FINANCIAL, priority LOW) -> the existing `NotificationDispatcher` -> FCM. There is no second
+category FINANCIAL or MARKETING by the campaign's purpose, priority LOW) -> the existing `NotificationDispatcher` -> FCM. There is no second
 FCM sender. The words come from the `CUSTOM_PUSH` template (`{{title}}` / `{{message}}`, V261).
 
 The dispatcher claims by priority first (CRITICAL, HIGH, NORMAL, LOW), then due time, so a large
@@ -24,15 +24,18 @@ campaign never delays an "import ready" push or a security alert.
 | Scheduled sends only 07:00-21:59 IST (send now ignores this) | `ScheduleCalculator` |
 | A due slot more than 2 hours late, or due outside the window, is recorded MISSED and not sent | `ScheduleCalculator.decide` |
 | Send now counts as today's run: a daily campaign due today moves to tomorrow; a one-off completes | `PushCampaignService.sendNow` |
-| Audience: ACTIVE end-user account, at least one live device token, FINANCIAL push not switched off | `AudienceSql.BASE` |
+| Audience: ACTIVE end-user account, at least one live device token, and allowed this purpose: FINANCIAL push not switched off (OPERATIONAL), or MARKETING push turned on (PROMOTIONAL) | `AudienceSql.base` |
+| Purpose (V305): OPERATIONAL is sent as FINANCIAL, PROMOTIONAL as MARKETING. Copied onto each run with the words and audience. A save with no purpose (an older admin portal) creates OPERATIONAL, and an edit with none keeps the campaign's own | `CampaignPurpose`, `PushCampaignService` |
 | Test sends use their own key prefix, no cap row, no run row, NORMAL priority | `PushCampaignService.sendTest` |
 | Edits only in DRAFT or PAUSED; STOPPED and COMPLETED are final (clone to send again). An edit may carry the `version` the editor loaded; a stale one is refused (409) so two admins cannot overwrite each other | `PushCampaign`, `PushCampaignService.update` |
 | Emergency brake: `POST /{id}/cancel-sending` (any status) cancels a run still queuing people and withdraws every push of the campaign that is queued but not yet handed to the dispatcher, and gives those people their one-per-day slot back, so a corrected message sent the same day still reaches them. **Stop does this too.** Pushes already claimed by the dispatcher (at most one batch of 50) still go | `CampaignCancellation`, `PushCampaignService.cancelSending` |
 | Own permission `PUSH_CAMPAIGN_MANAGE` (ADMIN, SUPER_ADMIN); every action audited with the acting admin | V261, `PushCampaignService` |
 
-Content: because the push goes out as FINANCIAL (the one category users can switch off), messages should
-be operational or product ("upload your statement", "your report is ready"), not promotions. Code cannot
-enforce this.
+Content: pick the purpose that matches the words. **About using the app** (OPERATIONAL) goes out as FINANCIAL,
+which is on unless the user switched it off, so it must be operational ("upload your statement", "your report
+is ready"). **An offer or news** (PROMOTIONAL) goes out as MARKETING and reaches only people who turned on
+"Offers and news" in Settings, which is off until they do. Code cannot check that the words match the purpose:
+a promotion sent as OPERATIONAL still reaches everyone.
 
 ## Switches and settings
 
@@ -52,7 +55,8 @@ enforce this.
    and never an admin account that shares the email) and confirm it arrives on a real iPhone and a real Android.
 3. Real FCM speed has not been measured. The dispatcher sends 50 rows per pass, one at a time; unaided
    that is about 100 people a minute. Measure on dev before raising `max-audience` past 1,000.
-4. Legal consent for non-transactional push has not been reviewed.
+4. Legal consent for non-transactional push has not been reviewed. PROMOTIONAL campaigns reach only people who
+   turned "Offers and news" on; whether that switch alone is enough consent has not been reviewed either.
 
 ## What the phone shows
 
@@ -94,7 +98,7 @@ pushes already queued still deliver; cancel each campaign's sending as above to 
   push someone already has; raising it opens the extra slots at once. The screen asks for a confirmation only
   when raising. Every change is audited (`PUSH_CAMPAIGN_SETTINGS_CHANGED`, old and new value). More pushes a day
   means more people may switch off the FINANCIAL category, which also stops their bill and due-date warnings:
-  watch opt-outs after raising it. The 1 to 10 bounds are in the API and a table CHECK; raising the top is a
+  watch opt-outs after raising it. Send promotions as PROMOTIONAL so they never cost a FINANCIAL opt-out. The 1 to 10 bounds are in the API and a table CHECK; raising the top is a
   migration.
 - Claiming is one `INSERT ... ON CONFLICT DO NOTHING` per slot tried, so a person who has reached the limit
   costs up to `limit` failed inserts. Measured on local Postgres (autocommit, one round trip each): about

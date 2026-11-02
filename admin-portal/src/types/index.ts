@@ -1951,6 +1951,9 @@ export interface FeedbackBreakdown {
 // ---- Admin push campaigns (backend: PushCampaignDtos, AdminPushCampaignController) ----
 
 export type PushAudienceType = 'ALL_WITH_DEVICE' | 'NO_STATEMENT_UPLOADED';
+/** V305. OPERATIONAL goes out as a Financial notification (on unless switched off); PROMOTIONAL as
+ *  Marketing, reaching only people who turned "Offers and news" on. */
+export type PushCampaignPurpose = 'OPERATIONAL' | 'PROMOTIONAL';
 export type PushScheduleKind = 'NOW_ONLY' | 'ONCE_AT' | 'DAILY_AT';
 export type PushCampaignStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'COMPLETED';
 export type PushRunStatus = 'RUNNING' | 'DONE' | 'FAILED' | 'MISSED' | 'CANCELLED';
@@ -1967,6 +1970,7 @@ export interface PushCampaignSaveRequest {
   sendTimeIst: string | null;
   endsOn: string | null;
   expectedVersion?: number | null;
+  purpose?: PushCampaignPurpose;
 }
 
 export interface PushCampaign {
@@ -1987,6 +1991,8 @@ export interface PushCampaign {
   createdAt: string;
   updatedAt: string;
   version: number;
+  /** Missing from a backend older than V305; treat as OPERATIONAL. */
+  purpose?: PushCampaignPurpose;
 }
 
 /** One run. The five delivery counts are read live from the outbox and are null for a MISSED run. */
@@ -2025,6 +2031,7 @@ export interface PushCampaignAudienceCount {
   audienceType: PushAudienceType;
   count: number;
   rolloutLimit: number;
+  purpose?: PushCampaignPurpose;
 }
 
 export interface PushCampaignTestResult {

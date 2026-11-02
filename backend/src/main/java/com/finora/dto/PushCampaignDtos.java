@@ -1,6 +1,7 @@
 package com.finora.dto;
 
 import com.finora.notification.campaign.AudienceType;
+import com.finora.notification.campaign.CampaignPurpose;
 import com.finora.notification.campaign.CampaignStatus;
 import com.finora.notification.campaign.RunStatus;
 import com.finora.notification.campaign.RunTrigger;
@@ -43,12 +44,21 @@ public final class PushCampaignDtos {
             Instant runAt,
             LocalTime sendTimeIst,
             LocalDate endsOn,
-            Long expectedVersion) {
+            Long expectedVersion,
+            // V305. Optional: an older admin portal sends none, which keeps OPERATIONAL.
+            CampaignPurpose purpose) {
 
         /** Without an expected version (create, or an edit that does not check). */
         public PushCampaignSaveRequest(String name, String title, String message, AudienceType audienceType,
                 ScheduleKind scheduleKind, Instant runAt, LocalTime sendTimeIst, LocalDate endsOn) {
-            this(name, title, message, audienceType, scheduleKind, runAt, sendTimeIst, endsOn, null);
+            this(name, title, message, audienceType, scheduleKind, runAt, sendTimeIst, endsOn, null, null);
+        }
+
+        /** With an expected version, purpose left OPERATIONAL. */
+        public PushCampaignSaveRequest(String name, String title, String message, AudienceType audienceType,
+                ScheduleKind scheduleKind, Instant runAt, LocalTime sendTimeIst, LocalDate endsOn,
+                Long expectedVersion) {
+            this(name, title, message, audienceType, scheduleKind, runAt, sendTimeIst, endsOn, expectedVersion, null);
         }
     }
 
@@ -76,7 +86,8 @@ public final class PushCampaignDtos {
             UUID createdBy,
             Instant createdAt,
             Instant updatedAt,
-            long version) {
+            long version,
+            CampaignPurpose purpose) {
     }
 
     /**
@@ -119,7 +130,8 @@ public final class PushCampaignDtos {
     }
 
     /** "Current estimated audience": the real number can differ by send time. */
-    public record PushCampaignAudienceCountDto(AudienceType audienceType, long count, long rolloutLimit) {
+    public record PushCampaignAudienceCountDto(AudienceType audienceType, long count, long rolloutLimit,
+            CampaignPurpose purpose) {
     }
 
     /**

@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { FormPanel } from '../../components/FormPanel';
 import { adminPushCampaignApi } from '../../api/endpoints';
-import type { PushAudienceType, PushCampaign, PushCampaignSaveRequest, PushScheduleKind } from '../../types';
+import type { PushAudienceType, PushCampaign, PushCampaignPurpose, PushCampaignSaveRequest, PushScheduleKind } from '../../types';
 import { isInputInsideWindow, isInsideWindow, isoToIstInput, istInputToIso, toTimeInput, todayIst, WINDOW_END, WINDOW_START } from '../../lib/istTime';
 import { apiMessage, AUDIENCE_HELP, AUDIENCE_LABELS, pushesPerDay } from './labels';
 import { useDailyLimit } from './DailyLimitPanel';
@@ -40,6 +40,7 @@ export function CampaignEditor({
   const [title, setTitle] = useState(initial?.title ?? '');
   const [message, setMessage] = useState(initial?.message ?? '');
   const [audienceType, setAudienceType] = useState<PushAudienceType>(initial?.audienceType ?? 'ALL_WITH_DEVICE');
+  const [purpose, setPurpose] = useState<PushCampaignPurpose>(initial?.purpose ?? 'OPERATIONAL');
   const [scheduleKind, setScheduleKind] = useState<PushScheduleKind>(initial?.scheduleKind ?? 'NOW_ONLY');
   const [runAt, setRunAt] = useState(initial?.runAt ? isoToIstInput(initial.runAt) : '');
   const [sendTime, setSendTime] = useState(toTimeInput(initial?.sendTimeIst));
@@ -48,8 +49,8 @@ export function CampaignEditor({
   const dailyLimit = useDailyLimit();
 
   const audience = useQuery({
-    queryKey: ['push-campaign-audience-count', audienceType],
-    queryFn: () => adminPushCampaignApi.audienceCount(audienceType),
+    queryKey: ['push-campaign-audience-count', audienceType, purpose],
+    queryFn: () => adminPushCampaignApi.audienceCount(audienceType, purpose),
   });
 
   const save = useMutation({
@@ -91,6 +92,7 @@ export function CampaignEditor({
       title: title.trim(),
       message: message.trim(),
       audienceType,
+      purpose,
       scheduleKind,
       runAt: scheduleKind === 'ONCE_AT' ? istInputToIso(runAt) : null,
       sendTimeIst: scheduleKind === 'DAILY_AT' ? sendTime : null,
@@ -150,11 +152,29 @@ export function CampaignEditor({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
             />
-            <p className="text-xs text-muted mt-1">
-              Keep it useful and operational. People can switch these off in the app, and anything that
-              reads as a promotion may need legal review first.
-            </p>
           </div>
+
+          <fieldset className="space-y-2">
+            <legend className={LABEL}>What it is</legend>
+            {([
+              ['OPERATIONAL', 'About using the app', 'Statements, reports, reminders. Goes to everyone in the audience who has not switched push notifications off.'],
+              ['PROMOTIONAL', 'An offer or news', 'Sales, discounts, new features. Goes only to people who turned on "Offers and news" in the app.'],
+            ] as const).map(([value, label, help]) => (
+              <label key={value} className="flex items-start gap-2 text-sm text-ink">
+                <input
+                  type="radio"
+                  name={`${id}-purpose`}
+                  className="mt-1"
+                  checked={purpose === value}
+                  onChange={() => setPurpose(value)}
+                />
+                <span>
+                  {label}
+                  <span className="block text-xs text-muted">{help}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
 
           <div>
             <label htmlFor={`${id}-audience`} className={LABEL}>Who gets it</label>

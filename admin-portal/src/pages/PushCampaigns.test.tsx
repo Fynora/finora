@@ -304,11 +304,28 @@ describe('PushCampaigns', () => {
 
       await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
       expect(api.create).toHaveBeenCalledWith({
-        name: 'Nudge', title: 'Hello', message: 'World', audienceType: 'ALL_WITH_DEVICE',
+        name: 'Nudge', title: 'Hello', message: 'World', audienceType: 'ALL_WITH_DEVICE', purpose: 'OPERATIONAL',
         scheduleKind: 'DAILY_AT', runAt: null, sendTimeIst: '09:30', endsOn: null, expectedVersion: null,
       });
       // Lands on the new campaign's page.
       expect(await screen.findByText('What people see')).toBeInTheDocument();
+    });
+
+    it('an offer or news is saved as PROMOTIONAL, and its audience counted as such', async () => {
+      api.create.mockResolvedValue(campaign({ id: 'new' }));
+      api.get.mockResolvedValue(detail(campaign({ id: 'new' })));
+      const user = await openEditor();
+      expect(screen.getByLabelText(/About using the app/)).toBeChecked();
+      await user.type(screen.getByLabelText(/Campaign name/), 'Diwali');
+      await user.type(screen.getByLabelText(/Notification title/), 'Plus for less');
+      await user.type(screen.getByLabelText(/^Message/), 'This week only.');
+      await user.click(screen.getByLabelText(/An offer or news/));
+
+      await waitFor(() => expect(api.audienceCount).toHaveBeenCalledWith('ALL_WITH_DEVICE', 'PROMOTIONAL'));
+      await user.click(screen.getByRole('button', { name: 'Save as draft' }));
+
+      await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
+      expect(api.create.mock.calls[0][0]).toMatchObject({ purpose: 'PROMOTIONAL' });
     });
 
     it('converts a one-time IST date and time to the right instant', async () => {

@@ -28,4 +28,10 @@ public class BudgetController {
     public ApiResponse<BudgetDto> upsert(@Valid @RequestBody BudgetDto.UpsertRequest request) {
         return ApiResponse.ok(budgetService.upsert(currentUser.id(), request), "Budget saved");
     }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable java.util.UUID id) {
+        budgetService.delete(currentUser.id(), id);
+        return ApiResponse.ok(null, "Budget removed");
+    }
 }

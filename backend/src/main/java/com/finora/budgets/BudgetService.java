@@ -121,24 +121,13 @@ public class BudgetService {
      * partway through (e.g. the budget save failing after the category save already committed)
      * could leave an orphan category with no budget behind it.
      *
-     * <p>findByUserIdAndCategoryId().orElseGet(new) then save() is a check-then-act, and
-     * budgets(user_id, category_id) has a UNIQUE constraint (V1__init_schema.sql) that stops two
-     * concurrent upserts corrupting the table. This method used to wrap the save in a
-     * try/catch(DataIntegrityViolationException) claiming to convert that race into an update of
-     * the winner's row. <b>That catch was unreachable and has been removed.</b> Budget extends
-     * BaseEntity, whose id is {@code @GeneratedValue} on a UUID assigned in memory, so save()
-     * routes through merge() and the INSERT is deferred to the flush at commit -- which happens
-     * after this method has already returned. The try block completed without exception every
-     * time, and the recovery inside the catch could not have worked anyway: by the time a
-     * constraint violation exists the transaction is already rollback-only, and re-reading and
-     * re-saving inside it fails too (the rule MerchantNormalizationEngine.resolve states as "no
-     * handling un-poisons it").
-     *
-     * <p>What actually happens on a lost race, then and now: the violation surfaces at commit,
-     * Spring translates it to DataIntegrityViolationException, and GlobalExceptionHandler answers
-     * 409 CONFLICT with "refresh and try again". That is a correct, honest response to a genuine
-     * double-submit. Dead code plus a comment asserting a behaviour the code does not have is
-     * strictly worse than neither, because it stops the next reader re-investigating.
+     * <p>The budget row itself is written by one {@code INSERT ... ON CONFLICT DO UPDATE}
+     * ({@link BudgetRepository#upsertLimit}). It used to be findByUserIdAndCategoryId() then save(),
+     * a check-then-act against budgets' UNIQUE(user_id, category_id) (V1), which also covers
+     * soft-deleted rows. Measured 2026-11-02: four simultaneous saves of one new budget left one
+     * row and three 409 "refresh and try again" answers; and once a budget was removed, that
+     * category could never have a budget again. The statement settles both: the last save's limit
+     * wins, and a removed row comes back.
      */
     @Transactional
     public BudgetDto upsert(UUID userId, BudgetDto.UpsertRequest req) {
@@ -147,12 +136,9 @@ public class BudgetService {
         // spend). This used to be a copy of it that skipped the name-length cap.
         Category category = categorizationService.resolveOrCreateCategory(userId, req.categoryName().trim());
 
-        Budget budget = budgetRepository.findByUserIdAndCategoryId(userId, category.getId())
-                .orElseGet(Budget::new);
-        budget.setUserId(userId);
-        budget.setCategoryId(category.getId());
-        budget.setMonthlyLimit(req.monthlyLimit());
-        Budget saved = budgetRepository.save(budget);
+        budgetRepository.upsertLimit(userId, category.getId(), req.monthlyLimit());
+        Budget saved = budgetRepository.findByUserIdAndCategoryId(userId, category.getId())
+                .orElseThrow(() -> new IllegalStateException("Budget not found right after it was saved"));
         // Bug fix: this service never called AuditService at all, unlike every other mutating
         // service in the codebase (see AuditService's own class doc, which names Budget/Goal as
         // the known-remaining gap) -- a budget limit change was invisible in the general activity
@@ -173,6 +159,23 @@ public class BudgetService {
         // editing an EXISTING budget's limit, the common case.
         BigDecimal spent = spentThisMonth(userId, category.getId());
         return new BudgetDto(saved.getId(), category.getId(), category.getName(), saved.getMonthlyLimit(), spent);
+    }
+
+    /**
+     * Removes one of the caller's own budgets (soft delete, like every user-owned row). 404 for a
+     * budget that does not exist or belongs to someone else. Setting a budget for the same category
+     * later brings the row back with the new limit ({@link BudgetRepository#upsertLimit}).
+     */
+    @Transactional
+    public void delete(UUID userId, UUID budgetId) {
+        Budget budget = budgetRepository.findById(budgetId)
+                .filter(b -> b.getUserId().equals(userId))
+                .orElseThrow(() -> new com.finora.exception.ApiException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "No such budget."));
+        budgetRepository.delete(budget);
+        auditService.record(userId, "BUDGET_DELETED", "Budget", budget.getId(),
+                Map.of("categoryId", budget.getCategoryId().toString(),
+                        "monthlyLimit", budget.getMonthlyLimit()));
     }
 
     /** Same query/filter shape as {@link #listForUser}'s spendByCategory map, scoped to one

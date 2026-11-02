@@ -40,6 +40,24 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
      */
     List<Category> findByUserIdAndNameIgnoreCaseOrderByIdAsc(UUID userId, String name);
 
+    /**
+     * {@code CategorizationService.resolveOrCreateCategory}'s create step. A plain save lost every
+     * concurrent creator but one to {@code uq_categories_user_name_ci} (V118) as a 409 (measured
+     * 2026-11-02: parallel saves of one new budget). With ON CONFLICT DO NOTHING the loser waits for
+     * the winner and then finds its row. Returns 1 when this call created the category.
+     */
+    // Its own transaction when the caller has none (save() used to give it one); joins the caller's otherwise.
+    @org.springframework.transaction.annotation.Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query(value = """
+            INSERT INTO categories (id, user_id, name, is_system, icon, color, ai_creation_reason)
+            VALUES (gen_random_uuid(), :userId, :name, false, 'tag', 'gray', :aiCreationReason)
+            ON CONFLICT DO NOTHING
+            """, nativeQuery = true)
+    int insertIfAbsent(@org.springframework.data.repository.query.Param("userId") UUID userId,
+                       @org.springframework.data.repository.query.Param("name") String name,
+                       @org.springframework.data.repository.query.Param("aiCreationReason") String aiCreationReason);
+
     /** AccountPurgeSweepService -- called after every table that FK's to categories (transactions,
      *  budgets, merchant_category_learning, merchant_learning_events, merchant_learning_audit) is
      *  already empty. Hard delete, no soft-delete concern on this entity. */

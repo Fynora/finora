@@ -876,6 +876,7 @@ export const budgetsApi = {
   list: () => api.get<Budget[]>('/budgets').then((r) => r.data),
   upsert: (categoryName: string, monthlyLimit: number) =>
     api.put<Budget>('/budgets', { categoryName, monthlyLimit }).then((r) => r.data),
+  remove: (id: string) => api.delete(`/budgets/${id}`),
 };
 
 export const goalsApi = {

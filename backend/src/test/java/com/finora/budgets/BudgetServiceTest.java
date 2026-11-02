@@ -255,40 +255,21 @@ class BudgetServiceTest {
         assertThat(transactional).isNotNull();
     }
 
-    /**
-     * Replaces {@code upsert_recoversGracefully_whenAConcurrentUpsertWinsTheUniqueConstraintRace},
-     * which asserted a recovery that could not happen.
-     *
-     * <p>That test stubbed {@code budgetRepository.save(...)} to throw
-     * DataIntegrityViolationException synchronously, then verified the catch block's re-read and
-     * re-save ran. Both halves were fiction. Budget extends BaseEntity, whose id is
-     * {@code @GeneratedValue} on a UUID assigned in memory, so Spring Data's isNew() check sends
-     * save() through merge() and the INSERT is deferred to the flush at commit -- after upsert()
-     * has already returned. A real save() therefore never threw here, the catch never ran, and
-     * the violation surfaced at commit instead. Even had it fired, the recovery inside it would
-     * have run against a transaction the violation had already marked rollback-only.
-     *
-     * <p>A mocked repository cannot show any of that, which is exactly why the test passed for as
-     * long as it did. What the code actually guarantees is what is asserted here: budgets are
-     * upserted by value on the normal path, and a genuine concurrent double-submit is left to the
-     * UNIQUE constraint and answered as 409 CONFLICT by GlobalExceptionHandler's existing
-     * DataIntegrityViolationException handler.
-     */
+    /** The row is written by one INSERT ... ON CONFLICT (BudgetRepository#upsertLimit), never a
+     *  find-then-save: that lost simultaneous saves to a 409 and could not bring back a removed
+     *  budget (BudgetRemoveAndRaceIT proves both against Postgres). */
     @Test
-    void upsert_updatesTheExistingRow_ratherThanInsertingASecondBudgetForTheSameCategory() {
+    void upsert_writesTheLimitThroughTheSingleStatementUpsert_neverAFindThenSave() {
         Category dining = category("Dining");
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of(dining));
-
-        Budget existing = budget(dining.getId(), new BigDecimal("3000.00"));
-        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.of(existing));
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId()))
+                .thenReturn(Optional.of(budget(dining.getId(), new BigDecimal("6000.00"))));
 
         BudgetDto result = budgetService.upsert(userId, new BudgetDto.UpsertRequest("Dining", new BigDecimal("6000.00")));
 
         assertThat(result.monthlyLimit()).isEqualByComparingTo("6000.00");
-        assertThat(existing.getMonthlyLimit()).isEqualByComparingTo("6000.00");
-        // Exactly one write. Two means the dead catch has been reintroduced.
-        verify(budgetRepository, times(1)).save(any());
+        verify(budgetRepository, times(1)).upsertLimit(userId, dining.getId(), new BigDecimal("6000.00"));
+        verify(budgetRepository, never()).save(any());
     }
 
     /**
@@ -302,8 +283,8 @@ class BudgetServiceTest {
     void upsert_reportsTheRealSpendThisMonth_notHardcodedZero() {
         Category dining = category("Dining");
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of(dining));
-        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.empty());
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId()))
+                .thenReturn(Optional.of(budget(dining.getId(), new BigDecimal("5000.00"))));
 
         YearMonth thisMonth = YearMonth.now(ZoneId.systemDefault());
         Transaction spent1 = expense(new BigDecimal("4000.00"), dining.getId());
@@ -324,8 +305,8 @@ class BudgetServiceTest {
     void upsert_reportsZeroSpend_whenNothingWasSpentThisMonth() {
         Category dining = category("Dining");
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of(dining));
-        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.empty());
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId()))
+                .thenReturn(Optional.of(budget(dining.getId(), new BigDecimal("5000.00"))));
 
         BudgetDto result = budgetService.upsert(userId, new BudgetDto.UpsertRequest("Dining", new BigDecimal("5000.00")));
 
@@ -342,14 +323,13 @@ class BudgetServiceTest {
         Category dining = category("Dining");
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "dining")).thenReturn(List.of(dining));
 
-        Budget existing = budget(dining.getId(), new BigDecimal("3000.00"));
-        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.of(existing));
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId()))
+                .thenReturn(Optional.of(budget(dining.getId(), new BigDecimal("6000.00"))));
 
         budgetService.upsert(userId, new BudgetDto.UpsertRequest("dining", new BigDecimal("6000.00")));
 
         verify(categoryRepository, never()).save(any());
-        assertThat(existing.getMonthlyLimit()).isEqualByComparingTo("6000.00");
+        verify(budgetRepository).upsertLimit(userId, dining.getId(), new BigDecimal("6000.00"));
     }
 
     // --- Deleted-account leak (see DashboardService.summarize for the original fix): a deleted
@@ -392,8 +372,8 @@ class BudgetServiceTest {
     void upsert_aNewCategoryIsCreatedThroughTheSharedFindOrCreate() {
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Plants")).thenReturn(List.of());
         when(categoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(budgetRepository.findByUserIdAndCategoryId(any(), any())).thenReturn(Optional.empty());
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(any(), any()))
+                .thenAnswer(inv -> Optional.of(budget(inv.getArgument(1), new BigDecimal("500.00"))));
 
         budgetService.upsert(userId, new BudgetDto.UpsertRequest(" Plants ", new BigDecimal("500.00")));
 
@@ -405,8 +385,8 @@ class BudgetServiceTest {
     void upsert_recordsFirstBudgetCreated() {
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of());
         when(categoryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(budgetRepository.findByUserIdAndCategoryId(any(), any())).thenReturn(Optional.empty());
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(any(), any()))
+                .thenAnswer(inv -> Optional.of(budget(inv.getArgument(1), new BigDecimal("500.00"))));
 
         budgetService.upsert(userId, new BudgetDto.UpsertRequest("Dining", new BigDecimal("5000.00")));
 
@@ -459,8 +439,8 @@ class BudgetServiceTest {
     void upsert_unlinkedRefundLargerThanSpend_reportsZeroNotNegative() {
         Category dining = category("Dining");
         when(categoryRepository.findByUserIdAndNameIgnoreCaseOrderByIdAsc(userId, "Dining")).thenReturn(List.of(dining));
-        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId())).thenReturn(Optional.empty());
-        when(budgetRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(budgetRepository.findByUserIdAndCategoryId(userId, dining.getId()))
+                .thenReturn(Optional.of(budget(dining.getId(), new BigDecimal("5000.00"))));
         when(transactionRepository.findByUserIdAndTxnDateBetweenAndAccountIdIn(eq(userId), any(), any(), any()))
                 .thenReturn(List.of(expense(new BigDecimal("100.00"), dining.getId()),
                         unlinkedRefund(new BigDecimal("400.00"), dining.getId())));

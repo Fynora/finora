@@ -15,6 +15,8 @@ import { SkeletonBudgetCard, SkeletonGroup } from '../components/skeletons/Skele
 import { ProgressBar } from '../components/ProgressBar';
 import { TextField } from '../components/TextField';
 import { budgetsApi } from '../api/endpoints';
+import { AppAlert } from '../lib/appAlert';
+import type { Budget } from '../types';
 import { toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { currentYearMonth, fmtCurrency, monthDateRange, monthLabel } from '../lib/format';
@@ -100,6 +102,32 @@ export function BudgetsScreen() {
         hapticError();
       } finally {
         setSaving(false);
+      }
+    });
+  }
+
+  function confirmRemove(b: Budget) {
+    AppAlert.alert(`Remove the ${b.categoryName} budget?`,
+      'Your transactions stay as they are. You can set a budget for this category again at any time.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => void remove(b) },
+      ]);
+  }
+
+  async function remove(b: Budget) {
+    await singleFlight(async () => {
+      setError(null);
+      const startedAt = requestStartedAt();
+      try {
+        await budgetsApi.remove(b.id);
+        hapticSuccess();
+        // Same caches a save invalidates: this list, and the Dashboard's widget and notices.
+        void queryClient.invalidateQueries({ queryKey: ['budgets'] });
+        void queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      } catch (e) {
+        reportTransportFailure(e, 'budgets:delete', startedAt);
+        setError(toUserMessage(e, 'Could not remove this budget. Try again.'));
+        hapticError();
       }
     });
   }
@@ -219,6 +247,15 @@ export function BudgetsScreen() {
                       : `${fmtCurrency(-remaining)} over budget`}
                   </Text>
                 </Pressable>
+                {/* Its own button, outside the card's Pressable: that one opens the transactions. */}
+                <Pressable
+                  onPress={() => confirmRemove(b)}
+                  style={[styles.removeAction, { borderColor: c.danger }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove the ${b.categoryName} budget`}
+                >
+                  <Text style={[styles.removeText, { color: c.dangerInk }]}>Remove</Text>
+                </Pressable>
               </Card>
             );
           })
@@ -276,4 +313,15 @@ const styles = StyleSheet.create({
   budgetAmountsRow: { flexDirection: 'row', alignItems: 'baseline' },
   budgetAmounts: { fontSize: 12 },
   budgetFoot: { fontSize: 11, marginTop: 6 },
+  removeAction: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 8,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeText: { fontSize: 13, fontWeight: '600' },
 });

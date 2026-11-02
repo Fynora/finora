@@ -22,7 +22,16 @@ jest.mock('../../api/endpoints', () => ({
   transactionsApi: {
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
   },
-  accountsApi: { list: jest.fn() },
+  // coverage: the add step's "Your statements" months. No statements by default; the add-step
+  // describe block below gives one account real months.
+  accountsApi: {
+    list: jest.fn(),
+    coverage: jest.fn().mockResolvedValue({
+      accountId: 'x', coverageStatus: 'NONE', coveredDays: 0, missingDays: 0, coveragePercentage: null,
+      hasGaps: false, hasOverlaps: false, hasNonStandardPeriods: false, hasDuplicatePeriods: false,
+      segments: [], gaps: [], overlaps: [],
+    }),
+  },
   // The new-account Bank field's list (GET /banks). Two banks are enough to search and pick.
   banksApi: {
     list: jest.fn().mockResolvedValue([
@@ -698,10 +707,12 @@ describe('ImportScreen — upload completion dwell', () => {
   });
 
   // Gate 2b PR 3 (spec §3): tell people a statement can be shared in from their email.
+  // Idea B (2026-11-02): the hint sits behind "From your email" among the other ways in.
   it('showsShareHint', async () => {
     render(tree());
 
-    expect(await screen.findByText('Statement in your email? Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+    fireEvent.press(await screen.findByRole('button', { name: 'From your email' }));
+    expect(screen.getByText('Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
   });
 
   // Gate 2b PR 2 (spec §4): a smaller first ask, only while nothing is being imported.
@@ -1540,7 +1551,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
 
     expect(await screen.findByText('AB3K7M')).toBeOnTheScreen();
   });
@@ -1552,7 +1563,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
 
     await waitFor(() => expect(api.importJobs.progress).toHaveBeenCalledWith('job-7'), { timeout: 9000 });
     expect(screen.queryByText('AB3K7M')).toBeNull();
@@ -1563,7 +1574,7 @@ describe('ImportScreen — send from a computer', () => {
     render(tree());
 
     await screen.findByText('Choose a file');
-    expect(screen.queryByText('My statement is on my computer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'From your computer' })).toBeNull();
   });
 
   // A customer report (2026-10-30): the sheet closed in the second the computer sent the file, the
@@ -1574,7 +1585,7 @@ describe('ImportScreen — send from a computer', () => {
     api.importJobs.progress.mockReset().mockReturnValue(new Promise(() => {}));
     render(treeAsyncAvailable());
 
-    fireEvent.press(await screen.findByText('My statement is on my computer'));
+    fireEvent.press(await screen.findByRole('button', { name: 'From your computer' }));
     await screen.findByText('AB3K7M');
     fireEvent.press(screen.getByText('Close'));
 
@@ -1637,6 +1648,77 @@ describe('ImportScreen — send from a computer', () => {
     expect(screen.getByLabelText('Review import of card.pdf')).toBeOnTheScreen();
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf('Ready to review')).toBeLessThan(rendered.indexOf('Import a statement'));
+  });
+});
+
+// Idea B (spec 2026-11-02, Step 1): your statement months, one way to pick a file, the rest folded.
+describe('upload step, idea B', () => {
+  function savings(over: Partial<Account> = {}): Account {
+    return {
+      id: 'sav-1', name: 'Sample Bank Savings', accountType: 'SAVINGS', balance: 0,
+      bank: { id: 'SAMPLE', initials: 'S' } as Account['bank'],
+      lastImportedAt: '2026-10-05T10:00:00Z', lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+      statementsCount: 2, transactionsCount: 20, status: 'ACTIVE', primarySource: 'MANUAL', ...over,
+    };
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'NONE', importJobId: null });
+    // An earlier block leaves queued uploads switched on; this block starts with them off.
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+  });
+
+  it('shows Your statements when an account qualifies', async () => {
+    api.accounts.list.mockResolvedValue([savings()]);
+    api.accounts.coverage.mockResolvedValueOnce({
+      accountId: 'sav-1', coverageStatus: 'OK', coveredDays: 61, missingDays: 0, coveragePercentage: 100,
+      hasGaps: false, hasOverlaps: false, hasNonStandardPeriods: false, hasDuplicatePeriods: false,
+      segments: [
+        { statementImportId: 's1', periodStart: '2026-08-01', periodEnd: '2026-08-31', classification: 'STANDARD' },
+        { statementImportId: 's2', periodStart: '2026-09-01', periodEnd: '2026-09-30', classification: 'STANDARD' },
+      ],
+      gaps: [], overlaps: [],
+    });
+    render(tree());
+
+    expect(await screen.findByText('Your statements')).toBeOnTheScreen();
+    expect(await screen.findByText(/^Next: /)).toBeOnTheScreen();
+    expect(screen.queryByTestId('first-ask')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Choose a file' })).toBeOnTheScreen();
+  });
+
+  it('shows the first-statement lead when none qualifies', async () => {
+    api.accounts.list.mockResolvedValue([savings({ primarySource: 'ACCOUNT_AGGREGATOR' })]);
+    render(tree());
+
+    expect(await screen.findByTestId('first-ask')).toBeOnTheScreen();
+    expect(screen.getByText('No bank statement to hand? A credit card statement works too.')).toBeOnTheScreen();
+    expect(screen.queryByText('Your statements')).toBeNull();
+  });
+
+  it('folds the file notes until asked', async () => {
+    render(tree());
+
+    await screen.findByText('Choose a file');
+    expect(screen.queryByText(/scanned or\s+photographed PDF/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Which files work?' }));
+    expect(screen.getByText(/scanned or\s+photographed PDF/)).toBeOnTheScreen();
+    expect(screen.getByText(/Choose a CSV or PDF statement from your bank/)).toBeOnTheScreen();
+  });
+
+  it('lists the other ways in, with the email hint behind its button', async () => {
+    render(tree());
+
+    expect(await screen.findByText('Other ways')).toBeOnTheScreen();
+    expect(screen.queryByText('Open the email, tap the PDF, then Share → Fynora.')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'From your email' }));
+    expect(screen.getByText('Open the email, tap the PDF, then Share → Fynora.')).toBeOnTheScreen();
+    // Queued uploads are off in tree(): no computer route to offer.
+    expect(screen.queryByRole('button', { name: 'From your computer' })).toBeNull();
   });
 });
 

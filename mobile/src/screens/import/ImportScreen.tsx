@@ -37,7 +37,10 @@ import {
 } from '../../api/importFailureMessages';
 import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
-import { fmtCurrency, fmtDate, fmtRelativeTime } from '../../lib/format';
+import { fmtCurrency, fmtDate, fmtRelativeTime, toLocalDateString } from '../../lib/format';
+import { qualifiesForMonths } from '../../lib/statementMonths';
+import { FoldLine } from './FoldLine';
+import { YourStatements } from './YourStatements';
 import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
@@ -113,6 +116,8 @@ export function ImportScreen() {
   const [askMoment, setAskMoment] = useState<ActivationMoment | null>(null);
   // Gate 2b spec §7: the "My statement is on my computer" sheet.
   const [sendFromComputerOpen, setSendFromComputerOpen] = useState(false);
+  // Idea B: "From your email" opens the share-sheet hint in place.
+  const [emailHintOpen, setEmailHintOpen] = useState(false);
   // A send code still unused after its sheet closed, watched by WaitingForComputerFile. `code` is
   // known only when this screen saw it; after a restart the server can say a code is waiting but
   // not what it was.
@@ -363,6 +368,8 @@ export function ImportScreen() {
     queryFn: () => accountsApi.list(),
   });
   const existingAccounts = accountsQ.data ?? [];
+  // Idea B: someone with a statement account sees "Your statements" instead of the first-statement lead.
+  const hasStatementAccounts = existingAccounts.some(qualifiesForMonths);
   // An empty list and a list that failed to load are the same [] -- and here the difference
   // decides where a statement gets filed. With the list unavailable, matchExistingAccount finds
   // nothing, the flow silently defaults to "A new account" with the detected name prefilled, and
@@ -1202,33 +1209,26 @@ export function ImportScreen() {
               />
             </>
           ) : (
+          <>
+          {/* Idea B (spec 2026-11-02, Step 1): which months each statement account already has,
+              and which statement comes next. Only while nothing is being imported. */}
+          {uploadProgress === null ? <YourStatements accounts={existingAccounts} today={toLocalDateString(new Date())} /> : null}
           <Card>
             <SectionHeading title="Import a statement" />
-            {uploadProgress === null && (
+            {uploadProgress === null && !hasStatementAccounts && (
               // Gate 2b (spec §4): a smaller first ask, shown only while nothing is being imported.
+              // Idea B: only for someone with no statement account yet -- "Your statements" above
+              // says which statement to add for everyone else.
               <Text testID="first-ask" style={[styles.body, { color: c.ink }]}>
                 <Text style={{ fontWeight: '700' }}>Start with one statement:</Text> last month, from the account you use most.
               </Text>
             )}
-            {uploadProgress === null && (
+            {uploadProgress === null && !hasStatementAccounts && (
               // Sid's choice (2026-10-24) after the corpus check: the generic line, no issuer named.
               <Text style={[styles.helpText, { color: c.muted }]}>
                 No bank statement to hand? A credit card statement works too.
               </Text>
             )}
-            <Text style={[styles.body, { color: c.muted }]}>
-              Choose a CSV or PDF statement from your bank. You'll review every transaction before
-              anything is added.
-            </Text>
-            {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's identical
-                dropzone caption -- the parser reads a PDF's own embedded text, not pixels, so a
-                scanned/photographed statement (no selectable text) silently produces zero rows.
-                Said up front rather than left to be discovered as a confusing empty review step. */}
-            <Text style={[styles.helpText, { color: c.muted }]}>
-              PDF support covers digital, text-based statements for now — a scanned or
-              photographed PDF won't have selectable text for us to read, so those still need a
-              CSV export instead.
-            </Text>
 
             {showPasswordPanel ? null : (
               <>
@@ -1237,22 +1237,35 @@ export function ImportScreen() {
                   progress={uploadProgress ?? 0}
                   idle={<Button label="Choose a file" onPress={handlePick} />}
                 />
-                {/* Gate 2b (spec §3): most statements arrive by email, and the share sheet is the
-                    shortest way in -- Android's intent filters and the iOS Share Extension already
-                    accept one PDF or CSV (app.config.ts), but nothing said so. */}
+                {/* Idea B: the other ways in, one tap each. Gate 2b (spec §3): most statements
+                    arrive by email, and the share sheet is the shortest way in -- Android's intent
+                    filters and the iOS Share Extension already accept one PDF or CSV
+                    (app.config.ts). Gate 2b spec §7: a code to type into app.fynora.net/send, only
+                    where queued uploads are on -- the file from the computer goes through the queue.
+                    Two buttons, not links inside a sentence, so a screen reader can reach each. */}
                 {uploadProgress === null && (
-                  <Text style={[styles.helpText, { color: c.muted }]}>
-                    Statement in your email? Open the email, tap the PDF, then Share → Fynora.
-                  </Text>
-                )}
-                {/* Gate 2b spec §7: a code to type into app.fynora.net/send. Only where queued
-                    uploads are on: the file from the computer goes through the queue. */}
-                {uploadProgress === null && asyncAvailable && (
-                  <Button
-                    label="My statement is on my computer"
-                    variant="link"
-                    onPress={() => setSendFromComputerOpen(true)}
-                  />
+                  <View style={styles.otherWays} testID="other-ways">
+                    <Text style={[styles.fieldLabel, { color: c.muted }]}>Other ways</Text>
+                    <View style={styles.otherWaysRow}>
+                      <Button
+                        label="From your email"
+                        variant="link"
+                        onPress={() => setEmailHintOpen((open) => !open)}
+                      />
+                      {asyncAvailable && (
+                        <Button
+                          label="From your computer"
+                          variant="link"
+                          onPress={() => setSendFromComputerOpen(true)}
+                        />
+                      )}
+                    </View>
+                    {emailHintOpen && (
+                      <Text style={[styles.helpText, { color: c.muted }]}>
+                        Open the email, tap the PDF, then Share → Fynora.
+                      </Text>
+                    )}
+                  </View>
                 )}
                 {/* The only way out of this screen while an upload is in flight. It matters most
                     on the request that can never time out on its own (see toUploadProgressConfig):
@@ -1361,8 +1374,27 @@ export function ImportScreen() {
             {/* Gate 2b (spec §5.2): what happens to the statement, closed, below the picker -- or
                 below the password card, which takes the picker's place and is where the panel's
                 password line matters most. */}
+            {uploadProgress === null && (
+              <FoldLine label="Which files work?">
+                <Text style={[styles.helpText, { color: c.muted }]}>
+                  Choose a CSV or PDF statement from your bank. You&apos;ll review every transaction
+                  before anything is added.
+                </Text>
+                {/* Phase 5 (Low-Priority Polish). Ported from frontend/src/pages/Import.tsx's
+                    identical dropzone caption -- the parser reads a PDF's own embedded text, not
+                    pixels, so a scanned/photographed statement (no selectable text) silently
+                    produces zero rows. Idea B folds it with the line above: both answer "which
+                    files work?", and neither is needed to pick one. */}
+                <Text style={[styles.helpText, { color: c.muted }]}>
+                  PDF support covers digital, text-based statements for now — a scanned or
+                  photographed PDF won&apos;t have selectable text for us to read, so those still need a
+                  CSV export instead.
+                </Text>
+              </FoldLine>
+            )}
             {uploadProgress === null && <StatementHandlingPanel />}
           </Card>
+          </>
           )}
 
           {/* Same "only when there's something to show" rule as "Ready to review" at the top of
@@ -1948,6 +1980,8 @@ const styles = StyleSheet.create({
   savePasswordRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   savePasswordText: { flex: 1, gap: 2 },
   helpText: { fontSize: 12, lineHeight: 17 },
+  otherWays: { marginTop: spacing.sm },
+  otherWaysRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
   formatBadge: {
     fontSize: 10,
     fontWeight: '700',

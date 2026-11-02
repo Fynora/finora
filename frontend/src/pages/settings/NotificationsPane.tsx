@@ -26,7 +26,8 @@ const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string; n
   },
   // V305: off until the user turns it on. Promotional campaigns reach only people who did.
   // V306: noticeVersion is stored with every change as the record of the wording the user agreed
-  // to -- change the label or description and this must change with it (the backend keeps both).
+  // to, and notification_notice_versions holds each version's exact words. Change the label or
+  // description and you need a new version here and a new row there (NotificationNoticeVersionsIT).
   'MARKETING:PUSH': {
     label: 'Offers and news',
     description: 'Occasional push notifications about offers, discounts and new features. Off unless you turn it on.',

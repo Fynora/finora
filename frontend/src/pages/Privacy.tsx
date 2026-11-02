@@ -305,7 +305,7 @@ export default function Privacy() {
         <p>
           Fynora can send occasional push notifications about Fynora itself: offers and discounts on its plans,
           and new features. You get them only if you turn on "Offers and news" in Settings, under Notifications,
-          on the website or in the app. It is off unless you turn it on, and leaving it off changes nothing else:
+          on the website or in an up-to-date version of the app. It is off unless you turn it on, and leaving it off changes nothing else:
           you still get the statement and account updates you have chosen. Fynora does not send offers by
           email or text message.
         </p>

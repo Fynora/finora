@@ -39,6 +39,27 @@ INSERT INTO notification_preference_history (user_id, category, channel, enabled
 SELECT user_id, category, channel, enabled, now(), 'UNKNOWN', 'BACKFILL'
 FROM notification_preferences;
 
+-- The exact words each notice_version stood for, so a history row can be read back as the text the
+-- user was shown, not only a label. One row per version, never changed: new wording is a new version
+-- (and a new row in a later migration). NotificationNoticeVersionsIT fails when an app's switch text
+-- and its version's row here disagree.
+CREATE TABLE notification_notice_versions (
+    version VARCHAR(32) PRIMARY KEY,
+    category VARCHAR(32) NOT NULL,
+    channel VARCHAR(16) NOT NULL,
+    label TEXT NOT NULL,
+    description TEXT NOT NULL,
+    introduced_at DATE NOT NULL
+);
+
+INSERT INTO notification_notice_versions (version, category, channel, label, description, introduced_at)
+VALUES ('offers-news-2026-11', 'MARKETING', 'PUSH', 'Offers and news',
+        'Occasional push notifications about offers, discounts and new features. Off unless you turn it on.',
+        DATE '2026-11-02');
+
+COMMENT ON TABLE notification_notice_versions IS
+    'The wording each notification_preference_history.notice_version stood for. Append-only.';
+
 COMMENT ON TABLE notification_preference_history IS
     'Append-only: every change to a notification switch (SWITCH), plus the settings as they stood when '
     'the record began (BACKFILL). The evidence for "Offers and news" consent. Kept after account deletion.';

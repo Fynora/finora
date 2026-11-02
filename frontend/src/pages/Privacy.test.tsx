@@ -377,7 +377,8 @@ describe('Privacy policy matches what the product does', () => {
   // only, history), NotificationDispatcher (re-checked at send), DataExportService and the purge.
   it('describes "Offers and news": opt-in push only, how to withdraw, and the record kept of each change', () => {
     const t = policyText();
-    expect(t).toMatch(/You get them only if you turn on "Offers and news" in Settings, under Notifications/);
+    // Not just "in the app": store builds released before this change have no such switch.
+    expect(t).toMatch(/You get them only if you turn on "Offers and news" in Settings, under Notifications,\s+on the website or in an up-to-date version of the app/);
     expect(t).toMatch(/It is off unless you turn it on, and leaving it off changes nothing else/);
     expect(t).toMatch(/Fynora does not send offers by\s+email or text message/);
     expect(t).toMatch(/device token of each phone you use the\s+Fynora app on/);

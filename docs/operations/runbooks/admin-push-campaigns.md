@@ -59,8 +59,10 @@ a promotion sent as OPERATIONAL still reaches everyone.
    until the user turns it on, separate from every other switch, and withdrawn with the same switch (rows
    already queued are dropped at send). Each change is recorded in `notification_preference_history`
    (V306: when, which app, which wording via `noticeVersion`), exported to the user and kept after account
-   deletion, and the Privacy Policy's "Offers and News" section describes it. If you change the switch's
-   wording, bump `noticeVersion` beside it in both apps. Still for counsel: whether this switch is valid
+   deletion, and the Privacy Policy's "Offers and News" section describes it. The exact words of each
+   version are in `notification_notice_versions`. To change the switch's wording, give it a new
+   `noticeVersion` in both apps and add that version's row in a new migration;
+   `NotificationNoticeVersionsIT` fails until the two agree. Still for counsel: whether this switch is valid
    consent under DPDP Act s.6(1), whether TRAI's TCCCPR reaches app push, and keeping the records after
    deletion.
 

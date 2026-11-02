@@ -20,6 +20,8 @@ export const FINANCIAL_QUERY_KEYS = [
   'report-months',
   'report',
   'statement-imports',
+  // Import's "Your statements" months, per account: an import or a statement deletion moves them.
+  'account-coverage',
   // Both added with the Phase 4 screens, and both are exactly the case this module's comment
   // warns about -- a key whose screen isn't visible from where the edit happens. Every balance
   // change moves net worth, and every transaction change can create or break a recurring-payment

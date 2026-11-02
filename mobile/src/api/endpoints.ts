@@ -183,7 +183,26 @@ export const accountsApi = {
   create: (body: AccountRequest) => api.post<Account>('/accounts', body).then((r) => r.data),
   update: (id: string, body: AccountRequest) => api.put<Account>(`/accounts/${id}`, body).then((r) => r.data),
   remove: (id: string) => api.delete(`/accounts/${id}`),
+  /** Which dates this account's statements cover, and the gaps between them (backend CoverageDto). */
+  coverage: (id: string) => api.get<AccountCoverage>(`/accounts/${id}/coverage`).then((r) => r.data),
 };
+
+/** One account's statement coverage, field for field the backend's CoverageDto. Dates are YYYY-MM-DD. */
+export interface AccountCoverage {
+  accountId: string;
+  coverageStatus: string;
+  coveredDays: number;
+  missingDays: number;
+  coveragePercentage: number | null;
+  hasGaps: boolean;
+  hasOverlaps: boolean;
+  hasNonStandardPeriods: boolean;
+  hasDuplicatePeriods: boolean;
+  segments: { statementImportId: string; periodStart: string; periodEnd: string; classification: string }[];
+  /** `delta` is null when either bounding statement's balance is unknown. */
+  gaps: { gapStart: string; gapEnd: string; daysMissing: number; delta: number | null }[];
+  overlaps: { segmentAId: string; segmentBId: string; overlapStart: string; overlapEnd: string; type: string }[];
+}
 
 export interface TransactionFilters {
   accountId?: string;
@@ -1372,6 +1391,13 @@ export interface LoanEntry {
 
 // Every field above exists on the server's schema of the same shape.
 type FieldsOf<T, S> = Exclude<keyof T, keyof S> extends never ? true : Exclude<keyof T, keyof S>;
+const _coverageShapesMatchTheServer: [
+  FieldsOf<AccountCoverage, GeneratedSchemas['CoverageDto']>,
+  FieldsOf<AccountCoverage['segments'][number], GeneratedSchemas['Segment']>,
+  FieldsOf<AccountCoverage['gaps'][number], GeneratedSchemas['Gap']>,
+  FieldsOf<AccountCoverage['overlaps'][number], GeneratedSchemas['Overlap']>,
+] = [true, true, true, true];
+void _coverageShapesMatchTheServer;
 const _peopleShapesMatchTheServer: [
   FieldsOf<BillOption, GeneratedSchemas['BillOption']>,
   FieldsOf<PeopleSuggestion, GeneratedSchemas['Suggestion']>,

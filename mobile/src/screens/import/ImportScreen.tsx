@@ -424,7 +424,7 @@ export function ImportScreen() {
   const [showAllRows, setShowAllRows] = useState(false);
   const [fileIntoOpen, setFileIntoOpen] = useState(false);
   const [barHeight, setBarHeight] = useState(0);
-  const listRef = useRef<FlatList<StagedRow>>(null);
+  const listRef = useRef<FlatList<number>>(null);
   const needYouY = useRef(0);
   // Adjusted during render rather than in an effect (React's "adjusting state when a prop
   // changes"): a new set of rows is a new statement, so its view starts over before it paints.
@@ -1644,8 +1644,9 @@ export function ImportScreen() {
     <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <FlatList
         ref={listRef}
-        data={showAllRows ? rows : []}
-        keyExtractor={(_, i) => String(i)}
+        // Positions in `rows`: the ones that need an answer, or every row once "See all" is open.
+        data={showAllRows ? rows.map((_, i) => i) : needYou}
+        keyExtractor={(i) => String(i)}
         contentContainerStyle={padForTabBar(styles.listContent, tabBar + barHeight + spacing.md)}
         scrollIndicatorInsets={{ bottom: tabBar + barHeight }}
         // Rendering every row of a long statement up front is the difference between a list that
@@ -1946,33 +1947,37 @@ export function ImportScreen() {
             </Card>
             )}
 
-            {questions.length > 0 || needYou.length > 0 ? (
-              <View
-                testID="need-you"
-                onLayout={(e) => { needYouY.current = e.nativeEvent.layout.y; }}
-              >
-                {questions.length > 0 ? (
-                  <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
-                    {`${questions.length} need${questions.length === 1 ? 's' : ''} you`}
-                  </Text>
-                ) : null}
-                {needYou.map((i) => (
-                  <View key={i}>
-                    {rowCard(i)}
-                    {flaggedIndexes.has(i) && !dismissedFlags.has(i) ? (
-                      <View style={styles.looksRight}>
-                        <Button
-                          label="Looks right"
-                          variant="link"
-                          onPress={() => setDismissedFlags((prev) => new Set(prev).add(i))}
-                        />
-                      </View>
-                    ) : null}
-                  </View>
-                ))}
+            {/* The list's heading, and where "Show me" scrolls to. The rows themselves are the
+                FlatList's items, so a statement that is all duplicates is windowed like any other. */}
+            <View testID="need-you" onLayout={(e) => { needYouY.current = e.nativeEvent.layout.y; }}>
+              {showAllRows ? (
+                <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
+                  {`All ${rows.length} transaction${rows.length === 1 ? '' : 's'}`}
+                </Text>
+              ) : questions.length > 0 ? (
+                <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
+                  {`${questions.length} need${questions.length === 1 ? 's' : ''} you`}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        }
+        renderItem={({ item: i }) => (
+          <View>
+            {rowCard(i)}
+            {flaggedIndexes.has(i) && !dismissedFlags.has(i) ? (
+              <View style={styles.looksRight}>
+                <Button
+                  label="Looks right"
+                  variant="link"
+                  onPress={() => setDismissedFlags((prev) => new Set(prev).add(i))}
+                />
               </View>
             ) : null}
-
+          </View>
+        )}
+        ListFooterComponent={
+          <View>
             <Card style={styles.section} testID="look-fine">
               <View style={styles.fileIntoLine}>
                 <Text style={[styles.rowsTitle, styles.fileIntoText, { color: c.ink }]}>
@@ -1998,11 +2003,7 @@ export function ImportScreen() {
                   : `${guesses} categories are guesses — sort them after import`}
               </Text>
             ) : null}
-          </View>
-        }
-        renderItem={({ index }) => rowCard(index)}
-        ListFooterComponent={
-          <View>
+
             {/* "Never lose information": rows the parser couldn't read are shown rather than
                 silently dropped, even though they can never be imported. */}
             {unparseableRows.length > 0 ? (

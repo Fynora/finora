@@ -24,7 +24,7 @@ export function ImportBar({
     <View
       testID="import-bar"
       onLayout={(e) => onLayoutHeight(e.nativeEvent.layout.height)}
-      style={[styles.bar, { boxShadow: shadows.card, backgroundColor: c.card, borderColor: c.border }, style]}
+      style={[styles.bar, { boxShadow: shadows.card, backgroundColor: c.card, borderColor: c.border } /* glass-exempt: pinned over rows scrolling beneath it; its blocking line and button must stay readable */, style]}
     >
       {message ? (
         <View style={styles.messageRow} testID="import-bar-message">

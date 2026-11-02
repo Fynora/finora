@@ -1909,6 +1909,16 @@ describe('check step, idea B', () => {
     expect(screen.getByText('Check description')).toBeOnTheScreen();
   });
 
+  // A statement uploaded again is all possible duplicates: those rows go through the list's own
+  // windowing, never all at once (the screen's FlatList comment names the stall this avoids).
+  it('windows a long "need you" list instead of drawing every card at once', async () => {
+    stage(Array.from({ length: 60 }, (_, i) => duplicate(`Repeat ${i}`)));
+    await reachReview();
+
+    expect(screen.getByText('60 need you')).toBeOnTheScreen();
+    expect(rowCards().length).toBeLessThan(60);
+  });
+
   it('See all shows every row', async () => {
     stage([stagedRow('Row A'), stagedRow('Row B'), duplicate('Row C')]);
     await reachReview();

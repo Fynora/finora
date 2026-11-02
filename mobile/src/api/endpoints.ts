@@ -2312,8 +2312,12 @@ const PREFERENCE_CATEGORIES = { params: { categories: 'FINANCIAL,REMINDERS,MARKE
 
 export const notificationPreferencesApi = {
   list: () => api.get<NotificationPreference[]>('/notification-preferences', PREFERENCE_CATEGORIES).then((r) => r.data),
-  set: (category: NotificationPreference['category'], channel: NotificationPreference['channel'], enabled: boolean) =>
-    api.put<NotificationPreference[]>('/notification-preferences', { category, channel, enabled }, PREFERENCE_CATEGORIES)
+  // noticeVersion (V306): which wording of the switch the user saw, stored with the change as the
+  // record of what they agreed to. Sent only for switches that have one ("Offers and news").
+  set: (category: NotificationPreference['category'], channel: NotificationPreference['channel'], enabled: boolean, noticeVersion?: string) =>
+    api.put<NotificationPreference[]>('/notification-preferences',
+      noticeVersion ? { category, channel, enabled, noticeVersion } : { category, channel, enabled },
+      PREFERENCE_CATEGORIES)
       .then((r) => r.data),
 };
 

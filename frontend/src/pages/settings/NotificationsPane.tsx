@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { notificationPreferencesApi, type NotificationPreferenceDto } from '../../api/endpoints';
 import { Skeleton } from '../../design-system/Skeleton';
 import { FinoraCard } from '../../design-system/FinoraCard';
@@ -6,7 +7,9 @@ import { SectionHeader } from '../../design-system/SectionHeader';
 
 type PrefKey = `${NotificationPreferenceDto['category']}:${NotificationPreferenceDto['channel']}`;
 
-const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>> = {
+/** noticeVersion: the wording's version, sent with each change (V306). policyAnchor: the privacy
+ *  policy section a "How Fynora uses this" link under the switch opens. */
+const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string; noticeVersion?: string; policyAnchor?: string }>> = {
   'FINANCIAL:EMAIL': {
     label: 'Email',
     description: 'Statement and referral updates by email: a statement is ready, being checked or resolved, and referral rewards.',
@@ -22,9 +25,14 @@ const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>
     description: 'A push at the start of the month when a new statement has probably arrived.',
   },
   // V305: off until the user turns it on. Promotional campaigns reach only people who did.
+  // V306: noticeVersion is stored with every change as the record of the wording the user agreed
+  // to, and notification_notice_versions holds each version's exact words. Change the label or
+  // description and you need a new version here and a new row there (NotificationNoticeVersionsIT).
   'MARKETING:PUSH': {
     label: 'Offers and news',
     description: 'Occasional push notifications about offers, discounts and new features. Off unless you turn it on.',
+    noticeVersion: 'offers-news-2026-11',
+    policyAnchor: 'offers-and-news',
   },
 };
 
@@ -49,7 +57,8 @@ export function NotificationsPane() {
     setSaving(keyOf(pref));
     setSaveError(null);
     try {
-      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, !pref.enabled));
+      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, !pref.enabled,
+        PREF_COPY[keyOf(pref)]?.noticeVersion));
     } catch {
       setSaveError("Couldn't save that change. Please try again.");
     } finally {
@@ -77,6 +86,11 @@ export function NotificationsPane() {
                 <div>
                   <p className="text-sm text-ink font-medium">{copy.label}</p>
                   <p className="text-xs text-muted mt-0.5">{copy.description}</p>
+                  {copy.policyAnchor && (
+                    <Link to={`/privacy#${copy.policyAnchor}`} className="text-xs text-primary hover:underline">
+                      How Fynora uses this
+                    </Link>
+                  )}
                 </div>
                 <button
                   type="button"

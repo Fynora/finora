@@ -6730,6 +6730,7 @@ export interface components {
             /** @enum {string} */
             channel: "EMAIL" | "SMS" | "PUSH";
             enabled: boolean;
+            noticeVersion?: string;
         };
         ApiResponseListPreferenceView: {
             success?: boolean;

@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { NotificationPreferencesSection } from './NotificationPreferencesSection';
 import { notificationPreferencesApi } from '../../api/endpoints';
+import { openWebUrl } from '../../lib/webUrl';
 import { ThemeProvider } from '../../theme';
 import { expectSkeletonNotSpinner, never } from '../../test/loadingStates';
 
 jest.mock('../../api/endpoints', () => ({
   notificationPreferencesApi: { list: jest.fn(), set: jest.fn() },
 }));
+jest.mock('../../lib/webUrl', () => ({ openWebUrl: jest.fn() }));
 
 const api = notificationPreferencesApi as jest.Mocked<typeof notificationPreferencesApi>;
 
@@ -42,7 +44,7 @@ describe('NotificationPreferencesSection', () => {
     fireEvent(await screen.findByLabelText('Email'), 'valueChange', false);
 
     await waitFor(() => expect(screen.getByLabelText('Email')).toHaveProp('value', false));
-    expect(api.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false);
+    expect(api.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false, undefined);
     expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
   });
 
@@ -60,12 +62,13 @@ describe('NotificationPreferencesSection', () => {
     fireEvent(screen.getByLabelText('Statement reminders'), 'valueChange', false);
 
     await waitFor(() => expect(screen.getByLabelText('Statement reminders')).toHaveProp('value', false));
-    expect(api.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false);
+    expect(api.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false, undefined);
     expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
   });
 
   // V305: "Offers and news" is opt-in. Promotional push campaigns reach only people who turned it on.
-  it('shows offers and news off until turned on, and turning it on saves MARKETING push only', async () => {
+  // V306: the save carries the wording's version, the record of what the user agreed to.
+  it('shows offers and news off until turned on, and turning it on saves MARKETING push with its wording version', async () => {
     const withOffers = (offers: boolean) => [
       ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: offers },
     ];
@@ -77,8 +80,22 @@ describe('NotificationPreferencesSection', () => {
     fireEvent(screen.getByLabelText('Offers and news'), 'valueChange', true);
 
     await waitFor(() => expect(screen.getByLabelText('Offers and news')).toHaveProp('value', true));
-    expect(api.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true);
+    expect(api.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true, 'offers-news-2026-11');
     expect(screen.getByLabelText('Push notifications')).toHaveProp('value', true);
+  });
+
+  // Rule 3 notice: the switch links to the policy section that explains it. Only that switch does.
+  it('links offers and news to its privacy policy section', async () => {
+    jest.mocked(openWebUrl).mockClear();
+    api.list.mockResolvedValue([
+      ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: false },
+    ]);
+    renderSection();
+
+    const links = await screen.findAllByRole('link', { name: 'How Fynora uses this' });
+    expect(links).toHaveLength(1);
+    fireEvent.press(links[0]);
+    expect(openWebUrl).toHaveBeenCalledWith('/privacy#offers-and-news');
   });
 
   it('keeps the old state and says so when saving fails', async () => {

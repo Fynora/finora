@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PublicLayout } from './PublicLayout';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PublicLayout, PublicSection } from './PublicLayout';
 import Terms from '../pages/Terms';
 import RefundPolicy from '../pages/RefundPolicy';
 
@@ -71,5 +71,42 @@ describe('PublicLayout document title', () => {
     expect(terms).not.toBe(APP_TITLE);
     expect(refunds).not.toBe(APP_TITLE);
     expect(terms).not.toBe(refunds);
+  });
+});
+
+// A link to one section (the notification settings' "How Fynora uses this") must land on it, not on
+// the top of the page: the browser looked for the id before the sections were drawn.
+describe('PublicLayout section links', () => {
+  const scrollIntoView = vi.fn();
+  beforeEach(() => {
+    scrollIntoView.mockClear();
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  const page = (entry: string) => (
+    <MemoryRouter initialEntries={[entry]}>
+      <PublicLayout title="Privacy Policy">
+        <PublicSection id="first" title="First">one</PublicSection>
+        <PublicSection id="offers-and-news" title="Offers and News">two</PublicSection>
+      </PublicLayout>
+    </MemoryRouter>
+  );
+
+  it('scrolls to the section the link names', () => {
+    render(page('/privacy#offers-and-news'));
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(document.getElementById('offers-and-news'));
+  });
+
+  it('stays put with no section named, or one that does not exist', () => {
+    render(page('/privacy'));
+    render(page('/privacy#no-such-section'));
+    render(page('/privacy#%E0%A4%A'));
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

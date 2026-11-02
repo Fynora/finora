@@ -366,10 +366,27 @@ describe('Privacy policy matches what the product does', () => {
 
     it('adds the acceptance record to the export, the age confirmation, and re-asking on a material change', () => {
       const t = policyText();
-      expect(t).toMatch(/the record of each version of the Terms of Service and this policy you\s+agreed to, plus the original statement files/i);
+      expect(t).toMatch(/the record of each version of the Terms of Service and this policy you\s+agreed to, the record of each time you turned a notification switch on or off, plus the original statement files/i);
       expect(t).toMatch(/you confirm that you are 18 or older/i);
       expect(t).toMatch(/ask you to read and agree to the new version before you continue/i);
     });
+  });
+
+  // V305/V306: promotional push is opt-in, and every change to the switch is recorded. Each line
+  // here is a claim the code backs: AudienceSql (opt-in only), NotificationPreferenceService (push
+  // only, history), NotificationDispatcher (re-checked at send), DataExportService and the purge.
+  it('describes "Offers and news": opt-in push only, how to withdraw, and the record kept of each change', () => {
+    const t = policyText();
+    // Not just "in the app": store builds released before this change have no such switch.
+    expect(t).toMatch(/You get them only if you turn on "Offers and news" in Settings, under Notifications,\s+on the website or in an up-to-date version of the app/);
+    expect(t).toMatch(/It is off unless you turn it on, and leaving it off changes nothing else/);
+    expect(t).toMatch(/Fynora does not send offers by\s+email or text message/);
+    expect(t).toMatch(/device token of each phone you use the\s+Fynora app on/);
+    expect(t).toMatch(/A notification that has not been\s+sent yet is not sent once you do, even if it was already queued/);
+    expect(t).toMatch(/records when, from which app, and which wording of the switch the app showed/);
+    expect(t).toMatch(/consent to "Offers and news" push\s+notifications \(Settings, under Notifications\)/);
+    expect(t).toMatch(/Only if you turn on "Offers and news", it is also\s+used to send you push notifications/);
+    expect(t).toMatch(/notification\s+switch such as "Offers and news" on or off/);
   });
 
   it('discloses the sign-up source: the referring site and the first page landed on by address only, the four utm tags, and deletion with the account', () => {

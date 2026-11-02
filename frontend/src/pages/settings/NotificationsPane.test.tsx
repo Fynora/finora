@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { NotificationsPane } from './NotificationsPane';
 import { notificationPreferencesApi } from '../../api/endpoints';
 
@@ -36,7 +37,7 @@ describe('NotificationsPane', () => {
 
     await user.click(await screen.findByRole('switch', { name: 'Email' }));
 
-    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false);
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('FINANCIAL', 'EMAIL', false, undefined);
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Email' })).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
   });
@@ -56,28 +57,41 @@ describe('NotificationsPane', () => {
     expect(screen.getByText('A push at the start of the month when a new statement has probably arrived.')).toBeInTheDocument();
     await user.click(reminders);
 
-    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false);
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('REMINDERS', 'PUSH', false, undefined);
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Statement reminders' })).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
   });
 
   // V305: "Offers and news" is opt-in. Promotional push campaigns reach only people who turned it on.
-  it('shows offers and news off until turned on, and turning it on saves MARKETING push only', async () => {
+  // V306: the save carries the wording's version, the record of what the user agreed to.
+  it('shows offers and news off until turned on, and turning it on saves MARKETING push with its wording version', async () => {
     const user = userEvent.setup();
     const withOffers = (offers: boolean) => [
       ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: offers },
     ];
     vi.mocked(notificationPreferencesApi.list).mockResolvedValue(withOffers(false));
     vi.mocked(notificationPreferencesApi.set).mockResolvedValue(withOffers(true));
-    render(<NotificationsPane />);
+    render(<MemoryRouter><NotificationsPane /></MemoryRouter>);
 
     const offers = await screen.findByRole('switch', { name: 'Offers and news' });
     expect(offers).toHaveAttribute('aria-checked', 'false');
     await user.click(offers);
 
-    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true);
+    expect(notificationPreferencesApi.set).toHaveBeenCalledWith('MARKETING', 'PUSH', true, 'offers-news-2026-11');
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Offers and news' })).toHaveAttribute('aria-checked', 'true'));
     expect(screen.getByRole('switch', { name: 'Push notifications' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // Rule 3 notice: the switch links to the policy section that explains it. Only that switch does.
+  it('links offers and news to its privacy policy section', async () => {
+    vi.mocked(notificationPreferencesApi.list).mockResolvedValue([
+      ...both(true, true), { category: 'MARKETING' as const, channel: 'PUSH' as const, enabled: false },
+    ]);
+    render(<MemoryRouter><NotificationsPane /></MemoryRouter>);
+
+    const links = await screen.findAllByRole('link', { name: 'How Fynora uses this' });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', '/privacy#offers-and-news');
   });
 
   it('keeps the old state and says so when saving fails', async () => {

@@ -290,6 +290,7 @@ public class DataExportService {
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     private final com.finora.repository.SignupAttributionRepository signupAttributionRepository;
     private final com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository;
+    private final com.finora.notification.repository.NotificationPreferenceChangeRepository notificationPreferenceChangeRepository;
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
     private final com.finora.people.PeopleData peopleData;
     private final StatementContentService statementContentService;
@@ -345,7 +346,8 @@ public class DataExportService {
                               com.finora.repository.AiInsightTextRepository aiInsightTextRepository,
                               com.finora.people.PeopleData peopleData,
                               StatementContentService statementContentService,
-                              com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository) {
+                              com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository,
+                              com.finora.notification.repository.NotificationPreferenceChangeRepository notificationPreferenceChangeRepository) {
         this.statementPasswordRepository = statementPasswordRepository;
         this.featureViewCountRepository = featureViewCountRepository;
         this.paymentRepository = paymentRepository;
@@ -367,6 +369,7 @@ public class DataExportService {
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
         this.signupAttributionRepository = signupAttributionRepository;
         this.termsAcceptanceRepository = termsAcceptanceRepository;
+        this.notificationPreferenceChangeRepository = notificationPreferenceChangeRepository;
         this.aiInsightTextRepository = aiInsightTextRepository;
         this.peopleData = peopleData;
         this.statementContentService = statementContentService;
@@ -546,6 +549,14 @@ public class DataExportService {
                 termsAcceptanceRepository.findByUserIdOrderByAcceptedAtAsc(userId).stream()
                         .map(a -> new com.finora.dto.DataExportDto.TermsAcceptanceExportDto(
                                 a.getTermsVersion(), a.getAcceptedAt(), a.getChannel(), a.getMethod()))
+                        .toList();
+        // V306: every change to a notification switch, including turning "Offers and news" on --
+        // like the Terms history, a record about the user, so theirs to see.
+        List<com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto> notificationPreferenceHistory =
+                notificationPreferenceChangeRepository.findByUserIdOrderByRecordedAtAsc(userId).stream()
+                        .map(c -> new com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto(
+                                c.getCategory().name(), c.getChannel().name(), c.isEnabled(), c.getRecordedAt(),
+                                c.getClient(), c.getNoticeVersion(), c.getMethod()))
                         .toList();
         // V283: the AI texts written for the user, in the purge scope, so exported.
         List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights =
@@ -844,7 +855,7 @@ public class DataExportService {
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
                 activationAnswers, insightAcknowledgements, signupSource, aiInsights, sharedPayments,
-                termsAcceptances);
+                termsAcceptances, notificationPreferenceHistory);
     }
 
     /**
@@ -920,6 +931,7 @@ public class DataExportService {
             writeJsonEntry(zos, "ai_insights.json", bundle.aiInsights());
             writeJsonEntry(zos, "shared_payments.json", bundle.sharedPayments());
             writeJsonEntry(zos, "terms_acceptances.json", bundle.termsAcceptances());
+            writeJsonEntry(zos, "notification_preference_history.json", bundle.notificationPreferenceHistory());
 
             for (Summary statement : bundle.statementSummaries()) {
                 writeStoredFile(zos, "statements/" + statement.id() + "-" + sanitize(statement.fileName()),
@@ -1073,7 +1085,8 @@ public class DataExportService {
                 new ManifestEntry("signup_source.json", "Where the website visit that ended in your sign-up came from: the referring site's name, the campaign tags on the link and the first Fynora page you landed on (its address only), if any.", bundle.signupSource().size()),
                 new ManifestEntry("ai_insights.json", "The AI-written month stories and \"Why?\" answers on your Insights, and the thumbs up or down you gave them.", bundle.aiInsights().size()),
                 new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size()),
-                new ManifestEntry("terms_acceptances.json", "Each time you agreed to the Terms of Service and Privacy Policy: the version, when, from which app, and whether you ticked the box or continued past the earlier notice.", bundle.termsAcceptances().size())
+                new ManifestEntry("terms_acceptances.json", "Each time you agreed to the Terms of Service and Privacy Policy: the version, when, from which app, and whether you ticked the box or continued past the earlier notice.", bundle.termsAcceptances().size()),
+                new ManifestEntry("notification_preference_history.json", "Each time you turned a notification switch on or off, including \"Offers and news\": which switch, when, from which app and which wording the app showed. Settings you had already chosen before this record began are listed once, as they stood then.", bundle.notificationPreferenceHistory().size())
         );
         List<ManifestEntry> excluded = List.of(
                 new ManifestEntry("audit_logs", "Your own actions are logged for security, not collected as your data.", null),
@@ -1185,7 +1198,8 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.SignupAttributionExportDto> signupSource,
             List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights,
             com.finora.people.PeopleData.PeopleExport sharedPayments,
-            List<com.finora.dto.DataExportDto.TermsAcceptanceExportDto> termsAcceptances
+            List<com.finora.dto.DataExportDto.TermsAcceptanceExportDto> termsAcceptances,
+            List<com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto> notificationPreferenceHistory
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

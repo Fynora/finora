@@ -230,6 +230,26 @@ public class StatementContentService {
                     ? "Statement row has neither stored content nor a content address"
                     : "Statement " + row.getContentHash() + " is in object storage, but no storage provider is configured");
         }
-        return legacy;
+        if (row.getEncryptionKeyId() == null) {
+            return legacy;
+        }
+        // A staged upload (ImportSession, V304) keeps its bytes in the database encrypted, under the
+        // key the row records. No StatementImport row is in this state: one written with no storage
+        // provider keeps the plain file and a null key id. Checked against content_hash after
+        // decrypting, as the addressed branch does, so a wrong key or a damaged row fails here.
+        byte[] content = encryptionService.decryptBytes(new EncryptedBytes(row.getEncryptionKeyId(), legacy));
+        if (row.getContentHash() != null) {
+            ContentAddress.requireMatches(content, row.getContentHash(), "staged statement " + row.getContentHash());
+        }
+        return content;
+    }
+
+    /**
+     * Encrypts bytes held in the database rather than in object storage -- a staged upload, until
+     * the user presses Import. Not compressed: the copy lives at most a couple of days, and the
+     * confirmed copy is compressed by {@link #store} anyway.
+     */
+    public EncryptedBytes encryptForDatabase(byte[] content) {
+        return encryptionService.encryptBytes(content);
     }
 }

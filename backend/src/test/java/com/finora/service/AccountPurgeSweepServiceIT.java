@@ -277,6 +277,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         account.setAccountType(Account.Type.SAVINGS);
         account.setBalance(BigDecimal.valueOf(1000));
         account.setAccountHolderName("Purge Test User");
+        account.setProductIdentityHash("purge-it-identity-hash");
         accountId = accountRepository.save(account).getId();
     }
 
@@ -772,6 +773,9 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         Account survivingAccount = accountRepository.findByUserIdIncludingDeleted(userId).get(0);
         assertThat(survivingAccount.getId()).isEqualTo(accountId);
         assertThat(survivingAccount.getAccountHolderName()).isNull();
+        // Privacy workstream 6: the name the user typed and the full-number hash go too.
+        assertThat(survivingAccount.getName()).isEqualTo(AccountPurgeSweepService.DELETED_ACCOUNT_NAME);
+        assertThat(survivingAccount.getProductIdentityHash()).isNull();
 
         // Still present, not physically gone -- native query bypasses @SQLRestriction the same way
         // StatementStorageSweepService's own discovery query does.

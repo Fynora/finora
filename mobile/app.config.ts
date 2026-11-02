@@ -356,9 +356,12 @@ const config: ExpoConfig = {
     // list is the AppIcon enum in the backend; a key added there needs this list and a new store
     // build too. Android adds one launcher entry per icon; iOS adds an alternate icon set.
     //
-    // The Android foreground is the artwork shrunk so all of it sits inside the circle every
-    // launcher keeps; backgroundColor is the artwork's own background, so the two meet with no
-    // seam. Themed (monochrome) icons reuse the standard F.
+    // Diwali art: the rangoli set from make_diwali_icon_rangoli.py (Sid's brand folder), with
+    // BrandMark's F drawn in. The Android foreground is the artwork scaled to 0.70 so the whole
+    // rangoli sits inside the 66dp circle every launcher keeps; backgroundColor is the artwork's
+    // own flat graphite (the set's background PNG is that one colour throughout, so a colour
+    // resource does the same job without another bitmap per density). The themed (monochrome)
+    // icon is the rangoli silhouette at the same 0.70 scale.
     // Keeps app.fynora.net links on MainActivity only; see the plugin file. Listed BEFORE the
     // icon plugin on purpose: manifest mods run in reverse list order, so this runs after it.
     './plugins/withFestivalIconLinkFilters',
@@ -371,7 +374,7 @@ const config: ExpoConfig = {
           android: {
             foregroundImage: './assets/festival-icons/diwali-android-foreground.png',
             backgroundColor: '#232832',
-            monochromeImage: './assets/android-icon-monochrome.png',
+            monochromeImage: './assets/festival-icons/diwali-android-monochrome.png',
           },
         },
       ],

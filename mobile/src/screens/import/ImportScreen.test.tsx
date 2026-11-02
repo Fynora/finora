@@ -1722,6 +1722,198 @@ describe('upload step, idea B', () => {
   });
 });
 
+// Idea B (spec 2026-11-02, Step 2): only the rows that need an answer are open; Import is pinned.
+describe('check step, idea B', () => {
+  const match = {
+    existingTransactionId: 't-1', existingAccountId: null, existingDate: '2026-07-10', existingDescription: 'Sample Tv',
+    existingAmount: 45, existingType: 'EXPENSE' as const, existingImportedAt: '2026-08-01T00:00:00Z', matchCount: 1,
+    confidence: 'EXACT' as const, reason: 'Same date and amount as a payment already in Fynora.',
+  };
+  const duplicate = (description: string): StagedRow => ({ ...stagedRow(description), likelyDuplicate: true, duplicateMatch: match });
+  const guess = (description: string): StagedRow => ({ ...stagedRow(description), categorySource: 'default' });
+  const savingsAccount: Account = {
+    id: 'sav-1', name: 'Sample Bank Savings', accountType: 'SAVINGS', balance: 0,
+    // A holder name already on file, so the "This is my account" switch has nothing to ask.
+    bank: { id: 'HDFC', initials: 'H' } as Account['bank'], accountNumberMasked: 'XXXX0001', accountHolderName: 'Test User',
+    lastImportedAt: null, lastStatementPeriodStart: null, lastStatementPeriodEnd: null,
+    statementsCount: 0, transactionsCount: 0, status: 'ACTIVE', primarySource: 'MANUAL',
+  };
+  const matchedDetected = { ...detectedWithBank, suggestedName: 'Sample Bank Savings', accountNumberMasked: 'XXXX0001', suggestedAccountType: 'SAVINGS' } as DetectedAccountInfo;
+  const descriptionFlag = (displayIndex: number) => ({
+    reliabilityStatus: 'REVIEW_RECOMMENDED', textSource: 'NATIVE_PDF', headerReconstructionUncertain: false,
+    findings: [{
+      rule: 'DESCRIPTION_CORRUPTION', outcome: 'WARNING',
+      details: { rowsChecked: 5, sectionMedianLength: 5, outliers: [{ rowIndex: displayIndex, displayIndex, length: 162, sectionMedianLength: 5, sentenceBreaks: 2 }] },
+    }],
+  });
+
+  function stage(rows: StagedRow[], opts: { detected?: DetectedAccountInfo; verification?: object } = {}) {
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-1', multiAccount: false, sections: null,
+      staging: {
+        rows, totalParsed: rows.length, flaggedDuplicates: 0, detectedAccount: opts.detected ?? detectedWithBank,
+        unparseableRows: [], verification: opts.verification ?? null,
+      },
+    } as never);
+  }
+
+  async function reachReview() {
+    render(tree());
+    // Let the accounts list land first: the account match reads it when the file is staged. React
+    // Query hands a result to the screen on a timer, so one microtask flush is not enough.
+    await waitFor(() => expect(api.accounts.list).toHaveBeenCalled());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await act(async () => {});
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await screen.findByText(/^Import \d+ transaction/);
+  }
+
+  const rowCards = () => screen.queryAllByLabelText(/^Include /);
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.confirm.mockReset();
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  it('"need you" holds only unresolved duplicates and flagged rows', async () => {
+    stage(
+      [stagedRow('Row A'), stagedRow('Row B'), stagedRow('Row C'), duplicate('Row D'), stagedRow('Row E')],
+      { verification: descriptionFlag(1) },
+    );
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    expect(rowCards()).toHaveLength(2);
+    expect(screen.getByText('Row B')).toBeOnTheScreen();
+    expect(screen.getByText('Row D')).toBeOnTheScreen();
+    expect(screen.queryByText('Row A')).toBeNull();
+    expect(screen.getByText('3 look fine')).toBeOnTheScreen();
+  });
+
+  it('answering a duplicate removes its card', async () => {
+    stage([stagedRow('Row A'), duplicate('Row B'), duplicate('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    fireEvent.press(screen.getAllByText('Skip this row')[0]);
+    expect(screen.getByText('1 needs you')).toBeOnTheScreen();
+  });
+
+  it('"Apply to similar" clears several cards in one press', async () => {
+    stage([duplicate('Sample Tv'), duplicate('Sample Tv'), stagedRow('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 need you')).toBeOnTheScreen();
+    fireEvent.press(screen.getAllByText('Skip this row')[0]);
+    // The answered card stays while its identical row is open, so its bulk action stays in reach.
+    expect(screen.getByText('1 needs you')).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Apply this answer to 1 identical row' }));
+    expect(screen.queryByText(/need you/)).toBeNull();
+    expect(rowCards()).toHaveLength(0);
+  });
+
+  it('"Looks right" hides a flagged row from "need you" only', async () => {
+    stage([stagedRow('Row A'), stagedRow('Row B')], { verification: descriptionFlag(1) });
+    await reachReview();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Looks right' }));
+    expect(screen.queryByText(/need you/)).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'See all' }));
+    expect(screen.getByText('Check description')).toBeOnTheScreen();
+  });
+
+  it('See all shows every row', async () => {
+    stage([stagedRow('Row A'), stagedRow('Row B'), duplicate('Row C')]);
+    await reachReview();
+
+    expect(rowCards()).toHaveLength(1);
+    fireEvent.press(screen.getByRole('button', { name: 'See all' }));
+    expect(rowCards().length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText('Row A')).toBeOnTheScreen();
+  });
+
+  it('counts category guesses on one line', async () => {
+    stage([guess('Row A'), guess('Row B'), stagedRow('Row C')]);
+    await reachReview();
+
+    expect(screen.getByText('2 categories are guesses — sort them after import')).toBeOnTheScreen();
+  });
+
+  it('shows no guesses line when there are none', async () => {
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    expect(screen.queryByText(/categories are guesses|category is a guess/)).toBeNull();
+  });
+
+  it('folds File into for a matched existing account', async () => {
+    api.accounts.list.mockResolvedValue([savingsAccount]);
+    stage([stagedRow('Row A')], { detected: matchedDetected });
+    await reachReview();
+
+    expect(await screen.findByText('File into: Sample Bank Savings')).toBeOnTheScreen();
+    expect(screen.queryByText('An existing account')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Change' }));
+    expect(screen.getByText('An existing account')).toBeOnTheScreen();
+  });
+
+  it('keeps File into open after an account is picked in it', async () => {
+    api.accounts.list.mockResolvedValue([savingsAccount]);
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    fireEvent.press(screen.getByText('An existing account'));
+    fireEvent.press(screen.getByText('Sample Bank Savings', { exact: true }));
+    expect(screen.queryByText(/^File into: /)).toBeNull();
+    expect(screen.getByText('A new account')).toBeOnTheScreen();
+  });
+
+  it('keeps File into open for a new account', async () => {
+    stage([stagedRow('Row A')]);
+    await reachReview();
+
+    expect(screen.getByLabelText('Account name')).toBeOnTheScreen();
+    expect(screen.queryByText(/^File into: /)).toBeNull();
+  });
+
+  it('re-import shows the account with no Change', async () => {
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(tree());
+    await screen.findByText(/^Import \d+ transaction/);
+
+    expect(screen.getByText('File into: HDFC Savings')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Change' })).toBeNull();
+    expect(screen.queryByText('Choose an account to import into')).toBeNull();
+  });
+
+  it('all duplicates skipped leaves nothing to import', async () => {
+    stage([duplicate('Row A'), duplicate('Row B')]);
+    await reachReview();
+
+    for (const skip of screen.getAllByText('Skip this row')) fireEvent.press(skip);
+    expect(screen.getByText('Choose at least one transaction to import')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^Import 0 transactions/ })).toBeDisabled();
+  });
+
+  it('the bar names the outstanding question', async () => {
+    stage([stagedRow('Row A'), duplicate('Row B')]);
+    await reachReview();
+
+    expect(screen.getByText('Answer 1 question to import')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: /^Import 1 transaction/ })).toBeDisabled();
+  });
+});
+
 describe('ImportScreen — async import job (Phase 4)', () => {
   beforeEach(() => {
     mockRouteParams = undefined;

@@ -39,7 +39,12 @@ import { apiErrorCode, apiErrorDetails, isCanceled, toUserMessage } from '../../
 import { reportTransportFailure, requestStartedAt } from '../../lib/monitoring';
 import { fmtCurrency, fmtDate, fmtRelativeTime, toLocalDateString } from '../../lib/format';
 import { qualifiesForMonths } from '../../lib/statementMonths';
+import {
+  categoryGuessCount, fileIntoCollapsed, importBarMessage, questionRows, undismissedFlagCount,
+} from '../../lib/importQuestions';
 import { FoldLine } from './FoldLine';
+import { ImportBar } from './ImportBar';
+import { ReviewSummary } from './ReviewSummary';
 import { YourStatements } from './YourStatements';
 import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
@@ -406,6 +411,26 @@ export function ImportScreen() {
       return review.decisions[i] === 'unresolved' ? Math.max(total - 1, 0) : total;
     });
   }, [rows, review.decisions]);
+
+  // Idea B (spec 2026-11-02, Step 2). Marked rows the person said look right (kept on this phone
+  // only, never sent), whether the full row list is open, whether "File into" was opened by hand,
+  // and the pinned bar's height (the list pads by it so the last row and Cancel stay reachable).
+  // All of it belongs to one statement: a new set of rows starts over.
+  const [dismissedFlags, setDismissedFlags] = useState<ReadonlySet<number>>(() => new Set());
+  const [showAllRows, setShowAllRows] = useState(false);
+  const [fileIntoOpen, setFileIntoOpen] = useState(false);
+  const [barHeight, setBarHeight] = useState(0);
+  const listRef = useRef<FlatList<StagedRow>>(null);
+  const needYouY = useRef(0);
+  // Adjusted during render rather than in an effect (React's "adjusting state when a prop
+  // changes"): a new set of rows is a new statement, so its view starts over before it paints.
+  const [viewRows, setViewRows] = useState(rows);
+  if (viewRows !== rows) {
+    setViewRows(rows);
+    setDismissedFlags(new Set());
+    setShowAllRows(false);
+    setFileIntoOpen(false);
+  }
 
   /**
    * Arriving from "Re-import" on the Statement History screen: the rows were already staged there,
@@ -980,6 +1005,17 @@ export function ImportScreen() {
     ? sameBankAccounts(accountForm.bankId, accountForm.accountType, detected?.accountNumberMasked, existingAccounts)
     : [];
 
+  // Idea B: "File into" can be one line only while its form asks nothing -- an account picked,
+  // nothing invalid, and neither the amount-owed question nor the holder switch on show (folding
+  // would hide a question the screen means to ask). Once the form has been open for a statement it
+  // stays open: picking an account inside it must not snap it shut under the person's finger.
+  const fileIntoFoldable = fileIntoCollapsed({
+    isReimport: reimport !== null, accountChoice, selectedAccountId, amountOwedInvalid, newAccountBankMissing,
+  }) && !askAmountOwed && !holderClaimAvailable();
+  // Same during-render adjustment as viewRows above: the first render that needs the form open
+  // marks it open, and nothing marks it shut again until a new statement arrives.
+  if (!fileIntoFoldable && !fileIntoOpen && viewRows === rows) setFileIntoOpen(true);
+
   function chooseNewAccountBank(bank: BankOption) {
     setNewAccountBank(bank);
     setAccountForm((f) => ({ ...f, bankId: bank.id, name: nameAfterBankChoice(f.name, nameEdited, bank) }));
@@ -1082,7 +1118,9 @@ export function ImportScreen() {
 
   const header = (
     <View>
-      <Text style={[styles.title, { color: c.ink }]}>Import</Text>
+      <Text accessibilityRole="header" style={[styles.title, { color: c.ink }]}>
+        {step === 'review' ? 'Check your statement' : 'Import'}
+      </Text>
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
           <Text style={[styles.errorText, { color: c.dangerInk }]}>{error}</Text>
@@ -1525,12 +1563,59 @@ export function ImportScreen() {
   }
 
   // ---- review ----
+  // Idea B (spec 2026-11-02, Step 2): the rows that need an answer open, the rest folded, and
+  // Import pinned above the tab bar. Whether Import may run is still canConfirmImport alone.
+  const isReimport = reimport !== null;
+  const gate = {
+    includedCount,
+    outstanding,
+    isReimport,
+    accountChoice,
+    selectedAccountId,
+    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
+    amountOwedInvalid,
+    newAccountBankMissing,
+  };
+  const questions = questionRows(rows, review.decisions, flagged, dismissedFlags);
+  // An answered duplicate stays while identical rows are still open: "Apply to N identical rows"
+  // lives on the answered card, and taking the card away would take the bulk answer with it.
+  const needYou = rows
+    .map((_, i) => i)
+    .filter((i) => questions.includes(i)
+      || (isUnderReview(rows[i]) && review.decisions[i] !== 'unresolved' && (similarUnresolved[i] ?? 0) > 0));
+  const flaggedIndexes = new Set([...(flagged.balance ?? []), ...(flagged.description ?? [])]);
+  const lookFine = rows.length - questions.length;
+  const guesses = categoryGuessCount(rows, review.included);
+  const fileIntoFolded = !fileIntoOpen && fileIntoFoldable;
+  const fileIntoName = reimport?.accountName ?? existingAccounts.find((a) => a.id === selectedAccountId)?.name ?? '';
+  const barMessage = importBarMessage(gate, undismissedFlagCount(flagged, dismissedFlags));
+
+  const rowCard = (index: number) => (
+    <StagedRowCard
+      row={rows[index]}
+      included={review.included[index]}
+      category={chosenCategory[index]}
+      onToggleIncluded={() =>
+        setReview((prev) => setIncluded(prev, index, !prev.included[index]))
+      }
+      onPressCategory={() => setCategoryPickerFor(index)}
+      balanceFlagged={flagged.balance?.includes(index) ?? false}
+      descriptionFlagged={flagged.description?.includes(index) ?? false}
+      decision={review.decisions[index]}
+      onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
+      similarUnresolved={similarUnresolved[index] ?? 0}
+      onApplyToSimilar={() => setReview((prev) => applyDecisionToSimilar(rows, prev, index))}
+    />
+  );
+
   return (
     <GlassScreen style={[styles.flex, {paddingTop: insets.top }]}>
       <FlatList
-        data={rows}
+        ref={listRef}
+        data={showAllRows ? rows : []}
         keyExtractor={(_, i) => String(i)}
-        contentContainerStyle={padForTabBar(styles.listContent, tabBar)} scrollIndicatorInsets={{ bottom: tabBar }}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar + barHeight + spacing.md)}
+        scrollIndicatorInsets={{ bottom: tabBar + barHeight }}
         // Rendering every row of a long statement up front is the difference between a list that
         // opens instantly and one that stalls; a card is a fixed shape, so windowing is safe here.
         initialNumToRender={12}
@@ -1539,35 +1624,26 @@ export function ImportScreen() {
         ListHeaderComponent={
           <View>
             {header}
+            <View style={styles.section}>
+              <ReviewSummary
+                name={detected?.suggestedName ?? 'Statement'}
+                masked={detected?.accountNumberMasked ?? null}
+                periodStart={detected?.statementPeriodStart ?? null}
+                periodEnd={detected?.statementPeriodEnd ?? null}
+                fileFormat={fileFormat}
+                rows={rows}
+                included={review.included}
+              />
+            </View>
             <Text testID="review-promise" accessibilityRole="text" style={[styles.body, styles.section, { color: c.ink }]}>
               {approvedAfterReview ? 'Approved. Nothing is saved until you confirm.' : 'Nothing is saved until you confirm.'}
             </Text>
-            <Card style={styles.section}>
-              {/* primaryLight on white is a ~1.13:1 contrast (computed) -- same invisible-pill bug
-                  found and fixed elsewhere in the app; a border makes the badge's own boundary
-                  visible without changing its fill color. */}
-              <SectionHeading
-                title="Detected"
-                action={
-                  fileFormat ? (
-                    <Text style={[styles.formatBadge, { color: c.primary, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border }]}>
-                      {fileFormat}
-                    </Text>
-                  ) : undefined
-                }
-              />
-              <Text style={[styles.detectedName, { color: c.ink }]}>
-                {detected?.suggestedName ?? 'Statement'}
-              </Text>
-              {detected?.accountNumberMasked ? (
-                <Text style={[styles.body, { color: c.muted }]}>{detected.accountNumberMasked}</Text>
-              ) : null}
-              {detected?.statementPeriodStart && detected?.statementPeriodEnd ? (
-                <Text style={[styles.body, { color: c.muted }]}>
-                  {detected.statementPeriodStart} to {detected.statementPeriodEnd}
-                </Text>
-              ) : null}
-            </Card>
+
+            {verification ? (
+              <View style={styles.section}>
+                <VerificationPanel verification={verification} flagged={flagged} />
+              </View>
+            ) : null}
 
             {freePlanLimit && !reimport ? (
               <View
@@ -1597,13 +1673,25 @@ export function ImportScreen() {
               </View>
             ) : null}
 
-            {verification ? (
-              <View style={styles.section}>
-                <VerificationPanel verification={verification} flagged={flagged} />
-              </View>
-            ) : null}
-
-            {reimport ? (
+            {fileIntoFolded ? (
+              // Nothing in the form stands between the person and Import, so it is one line.
+              // "Change" opens today's full form in place; a re-import's account is fixed.
+              <Card style={styles.section} testID="file-into-line">
+                <View style={styles.fileIntoLine}>
+                  <Text style={[styles.body, styles.fileIntoText, { color: c.ink }]}>{`File into: ${fileIntoName}`}</Text>
+                  {!isReimport ? (
+                    <Pressable
+                      onPress={() => setFileIntoOpen(true)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change"
+                    >
+                      <Text style={[styles.body, { color: c.primary, fontWeight: '600' }]}>Change</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </Card>
+            ) : reimport ? (
               <Card style={styles.section}>
                 <SectionHeading title="File into" />
                 {/* No choice to offer: a re-import replays this statement into the account it
@@ -1826,31 +1914,61 @@ export function ImportScreen() {
             </Card>
             )}
 
-            <View style={styles.rowsHeading}>
-              <Text style={[styles.rowsTitle, { color: c.ink }]}>
-                {rows.length} transaction{rows.length === 1 ? '' : 's'}
+            {questions.length > 0 || needYou.length > 0 ? (
+              <View
+                testID="need-you"
+                onLayout={(e) => { needYouY.current = e.nativeEvent.layout.y; }}
+              >
+                {questions.length > 0 ? (
+                  <Text accessibilityRole="header" style={[styles.rowsTitle, styles.needYouTitle, { color: c.ink }]}>
+                    {`${questions.length} need${questions.length === 1 ? 's' : ''} you`}
+                  </Text>
+                ) : null}
+                {needYou.map((i) => (
+                  <View key={i}>
+                    {rowCard(i)}
+                    {flaggedIndexes.has(i) && !dismissedFlags.has(i) ? (
+                      <View style={styles.looksRight}>
+                        <Button
+                          label="Looks right"
+                          variant="link"
+                          onPress={() => setDismissedFlags((prev) => new Set(prev).add(i))}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <Card style={styles.section} testID="look-fine">
+              <View style={styles.fileIntoLine}>
+                <Text style={[styles.rowsTitle, styles.fileIntoText, { color: c.ink }]}>
+                  {`${lookFine} look${lookFine === 1 ? 's' : ''} fine`}
+                </Text>
+                <Pressable
+                  onPress={() => setShowAllRows((open) => !open)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={showAllRows ? 'Hide all' : 'See all'}
+                  accessibilityState={{ expanded: showAllRows }}
+                >
+                  <Text style={[styles.body, { color: c.primary, fontWeight: '600' }]}>{showAllRows ? 'Hide all' : 'See all'}</Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.body, { color: c.muted }]}>{`${includedCount} of ${rows.length} selected to import`}</Text>
+            </Card>
+
+            {guesses > 0 ? (
+              <Text testID="category-guesses" style={[styles.body, styles.section, { color: c.muted }]}>
+                {guesses === 1
+                  ? '1 category is a guess — sort it after import'
+                  : `${guesses} categories are guesses — sort them after import`}
               </Text>
-              <Text style={[styles.body, { color: c.muted }]}>{includedCount} selected</Text>
-            </View>
+            ) : null}
           </View>
         }
-        renderItem={({ item, index }) => (
-          <StagedRowCard
-            row={item}
-            included={review.included[index]}
-            category={chosenCategory[index]}
-            onToggleIncluded={() =>
-              setReview((prev) => setIncluded(prev, index, !prev.included[index]))
-            }
-            onPressCategory={() => setCategoryPickerFor(index)}
-            balanceFlagged={flagged.balance?.includes(index) ?? false}
-            descriptionFlagged={flagged.description?.includes(index) ?? false}
-            decision={review.decisions[index]}
-            onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
-            similarUnresolved={similarUnresolved[index] ?? 0}
-            onApplyToSimilar={() => setReview((prev) => applyDecisionToSimilar(rows, prev, index))}
-          />
-        )}
+        renderItem={({ index }) => rowCard(index)}
         ListFooterComponent={
           <View>
             {/* "Never lose information": rows the parser couldn't read are shown rather than
@@ -1887,25 +2005,7 @@ export function ImportScreen() {
                   Choose the new account&apos;s bank above, or Other bank, before this can be imported.
                 </Text>
               ) : null}
-              <Button
-                label={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
-                onPress={confirmImport}
-                loading={confirming}
-                // Every reason this button may refuse lives in canConfirmImport, with tests --
-                // see that function's own comment for why it is not inline here.
-                disabled={
-                  !canConfirmImport({
-                    includedCount,
-                    outstanding,
-                    isReimport: reimport !== null,
-                    accountChoice,
-                    selectedAccountId,
-                    freePlanLimitBlocks: freePlanLimit !== null && !limitOverridden,
-                    amountOwedInvalid,
-                    newAccountBankMissing,
-                  })
-                }
-              />
+              {/* The Import button is in the pinned bar below the list. */}
               <View style={styles.cancel}>
                 <Button
                   label="Cancel"
@@ -1921,6 +2021,19 @@ export function ImportScreen() {
             </View>
           </View>
         }
+      />
+
+      <ImportBar
+        style={[styles.importBar, { bottom: tabBar + spacing.sm }]}
+        message={barMessage}
+        buttonLabel={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
+        // Every reason this button may refuse lives in canConfirmImport, with tests -- see that
+        // function's own comment for why it is not inline here. The bar's line only names it.
+        disabled={!canConfirmImport(gate)}
+        loading={confirming}
+        onImport={confirmImport}
+        onShowMe={() => listRef.current?.scrollToOffset({ offset: needYouY.current, animated: true })}
+        onLayoutHeight={setBarHeight}
       />
 
       <OptionPickerModal
@@ -1982,15 +2095,6 @@ const styles = StyleSheet.create({
   helpText: { fontSize: 12, lineHeight: 17 },
   otherWays: { marginTop: spacing.sm },
   otherWaysRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
-  formatBadge: {
-    fontSize: 10,
-    fontWeight: '700',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  detectedName: { fontSize: 16, fontWeight: '600', marginBottom: 2 },
   choiceRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   choiceChip: {
     flex: 1,
@@ -2049,14 +2153,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   typeText: { fontSize: 12, fontWeight: '600' },
-  rowsHeading: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-  },
   rowsTitle: { fontSize: 15, fontWeight: '700' },
+  needYouTitle: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  looksRight: { alignItems: 'flex-start', marginTop: -spacing.xs, marginBottom: spacing.sm },
+  fileIntoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  fileIntoText: { flex: 1 },
+  importBar: { position: 'absolute', left: spacing.sm, right: spacing.sm },
   unparseable: { fontSize: 12, marginTop: 6 },
   actions: { marginTop: spacing.md },
   // Button has no margin of its own, so the stack carries the space between "Sort N questions"

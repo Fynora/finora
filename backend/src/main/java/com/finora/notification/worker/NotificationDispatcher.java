@@ -1,5 +1,6 @@
 package com.finora.notification.worker;
 
+import com.finora.notification.api.NotificationPreferenceResolver;
 import com.finora.notification.domain.Notification;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationLog;
@@ -112,16 +113,19 @@ public class NotificationDispatcher {
             new EnumMap<>(NotificationChannel.class);
     private final WorkerObservability observability;
     private final TransactionTemplate transactionTemplate;
+    private final NotificationPreferenceResolver preferenceResolver;
 
     @Value("${app.notification.queue.enabled:true}")
     private boolean enabled;
 
     public NotificationDispatcher(NotificationRepository repository,
             NotificationLogRepository logRepository, List<NotificationChannelProvider> providerList,
-            WorkerObservability observability, PlatformTransactionManager transactionManager) {
+            WorkerObservability observability, PlatformTransactionManager transactionManager,
+            NotificationPreferenceResolver preferenceResolver) {
         this.repository = repository;
         this.logRepository = logRepository;
         this.observability = observability;
+        this.preferenceResolver = preferenceResolver;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         for (NotificationChannelProvider provider : providerList) {
@@ -190,6 +194,10 @@ public class NotificationDispatcher {
     private void deliverOne(WorkerExecution execution, Notification notification) {
         UUID id = notification.getId();
         execution.started(id, notification.getCreatedAt());
+        if (switchedOffSinceQueued(notification)) {
+            withdraw(execution, notification);
+            return;
+        }
         NotificationChannelProvider provider = providers.get(notification.getChannel());
 
         if (provider == null || !provider.isConfigured()) {
@@ -247,6 +255,40 @@ public class NotificationDispatcher {
      * it to the queue on a later pass; there is nobody to hand the exception to here (a scheduler
      * tick or an async nudge), so logging is the only option, same as the reference worker.
      */
+    /**
+     * The same check {@code NotificationService.request} makes when it queues a row, made again
+     * just before sending. A campaign is queued for its whole audience at once and sent at this
+     * worker's pace, and a failed send retries for about half an hour: a user who switched the
+     * category off, deactivated or asked to delete their account in between was still sent it.
+     * A lookup that fails sends anyway: the row was allowed when it was queued.
+     */
+    private boolean switchedOffSinceQueued(Notification notification) {
+        try {
+            return !preferenceResolver.isEnabled(notification.getUserId(), notification.getCategory(),
+                    notification.getChannel());
+        } catch (RuntimeException e) {
+            log.error("Could not re-check the preference for notification {}; sending it",
+                    notification.getId(), e);
+            return false;
+        }
+    }
+
+    private void withdraw(WorkerExecution execution, Notification notification) {
+        int attempt = notification.getAttemptCount() + 1;
+        String reason = "Not sent: switched off by the user, or the account stepped away, after it was queued";
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                notification.markWithdrawn(reason, Instant.now());
+                repository.save(notification);
+            });
+            execution.completed(notification.getId());
+        } catch (RuntimeException e) {
+            log.error("Could not record that notification {} was withdrawn", notification.getId(), e);
+            execution.failureNotRecorded(notification.getId(), e);
+        }
+        writeLog(notification.getId(), "preference", reason, false, attempt);
+    }
+
     private void recordSuccess(WorkerExecution execution, Notification notification,
             ChannelSendResult result) {
         // Captured before markSent (which never touches attemptCount): the attempt this call is

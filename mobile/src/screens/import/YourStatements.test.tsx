@@ -4,6 +4,9 @@ import { accountsApi, type AccountCoverage } from '../../api/endpoints';
 import type { Account } from '../../types';
 import { YourStatements } from './YourStatements';
 
+// The real hook resolves once per test process, so the first test in a run saw the glass card
+// remount its content mid-test and an element it had just found leave the tree.
+jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
 jest.mock('../../api/endpoints', () => ({
   ...jest.requireActual('../../api/endpoints'),
   accountsApi: { coverage: jest.fn() },

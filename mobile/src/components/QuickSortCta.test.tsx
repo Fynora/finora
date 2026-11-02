@@ -44,4 +44,16 @@ describe('QuickSortCta', () => {
     await waitFor(() => expect(tx.quickSort).toHaveBeenCalledTimes(2));
     expect(second.toJSON()).toBeNull();
   });
+
+  it('tells the caller how many it found, and 0 when the count cannot be read', async () => {
+    tx.quickSort.mockResolvedValueOnce({ questions: [q('a'), q('b')], waitingTotal: 2, rest: noRest });
+    const onCount = jest.fn();
+    const first = render(<QuickSortCta onPress={jest.fn()} onCount={onCount} />);
+    await waitFor(() => expect(onCount).toHaveBeenCalledWith(2));
+    first.unmount();
+
+    tx.quickSort.mockRejectedValueOnce(new Error('down'));
+    render(<QuickSortCta onPress={jest.fn()} onCount={onCount} />);
+    await waitFor(() => expect(onCount).toHaveBeenLastCalledWith(0));
+  });
 });

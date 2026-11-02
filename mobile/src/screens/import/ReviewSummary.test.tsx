@@ -4,6 +4,9 @@ import { light } from '../../theme/palette';
 import type { StagedRow } from '../../types';
 import { ReviewSummary } from './ReviewSummary';
 
+// The real hook resolves once per test process; mocked so the glass card never remounts mid-test.
+jest.mock('../../lib/useReduceTransparency', () => ({ useReduceTransparency: jest.fn(() => null) }));
+
 function row(type: StagedRow['type'], amount: number): StagedRow {
   return {
     date: '2026-09-05', description: 'Sample', amount, type, suggestedCategory: 'Other', categorySource: 'rule',

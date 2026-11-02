@@ -22,6 +22,9 @@ jest.mock('../../api/endpoints', () => ({
   transactionsApi: {
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
   },
+  // The done step's "{Month} in Fynora" (Insights' "To look at"). Nothing to show by default.
+  aiInsightsApi: { lookAt: jest.fn().mockResolvedValue({ rows: [], orderedByAi: false }) },
+  insightsApi: { acknowledgements: jest.fn().mockResolvedValue([]) },
   // coverage: the add step's "Your statements" months. No statements by default; the add-step
   // describe block below gives one account real months.
   accountsApi: {
@@ -273,7 +276,7 @@ describe('ImportScreen — re-import confirm attempt key', () => {
     // The actual bug: without the fix this is the SAME key as the first, doomed attempt, and the
     // mock's claimedKeys check rejects it exactly as the real backend would.
     expect(secondCall[1].idempotencyKey).not.toBe(firstCall[1].idempotencyKey);
-    expect(await screen.findByText('Import complete')).toBeTruthy();
+    expect(await screen.findByText(/^Imported \d+ transaction/)).toBeTruthy();
   });
 
   /**
@@ -379,7 +382,7 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
     mockRouteParams = reimportParams('stmt-1', 1);
     render(tree());
     await pressImport();
-    await screen.findByText('Import complete');
+    await screen.findByText(/^Imported \d+ transaction/);
   }
 
   it('filters by the confirmed account and the statement\'s own period', async () => {
@@ -392,13 +395,87 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       importDurationMs: 1, source: 'reimport',
     });
 
-    fireEvent.press(screen.getByText('View in Ledger'));
+    fireEvent.press(screen.getByText('See them in Transactions'));
 
     expect(mockNavigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({
         accountId: 'acct-1', dateFrom: '2026-07-01', dateTo: '2026-07-31',
         label: 'HDFC Savings · 2026-07-01 to 2026-07-31',
       }),
+    });
+  });
+
+  // Idea B (spec 2026-11-02, Step 3).
+  describe('done step, idea B', () => {
+    const base = {
+      imported: 12, skipped: 1, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: ['One row had no date.'],
+      account: { id: 'acct-1', name: 'Sample Bank Savings' }, totalCredits: 62400, totalDebits: 47551,
+      statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: '2026-09-01', statementPeriodEnd: '2026-09-30',
+      importDurationMs: 1, source: 'reimport',
+    };
+    const quickSortReturns = (n: number) => {
+      const { transactionsApi } = jest.requireMock('../../api/endpoints');
+      transactionsApi.quickSort.mockResolvedValueOnce({
+        questions: Array.from({ length: n }, () => ({})), waitingTotal: n,
+        rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] },
+      });
+    };
+    // Each button's own text, top to bottom.
+    const buttonLabels = () =>
+      within(screen.getByTestId('import-summary-actions')).getAllByRole('button')
+        .map((b) => within(b).queryAllByText(/.+/).map((t) => t.props.children).join(''));
+
+    it('says how many were imported, where, and what was left out', async () => {
+      await reachSummary(base);
+
+      expect(screen.getByText('Imported 12 transactions')).toBeOnTheScreen();
+      expect(screen.getByText('Into Sample Bank Savings')).toBeOnTheScreen();
+      expect(screen.getByText('1 skipped')).toBeOnTheScreen();
+      expect(screen.getByText('In ₹62,400')).toBeOnTheScreen();
+      expect(screen.getByText('Out ₹47,551')).toBeOnTheScreen();
+      expect(screen.getByText('• One row had no date.')).toBeOnTheScreen();
+    });
+
+    it('puts Sort first when there are questions waiting', async () => {
+      quickSortReturns(3);
+      await reachSummary(base);
+
+      expect(await screen.findByText('Sort 3 questions')).toBeOnTheScreen();
+      expect(buttonLabels()).toEqual(['Sort 3 questions', 'See Insights', 'Import another', 'See them in Transactions']);
+    });
+
+    it('makes See Insights the main button when nothing is waiting', async () => {
+      await reachSummary(base);
+
+      const seeInsights = screen.getByRole('button', { name: 'See Insights' });
+      expect(within(seeInsights).getByText('See Insights')).toBeOnTheScreen();
+      expect(buttonLabels()).toEqual(['See Insights', 'Import another', 'See them in Transactions']);
+      expect(screen.getByTestId('summary-see-insights-primary')).toBeOnTheScreen();
+    });
+
+    it('opens Insights on the statement month', async () => {
+      await reachSummary(base);
+
+      fireEvent.press(screen.getByRole('button', { name: 'See Insights' }));
+      expect(mockNavigate).toHaveBeenCalledWith('Insights', { month: '2026-09', nonce: expect.any(Number) });
+    });
+
+    it('shows what the month now shows', async () => {
+      const { aiInsightsApi } = jest.requireMock('../../api/endpoints');
+      aiInsightsApi.lookAt.mockResolvedValueOnce({
+        orderedByAi: false,
+        rows: [{
+          kind: 'running-high', key: 'high-Food', ackKind: 'CATEGORY_HIGH', ackItemKey: 'Food', month: '2026-09',
+          total: null, count: null, cardName: null, cardLast4: null, people: null, recurring: null, merchant: null,
+          category: 'Food', latestAmount: null, latestDate: null, current: 9400, priorAverage: 6300, whyAvailable: null,
+        }],
+      });
+      await reachSummary(base);
+
+      expect(await screen.findByText('September 2026 in Fynora')).toBeOnTheScreen();
+      expect(aiInsightsApi.lookAt).toHaveBeenCalledWith('2026-09');
     });
   });
 
@@ -414,7 +491,7 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       importDurationMs: 1, source: 'reimport',
     });
 
-    fireEvent.press(screen.getByText('View in Ledger'));
+    fireEvent.press(screen.getByText('See them in Transactions'));
 
     expect(mockNavigate).toHaveBeenCalledWith('Transactions', {
       filters: expect.objectContaining({
@@ -2675,12 +2752,12 @@ describe('ImportScreen — the summary under the floating tab pill', () => {
       </TabBarSpaceContext.Provider>
     );
     await pressImport();
-    expect(await screen.findByText('Import complete')).toBeTruthy();
+    expect(await screen.findByText(/^Imported \d+ transaction/)).toBeTruthy();
 
     const scroll = screen.getByTestId('import-summary');
     // 92 cover + 12 clearance; styles.padded has no bottom padding of its own.
     expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingBottom).toBe(104);
-    expect(within(scroll).getByText('View in Ledger')).toBeTruthy();
+    expect(within(scroll).getByText('See them in Transactions')).toBeTruthy();
   });
 
   // Reported on an Android phone: with questions waiting, "Sort 2 questions" and "Import another"

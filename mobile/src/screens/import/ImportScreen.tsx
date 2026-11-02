@@ -42,6 +42,8 @@ import { qualifiesForMonths } from '../../lib/statementMonths';
 import {
   categoryGuessCount, fileIntoCollapsed, importBarMessage, questionRows, undismissedFlagCount,
 } from '../../lib/importQuestions';
+import { doneCountsLine, statementMonthOf } from '../../lib/importDone';
+import { DoneChanges } from './DoneChanges';
 import { FoldLine } from './FoldLine';
 import { ImportBar } from './ImportBar';
 import { ReviewSummary } from './ReviewSummary';
@@ -123,6 +125,8 @@ export function ImportScreen() {
   const [sendFromComputerOpen, setSendFromComputerOpen] = useState(false);
   // Idea B: "From your email" opens the share-sheet hint in place.
   const [emailHintOpen, setEmailHintOpen] = useState(false);
+  // Idea B: Quick sort's waiting count on the done step, so "See Insights" leads when it is 0.
+  const [quickSortCount, setQuickSortCount] = useState(0);
   // A send code still unused after its sheet closed, watched by WaitingForComputerFile. `code` is
   // known only when this screen saw it; after a restart the server can say a code is waiting but
   // not what it was.
@@ -1119,7 +1123,11 @@ export function ImportScreen() {
   const header = (
     <View>
       <Text accessibilityRole="header" style={[styles.title, { color: c.ink }]}>
-        {step === 'review' ? 'Check your statement' : 'Import'}
+        {step === 'review'
+          ? 'Check your statement'
+          : step === 'summary' && summary
+            ? `Imported ${summary.imported} transaction${summary.imported === 1 ? '' : 's'}`
+            : 'Import'}
       </Text>
       {error ? (
         <Card style={{ ...styles.errorCard, borderColor: c.danger }}>
@@ -1503,16 +1511,20 @@ export function ImportScreen() {
           scrollIndicatorInsets={{ bottom: tabBar }}
         >
           {header}
+          {/* Idea B (spec 2026-11-02, Step 3): where the rows went and what was left out, then
+              what the statement's month now shows, then what to do next. */}
           <Card>
-            <SectionHeading title="Import complete" />
-            <View style={styles.statRow}>
-              <Stat label="Imported" value={String(summary.imported)} />
-              <Stat label="Skipped" value={String(summary.skipped)} />
-              <Stat label="Duplicates" value={String(summary.duplicatesDetected)} />
-            </View>
-            <View style={styles.statRow}>
-              <Stat label="Credits" value={fmtCurrency(summary.totalCredits)} />
-              <Stat label="Debits" value={fmtCurrency(summary.totalDebits)} />
+            {summary.account?.name ? (
+              <Text style={[styles.body, { color: c.ink }]}>{`Into ${summary.account.name}`}</Text>
+            ) : null}
+            {doneCountsLine(summary.skipped, summary.duplicatesDetected) ? (
+              <Text style={[styles.body, { color: c.muted }]}>
+                {doneCountsLine(summary.skipped, summary.duplicatesDetected)}
+              </Text>
+            ) : null}
+            <View style={styles.doneTotals}>
+              <Text style={[styles.doneTotal, { color: c.successInk }]}>{`In ${fmtCurrency(summary.totalCredits)}`}</Text>
+              <Text style={[styles.doneTotal, { color: c.dangerInk }]}>{`Out ${fmtCurrency(summary.totalDebits)}`}</Text>
             </View>
             {summary.warnings?.length ? (
               <View style={styles.warnings}>
@@ -1523,21 +1535,42 @@ export function ImportScreen() {
                 ))}
               </View>
             ) : null}
-            <View testID="import-summary-actions" style={styles.summaryActions}>
-              <QuickSortCta
-                onPress={() => {
-                  trackNavigation('review-categories', 'contextual');
-                  navigation.navigate('More', { screen: 'CategoryReview' });
-                }}
-              />
-              <Button label="Import another" onPress={resetToUpload} />
+          </Card>
+          <View style={styles.doneChanges}>
+            <DoneChanges
+              month={statementMonthOf(summary.statementPeriodEnd)}
+              onOpen={(month) => {
+                trackNavigation('insights', 'contextual');
+                navigation.navigate('Insights', { month, nonce: Date.now() });
+              }}
+            />
+          </View>
+          <View testID="import-summary-actions" style={styles.summaryActions}>
+            <QuickSortCta
+              onCount={setQuickSortCount}
+              onPress={() => {
+                trackNavigation('review-categories', 'contextual');
+                navigation.navigate('More', { screen: 'CategoryReview' });
+              }}
+            />
+            <Button
+              label="See Insights"
+              variant={quickSortCount > 0 ? 'secondary' : 'primary'}
+              testID={quickSortCount > 0 ? 'summary-see-insights' : 'summary-see-insights-primary'}
+              onPress={() => {
+                const month = statementMonthOf(summary.statementPeriodEnd);
+                trackNavigation('insights', 'contextual');
+                navigation.navigate('Insights', month ? { month, nonce: Date.now() } : undefined);
+              }}
+            />
+            <Button label="Import another" variant="link" onPress={resetToUpload} />
               {/* Track C/C6. Depended on C4's Ledger filters existing at all -- without them this
                   would land on the whole, unfiltered ledger, no more useful than the Transactions
                   tab a user could already reach on their own. account can genuinely be null (see
                   ImportSummary's own type); the period alone still narrows down to this import
                   when it is. */}
               <Button
-                label="View in Ledger"
+                label="See them in Transactions"
                 variant="link"
                 onPress={() => {
                   const period = summary.statementPeriodStart && summary.statementPeriodEnd
@@ -1555,8 +1588,7 @@ export function ImportScreen() {
                   });
                 }}
               />
-            </View>
-          </Card>
+          </View>
         </ScrollView>
       </GlassScreen>
     );
@@ -2053,15 +2085,6 @@ export function ImportScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  const c = useTheme();
-  return (
-    <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={[styles.statValue, { color: c.ink }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: c.muted }]}>{label}</Text>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   unfinishedCard: { marginTop: spacing.md },
@@ -2179,9 +2202,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cancel: { marginTop: spacing.sm },
-  statRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.sm },
-  stat: { flex: 1 },
-  statValue: { fontSize: 20, fontWeight: '700' },
-  statLabel: { fontSize: 11, marginTop: 2 },
+  doneTotals: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, marginTop: spacing.xs },
+  doneTotal: { fontSize: 15, fontWeight: '600' },
+  doneChanges: { marginTop: spacing.md },
   warnings: { marginTop: spacing.sm, gap: 4 },
 });

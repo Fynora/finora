@@ -1100,7 +1100,9 @@ class DashboardServiceTest {
         // to fall in the month the allowance belongs to -- which is what BudgetService has always
         // done and what this now asserts. Dated inside the current month in the user's own zone,
         // so the test states the rule rather than a date that happened to work when it was written.
-        LocalDate thisMonth = LocalDate.now(com.finora.util.UserZone.DEFAULT).withDayOfMonth(15);
+        // Today, not the 15th: a row dated after tomorrow is left out of every figure
+        // (ReportableDates), so the 15th failed this test on the 1st-13th of every month.
+        LocalDate thisMonth = LocalDate.now(com.finora.util.UserZone.DEFAULT);
         Transaction dining = txn(new BigDecimal("6000.00"), Transaction.Type.EXPENSE, thisMonth, Transaction.ReconciliationStatus.OK);
         dining.setCategoryId(categoryId);
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(dining));

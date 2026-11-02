@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.Map;
 import java.util.UUID;
@@ -77,7 +78,12 @@ class FynSpendToolsReportingMonthIT extends AbstractIntegrationTest {
         t.setCategoryId(categoryId);
         t.setAmount(new BigDecimal(amount));
         t.setTxnType(type);
-        t.setTxnDate(month.atDay(day));
+        // A row dated after tomorrow is left out of every figure (ReportableDates), so early in a
+        // month the "this month" rows on the 5th, 6th... vanished and three cases failed. Such a
+        // date is moved to the latest day that counts; no case here depends on the order of days.
+        LocalDate date = month.atDay(day);
+        LocalDate latest = ReportableDates.latestAllowed(LocalDate.now(UserZone.DEFAULT));
+        t.setTxnDate(date.isAfter(latest) ? latest : date);
         t.setDescription("Fyn reporting-month fixture");
         t.setReconciliationStatus(status);
         return transactionRepository.save(t);

@@ -35628,6 +35628,9 @@
                     },
                     "classification": {
                         "type": "string"
+                    },
+                    "approximate": {
+                        "type": "boolean"
                     }
                 }
             },

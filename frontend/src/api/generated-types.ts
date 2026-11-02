@@ -14537,6 +14537,7 @@ export interface components {
             /** Format: date */
             periodEnd?: string;
             classification?: string;
+            approximate?: boolean;
         };
         AdminMfaStatusResponse: {
             enabled?: boolean;

@@ -5,6 +5,7 @@ import com.finora.imports.StatementCoverageAnalyzer.CoverageReport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -18,7 +19,11 @@ public record CoverageDto(UUID accountId, String coverageStatus, long coveredDay
                            boolean hasNonStandardPeriods, boolean hasDuplicatePeriods,
                            List<Segment> segments, List<Gap> gaps, List<Overlap> overlaps) {
 
-    public record Segment(UUID statementImportId, LocalDate periodStart, LocalDate periodEnd, String classification) {}
+    /** {@code approximate}: the statement printed no period, so this range is the first and last
+     *  date of its own transactions -- the user-facing view only (AccountCoverageService.forAccount).
+     *  False for every printed period, and always false on the admin view. */
+    public record Segment(UUID statementImportId, LocalDate periodStart, LocalDate periodEnd, String classification,
+                          boolean approximate) {}
 
     /** {@code delta} is null when either bounding statement's balance is unknown -- never guessed. */
     public record Gap(LocalDate gapStart, LocalDate gapEnd, long daysMissing, BigDecimal delta) {}
@@ -26,6 +31,11 @@ public record CoverageDto(UUID accountId, String coverageStatus, long coveredDay
     public record Overlap(UUID segmentAId, UUID segmentBId, LocalDate overlapStart, LocalDate overlapEnd, String type) {}
 
     public static CoverageDto from(UUID accountId, CoverageReport report) {
+        return from(accountId, report, Set.of());
+    }
+
+    /** @param approximateIds statements whose range came from their transactions, not a printed period. */
+    public static CoverageDto from(UUID accountId, CoverageReport report, Set<UUID> approximateIds) {
         return new CoverageDto(
                 accountId,
                 report.coverageStatus(),
@@ -38,7 +48,7 @@ public record CoverageDto(UUID accountId, String coverageStatus, long coveredDay
                 report.hasDuplicatePeriods(),
                 report.segments().stream()
                         .map(s -> new Segment(s.statementImportId(), s.periodStart(), s.periodEnd(),
-                                s.classification().name()))
+                                s.classification().name(), approximateIds.contains(s.statementImportId())))
                         .toList(),
                 report.gaps().stream()
                         .map(g -> new Gap(g.gapStart(), g.gapEnd(), g.daysMissing(), g.delta()))

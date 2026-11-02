@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View
+  ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View
 } from 'react-native';
 import { AppSwitch } from '../../components/AppSwitch';
 import { AppAlert } from '../../lib/appAlert';
@@ -103,11 +103,18 @@ function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
 // register as a real confirmation, short enough not to feel like a delay.
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
+/**
+ * From iOS's first accessibility text size (AX1, about 1.65x) the pinned Import bar is placed at
+ * the end of the list instead. Seen on the simulator at the largest size: pinned, its line and its
+ * two-line button covered half the screen. Up to XXXL (about 1.35x) it stays pinned.
+ */
+const UNPIN_IMPORT_BAR_FONT_SCALE = 1.6;
+
 export function ImportScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
-  const insets = useSafeAreaInsets();
+  const importBarInList = useWindowDimensions().fontScale >= UNPIN_IMPORT_BAR_FONT_SCALE;  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
@@ -1635,6 +1642,21 @@ export function ImportScreen() {
   const fileIntoName = reimport?.accountName ?? existingAccounts.find((a) => a.id === selectedAccountId)?.name ?? '';
   const barMessage = importBarMessage(gate, undismissedFlagCount(flagged, dismissedFlags));
 
+  const importBar = (
+    <ImportBar
+      style={importBarInList ? styles.importBarInList : [styles.importBar, { bottom: tabBar + spacing.sm }]}
+      message={barMessage}
+      buttonLabel={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
+      // Every reason this button may refuse lives in canConfirmImport, with tests -- see that
+      // function's own comment for why it is not inline here. The bar's line only names it.
+      disabled={!canConfirmImport(gate)}
+      loading={confirming}
+      onImport={confirmImport}
+      onShowMe={() => listRef.current?.scrollToOffset({ offset: needYouY.current, animated: true })}
+      onLayoutHeight={setBarHeight}
+    />
+  );
+
   const rowCard = (index: number) => (
     <StagedRowCard
       row={rows[index]}
@@ -1660,8 +1682,8 @@ export function ImportScreen() {
         // Positions in `rows`: the ones that need an answer, or every row once "See all" is open.
         data={showAllRows ? rows.map((_, i) => i) : needYou}
         keyExtractor={(i) => String(i)}
-        contentContainerStyle={padForTabBar(styles.listContent, tabBar + barHeight + spacing.md)}
-        scrollIndicatorInsets={{ bottom: tabBar + barHeight }}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar + (importBarInList ? 0 : barHeight + spacing.md))}
+        scrollIndicatorInsets={{ bottom: tabBar + (importBarInList ? 0 : barHeight) }}
         // Rendering every row of a long statement up front is the difference between a list that
         // opens instantly and one that stalls; a card is a fixed shape, so windowing is safe here.
         initialNumToRender={12}
@@ -2051,7 +2073,9 @@ export function ImportScreen() {
                   Choose the new account&apos;s bank above, or Other bank, before this can be imported.
                 </Text>
               ) : null}
-              {/* The Import button is in the pinned bar below the list. */}
+              {/* The Import button is in the pinned bar below the list, or here at the largest
+                  text sizes (UNPIN_IMPORT_BAR_FONT_SCALE). */}
+              {importBarInList ? importBar : null}
               <View style={styles.cancel}>
                 <Button
                   label="Cancel"
@@ -2069,18 +2093,7 @@ export function ImportScreen() {
         }
       />
 
-      <ImportBar
-        style={[styles.importBar, { bottom: tabBar + spacing.sm }]}
-        message={barMessage}
-        buttonLabel={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
-        // Every reason this button may refuse lives in canConfirmImport, with tests -- see that
-        // function's own comment for why it is not inline here. The bar's line only names it.
-        disabled={!canConfirmImport(gate)}
-        loading={confirming}
-        onImport={confirmImport}
-        onShowMe={() => listRef.current?.scrollToOffset({ offset: needYouY.current, animated: true })}
-        onLayoutHeight={setBarHeight}
-      />
+      {importBarInList ? null : importBar}
 
       <OptionPickerModal
         visible={categoryPickerFor !== null}
@@ -2196,6 +2209,7 @@ const styles = StyleSheet.create({
   fileIntoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   fileIntoText: { flex: 1 },
   importBar: { position: 'absolute', left: spacing.sm, right: spacing.sm },
+  importBarInList: { marginTop: spacing.sm },
   unparseable: { fontSize: 12, marginTop: 6 },
   actions: { marginTop: spacing.md },
   // Button has no margin of its own, so the stack carries the space between "Sort N questions"

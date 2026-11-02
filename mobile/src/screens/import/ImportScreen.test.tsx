@@ -3,7 +3,7 @@ import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT } from '../../api/importFail
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
-import { StyleSheet } from 'react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import { ImportScreen } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi } from '../../api/endpoints';
@@ -1931,6 +1931,32 @@ describe('check step, idea B', () => {
 
     expect(screen.getByText('60 need you')).toBeOnTheScreen();
     expect(rowCards().length).toBeLessThan(60);
+  });
+
+  // Seen on the simulator at the largest text size: pinned, the bar covered half the screen.
+  describe('where the Import bar sits', () => {
+    let dims: jest.SpyInstance;
+    afterEach(() => dims?.mockRestore());
+    const atFontScale = (fontScale: number) => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale });
+    };
+    const isPinned = () => StyleSheet.flatten(screen.getByTestId('import-bar').props.style).position === 'absolute';
+
+    it('is pinned above the tab bar up to the largest standard text size', async () => {
+      atFontScale(1.35);
+      stage([stagedRow('Row A')]);
+      await reachReview();
+      expect(isPinned()).toBe(true);
+    });
+
+    it('sits at the end of the list from the first accessibility text size', async () => {
+      atFontScale(1.65);
+      stage([stagedRow('Row A')]);
+      await reachReview();
+      expect(isPinned()).toBe(false);
+      // Still the one Import button, and still enabled exactly as before.
+      expect(screen.getByRole('button', { name: /^Import 1 transaction/ })).not.toBeDisabled();
+    });
   });
 
   it('See all shows every row', async () => {

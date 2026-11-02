@@ -85,5 +85,10 @@ const styles = StyleSheet.create({
   account: { paddingVertical: spacing.sm, gap: spacing.xs },
   nameRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: spacing.xs },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { borderWidth: 1, borderRadius: radius.md, paddingVertical: 4, paddingHorizontal: spacing.sm, alignItems: 'center' },
+  // Centred both ways: a one-line chip ("Jul") stretches to its two-line neighbours' height
+  // ("Aug / missing"), and its month sits in the middle rather than at the top.
+  chip: {
+    borderWidth: 1, borderRadius: radius.md, paddingVertical: 4, paddingHorizontal: spacing.sm,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

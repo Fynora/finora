@@ -299,9 +299,9 @@ export const trust = {
 /**
  * Deliberately plain-language. Every step was verified against the code before it was written --
  * see Security.tsx's own note for what is and is not claimed. "Private storage" is the honest
- * label: files are content-addressed and integrity-checked, which is a real property, whereas
- * "encrypted storage" would be taking credit for a platform default the application does not
- * implement.
+ * label: files are content-addressed and integrity-checked, which is a real property. Statement
+ * files are also encrypted by the application (see Security.tsx), but the rest of the stored data
+ * is not, so "encrypted storage" would claim more than is true.
  */
 export const security = {
   eyebrow: 'Security & privacy',

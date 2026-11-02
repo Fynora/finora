@@ -3,12 +3,15 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { spacing, useTheme } from '../theme';
 
 /**
- * The "your data is encrypted" reassurance under the submit button on the three auth screens.
+ * The encryption reassurance under the submit button on the three auth screens. It says only what
+ * Fynora itself encrypts -- statement files (StatementContentService, and staged uploads since V304)
+ * -- not "your financial data": transactions rely on the hosting provider (Privacy Policy, Data
+ * Encryption & Security).
  * It was a filled box with ink text, which read like a third banner next to the error and info
  * banners above the form; a lock glyph and a muted caption say the same thing at the weight of a
  * footnote. One component so the three screens cannot drift apart again.
  */
-const COPY = 'Your financial data is encrypted and securely protected.';
+const COPY = 'Statements you upload are stored encrypted. Your data is never sold.';
 
 export function TrustNote() {
   const c = useTheme();

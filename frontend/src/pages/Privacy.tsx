@@ -6,18 +6,27 @@ export default function Privacy() {
   return (
     <PublicLayout
       title="Privacy Policy"
-      subtitle="Last updated: October 2026. This explains what Fynora collects, why, and the rights you have over it under India's Digital Personal Data Protection Act, 2023 (DPDP Act)."
+      subtitle="Last updated: November 2026. This explains what Fynora collects, why, and the rights you have over it under India's Digital Personal Data Protection Act, 2023 (DPDP Act)."
     >
       <PublicSection title="Who We Are & Your Consent">
         <p>
           Fynora is operated by {LEGAL_NAME}, registered at {REGISTERED_OFFICE_TEXT}. Under the DPDP Act, Fynora Technovation LLP is
           the "Data Fiduciary" for the personal data described in this policy, and you are the "Data
-          Principal." We process your personal data on the basis of the consent you give when you create an
-          account and when you take actions in the app that involve sharing further data (such as importing a
-          statement) — described in plain terms in the sections below, as the Act requires. You may withdraw
-          consent at any time; since Fynora's core features depend on ongoing access to the data you've
-          provided, withdrawing consent in practice means deleting your account (see Data Deletion below).
-          Withdrawal does not affect the lawfulness of processing carried out before you withdrew it.
+          Principal." We process your personal data on the basis of the consent you give, and when you take
+          actions in the app that involve sharing further data (such as importing a statement) — described in
+          plain terms in the sections below, as the Act requires.
+        </p>
+        <p>
+          Fynora asks you to tick a box agreeing to the Terms of Service and this policy when you sign up, or,
+          for an account created earlier, the next time you use the website or an updated app. We record which
+          version you agreed to, when, and whether it was on the website, the iPhone app or the Android app.
+        </p>
+        <p>
+          AI features need a separate yes: they stay off unless you turn them on, and you can turn them off at
+          any time without affecting anything else (see AI Features: Your Choice below). Fynora's other
+          features depend on the data you have provided, so withdrawing consent to them means deleting your
+          account (see Data Deletion below). Withdrawal does not affect the lawfulness of processing carried
+          out before you withdrew it.
         </p>
       </PublicSection>
 
@@ -73,8 +82,8 @@ export default function Privacy() {
           In most cases statements are processed entirely automatically by Fynora's own rule-based extraction
           logic — Fynora does not send your statement or its contents to third-party AI services such as
           OpenAI, Anthropic, or Google Gemini as part of importing it. (Ask Fyn, a separate optional feature
-          described below, does send data to Anthropic — but only your own already-processed transaction data,
-          never a raw statement file.) When an import cannot be processed automatically, it is queued for
+          described below, does send data to Anthropic if you turn AI features on — but only your own
+          already-processed transaction data, never a raw statement file.) When an import cannot be processed automatically, it is queued for
           review, and authorized staff may access the statement to diagnose and fix the problem. Every such
           access is logged and auditable; see Administrative Access below.
         </p>
@@ -154,6 +163,28 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
+      <PublicSection id="ai-features" title="AI Features: Your Choice">
+        <p>
+          Ask Fyn, AI insights and AI category suggestions are optional. They use Anthropic's Claude, as
+          described in the next two sections, and they are off unless you turn them on. You are asked when you
+          sign up, and you can change your answer at any time in Settings → Data → AI features.
+        </p>
+        <p>
+          While AI features are off, nothing about you is sent to Anthropic: Ask Fyn does not answer, Insights
+          shows only text Fynora writes with its own rules, and a transaction you add by hand without a
+          category is categorised only by your own rules and corrections, Fynora's built-in rules and shared
+          suggestions.
+        </p>
+        <p>
+          When you turn AI features off, Fynora deletes the AI-written insight texts it stored for you and
+          clears, from its log of AI requests, the figures that were sent to the AI and returned to it. It keeps
+          the rest of each log entry (the model, its cost and how long it took), which it uses to limit AI
+          costs, and your Ask Fyn conversations, which it uses to count the Free plan's daily questions; both
+          are deleted when you delete your account. We keep a record of each time you turn AI features on or
+          off.
+        </p>
+      </PublicSection>
+
       <PublicSection title="Ask Fyn (AI Assistant)">
         <p>
           When you use Ask Fyn, Fynora's AI assistant, your question and the specific account data needed to
@@ -163,10 +194,11 @@ export default function Privacy() {
           and it is instructed to state only figures it actually retrieved, never to guess or estimate one. It
           is not a financial advisor — if asked for investment advice or a recommendation about a future
           financial decision, it declines and suggests speaking with a licensed advisor. Your conversations are
-          saved so you can scroll back through them, governed by the same administrative-access rules as your
-          other account data (see Administrative Access below). Separately, each call to the AI is logged for
-          cost and safety monitoring; that monitoring log does not contain your raw conversation text, only
-          which lookup was used and how it performed.
+          saved so you can scroll back through them, until you delete your account, governed by the same
+          administrative-access rules as your other account data (see Administrative Access below).
+          Separately, each call to the AI is logged for cost and safety monitoring: which lookup was used,
+          what it was asked for, the figures it returned (such as a balance or a category total), and how the
+          call performed. That log does not contain the text of your conversation.
         </p>
         <p>
           If you attach a screenshot to a question, Fynora reads its text on its own servers and sends that
@@ -260,7 +292,8 @@ export default function Privacy() {
         <p>
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
           and financial insights (via Fynora's own rule-based logic, except for the three uses of an AI service
-          described under "Ask Fyn (AI Assistant)" and "AI insights" above); detect duplicate or transfer transactions; and secure your account
+          described under "Ask Fyn (AI Assistant)" and "AI insights" above, which run only if you turn AI
+          features on); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins).
         </p>
       </PublicSection>
@@ -302,7 +335,7 @@ export default function Privacy() {
           <li><strong className="text-ink">Cloudflare</strong> — frontend/website hosting and edge security.</li>
           <li><strong className="text-ink">Resend</strong> — transactional email delivery (verification, password reset, notifications).</li>
           <li><strong className="text-ink">TwoFactor</strong> — SMS alerts for transactions you add by hand, sent only to a verified phone number. The message carries the amount, whether it was debited or credited, and the description you typed. Sign-in and phone-verification codes are sent by Firebase Authentication, not TwoFactor.</li>
-          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, AI insights and category suggestions for hand-typed transactions, as described above.</li>
+          <li><strong className="text-ink">Anthropic</strong> — the AI service behind Ask Fyn, AI insights and category suggestions for hand-typed transactions, as described above. Used only if you turn AI features on.</li>
           <li><strong className="text-ink">Firebase Cloud Messaging</strong> (Google) — delivery of push notifications to the mobile app, using a device token for your phone.</li>
           <li><strong className="text-ink">Sentry</strong> — crash and error reporting for our apps and servers. Reports carry technical details of the error; the web and mobile apps remove form contents, your account identity and the identifying parts of page addresses before a report is sent. Session replay and performance tracing are switched off.</li>
           <li><strong className="text-ink">Razorpay</strong> — payment processing for subscriptions bought on the web. Your card, UPI or bank details are entered into Razorpay's checkout, not into Fynora. Fynora keeps only what Razorpay reports back to show on your Billing page — for a card, its network and last four digits — never the full number.</li>
@@ -331,10 +364,12 @@ export default function Privacy() {
           Transport Security (HSTS).
         </p>
         <p>
-          Your financial data (transactions, accounts, statements, budgets, goals) is protected by the security of the underlying
-          infrastructure listed above (Railway, Cloudflare R2), rather than by an additional layer of
-          Fynora-managed encryption on top of it. Statement passwords you choose to save (see Saved Statement
-          Passwords above) are the exception: they are additionally encrypted by Fynora before they are stored.
+          Fynora encrypts your statement files itself, with AES-256-GCM, before they are stored: the file you
+          upload while it waits for you to review and import it, and the copy kept after you import it. Statement
+          passwords you choose to save (see Saved Statement Passwords above) are encrypted the same way. Your
+          other financial data (transactions, accounts, budgets, goals) is protected by the security of the
+          infrastructure listed above (Railway, Cloudflare R2), not by an additional layer of Fynora-managed
+          encryption on top of it.
         </p>
       </PublicSection>
 
@@ -371,6 +406,11 @@ export default function Privacy() {
           your Fynora account, your statement files are deleted with it.
         </p>
         <p>
+          If you upload a statement and never import it, the copy waiting for your review is deleted 48 hours
+          after you upload it (or, if we hold it for our own review first, 48 hours after that review ends), and
+          the uploaded file itself is deleted from our storage 90 days after we finish reading it.
+        </p>
+        <p>
           We maintain routine backups of our production database for disaster recovery, with point-in-time
           recovery enabled. Because of this, a small amount of data may persist in encrypted backups for a
           limited period after you delete it from the live system, until those backups themselves cycle out —
@@ -401,8 +441,9 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-ink">Withdraw consent</strong> at any time, as easily as you gave it —
-            including consent to keep a saved statement password, which you can withdraw from Settings without
-            affecting anything else in your account.
+            including consent to AI features (Settings → Data → AI features) and consent to keep a saved
+            statement password, each of which you can withdraw from Settings without affecting anything else in
+            your account.
           </li>
           <li>
             <strong className="text-ink">Nominate</strong> another individual to exercise these rights on
@@ -431,8 +472,9 @@ export default function Privacy() {
         <p>
           You can export your Fynora data at any time from Settings, on both the web app and the mobile app.
           Your export downloads as a ZIP archive containing your accounts, transactions, budgets, goals, and
-          other data as JSON files, plus the original statement files you uploaded in their original format,
-          along with a manifest listing exactly what's included (and, for transparency, what's deliberately
+          other data as JSON files, the record of each version of the Terms of Service and this policy you
+          agreed to, plus the original statement files you uploaded in their original format, along with a
+          manifest listing exactly what's included (and, for transparency, what's deliberately
           excluded and why). Exporting requires you to re-confirm your password (or Google/Apple sign-in), the
           same as account deletion.
         </p>
@@ -442,24 +484,38 @@ export default function Privacy() {
         <p>
           You can delete individual transactions, accounts, or statements at any time from within Fynora. You
           can also delete your entire Fynora account yourself, from Settings on either the web app or the
-          mobile app — this requires you to re-confirm your password (or Google/Apple sign-in) plus a one-time
-          code sent to you, as a safeguard against someone else deleting your account without your knowledge.
+          mobile app, whether you sign in with a password, Google or Apple — this requires you to re-confirm
+          your password (or sign in again with Google or Apple) plus a one-time code sent to your phone, as a
+          safeguard against someone else deleting your account without your knowledge.
+        </p>
+        <p>
+          When you delete a statement, Fynora removes at once its file name, the account-holder name it read
+          from the statement, and the details of the statement's layout. Its file is deleted from our storage
+          as described under Data Retention above. The record of the upload in your import history, and the
+          technical record described under Uploaded Statements, keep the file's name until you delete your
+          account.
         </p>
         <p>
           Account deletion is immediate and permanent once confirmed — there is no waiting period and no
           self-service way to undo it. Your transactions, budgets, and goals are permanently removed, and your
           personal information (name, phone number, email) is erased or replaced with an anonymized
-          placeholder at that point.
+          placeholder at that point. The names you gave your accounts, and the account details Fynora read from
+          your statements, are removed too. Your phone number is also deleted from Firebase Authentication, the
+          service we use to verify it.
         </p>
         <p>
-          Two known exceptions, disclosed here rather than left unstated: (1) a deleted statement's original
-          filename and the account-holder name Fynora automatically detected on it are marked deleted but not
-          currently erased from our database — and, for a statement imported before Fynora moved statement
-          files to dedicated object storage, the original file itself may still be present in the database
-          row the same way. We're aware of this and are working to close it. (2) As described under Data
-          Retention above, a copy of your data may briefly persist in an encrypted backup until that backup
-          cycles out. If you'd rather not go through the in-app flow, you can also request deletion by
-          contacting{' '}
+          Deleting your account cancels a Plus subscription you bought on the website. It cannot cancel one
+          bought through the App Store or Google Play — only Apple or Google can — so cancel that in your App
+          Store or Google Play settings first. The deletion screen reminds you if you have one.
+        </p>
+        <p>
+          What we keep after you delete your account: a record of each version of the Terms of Service and
+          this policy you agreed to (the version, the date, and whether it was on the website or an app), as
+          evidence of your consent, linked only to the anonymized account; security audit logs, as described
+          under Data Retention; and the anonymized upload records, the unlinked deletion reason and the shared
+          category suggestions described in their own sections above. A copy of your data may also briefly
+          persist in an encrypted backup until that backup cycles out, as described under Data Retention. If
+          you'd rather not go through the in-app flow, you can also request deletion by contacting{' '}
           <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
         </p>
       </PublicSection>
@@ -486,8 +542,9 @@ export default function Privacy() {
 
       <PublicSection title="Children's Data">
         <p>
-          Fynora is intended for users 18 years of age or older and is not directed at children. We do not
-          knowingly collect personal data from anyone under 18. If you believe a child has provided us
+          Fynora is intended for users 18 years of age or older and is not directed at children. When you
+          agree to the Terms of Service, you confirm that you are 18 or older. We do not knowingly collect
+          personal data from anyone under 18. If you believe a child has provided us
           personal data, contact our Grievance Officer at{' '}
           <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>{' '}
           and we will delete it.
@@ -496,8 +553,10 @@ export default function Privacy() {
 
       <PublicSection title="Policy Updates">
         <p>
-          We may update this policy from time to time. Material changes will be reflected by an updated "Last
-          updated" date at the top of this page.
+          We may update this policy from time to time, and the "Last updated" date at the top of this page
+          shows when. When we make a material change to this policy or the Terms of Service, the website and
+          the current app ask you to read and agree to the new version before you continue, and we record that you
+          did.
         </p>
       </PublicSection>
     </PublicLayout>

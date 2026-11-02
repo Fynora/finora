@@ -19,11 +19,11 @@ import { security } from './landing-config';
  *  - Statement files are content-addressed and their digest is re-derived on read, so a swapped
  *    or corrupted object is detected rather than served (ContentAddress / StatementStorage).
  *
- * What is NOT claimed, on purpose: "bank-level encryption", "end-to-end encryption", or
- * encryption at rest. The object store may well encrypt at rest as a platform default, but the
- * application does not implement it and this page does not take credit for what it cannot point
- * at. "Private storage" is the honest label for what IS true. If application-level at-rest
- * encryption ever lands, add it here then -- and not before.
+ * What is NOT claimed, on purpose: "bank-level encryption" or "end-to-end encryption". Fynora
+ * does encrypt statement files itself (AES-256-GCM, StatementContentService since V107, and staged
+ * uploads since V304), but not transactions or the rest of the database, so this page does not say
+ * "your data is encrypted". If it ever mentions encryption at rest, it must name statement files
+ * only, as the Privacy Policy does.
  */
 const ICONS = [
   <MonitorSmartphone size={17} />,

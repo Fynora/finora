@@ -357,7 +357,7 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
 
       <div className="flex items-start gap-2.5 bg-primary-light rounded-lg p-3 mt-6">
         <ShieldCheck size={16} className="text-primary flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-ink">Your financial data is encrypted and securely protected.</p>
+        <p className="text-xs text-ink">Statements you upload are stored encrypted. Your data is never sold.</p>
       </div>
 
       <p className="text-sm mt-4 text-center text-muted">

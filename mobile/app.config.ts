@@ -86,7 +86,10 @@ const config: ExpoConfig = {
   // the live 1.1.0 never reaches this binary (Sid, 2026-10-26).
   // 1.2.0: Expo SDK 58 (React Native 0.88). Every native module changes with the SDK, so a bundle
   // built from SDK 58 must never reach a 1.1.x binary -- sdkVersionGuard.test.ts guards it.
-  version: '1.2.0',
+  // 1.2.1: Android 1.2.0 is live, and this build's native code differs from it (Google Sign-In
+  // 17, the expo-share-intent "Open with" patch, newer screens/safe-area/Sentry/notify-kit), so
+  // an update meant for one of them must never reach the other (Sid, 2026-11-02).
+  version: '1.2.1',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',

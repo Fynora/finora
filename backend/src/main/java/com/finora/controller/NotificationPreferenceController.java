@@ -8,6 +8,8 @@ import com.finora.notification.domain.NotificationChannel;
 import com.finora.security.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.Set;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,8 +38,18 @@ public class NotificationPreferenceController {
         this.currentUser = currentUser;
     }
 
+    /**
+     * @param noticeVersion optional: which wording of the switch the app showed (V306), stored with
+     *     the change as the record of what the user agreed to. Apps before V306 send none.
+     */
     public record UpdatePreferenceRequest(@NotNull NotificationCategory category,
-            @NotNull NotificationChannel channel, @NotNull Boolean enabled) {
+            @NotNull NotificationChannel channel, @NotNull Boolean enabled,
+            @Size(max = 32) @Pattern(regexp = "[A-Za-z0-9._-]+") String noticeVersion) {
+
+        /** The shape every client before V306 sends. */
+        public UpdatePreferenceRequest(NotificationCategory category, NotificationChannel channel, Boolean enabled) {
+            this(category, channel, enabled, null);
+        }
     }
 
     /**
@@ -56,7 +68,7 @@ public class NotificationPreferenceController {
             @Valid @RequestBody UpdatePreferenceRequest request,
             @RequestParam(value = "categories", required = false) List<NotificationCategory> categories) {
         return ApiResponse.ok(service.set(currentUser.id(), request.category(), request.channel(),
-                request.enabled(), listed(categories)), "Notification preference saved");
+                request.enabled(), request.noticeVersion(), listed(categories)), "Notification preference saved");
     }
 
     private static Set<NotificationCategory> listed(List<NotificationCategory> categories) {

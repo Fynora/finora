@@ -23,7 +23,9 @@ export default function Privacy() {
         </p>
         <p>
           AI features need a separate yes: they stay off unless you turn them on, and you can turn them off at
-          any time without affecting anything else (see AI Features: Your Choice below). Fynora's other
+          any time without affecting anything else (see AI Features: Your Choice below). So do push notifications
+          about offers and new features, which stay off unless you turn on "Offers and news" (see Offers and News
+          below). Fynora's other
           features depend on the data you have provided, so withdrawing consent to them means deleting your
           account (see Data Deletion below). Withdrawal does not affect the lawfulness of processing carried
           out before you withdrew it.
@@ -294,7 +296,31 @@ export default function Privacy() {
           and financial insights (via Fynora's own rule-based logic, except for the three uses of an AI service
           described under "Ask Fyn (AI Assistant)" and "AI insights" above, which run only if you turn AI
           features on); detect duplicate or transfer transactions; and secure your account
-          (fraud/lockout detection on repeated failed logins).
+          (fraud/lockout detection on repeated failed logins). Only if you turn on "Offers and news", it is also
+          used to send you push notifications about Fynora offers and new features (see Offers and News below).
+        </p>
+      </PublicSection>
+
+      <PublicSection id="offers-and-news" title="Offers and News">
+        <p>
+          Fynora can send occasional push notifications about Fynora itself: offers and discounts on its plans,
+          and new features. You get them only if you turn on "Offers and news" in Settings, under Notifications,
+          on the website or in the app. It is off unless you turn it on, and leaving it off changes nothing else:
+          you still get the statement and account updates you have chosen. Fynora does not send offers by
+          email or text message.
+        </p>
+        <p>
+          To send them, Fynora uses your account, your choice, and the device token of each phone you use the
+          Fynora app on — the same token used for your other notifications — and delivers them through Firebase
+          Cloud Messaging (see Infrastructure & Service Providers below). Your phone's own notification
+          permission still applies.
+        </p>
+        <p>
+          You can turn "Offers and news" off at any time with the same switch. A notification that has not been
+          sent yet is not sent once you do, even if it was already queued. Each time you turn it on or off,
+          Fynora records when, from which app, and which wording of the switch the app showed, as evidence of
+          your choice. These records are included in your data export, and kept after you delete your account
+          as described under Data Deletion below.
         </p>
       </PublicSection>
 
@@ -441,9 +467,9 @@ export default function Privacy() {
           </li>
           <li>
             <strong className="text-ink">Withdraw consent</strong> at any time, as easily as you gave it —
-            including consent to AI features (Settings → Data → AI features) and consent to keep a saved
-            statement password, each of which you can withdraw from Settings without affecting anything else in
-            your account.
+            including consent to AI features (Settings → Data → AI features), consent to "Offers and news" push
+            notifications (Settings, under Notifications) and consent to keep a saved statement password, each of
+            which you can withdraw from Settings without affecting anything else in your account.
           </li>
           <li>
             <strong className="text-ink">Nominate</strong> another individual to exercise these rights on
@@ -473,7 +499,7 @@ export default function Privacy() {
           You can export your Fynora data at any time from Settings, on both the web app and the mobile app.
           Your export downloads as a ZIP archive containing your accounts, transactions, budgets, goals, and
           other data as JSON files, the record of each version of the Terms of Service and this policy you
-          agreed to, plus the original statement files you uploaded in their original format, along with a
+          agreed to, the record of each time you turned a notification switch on or off, plus the original statement files you uploaded in their original format, along with a
           manifest listing exactly what's included (and, for transparency, what's deliberately
           excluded and why). Exporting requires you to re-confirm your password (or Google/Apple sign-in), the
           same as account deletion.
@@ -511,7 +537,9 @@ export default function Privacy() {
         <p>
           What we keep after you delete your account: a record of each version of the Terms of Service and
           this policy you agreed to (the version, the date, and whether it was on the website or an app), as
-          evidence of your consent, linked only to the anonymized account; security audit logs, as described
+          evidence of your consent, linked only to the anonymized account; the record of each time you turned a
+          notification switch such as "Offers and news" on or off (the switch, the date, the app and the wording
+          shown), for the same reason and linked the same way; security audit logs, as described
           under Data Retention; and the anonymized upload records, the unlinked deletion reason and the shared
           category suggestions described in their own sections above. A copy of your data may also briefly
           persist in an encrypted backup until that backup cycles out, as described under Data Retention. If

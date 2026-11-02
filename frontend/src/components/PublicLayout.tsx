@@ -52,7 +52,7 @@ export function PublicLayout({
 }) {
   // Each public page names its own canonical URL (absolute, on the one indexed host). The
   // prerendered copies of these pages carry the same tag in their HTML; see scripts/prerender.mjs.
-  const pathname = useLocation().pathname;
+  const { pathname, hash } = useLocation();
   useCanonical(noindex ? null : pathname);
   useRobotsNoindex(Boolean(noindex));
 
@@ -73,6 +73,24 @@ export function PublicLayout({
   // (pageDescriptionFromMarkup), so the two never disagree. og:title and og:description follow it,
   // as they do in the prerendered file.
   usePageDescription(documentTitle, description?.trim() || pageDescription(subtitle));
+
+  // A link to one section (/privacy#offers-and-news from the notification settings, or
+  // #uploaded-statements from the import screen) has to land on it. The browser looks for the id
+  // before this page has drawn its sections, finds nothing and stays at the top, and a router link
+  // to another path never scrolls at all -- so the section is found here, once it exists. This
+  // runs after a child's own scrollTo(0, 0) on mount (HelpArticle, BankPage), so the section wins.
+  useEffect(() => {
+    const fragment = hash.slice(1);
+    if (!fragment) return;
+    let id: string;
+    try {
+      id = decodeURIComponent(fragment);
+    } catch {
+      return;
+    }
+    const target = document.getElementById(id);
+    if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView();
+  }, [pathname, hash]);
 
   return (
     <div className="min-h-screen bg-bg text-ink">
@@ -141,7 +159,8 @@ export function PublicFooter() {
  *  PublicLayout, so Terms/Privacy/About don't each reinvent heading styles. */
 export function PublicSection({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} className="mb-10">
+    // scroll-mt clears the sticky header when a link lands on this section (see PublicLayout).
+    <section id={id} className="mb-10 scroll-mt-24">
       <h2 className="text-xl font-bold text-ink mb-3">{title}</h2>
       <div className="text-sm text-muted leading-relaxed space-y-3">{children}</div>
     </section>

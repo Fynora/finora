@@ -5,7 +5,11 @@ import com.finora.exception.ErrorCode;
 import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPreference;
+import com.finora.notification.domain.NotificationPreferenceChange;
+import com.finora.notification.repository.NotificationPreferenceChangeRepository;
 import com.finora.notification.repository.NotificationPreferenceRepository;
+import com.finora.support.ClientIdentity;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +41,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>The value shown is the user's own choice, or the category default when they have never made
  * one. It deliberately does not reflect the resolver's account-status suppression (a deactivated
  * account gets no FINANCIAL notifications whatever this says) -- that is not a preference.
+ *
+ * <p>Every change is also written to {@code notification_preference_history} (V306): when, from
+ * which app, and which wording the app showed. That row, not the current value, is what shows
+ * that a user agreed to "Offers and news" (DPDP Act s.6(10)).
  */
 @Service
 public class NotificationPreferenceService {
@@ -56,9 +64,14 @@ public class NotificationPreferenceService {
     }
 
     private final NotificationPreferenceRepository repository;
+    private final NotificationPreferenceChangeRepository history;
+    private final ClientIdentity clientIdentity;
 
-    public NotificationPreferenceService(NotificationPreferenceRepository repository) {
+    public NotificationPreferenceService(NotificationPreferenceRepository repository,
+            NotificationPreferenceChangeRepository history, ClientIdentity clientIdentity) {
         this.repository = repository;
+        this.history = history;
+        this.clientIdentity = clientIdentity;
     }
 
     /** FINANCIAL only: what every client built before REMINDERS existed asks for, and draws one
@@ -105,15 +118,31 @@ public class NotificationPreferenceService {
         return set(userId, category, channel, enabled, Set.of(NotificationCategory.FINANCIAL));
     }
 
-    /** Stores one choice and answers with {@link #list(UUID, Set)} of {@code listed}. */
     @Transactional
     public List<PreferenceView> set(UUID userId, NotificationCategory category,
             NotificationChannel channel, boolean enabled, Set<NotificationCategory> listed) {
+        return set(userId, category, channel, enabled, null, listed);
+    }
+
+    /**
+     * Stores one choice, records it in the history, and answers with {@link #list(UUID, Set)} of
+     * {@code listed}.
+     *
+     * @param noticeVersion which wording of the switch the app showed, or null when it does not say
+     *                      (every app before V306, and every switch except "Offers and news")
+     */
+    @Transactional
+    public List<PreferenceView> set(UUID userId, NotificationCategory category,
+            NotificationChannel channel, boolean enabled, String noticeVersion,
+            Set<NotificationCategory> listed) {
         if (!channelsOf(category).contains(channel)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR,
                     "Only FINANCIAL notifications on EMAIL or PUSH, and REMINDERS and MARKETING on PUSH, can be changed");
         }
         repository.upsert(UUID.randomUUID(), userId, category.name(), channel.name(), enabled);
+        // Same transaction as the change itself: a switch that saved always has its record.
+        history.save(new NotificationPreferenceChange(userId, category, channel, enabled, Instant.now(),
+                clientIdentity.platform(), noticeVersion));
         return list(userId, listed);
     }
 

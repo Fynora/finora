@@ -55,8 +55,14 @@ a promotion sent as OPERATIONAL still reaches everyone.
    and never an admin account that shares the email) and confirm it arrives on a real iPhone and a real Android.
 3. Real FCM speed has not been measured. The dispatcher sends 50 rows per pass, one at a time; unaided
    that is about 100 people a minute. Measure on dev before raising `max-audience` past 1,000.
-4. Legal consent for non-transactional push has not been reviewed. PROMOTIONAL campaigns reach only people who
-   turned "Offers and news" on; whether that switch alone is enough consent has not been reviewed either.
+4. Consent for promotional push (technical review 2026-11-02, not legal advice). "Offers and news" is off
+   until the user turns it on, separate from every other switch, and withdrawn with the same switch (rows
+   already queued are dropped at send). Each change is recorded in `notification_preference_history`
+   (V306: when, which app, which wording via `noticeVersion`), exported to the user and kept after account
+   deletion, and the Privacy Policy's "Offers and News" section describes it. If you change the switch's
+   wording, bump `noticeVersion` beside it in both apps. Still for counsel: whether this switch is valid
+   consent under DPDP Act s.6(1), whether TRAI's TCCCPR reaches app push, and keeping the records after
+   deletion.
 
 ## What the phone shows
 

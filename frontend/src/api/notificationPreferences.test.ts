@@ -36,4 +36,13 @@ describe('notificationPreferencesApi', () => {
       { category: 'REMINDERS', channel: 'PUSH', enabled: false },
       { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
   });
+
+  // V306: the wording's version goes with the change when the switch has one.
+  it('sends the wording version when there is one', async () => {
+    await notificationPreferencesApi.set('MARKETING', 'PUSH', true, 'offers-news-2026-11');
+
+    expect(put).toHaveBeenCalledWith('/notification-preferences',
+      { category: 'MARKETING', channel: 'PUSH', enabled: true, noticeVersion: 'offers-news-2026-11' },
+      { params: { categories: 'FINANCIAL,REMINDERS,MARKETING' } });
+  });
 });

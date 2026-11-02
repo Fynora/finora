@@ -5,11 +5,14 @@ import { LoadFailed } from '../../components/LoadFailed';
 import { NotificationPreferencesRowsSkeleton } from '../../components/skeletons/ScreenSkeletons';
 import { SkeletonGroup } from '../../components/skeletons/Skeletons';
 import { notificationPreferencesApi, type NotificationPreference } from '../../api/endpoints';
+import { openWebUrl } from '../../lib/webUrl';
 import { spacing, useTheme } from '../../theme';
 
 type PrefKey = `${NotificationPreference['category']}:${NotificationPreference['channel']}`;
 
-const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>> = {
+/** noticeVersion: the wording's version, sent with each change (V306). policyAnchor: the privacy
+ *  policy section a "How Fynora uses this" link under the switch opens. */
+const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string; noticeVersion?: string; policyAnchor?: string }>> = {
   'FINANCIAL:EMAIL': {
     label: 'Email',
     description: 'Statement and referral updates by email: a statement is ready, being checked or resolved, and referral rewards.',
@@ -25,9 +28,13 @@ const PREF_COPY: Partial<Record<PrefKey, { label: string; description: string }>
     description: 'A push at the start of the month when a new statement has probably arrived.',
   },
   // V305: off until the user turns it on. Promotional campaigns reach only people who did.
+  // V306: noticeVersion is stored with every change as the record of the wording the user agreed
+  // to -- change the label or description and this must change with it (the backend keeps both).
   'MARKETING:PUSH': {
     label: 'Offers and news',
     description: 'Occasional push notifications about offers, discounts and new features. Off unless you turn it on.',
+    noticeVersion: 'offers-news-2026-11',
+    policyAnchor: 'offers-and-news',
   },
 };
 
@@ -67,7 +74,8 @@ export function NotificationPreferencesSection() {
     setSaving(true);
     setSaveError(null);
     try {
-      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, next));
+      setPrefs(await notificationPreferencesApi.set(pref.category, pref.channel, next,
+        PREF_COPY[keyOf(pref)]?.noticeVersion));
     } catch {
       setSaveError("Couldn't save that change. Please try again.");
     } finally {
@@ -95,6 +103,15 @@ export function NotificationPreferencesSection() {
                 <View style={styles.rowMain}>
                   <Text style={[styles.rowTitle, { color: c.ink }]}>{copy.label}</Text>
                   <Text style={[styles.meta, { color: c.mutedInk }]}>{copy.description}</Text>
+                  {copy.policyAnchor ? (
+                    <Text
+                      accessibilityRole="link"
+                      onPress={() => openWebUrl(`/privacy#${copy.policyAnchor}`)}
+                      style={[styles.meta, { color: c.primary }]}
+                    >
+                      How Fynora uses this
+                    </Text>
+                  ) : null}
                 </View>
                 <AppSwitch
                   value={pref.enabled}

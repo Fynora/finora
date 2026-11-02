@@ -139,6 +139,8 @@ class DataExportServiceTest {
             mock(com.finora.repository.SignupAttributionRepository.class);
     private final com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository =
             mock(com.finora.repository.UserTermsAcceptanceRepository.class);
+    private final com.finora.notification.repository.NotificationPreferenceChangeRepository notificationPreferenceChangeRepository =
+            mock(com.finora.notification.repository.NotificationPreferenceChangeRepository.class);
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository =
             mock(com.finora.repository.AiInsightTextRepository.class);
     private final com.finora.people.PeopleData peopleData = mock(com.finora.people.PeopleData.class);
@@ -331,7 +333,7 @@ class DataExportServiceTest {
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
 paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, aiInsightTextRepository, peopleData,
-                statementContentService, termsAcceptanceRepository);
+                statementContentService, termsAcceptanceRepository, notificationPreferenceChangeRepository);
     }
 
     private User user() {
@@ -463,6 +465,29 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .contains("2026-10").contains("MOBILE_IOS").contains("CHECKBOX");
         assertThat(new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8))
                 .contains("terms_acceptances.json");
+    }
+
+    /** V306: the history of notification switches -- the record of turning "Offers and news" on -- is
+     *  a record about the user, so it is exported with the Terms history. */
+    @Test
+    void writeZip_exportsTheNotificationSwitchHistory() throws IOException {
+        java.time.Instant at = java.time.Instant.parse("2026-11-02T10:00:00Z");
+        when(notificationPreferenceChangeRepository.findByUserIdOrderByRecordedAtAsc(userId)).thenReturn(List.of(
+                new com.finora.notification.domain.NotificationPreferenceChange(userId,
+                        com.finora.notification.domain.NotificationCategory.MARKETING,
+                        com.finora.notification.domain.NotificationChannel.PUSH, true, at,
+                        com.finora.entity.ClientPlatform.MOBILE_ANDROID, "offers-news-2026-11")));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.notificationPreferenceHistory()).singleElement().isEqualTo(
+                new com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto("MARKETING", "PUSH", true, at,
+                        "MOBILE_ANDROID", "offers-news-2026-11", "SWITCH"));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("notification_preference_history.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("MARKETING").contains("MOBILE_ANDROID").contains("offers-news-2026-11").contains("SWITCH");
+        assertThat(new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("notification_preference_history.json");
     }
 
     /** The exported account says the same as the app: a card summed from zero is not known. */
@@ -1204,7 +1229,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances(), b.notificationPreferenceHistory());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {

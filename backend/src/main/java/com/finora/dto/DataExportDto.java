@@ -239,6 +239,13 @@ public final class DataExportDto {
      *  it came from (UNKNOWN for one recorded before V302) and how (CHECKBOX or the earlier NOTICE). */
     public record TermsAcceptanceExportDto(String termsVersion, Instant acceptedAt, String channel, String method) {}
 
+    /** V306. One change to a notification switch: which one, on or off, when, the app it came from
+     *  (UNKNOWN for the settings already stored when the record began), the wording version the app
+     *  showed (when it said), and how (SWITCH, or BACKFILL for those earlier settings). */
+    public record NotificationPreferenceChangeExportDto(String category, String channel, boolean enabled,
+                                                        Instant recordedAt, String client, String noticeVersion,
+                                                        String method) {}
+
     /** V283. One AI month story or "Why?" answer written for the user, and the thumbs they gave it.
      *  The fact sheet it was written from is not repeated: its figures come from the transactions
      *  already in transactions.json. */

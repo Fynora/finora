@@ -14,13 +14,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
-    /** Every route that names one user. The bare {@code /api/v1/admin/users} listing is
-     *  deliberately not here: it discloses a page of users, not one user's data, and has no single
-     *  target id to attribute the read to. */
-    static final String[] ADMIN_SINGLE_USER_ROUTES = {
-            "/api/v1/admin/users/*",
-            "/api/v1/admin/users/*/**",
-    };
+    /** Every admin route. The interceptor records only GETs, and only those that
+     *  {@code AdminReadAuditPolicy} says disclose customer data (privacy workstream 9). */
+    static final String[] ADMIN_READ_AUDIT_ROUTES = {"/api/v1/admin/**"};
 
     /** Every API route. The interceptor itself decides whose requests count (user-portal accounts
      *  only); this just keeps it off non-API paths such as error pages. */
@@ -40,7 +36,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(adminUserDataReadAuditInterceptor).addPathPatterns(ADMIN_SINGLE_USER_ROUTES);
+        registry.addInterceptor(adminUserDataReadAuditInterceptor).addPathPatterns(ADMIN_READ_AUDIT_ROUTES);
         registry.addInterceptor(userActivityInterceptor).addPathPatterns(USER_ACTIVITY_ROUTES);
         // Measures per-user request rates, refuses nothing (see UserRequestLoad).
         registry.addInterceptor(userRequestLoadInterceptor).addPathPatterns(USER_ACTIVITY_ROUTES);

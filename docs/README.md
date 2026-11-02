@@ -82,12 +82,15 @@ Security and access-control audits, the IAM implementation notes, and the Reposi
 (both its rule registry and its own description) — grouped here because its actual purpose is
 detecting PII and secret leakage, not general repository hygiene.
 
+- **`privacy/`** — the retention register and the vendor and transfer register (privacy
+  workstream 9). The Privacy Policy quotes them, so a change to either changes the policy too.
+
 ### `operations/`
 Running the system in production.
 
 - **`deployment/`** — the deployment guide.
 - **`runbooks/`** — operational scripts referenced by an engineering process, e.g. the BH-046
-  pre-flight read-only check.
+  pre-flight read-only check, and the personal data breach runbook.
 
 ### `proposals/`
 Proposals not (yet) folded into an ADR or a milestone: the repository-wide improvement proposal, the

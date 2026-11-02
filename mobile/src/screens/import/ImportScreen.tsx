@@ -104,17 +104,19 @@ function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
 
 /**
- * From iOS's first accessibility text size (AX1, about 1.65x) the pinned Import bar is placed at
- * the end of the list instead. Seen on the simulator at the largest size: pinned, its line and its
- * two-line button covered half the screen. Up to XXXL (about 1.35x) it stays pinned.
+ * iOS's first accessibility text size (AX1, about 1.65x). From here, both seen on the simulator at
+ * the largest size: the pinned Import bar covered half the screen, so it sits at the end of the
+ * list instead; and Review/Discard squeezed a waiting statement's name to nothing, so they go under
+ * it. Up to XXXL (about 1.35x) both keep their standard layout.
  */
-const UNPIN_IMPORT_BAR_FONT_SCALE = 1.6;
+const ACCESSIBILITY_TEXT_FONT_SCALE = 1.6;
 
 export function ImportScreen() {
   const c = useTheme();
   const tabBar = useTabBarSpace();
   const largeText = useLargeFontScale();
-  const importBarInList = useWindowDimensions().fontScale >= UNPIN_IMPORT_BAR_FONT_SCALE;  const insets = useSafeAreaInsets();
+  const accessibilityText = useWindowDimensions().fontScale >= ACCESSIBILITY_TEXT_FONT_SCALE;
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<AppTabParamList, 'Import'>>();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabParamList>>();
@@ -1191,13 +1193,14 @@ export function ImportScreen() {
               {unfinished.map((sess) => (
                 <View
                   key={sess.id}
-                  style={[styles.unfinishedRow, { borderBottomColor: c.border }]}
+                  testID={`ready-row-${sess.id}`}
+                  style={[styles.unfinishedRow, accessibilityText && styles.unfinishedRowStacked, { borderBottomColor: c.border }]}
                 >
                   <View style={styles.unfinishedMain}>
-                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={largeText ? undefined : 1}>
                       {sess.fileName}
                     </Text>
-                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                       {sess.rowCount} {sess.rowCount === 1 ? 'transaction' : 'transactions'} ·{' '}
                       {expiresInLabel(sess.expiresAt)}
                     </Text>
@@ -1471,16 +1474,19 @@ export function ImportScreen() {
                 These couldn&apos;t be read. Nothing was added to your accounts.
               </Text>
               {recentFailures.map((f) => (
-                <View key={f.reference} style={[styles.unfinishedRow, { borderBottomColor: c.border }]}>
+                <View
+                  key={f.reference}
+                  style={[styles.unfinishedRow, accessibilityText && styles.unfinishedRowStacked, { borderBottomColor: c.border }]}
+                >
                   <View style={styles.unfinishedMain}>
-                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={1}>
+                    <Text style={[styles.unfinishedName, { color: c.ink }]} numberOfLines={largeText ? undefined : 1}>
                       {f.fileName}
                     </Text>
-                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={2}>
+                    <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 2}>
                       {importFailureMessage(f.failureCode) ?? "Fynora couldn't complete this import."}
                     </Text>
                     {fmtRelativeTime(f.createdAt) ? (
-                      <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={1}>
+                      <Text style={[styles.unfinishedMeta, { color: c.mutedInk }]} numberOfLines={largeText ? undefined : 1}>
                         {fmtRelativeTime(f.createdAt)}
                       </Text>
                     ) : null}
@@ -1644,7 +1650,7 @@ export function ImportScreen() {
 
   const importBar = (
     <ImportBar
-      style={importBarInList ? styles.importBarInList : [styles.importBar, { bottom: tabBar + spacing.sm }]}
+      style={accessibilityText ? styles.importBarInList : [styles.importBar, { bottom: tabBar + spacing.sm }]}
       message={barMessage}
       buttonLabel={`Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
       // Every reason this button may refuse lives in canConfirmImport, with tests -- see that
@@ -1682,8 +1688,8 @@ export function ImportScreen() {
         // Positions in `rows`: the ones that need an answer, or every row once "See all" is open.
         data={showAllRows ? rows.map((_, i) => i) : needYou}
         keyExtractor={(i) => String(i)}
-        contentContainerStyle={padForTabBar(styles.listContent, tabBar + (importBarInList ? 0 : barHeight + spacing.md))}
-        scrollIndicatorInsets={{ bottom: tabBar + (importBarInList ? 0 : barHeight) }}
+        contentContainerStyle={padForTabBar(styles.listContent, tabBar + (accessibilityText ? 0 : barHeight + spacing.md))}
+        scrollIndicatorInsets={{ bottom: tabBar + (accessibilityText ? 0 : barHeight) }}
         // Rendering every row of a long statement up front is the difference between a list that
         // opens instantly and one that stalls; a card is a fixed shape, so windowing is safe here.
         initialNumToRender={12}
@@ -2074,8 +2080,8 @@ export function ImportScreen() {
                 </Text>
               ) : null}
               {/* The Import button is in the pinned bar below the list, or here at the largest
-                  text sizes (UNPIN_IMPORT_BAR_FONT_SCALE). */}
-              {importBarInList ? importBar : null}
+                  text sizes (ACCESSIBILITY_TEXT_FONT_SCALE). */}
+              {accessibilityText ? importBar : null}
               <View style={styles.cancel}>
                 <Button
                   label="Cancel"
@@ -2093,7 +2099,7 @@ export function ImportScreen() {
         }
       />
 
-      {importBarInList ? null : importBar}
+      {accessibilityText ? null : importBar}
 
       <OptionPickerModal
         visible={categoryPickerFor !== null}
@@ -2123,6 +2129,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  // At accessibility text sizes (ACCESSIBILITY_TEXT_FONT_SCALE) the buttons go under the name.
+  unfinishedRowStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: spacing.sm },
   unfinishedMain: { flex: 1, marginRight: spacing.sm },
   unfinishedName: { fontSize: 14, fontWeight: '600' },
   unfinishedMeta: { fontSize: 12, marginTop: 2 },

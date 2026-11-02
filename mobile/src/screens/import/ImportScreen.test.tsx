@@ -1763,6 +1763,32 @@ describe('upload step, idea B', () => {
     api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: false });
   });
 
+  // Seen on the simulator at the largest text size: Review and Discard took the whole row and
+  // squeezed the file name to nothing. From the first accessibility size they go under the name.
+  describe('a statement ready to review, by text size', () => {
+    let dims: jest.SpyInstance;
+    afterEach(() => dims?.mockRestore());
+    const session = { id: 'sess-1', fileName: 'sample.csv', rowCount: 8, createdAt: '2026-09-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z' };
+    const direction = async () => StyleSheet.flatten((await screen.findByTestId('ready-row-sess-1')).props.style).flexDirection;
+
+    it('keeps the name and its buttons on one line at standard sizes', async () => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.35 });
+      api.import.listSessions.mockResolvedValue([session] as never);
+      render(tree());
+      expect(await direction()).toBe('row');
+    });
+
+    it('puts the buttons under the name from the first accessibility size', async () => {
+      dims = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 390, height: 844, scale: 2, fontScale: 1.65 });
+      api.import.listSessions.mockResolvedValue([session] as never);
+      render(tree());
+      expect(await direction()).toBe('column');
+      expect(screen.getByText('sample.csv')).toBeOnTheScreen();
+      // Wraps rather than clipping, as the app does at large text (useLargeFontScale).
+      expect(screen.getByText(/^8 transactions/).props.numberOfLines).toBeUndefined();
+    });
+  });
+
   it('shows Your statements when an account qualifies', async () => {
     api.accounts.list.mockResolvedValue([savings()]);
     api.accounts.coverage.mockResolvedValueOnce({

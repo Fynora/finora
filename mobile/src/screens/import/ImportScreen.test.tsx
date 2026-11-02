@@ -446,9 +446,23 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       expect(buttonLabels()).toEqual(['Sort 3 questions', 'See Insights', 'Import another', 'See them in Transactions']);
     });
 
+    it('holds the main button until Quick sort says how many are waiting', async () => {
+      const { transactionsApi } = jest.requireMock('../../api/endpoints');
+      transactionsApi.quickSort.mockReturnValueOnce(new Promise(() => {}));
+      await reachSummary(base);
+
+      expect(screen.getByTestId('summary-main-loading')).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'See Insights' })).toBeNull();
+      // The other ways on never wait.
+      expect(screen.getByRole('button', { name: 'Import another' })).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'See them in Transactions' })).toBeOnTheScreen();
+    });
+
     it('makes See Insights the main button when nothing is waiting', async () => {
       await reachSummary(base);
 
+      await screen.findByTestId('summary-see-insights-primary');
+      expect(screen.queryByTestId('summary-main-loading')).toBeNull();
       const seeInsights = screen.getByRole('button', { name: 'See Insights' });
       expect(within(seeInsights).getByText('See Insights')).toBeOnTheScreen();
       expect(buttonLabels()).toEqual(['See Insights', 'Import another', 'See them in Transactions']);
@@ -458,7 +472,7 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
     it('opens Insights on the statement month', async () => {
       await reachSummary(base);
 
-      fireEvent.press(screen.getByRole('button', { name: 'See Insights' }));
+      fireEvent.press(await screen.findByRole('button', { name: 'See Insights' }));
       expect(mockNavigate).toHaveBeenCalledWith('Insights', { month: '2026-09', nonce: expect.any(Number) });
     });
 

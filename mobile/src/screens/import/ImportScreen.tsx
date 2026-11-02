@@ -43,6 +43,7 @@ import {
   categoryGuessCount, fileIntoCollapsed, importBarMessage, questionRows, undismissedFlagCount,
 } from '../../lib/importQuestions';
 import { doneCountsLine, statementMonthOf } from '../../lib/importDone';
+import { SkeletonBox, SkeletonGroup } from '../../components/skeletons/Skeletons';
 import { DoneChanges } from './DoneChanges';
 import { FoldLine } from './FoldLine';
 import { ImportBar } from './ImportBar';
@@ -126,7 +127,9 @@ export function ImportScreen() {
   // Idea B: "From your email" opens the share-sheet hint in place.
   const [emailHintOpen, setEmailHintOpen] = useState(false);
   // Idea B: Quick sort's waiting count on the done step, so "See Insights" leads when it is 0.
-  const [quickSortCount, setQuickSortCount] = useState(0);
+  // Null until Quick sort answers: the main-button spot waits rather than showing one button
+  // and swapping it for another a moment later.
+  const [quickSortCount, setQuickSortCount] = useState<number | null>(null);
   // A send code still unused after its sheet closed, watched by WaitingForComputerFile. `code` is
   // known only when this screen saw it; after a restart the server can say a code is waiting but
   // not what it was.
@@ -516,6 +519,8 @@ export function ImportScreen() {
 
   function resetToUpload() {
     setStep('upload');
+    // The next import's done step asks Quick sort again.
+    setQuickSortCount(null);
     setError(null);
     setAskMoment(null);
     // A new import is a new attempt, never a retry of the last one.
@@ -1553,16 +1558,24 @@ export function ImportScreen() {
                 navigation.navigate('More', { screen: 'CategoryReview' });
               }}
             />
-            <Button
-              label="See Insights"
-              variant={quickSortCount > 0 ? 'secondary' : 'primary'}
-              testID={quickSortCount > 0 ? 'summary-see-insights' : 'summary-see-insights-primary'}
-              onPress={() => {
-                const month = statementMonthOf(summary.statementPeriodEnd);
-                trackNavigation('insights', 'contextual');
-                navigation.navigate('Insights', month ? { month, nonce: Date.now() } : undefined);
-              }}
-            />
+            {quickSortCount === null ? (
+              // Until Quick sort answers, its spot and See Insights' wait as one button-sized
+              // placeholder; the links below never wait.
+              <SkeletonGroup testID="summary-main-loading">
+                <SkeletonBox size="button" />
+              </SkeletonGroup>
+            ) : (
+              <Button
+                label="See Insights"
+                variant={quickSortCount > 0 ? 'secondary' : 'primary'}
+                testID={quickSortCount > 0 ? 'summary-see-insights' : 'summary-see-insights-primary'}
+                onPress={() => {
+                  const month = statementMonthOf(summary.statementPeriodEnd);
+                  trackNavigation('insights', 'contextual');
+                  navigation.navigate('Insights', month ? { month, nonce: Date.now() } : undefined);
+                }}
+              />
+            )}
             <Button label="Import another" variant="link" onPress={resetToUpload} />
               {/* Track C/C6. Depended on C4's Ledger filters existing at all -- without them this
                   would land on the whole, unfiltered ledger, no more useful than the Transactions

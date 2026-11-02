@@ -81,10 +81,31 @@ export function InsightsScreen() {
   // The tab stays mounted, so a later visit arrives as new params on this same screen: each
   // nonce is applied once, during render (React's "adjusting state when a prop changes").
   const [seenNonce, setSeenNonce] = useState(params?.nonce);
+  // A month another screen sent is for that visit only. Set while it is still showing; cleared
+  // when the person picks a month themselves (theirs stays, as any pick does).
+  const [sentMonth, setSentMonth] = useState<string | undefined>(() => params?.month);
   if (params?.nonce !== undefined && params.nonce !== seenNonce) {
     setSeenNonce(params.nonce);
-    if (params.month) setMonth(params.month);
+    if (params.month) {
+      setMonth(params.month);
+      setSentMonth(params.month);
+    }
   }
+  // Read on leaving, so the focus callback below can stay the same function for the whole visit.
+  const sentMonthRef = useRef(sentMonth);
+  useEffect(() => {
+    sentMonthRef.current = sentMonth;
+  }, [sentMonth]);
+  // Leaving after a sent visit: back to the newest month, and the params cleared so nothing
+  // re-applies them later.
+  useFocusEffect(
+    useCallback(() => () => {
+      if (sentMonthRef.current === undefined) return;
+      setMonth(undefined);
+      setSentMonth(undefined);
+      navigation.setParams({ month: undefined, nonce: undefined });
+    }, [navigation]),
+  );
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
 
   const insightsQ = useQuery({
@@ -545,7 +566,10 @@ export function InsightsScreen() {
         selected={monthLong}
         onSelect={(label) => {
           const picked = monthOptions.find((m) => monthLabelLong(m) === label);
-          if (picked) setMonth(picked);
+          if (picked) {
+            setMonth(picked);
+            setSentMonth(undefined);
+          }
           setMonthPickerOpen(false);
         }}
         onClose={() => setMonthPickerOpen(false)}

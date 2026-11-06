@@ -253,6 +253,44 @@ describe('Import Trace — a balance mismatch is readable without a database que
       .toBeInTheDocument();
   });
 
+  it('says in words whether re-ordering the rows would make them add up, counted from one', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      reorderHypothesis: {
+        tested: true,
+        windows: [
+          { rows: [256, 257, 258], tested: true, reconciles: true, orderings: 1, order: [257, 256, 258] },
+          { rows: [300, 301], tested: true, reconciles: true, orderings: 2 },
+          { rows: [400, 401], tested: true, reconciles: false, orderings: 0 },
+          { rows: [500], tested: false, reason: 'NOT_TESTED_DIFFERENT_DAYS' },
+          { rows: [600, 601, 602, 603, 604, 605, 606], tested: false, reason: 'SOMETHING_FROM_A_LATER_VERSION' },
+        ],
+      },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText('Rows 257, 258, 259 add up if taken in this order: 258, 257, 259.'))
+      .toBeInTheDocument();
+    expect(screen.getByText('Rows 301, 302 add up in 2 different orders, so no single order is named.'))
+      .toBeInTheDocument();
+    expect(screen.getByText('Rows 401, 402: no re-ordering of these rows makes them add up.')).toBeInTheDocument();
+    expect(screen.getByText('Rows 501: the rows are on different days, so re-ordering was not tried.'))
+      .toBeInTheDocument();
+    // A reason this version does not know costs its own line, not the page.
+    expect(screen.queryByText(/Rows 601/)).not.toBeInTheDocument();
+    // Said once in sentences, never again as key=value.
+    expect(screen.queryByText(/reorderHypothesis/)).not.toBeInTheDocument();
+  });
+
+  it('survives a reorder hypothesis it does not understand', async () => {
+    vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn({
+      reorderHypothesis: { tested: true, windows: 'nope' },
+    }));
+    await traceFor();
+
+    expect(await screen.findByText(/Row 13:/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Re-ordering test')).not.toBeInTheDocument();
+  });
+
   it('keeps the counts on the flat line and never prints a list of objects there', async () => {
     vi.mocked(adminImportTraceApi.byAnalysis).mockResolvedValue(slippedColumn());
     await traceFor();

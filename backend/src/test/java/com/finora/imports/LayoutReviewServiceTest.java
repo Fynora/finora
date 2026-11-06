@@ -208,4 +208,56 @@ class LayoutReviewServiceTest {
         assertThat(LayoutReviewService.findingSummaries(List.of(report))).hasSize(1)
                 .allMatch(line -> line.startsWith("BALANCE_CHAIN"));
     }
+
+    @Test
+    void reorderClause_namesTheRowsAndTheOrderOneBased_onlyForWindowsThatReconcile() {
+        Map<String, Object> reconciling = Map.of("rows", List.of(256, 257, 258), "tested", true,
+                "reconciles", true, "orderings", 1, "order", List.of(257, 256, 258));
+        Map<String, Object> notReconciling = Map.of("rows", List.of(10, 11), "tested", true,
+                "reconciles", false, "orderings", 0);
+        Map<String, Object> untested = Map.of("rows", List.of(20, 21), "tested", false,
+                "reason", "NOT_TESTED_DIFFERENT_DAYS");
+
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", true,
+                "windows", List.of(notReconciling, reconciling, untested))))
+                .isEqualTo("; rows 257, 258, 259 add up if taken in the order 258, 257, 259");
+    }
+
+    @Test
+    void reorderClause_saysSoWhenItWasTriedAndNothingReconciled() {
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", true, "windows", List.of(
+                Map.of("rows", List.of(3), "tested", true, "reconciles", false, "orderings", 0)))))
+                .isEqualTo("; re-ordering the disagreeing rows does not explain it");
+    }
+
+    @Test
+    void reorderClause_isEmptyForNothingUsable_andNeverPrintsANonWholeNumber() {
+        assertThat(LayoutReviewService.reorderClause(null)).isEmpty();
+        assertThat(LayoutReviewService.reorderClause("x")).isEmpty();
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", false, "reason", "NOT_TESTED_FAILED_VERDICT"))).isEmpty();
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", false, "windows", List.of(
+                Map.of("rows", List.of(1, 2), "tested", false, "reason", "NOT_TESTED_DIFFERENT_DAYS"))))).isEmpty();
+        Map<String, Object> odd = Map.of("rows", List.of(1, new BigDecimal("91234.56")), "reconciles", true,
+                "order", List.of(1, new BigDecimal("91234.56")));
+        // The amount is skipped, leaving one row against one order entry: not a pair worth printing.
+        assertThat(LayoutReviewService.reorderClause(Map.of("windows", List.of(odd))))
+                .doesNotContain("91234");
+    }
+
+    @Test
+    void findingSummaries_appendsTheReorderFindingAfterTheGapsCancelClause() {
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("rowsChecked", 1691);
+        details.put("discrepancies", List.of(1, 2, 3));
+        details.put("gapsCancel", true);
+        details.put("reorderHypothesis", Map.of("tested", true, "windows", List.of(Map.of(
+                "rows", List.of(256, 257, 258), "tested", true, "reconciles", true, "orderings", 1,
+                "order", List.of(257, 256, 258)))));
+
+        List<String> lines = LayoutReviewService.findingSummaries(List.of(
+                new VerificationReport(List.of(new VerificationFinding("BALANCE_CHAIN", "WARNING", details)))));
+
+        assertThat(lines).containsExactly("BALANCE_CHAIN — WARNING: 3 of 1691 rows disagree with the printed balance; "
+                + "the gaps cancel out; rows 257, 258, 259 add up if taken in the order 258, 257, 259");
+    }
 }

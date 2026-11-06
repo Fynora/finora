@@ -151,6 +151,22 @@ public class ImportVerificationRecorder {
      */
     private static final Set<String> FLAG_KEYS = Set.of("gapsCancel");
 
+    /**
+     * BALANCE_CHAIN's answer to "would re-ordering a few rows make this reconcile": row positions and
+     * yes/no, rebuilt key by key like {@link #DISCREPANCY_SHAPES_KEY}. Every number here is a position
+     * or a count of orderings (whole-number types only), every flag a boolean, every reason one of a
+     * fixed set of our own codes; anything else under these names is dropped. No balance, amount,
+     * narration or date can pass as any of them.
+     */
+    private static final String REORDER_HYPOTHESIS_KEY = "reorderHypothesis";
+    private static final Set<String> REORDER_REASONS = Set.of(
+            "NOT_TESTED_FAILED_VERDICT", "NOT_TESTED_TOO_MANY_ROWS", "NOT_TESTED_DIFFERENT_DAYS",
+            "NOT_TESTED_ROW_INCOMPLETE");
+    /** Bounded here as well as where it is built, for the same reason as the shapes above. */
+    private static final int MAX_REORDER_WINDOWS = 3;
+    private static final int MAX_REORDER_ROWS = 6;
+    private static final int MAX_REORDER_ORDERINGS = 720;
+
     /** {@code reason} explains why a rule could not run. Our own prose, but bounded on principle. */
     private static final int MAX_REASON_LENGTH = 200;
 
@@ -406,6 +422,9 @@ public class ImportVerificationRecorder {
             } else if (DISCREPANCY_SHAPES_KEY.equals(key) && value instanceof Collection<?> shapes) {
                 List<Map<String, Object>> rebuilt = discrepancyShapesOf(shapes);
                 if (!rebuilt.isEmpty()) safe.put(key, rebuilt);
+            } else if (REORDER_HYPOTHESIS_KEY.equals(key) && value instanceof Map<?, ?> hypothesis) {
+                Map<String, Object> rebuilt = reorderHypothesisOf(hypothesis);
+                if (!rebuilt.isEmpty()) safe.put(key, rebuilt);
             } else if (FLAG_KEYS.contains(key) && value instanceof Boolean) {
                 safe.put(key, value);
             } else if ("reason".equals(key) && value instanceof String reason) {
@@ -451,6 +470,62 @@ public class ImportVerificationRecorder {
             rebuilt.add(java.util.Collections.unmodifiableMap(entry));
         }
         return List.copyOf(rebuilt);
+    }
+
+    /** Rebuilds the reorder hypothesis from named keys -- see {@link #REORDER_HYPOTHESIS_KEY}. A
+     *  hypothesis that does not say whether it was tested is dropped whole. */
+    private static Map<String, Object> reorderHypothesisOf(Map<?, ?> hypothesis) {
+        if (!(hypothesis.get("tested") instanceof Boolean tested)) return Map.of();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("tested", tested);
+        if (hypothesis.get("reason") instanceof String reason && REORDER_REASONS.contains(reason)) {
+            out.put("reason", reason);
+        }
+        if (hypothesis.get("windows") instanceof Collection<?> windows) {
+            List<Map<String, Object>> rebuilt = new ArrayList<>();
+            for (Object element : windows) {
+                if (rebuilt.size() >= MAX_REORDER_WINDOWS) break;
+                if (!(element instanceof Map<?, ?> window)) continue;
+                Map<String, Object> entry = reorderWindowOf(window);
+                if (entry != null) rebuilt.add(entry);
+            }
+            out.put("windows", List.copyOf(rebuilt));
+        }
+        if (hypothesis.get("moreWindowsNotTested") instanceof Boolean more) out.put("moreWindowsNotTested", more);
+        return java.util.Collections.unmodifiableMap(out);
+    }
+
+    /** One window, or null when it names no rows or does not say whether it was tested. */
+    private static Map<String, Object> reorderWindowOf(Map<?, ?> window) {
+        List<Integer> rows = positionsOf(window.get("rows"));
+        if (rows.isEmpty() || !(window.get("tested") instanceof Boolean tested)) return null;
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("rows", rows);
+        entry.put("tested", tested);
+        if (window.get("reason") instanceof String reason && REORDER_REASONS.contains(reason)) {
+            entry.put("reason", reason);
+        }
+        if (window.get("reconciles") instanceof Boolean reconciles) entry.put("reconciles", reconciles);
+        Integer orderings = rowPositionOf(window.get("orderings"));
+        if (orderings != null && orderings <= MAX_REORDER_ORDERINGS) entry.put("orderings", orderings);
+        List<Integer> order = positionsOf(window.get("order"));
+        // An order only means something as a rearrangement of the rows it sits beside.
+        if (order.size() == rows.size() && new java.util.HashSet<>(order).equals(new java.util.HashSet<>(rows))) {
+            entry.put("order", order);
+        }
+        return java.util.Collections.unmodifiableMap(entry);
+    }
+
+    /** The whole-number entries of a list, in order and bounded; everything else is dropped. */
+    private static List<Integer> positionsOf(Object value) {
+        List<Integer> positions = new ArrayList<>();
+        if (!(value instanceof Collection<?> items)) return positions;
+        for (Object item : items) {
+            if (positions.size() >= MAX_REORDER_ROWS) break;
+            Integer position = rowPositionOf(item);
+            if (position != null) positions.add(position);
+        }
+        return List.copyOf(positions);
     }
 
     /**

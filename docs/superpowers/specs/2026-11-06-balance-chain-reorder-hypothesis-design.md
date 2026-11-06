@@ -179,6 +179,17 @@ Synthetic statements only, built in the tests. None of this needs a customer's f
 - **Recorder drift.** A new keyed structure is one more place an unreviewed field could pass. The
   allowlist test (test 15) is the guard.
 
+## Implementation notes (deviations from the design above)
+
+- `rows` and `order` in each window are **displayed positions** (zero-based, same numbering as the
+  discrepancies), `rows` sorted ascending and `order` in the sequence the chain needs. The email and
+  the trace print them one-based.
+- One reason was added: `NOT_TESTED_ROW_INCOMPLETE` (a row in the window, or the row that follows it,
+  has no amount or no printed balance, so the arithmetic cannot be done).
+- When more than three runs disagree, the first three are tested and `moreWindowsNotTested: true` is set.
+- The test follows the run: the first balance-bearing row after it must still hold from where a trial
+  ordering leaves the balance, otherwise that ordering does not count.
+
 ## Open questions for Sid
 
 1. Window cap of 6 rows and 3 windows: enough, or should it be lower?

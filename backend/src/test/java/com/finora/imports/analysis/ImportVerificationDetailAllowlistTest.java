@@ -236,7 +236,7 @@ class ImportVerificationDetailAllowlistTest {
                 ImportVerificationRecorder.structuralDetailsOf(realBalanceChainWarning());
 
         assertThat(safe).containsOnlyKeys("rowsChecked", "rowsWithBalance", "anchoredOnOpeningBalance",
-                "discrepanciesCount", "discrepancyShapes", "gapsCancel");
+                "discrepanciesCount", "discrepancyShapes", "gapsCancel", "reorderHypothesis");
         assertThat(safe.get("discrepanciesCount")).isEqualTo(2);
         assertThat(safe.get("gapsCancel")).isEqualTo(true);
 
@@ -472,5 +472,82 @@ class ImportVerificationDetailAllowlistTest {
         // because every fixture was fully populated.
         assertThat(ImportVerificationRecorder.structuralDetailsOf(null)).isEmpty();
         assertThat(ImportVerificationRecorder.structuralDetailsOf(Map.of())).isEmpty();
+    }
+
+    @Test
+    void aReorderHypothesisKeepsItsPositionsAndFlagsAndNothingSmuggledUnderThem() throws Exception {
+        Map<String, Object> window = new LinkedHashMap<>();
+        window.put("rows", java.util.Arrays.asList(6, 7, 8, new BigDecimal("436.00"), "UPI/ACME STORES"));
+        window.put("tested", true);
+        window.put("reconciles", true);
+        window.put("orderings", 1);
+        window.put("order", List.of(7, 6, 8));
+        window.put("reason", "2026-07-16 narration");
+        window.put("balanceAfter", new BigDecimal("47785.50"));
+
+        Map<String, Object> hypothesis = new LinkedHashMap<>();
+        hypothesis.put("tested", true);
+        hypothesis.put("windows", List.of(window));
+        hypothesis.put("narration", "ACME STORES");
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(
+                Map.of("reorderHypothesis", hypothesis));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> kept = (Map<String, Object>) safe.get("reorderHypothesis");
+        assertThat(kept).containsOnlyKeys("tested", "windows");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> keptWindow = ((List<Map<String, Object>>) kept.get("windows")).get(0);
+        assertThat(keptWindow).containsOnlyKeys("rows", "tested", "reconciles", "orderings", "order");
+        assertThat(keptWindow.get("rows")).isEqualTo(List.of(6, 7, 8));
+        assertThat(new ObjectMapper().writeValueAsString(safe))
+                .doesNotContain("436").doesNotContain("ACME").doesNotContain("47785").doesNotContain("2026");
+    }
+
+    @Test
+    void anOrderThatIsNotARearrangementOfTheRowsIsDropped() {
+        Map<String, Object> window = new LinkedHashMap<>();
+        window.put("rows", List.of(6, 7));
+        window.put("tested", true);
+        window.put("reconciles", true);
+        window.put("order", List.of(7, 9));
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(
+                Map.of("reorderHypothesis", Map.of("tested", true, "windows", List.of(window))));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> kept = (Map<String, Object>) safe.get("reorderHypothesis");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> keptWindow = ((List<Map<String, Object>>) kept.get("windows")).get(0);
+        assertThat(keptWindow).doesNotContainKey("order");
+    }
+
+    @Test
+    void aReorderHypothesisThatDoesNotSayWhetherItWasTestedIsDropped() {
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(
+                Map.of("reorderHypothesis", Map.of("tested", "yes", "windows", List.of())));
+
+        assertThat(safe.get("reorderHypothesis")).isEqualTo(Map.of());
+    }
+
+    @Test
+    void aRealReorderFindingSurvivesTheAllowlistIntact() {
+        var rows = new java.util.ArrayList<ImportDto.StagedRow>();
+        rows.add(stagedRow("2026-07-10", "OPENING CREDIT", "1000.00", "INCOME", "1000.00"));
+        rows.add(stagedRow("2026-07-11", "ROUTINE", "50.00", "EXPENSE", "950.00"));
+        rows.add(stagedRow("2026-07-16", "X DEBIT", "50.00", "EXPENSE", "1100.00"));
+        rows.add(stagedRow("2026-07-16", "Y CREDIT", "200.00", "INCOME", "1150.00"));
+        rows.add(stagedRow("2026-07-16", "Z DEBIT", "10.00", "EXPENSE", "1090.00"));
+        rows.add(stagedRow("2026-07-17", "TAIL A", "10.00", "EXPENSE", "1080.00"));
+        rows.add(stagedRow("2026-07-18", "TAIL B", "10.00", "EXPENSE", "1070.00"));
+        for (int day = 19; day <= 26; day++) {
+            rows.add(stagedRow("2026-07-" + day, "TAIL " + day, "10.00", "EXPENSE", (1070 - 10 * (day - 18)) + ".00"));
+        }
+        var finding = new BalanceChainValidator().report(rows, null).findings().get(0);
+        assertThat(finding.outcome()).isEqualTo("WARNING");
+
+        Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(finding.details());
+
+        assertThat(safe.get("reorderHypothesis")).isEqualTo(finding.details().get("reorderHypothesis"));
     }
 }

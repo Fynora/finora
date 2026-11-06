@@ -8,9 +8,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Checks parsed rows against the arithmetic the statement asserts about itself.
@@ -140,6 +142,15 @@ public class BalanceChainValidator {
      *  two transactions that happen to share an amount. */
     static final int MAX_GAP_MATCH_ROWS = 5;
 
+    /** The longest run of consecutive disagreeing rows tried in every order: 6! = 720 orderings. A
+     *  longer run is a column misread or a dropped stretch, not a transposition, and the number of
+     *  orderings grows factorially, so the bound is what keeps an upload's cost fixed. */
+    static final int MAX_REORDER_WINDOW_ROWS = 6;
+
+    /** How many separate runs of disagreeing rows get tried. A statement with more is reported as
+     *  having more, not searched further. */
+    static final int MAX_REORDER_WINDOWS = 3;
+
     /**
      * Runs the check and returns it in the shape the API exposes.
      *
@@ -233,6 +244,7 @@ public class BalanceChainValidator {
         if (!discrepancies.isEmpty()) {
             details.put("discrepancyShapes", shapesOf(shown, located));
             details.put("gapsCancel", gapsCancel(result.discrepancies()));
+            details.put("reorderHypothesis", reorderHypothesis(walk, displayedPositionOf));
         }
 
         // The rule's verdict about its own domain, keeping the WARNING/FAILED distinction rather
@@ -281,9 +293,10 @@ public class BalanceChainValidator {
      * because only {@link #report} describes a discrepancy; everything else that consults this
      * validator wants the verdict and reads {@link Result}.
      */
-    private record Walk(Result result, List<BigDecimal> printedBefore) {
+    private record Walk(Result result, List<BigDecimal> printedBefore, List<StagedRow> chain, boolean reversed,
+                         List<Integer> chainIndexes, List<BigDecimal> runningBefore) {
         static Walk of(Result result) {
-            return new Walk(result, List.of());
+            return new Walk(result, List.of(), List.of(), false, List.of(), List.of());
         }
     }
 
@@ -303,6 +316,10 @@ public class BalanceChainValidator {
 
         List<Discrepancy> discrepancies = new ArrayList<>();
         List<BigDecimal> printedBefore = new ArrayList<>();
+        // Where each discrepancy sits in the walk, and the running balance it was checked against.
+        // Kept for the reorder test, which has to start a trial ordering from exactly that balance.
+        List<Integer> chainIndexes = new ArrayList<>();
+        List<BigDecimal> runningBefore = new ArrayList<>();
         int pairsChecked = 0;
 
         // One running balance, rather than a "previous row" plus a separate opening anchor.
@@ -353,6 +370,8 @@ public class BalanceChainValidator {
                             expected, row.balanceAfter(),
                             row.balanceAfter().subtract(expected)));
                     printedBefore.add(lastPrinted);
+                    chainIndexes.add(i);
+                    runningBefore.add(runningBalance);
                 }
                 pairsChecked++;
             }
@@ -373,7 +392,9 @@ public class BalanceChainValidator {
                 && (double) discrepancies.size() / pairsChecked >= FAILED_THRESHOLD;
         Outcome status = systematic ? Outcome.FAILED : Outcome.WARNING;
         return new Walk(new Result(status, List.copyOf(discrepancies), pairsChecked, rowsWithBalance),
-                java.util.Collections.unmodifiableList(printedBefore));
+                java.util.Collections.unmodifiableList(printedBefore), rows, reversed,
+                java.util.Collections.unmodifiableList(chainIndexes),
+                java.util.Collections.unmodifiableList(runningBefore));
     }
 
     /**
@@ -481,6 +502,175 @@ public class BalanceChainValidator {
             }
         }
         return List.copyOf(matches);
+    }
+
+    /**
+     * Whether re-ordering a short run of disagreeing rows would make the chain hold -- a report, never
+     * a change: nothing here touches a row, the verdict or the discrepancy list.
+     *
+     * <p>Two neighbouring rows listed in the opposite order to the one the bank processed them in each
+     * still carry their own correct printed balance, so the arithmetic between them fails in a
+     * recognisable way (see the design, docs/superpowers/specs/2026-11-06-balance-chain-reorder-hypothesis-design.md).
+     * A person can read that off the shapes; this tries it. Every ordering of the run is walked, each
+     * row keeping the balance it printed, and one that satisfies every row of the run and the next
+     * balance-bearing row after it is a reconciling order.
+     *
+     * <p>Only a WARNING is tried. A FAILED verdict means most rows disagree, which a few rows swapped
+     * cannot explain.
+     *
+     * <p>What it carries is positions and yes/no: the rows are the displayed positions the client
+     * shows (the same numbering as the discrepancies), and {@code order} lists those positions in the
+     * sequence the chain needs. No amount, balance, date or narration is in it.
+     */
+    private static Map<String, Object> reorderHypothesis(Walk walk, int[] displayedPositionOf) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (walk.result().status() != Outcome.WARNING) {
+            out.put("tested", false);
+            out.put("reason", "NOT_TESTED_FAILED_VERDICT");
+            return Collections.unmodifiableMap(out);
+        }
+        List<Integer> indexes = walk.chainIndexes();
+        List<Map<String, Object>> windows = new ArrayList<>();
+        boolean moreWindows = false;
+        int from = 0;
+        while (from < indexes.size()) {
+            int to = from;
+            while (to + 1 < indexes.size() && indexes.get(to + 1) == indexes.get(to) + 1) to++;
+            if (windows.size() == MAX_REORDER_WINDOWS) {
+                moreWindows = true;
+                break;
+            }
+            windows.add(reorderWindow(walk, from, to, displayedPositionOf));
+            from = to + 1;
+        }
+        out.put("tested", windows.stream().anyMatch(w -> Boolean.TRUE.equals(w.get("tested"))));
+        out.put("windows", List.copyOf(windows));
+        if (moreWindows) out.put("moreWindowsNotTested", true);
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static Map<String, Object> reorderWindow(Walk walk, int from, int to, int[] displayedPositionOf) {
+        int first = walk.chainIndexes().get(from);
+        int last = walk.chainIndexes().get(to);
+        int size = last - first + 1;
+        List<StagedRow> chain = walk.chain();
+
+        Map<String, Object> window = new LinkedHashMap<>();
+        List<Integer> shown = new ArrayList<>();
+        for (int c = first; c <= last; c++) shown.add(displayedPosition(walk, c, displayedPositionOf));
+        Collections.sort(shown);
+        window.put("rows", List.copyOf(shown));
+
+        if (size > MAX_REORDER_WINDOW_ROWS) return notTested(window, "NOT_TESTED_TOO_MANY_ROWS");
+
+        java.time.LocalDate day = chain.get(first).date();
+        boolean sameDay = day != null;
+        boolean complete = true;
+        for (int c = first; c <= last; c++) {
+            StagedRow row = chain.get(c);
+            if (!sameDay || !day.equals(row.date())) sameDay = false;
+            if (row.amount() == null || row.balanceAfter() == null) complete = false;
+        }
+        if (!sameDay) return notTested(window, "NOT_TESTED_DIFFERENT_DAYS");
+        if (!complete) return notTested(window, "NOT_TESTED_ROW_INCOMPLETE");
+
+        // The first balance-bearing row after the run must still hold from wherever a trial ordering
+        // leaves the balance, because the walk checked it from the run's last printed balance and
+        // another ordering may end on a different one. Balance-less rows in between still move it.
+        int followOn = -1;
+        BigDecimal carried = BigDecimal.ZERO;
+        for (int c = last + 1; c < chain.size(); c++) {
+            StagedRow row = chain.get(c);
+            if (row.amount() == null) return notTested(window, "NOT_TESTED_ROW_INCOMPLETE");
+            if (row.balanceAfter() == null) {
+                carried = carried.add(signedAmount(row));
+                continue;
+            }
+            followOn = c;
+            break;
+        }
+
+        BigDecimal start = walk.runningBefore().get(from);
+        List<int[]> orderings = new ArrayList<>();
+        int[] slots = new int[size];
+        for (int i = 0; i < size; i++) slots[i] = i;
+        permutations(slots, size, orderings);
+
+        Set<String> tried = new HashSet<>();
+        List<int[]> reconciling = new ArrayList<>();
+        for (int[] order : orderings) {
+            if (isIdentity(order)) continue;
+            // Two rows with the same amount and balance are one ordering, not two.
+            StringBuilder signature = new StringBuilder();
+            for (int slot : order) {
+                StagedRow row = chain.get(first + slot);
+                signature.append(signedAmount(row).stripTrailingZeros().toPlainString()).append('|')
+                        .append(row.balanceAfter().stripTrailingZeros().toPlainString()).append(';');
+            }
+            if (!tried.add(signature.toString())) continue;
+
+            BigDecimal running = start;
+            boolean holds = true;
+            for (int slot : order) {
+                StagedRow row = chain.get(first + slot);
+                if (running.add(signedAmount(row)).compareTo(row.balanceAfter()) != 0) {
+                    holds = false;
+                    break;
+                }
+                running = row.balanceAfter();
+            }
+            if (holds && followOn >= 0) {
+                StagedRow next = chain.get(followOn);
+                holds = running.add(carried).add(signedAmount(next)).compareTo(next.balanceAfter()) == 0;
+            }
+            if (holds) reconciling.add(order);
+        }
+
+        window.put("tested", true);
+        window.put("reconciles", !reconciling.isEmpty());
+        window.put("orderings", reconciling.size());
+        if (reconciling.size() == 1) {
+            List<Integer> inOrder = new ArrayList<>();
+            for (int slot : reconciling.get(0)) {
+                inOrder.add(displayedPosition(walk, first + slot, displayedPositionOf));
+            }
+            window.put("order", List.copyOf(inOrder));
+        }
+        return Collections.unmodifiableMap(window);
+    }
+
+    private static Map<String, Object> notTested(Map<String, Object> window, String reason) {
+        window.put("tested", false);
+        window.put("reason", reason);
+        return Collections.unmodifiableMap(window);
+    }
+
+    /** The position the client shows a walk row at -- the same mapping {@link #locate} applies to a
+     *  discrepancy, so "row 257" means one thing everywhere in a finding. */
+    private static int displayedPosition(Walk walk, int chainIndex, int[] displayedPositionOf) {
+        int given = walk.reversed() ? walk.chain().size() - 1 - chainIndex : chainIndex;
+        return displayedPositionOf == null ? given : displayedPositionOf[given];
+    }
+
+    private static boolean isIdentity(int[] order) {
+        for (int i = 0; i < order.length; i++) if (order[i] != i) return false;
+        return true;
+    }
+
+    /** Heap's algorithm: every ordering of {@code a[0..k)}, each copied into {@code out}. */
+    private static void permutations(int[] a, int k, List<int[]> out) {
+        if (k == 1) {
+            out.add(a.clone());
+            return;
+        }
+        permutations(a, k - 1, out);
+        for (int i = 0; i < k - 1; i++) {
+            int swapWith = (k % 2 == 0) ? i : 0;
+            int held = a[swapWith];
+            a[swapWith] = a[k - 1];
+            a[k - 1] = held;
+            permutations(a, k - 1, out);
+        }
     }
 
     /**

@@ -24,11 +24,18 @@ import type { BalanceDiscrepancyShape } from '../types';
 
 /** The detail keys this component renders. A page showing the rest of a finding's details leaves
  *  these out of its own listing so nothing is said twice. */
-export const BALANCE_MISMATCH_KEYS: readonly string[] = ['discrepancyShapes', 'gapsCancel'];
+export const BALANCE_MISMATCH_KEYS: readonly string[] = ['discrepancyShapes', 'gapsCancel', 'reorderHypothesis'];
 
 const SHAPES_KEY = 'discrepancyShapes';
 const GAPS_CANCEL_KEY = 'gapsCancel';
+const REORDER_KEY = 'reorderHypothesis';
 const LIST_LABEL = 'Rows that disagreed with the running balance';
+
+const NOT_TESTED_TEXT: Record<string, string> = {
+  NOT_TESTED_TOO_MANY_ROWS: 'too many rows in a row to try re-ordering them',
+  NOT_TESTED_DIFFERENT_DAYS: 'the rows are on different days, so re-ordering was not tried',
+  NOT_TESTED_ROW_INCOMPLETE: 'a row has no amount or balance, so re-ordering was not tried',
+};
 
 /** Read defensively: a finding written by a later version may hold a shape this one does not expect,
  *  and that must cost one line rather than the page. */
@@ -38,6 +45,39 @@ export function balanceMismatchShapes(details: Record<string, unknown>): Balance
   return raw.filter((shape): shape is BalanceDiscrepancyShape =>
     shape !== null && typeof shape === 'object'
     && Number.isInteger((shape as { rowIndex?: unknown }).rowIndex));
+}
+
+const isRowList = (value: unknown): value is number[] =>
+  Array.isArray(value) && value.every((row) => Number.isInteger(row));
+
+/**
+ * What the backend found when it tried re-ordering the disagreeing rows, one sentence per run of rows.
+ * A fact about the arithmetic, not a cause: "add up if taken in this order" says the printed balances
+ * agree with that order, and why the statement lists them otherwise is the operator's to judge.
+ * Read defensively -- anything unexpected costs its own line, never the page.
+ */
+export function reorderHypothesisLines(details: Record<string, unknown>): string[] {
+  const hypothesis = details[REORDER_KEY];
+  if (hypothesis === null || typeof hypothesis !== 'object') return [];
+  const windows = (hypothesis as { windows?: unknown }).windows;
+  if (!Array.isArray(windows)) return [];
+  const lines: string[] = [];
+  for (const window of windows) {
+    if (window === null || typeof window !== 'object') continue;
+    const { rows, tested, reason, reconciles, orderings, order } = window as Record<string, unknown>;
+    if (!isRowList(rows) || rows.length === 0) continue;
+    const label = `Rows ${[...rows].sort((a, b) => a - b).map(rowNumber).join(', ')}`;
+    if (tested === true && reconciles === true && isRowList(order)) {
+      lines.push(`${label} add up if taken in this order: ${order.map(rowNumber).join(', ')}.`);
+    } else if (tested === true && reconciles === true && typeof orderings === 'number') {
+      lines.push(`${label} add up in ${orderings} different orders, so no single order is named.`);
+    } else if (tested === true && reconciles === false) {
+      lines.push(`${label}: no re-ordering of these rows makes them add up.`);
+    } else if (tested === false && typeof reason === 'string' && NOT_TESTED_TEXT[reason]) {
+      lines.push(`${label}: ${NOT_TESTED_TEXT[reason]}.`);
+    }
+  }
+  return lines;
 }
 
 /** Rows are counted from one, down the rows as they are listed for the customer — so "row 13" in a
@@ -87,11 +127,17 @@ export function BalanceMismatchList({
   const shapes = balanceMismatchShapes(details);
   if (shapes.length === 0) return null;
   const mismatches = typeof details.discrepanciesCount === 'number' ? details.discrepanciesCount : shapes.length;
+  const reorderLines = reorderHypothesisLines(details);
   return (
     <div className="mt-2 text-xs text-muted">
       <ul className="list-disc pl-4 space-y-0.5 text-ink" aria-label={LIST_LABEL}>
         {shapes.map((shape) => <li key={shape.rowIndex}>{describeShape(shape)}</li>)}
       </ul>
+      {reorderLines.length > 0 && (
+        <ul className="mt-1.5 list-disc pl-4 space-y-0.5 text-ink" aria-label="Re-ordering test">
+          {reorderLines.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      )}
       <p className="mt-1.5">
         {mismatches > shapes.length && `Showing the first ${shapes.length} of ${mismatches} rows that disagreed. `}
         {mismatches > 1 && details[GAPS_CANCEL_KEY] === true && 'The gaps cancel each other out. '}

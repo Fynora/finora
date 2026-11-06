@@ -211,10 +211,45 @@ public class LayoutReviewService {
                 line.append(": ").append(disagreeing.size()).append(" of ").append(checked.longValue())
                         .append(" rows disagree with the printed balance");
                 if (Boolean.TRUE.equals(details.get("gapsCancel"))) line.append("; the gaps cancel out");
+                line.append(reorderClause(details.get("reorderHypothesis")));
             }
             lines.add(line.toString());
         }
         return lines;
+    }
+
+    /**
+     * "; rows 257, 258, 259 add up if taken in the order 258, 257, 259" for each run of rows whose
+     * re-ordering the validator found to reconcile in exactly one way, or "" when none did.
+     *
+     * <p>Positions only, counted from one like every row number an operator reads. Anything in the
+     * hypothesis that is not a whole number is skipped rather than printed: this builds a sentence
+     * from values the email must never carry.
+     */
+    static String reorderClause(Object hypothesis) {
+        if (!(hypothesis instanceof Map<?, ?> found) || !(found.get("windows") instanceof List<?> windows)) return "";
+        StringBuilder clause = new StringBuilder();
+        for (Object element : windows) {
+            if (!(element instanceof Map<?, ?> window) || !Boolean.TRUE.equals(window.get("reconciles"))) continue;
+            List<Integer> rows = wholeNumbers(window.get("rows"));
+            List<Integer> order = wholeNumbers(window.get("order"));
+            if (rows.isEmpty() || order.size() != rows.size()) continue;
+            clause.append("; rows ").append(oneBased(rows.stream().sorted().toList()))
+                    .append(" add up if taken in the order ").append(oneBased(order));
+        }
+        return clause.toString();
+    }
+
+    private static List<Integer> wholeNumbers(Object value) {
+        List<Integer> numbers = new ArrayList<>();
+        if (!(value instanceof List<?> items)) return numbers;
+        for (Object item : items) if (item instanceof Integer position && position >= 0) numbers.add(position);
+        return numbers;
+    }
+
+    private static String oneBased(List<Integer> positions) {
+        return positions.stream().map(position -> String.valueOf(position + 1))
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     /** The fingerprint every document with no recognised headers shares -- see the class comment. */

@@ -33,7 +33,8 @@ class LayoutReviewServiceTest {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenThrow(new TransactionException("database unreachable") {});
         LayoutReviewAlertService alerts = mock(LayoutReviewAlertService.class);
-        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class));
+        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class),
+                mock(com.finora.observability.LayoutAlertMetrics.class));
 
         assertThatCode(() -> service.onStaged("FP-1-ABCDEF12", "PDF", List.of(row("")), List.of(), "SA-1", null))
                 .doesNotThrowAnyException();
@@ -125,7 +126,8 @@ class LayoutReviewServiceTest {
     void aHeaderlessDocumentNeverTouchesTheRegistry() {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         LayoutReviewAlertService alerts = mock(LayoutReviewAlertService.class);
-        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class));
+        LayoutReviewService service = new LayoutReviewService(mock(JdbcTemplate.class), transactions, alerts, mock(LayoutProfileAutoLinker.class),
+                mock(com.finora.observability.LayoutAlertMetrics.class));
         String headerless = new DocumentContext("PDF", "any").buildFingerprint();
 
         service.onStagingFailed(headerless, "PDF", "SA-3", new IllegalStateException("parser broke"));

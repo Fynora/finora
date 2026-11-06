@@ -49,7 +49,7 @@ class LayoutReviewAlertServiceTest {
                 .thenReturn(List.of(admin("a@example.com"), admin("b@example.com")));
 
         service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("NEW_LAYOUT", "BLANK_DESCRIPTIONS"), "SA-000123",
-                "Kotak Mahindra Bank — Credit Card v2");
+                "Kotak Mahindra Bank — Credit Card v2", List.of());
 
         ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
         verify(emailProvider, times(2)).send(sent.capture());
@@ -68,7 +68,7 @@ class LayoutReviewAlertServiceTest {
         when(userRepository.findByPermissionNameAndAccountScope("LAYOUT_REGISTRY_MANAGE", User.SCOPE_ADMIN))
                 .thenReturn(List.of());
 
-        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("NEW_LAYOUT"), null, null);
+        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("NEW_LAYOUT"), null, null, List.of());
 
         verify(emailProvider, never()).send(any());
     }
@@ -80,7 +80,7 @@ class LayoutReviewAlertServiceTest {
         when(emailProvider.send(any())).thenThrow(new RuntimeException("provider down"))
                 .thenReturn(EmailResult.success(ProviderType.RESEND, "msg-2"));
 
-        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("STAGING_FAILED"), "SA-000124", null);
+        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("STAGING_FAILED"), "SA-000124", null, List.of());
 
         verify(emailProvider, times(2)).send(any());
     }
@@ -91,5 +91,25 @@ class LayoutReviewAlertServiceTest {
                 .isEqualTo("A verification check did not pass (warning or failure) — BALANCE_CHAIN");
         assertThat(LayoutReviewAlertService.describe("NEW_LAYOUT")).isEqualTo("A statement layout Finora has not seen before");
         assertThat(LayoutReviewAlertService.describe("SOMETHING_ELSE")).isEqualTo("SOMETHING_ELSE");
+    }
+
+    @Test
+    void theEmailCarriesWhatTheCheckFound_escaped_andOmitsTheBlockWhenThereIsNothing() {
+        when(userRepository.findByPermissionNameAndAccountScope("LAYOUT_REGISTRY_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(admin("a@example.com")));
+
+        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("VERIFICATION_NOT_PASSED:BALANCE_CHAIN"), "SA-1", null,
+                List.of("BALANCE_CHAIN — WARNING: 3 of 1691 rows disagree with the printed balance; the gaps cancel out",
+                        "<b>RULE</b> — FAILED"));
+        service.alertLayoutNeedsReview("FP-1-ABCDEF12", List.of("NEW_LAYOUT"), "SA-2", null, null);
+
+        ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider, times(2)).send(sent.capture());
+        assertThat(sent.getAllValues().get(0).html())
+                .contains("What the check found")
+                .contains("3 of 1691 rows disagree with the printed balance; the gaps cancel out")
+                .contains("&lt;b&gt;RULE&lt;/b&gt;")
+                .doesNotContain("<b>RULE</b>");
+        assertThat(sent.getAllValues().get(1).html()).doesNotContain("What the check found");
     }
 }

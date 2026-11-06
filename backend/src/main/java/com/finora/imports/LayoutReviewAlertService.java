@@ -56,7 +56,7 @@ public class LayoutReviewAlertService {
     /** Runs on {@code layoutReviewAlertExecutor}, never on the upload request -- see that bean. */
     @org.springframework.scheduling.annotation.Async("layoutReviewAlertExecutor")
     public void alertLayoutNeedsReview(String fingerprint, List<String> reasons, String analysisReference,
-                                       String profile) {
+                                       String profile, List<String> findingLines) {
         String subject = "Statement layout needs review — " + fingerprint;
         StringBuilder reasonItems = new StringBuilder();
         for (String reason : reasons) {
@@ -67,6 +67,12 @@ public class LayoutReviewAlertService {
         String profileLine = profile == null || profile.isBlank()
                 ? "<li><strong>Grouped as:</strong> not grouped (bank or account type not detected)</li>"
                 : "<li><strong>Grouped as:</strong> " + escape(profile) + "</li>";
+        StringBuilder findingItems = new StringBuilder();
+        if (findingLines != null) {
+            for (String line : findingLines) findingItems.append("<li>").append(escape(line)).append("</li>");
+        }
+        String findingsBlock = findingItems.length() == 0 ? ""
+                : "<p><strong>What the check found:</strong></p><ul>" + findingItems + "</ul>";
         String html = "<p>A statement layout was flagged for review while a statement was being staged.</p>"
                 + "<ul>"
                 + "<li><strong>Layout:</strong> " + escape(fingerprint) + "</li>"
@@ -74,6 +80,7 @@ public class LayoutReviewAlertService {
                 + referenceLine
                 + "</ul>"
                 + "<p><strong>Why:</strong></p><ul>" + reasonItems + "</ul>"
+                + findingsBlock
                 + "<p><a href=\"" + adminBaseUrl() + "/layout-intelligence?tab=review\">Open the layout review queue</a></p>";
 
         List<User> recipients = userRepository.findByPermissionNameAndAccountScope(LAYOUT_REGISTRY_MANAGE, User.SCOPE_ADMIN);

@@ -1,6 +1,7 @@
 package com.finora.imports;
 
 import com.finora.dto.ImportDto.StagedRow;
+import com.finora.dto.ImportDto.VerificationFinding;
 import com.finora.dto.ImportDto.VerificationReport;
 import com.finora.entity.RegisteredLayout;
 import org.slf4j.Logger;
@@ -122,7 +123,7 @@ public class LayoutReviewService {
         if (bankConflict) reasons.add(Reason.IDENTITY_CONFLICT.name());
         for (String rule : rulesNotPassed(reports)) reasons.add(Reason.VERIFICATION_NOT_PASSED.name() + ":" + rule);
         if (mostlyBlankDescriptions(rows)) reasons.add(Reason.BLANK_DESCRIPTIONS.name());
-        record(fingerprint, sourceFormat, reasons, analysisReference, identity);
+        record(fingerprint, sourceFormat, reasons, analysisReference, identity, findingSummaries(reports));
     }
 
     /** A staging run that failed after the document's layout was fingerprinted. Flags the layout
@@ -131,7 +132,7 @@ public class LayoutReviewService {
     public void onStagingFailed(String fingerprint, String sourceFormat, String analysisReference,
                                 RuntimeException failure) {
         Set<String> reasons = isParserSideFailure(failure) ? Set.of(Reason.STAGING_FAILED.name()) : Set.of();
-        record(fingerprint, sourceFormat, reasons, analysisReference, null);
+        record(fingerprint, sourceFormat, reasons, analysisReference, null, List.of());
     }
 
     /**
@@ -159,17 +160,61 @@ public class LayoutReviewService {
      */
     static Set<String> rulesNotPassed(List<VerificationReport> reports) {
         Set<String> rules = new TreeSet<>();
-        if (reports == null) return rules;
-        for (VerificationReport report : reports) {
+        for (NotPassed notPassed : notPassedFindings(reports)) {
+            rules.add(notPassed.finding().rule() == null ? "UNKNOWN_RULE" : notPassed.finding().rule());
+        }
+        return rules;
+    }
+
+    /** A finding that reported WARNING or FAILED, with the section it came from. */
+    record NotPassed(int section, VerificationFinding finding) {}
+
+    /** The findings {@link #rulesNotPassed} names, with the card-summary exemption described there. */
+    static List<NotPassed> notPassedFindings(List<VerificationReport> reports) {
+        List<NotPassed> found = new ArrayList<>();
+        if (reports == null) return found;
+        for (int section = 0; section < reports.size(); section++) {
+            VerificationReport report = reports.get(section);
             if (report == null || report.findings() == null) continue;
             boolean cardRowsAgree = report.findings().stream().filter(Objects::nonNull).anyMatch(f ->
                     CreditCardFlowReconciliationValidator.RULE.equals(f.rule()) && "VERIFIED".equals(f.outcome()));
-            report.findings().stream().filter(Objects::nonNull)
-                    .filter(f -> "WARNING".equals(f.outcome()) || "FAILED".equals(f.outcome()))
-                    .filter(f -> !(cardRowsAgree && CreditCardStatementTotalsValidator.RULE.equals(f.rule())))
-                    .forEach(f -> rules.add(f.rule() == null ? "UNKNOWN_RULE" : f.rule()));
+            for (VerificationFinding f : report.findings()) {
+                if (f == null) continue;
+                if (!"WARNING".equals(f.outcome()) && !"FAILED".equals(f.outcome())) continue;
+                if (cardRowsAgree && CreditCardStatementTotalsValidator.RULE.equals(f.rule())) continue;
+                found.add(new NotPassed(section, f));
+            }
         }
-        return rules;
+        return found;
+    }
+
+    /**
+     * One plain line per finding that did not pass, for the alert email: the rule, its outcome and,
+     * for the balance chain, how many of the checked rows disagreed and whether the gaps cancel.
+     *
+     * <p>Counts and yes/no facts only. The balance chain's {@code discrepancies} list holds the
+     * customer's balances and gaps; it is measured for its size here and never read, because the
+     * email carries "not a single transaction" (see {@link LayoutReviewAlertService}).
+     */
+    static List<String> findingSummaries(List<VerificationReport> reports) {
+        List<NotPassed> found = notPassedFindings(reports);
+        boolean severalSections = reports != null && reports.size() > 1;
+        List<String> lines = new ArrayList<>();
+        for (NotPassed notPassed : found) {
+            VerificationFinding f = notPassed.finding();
+            StringBuilder line = new StringBuilder(f.rule() == null ? "UNKNOWN_RULE" : f.rule());
+            if (severalSections) line.append(" (section ").append(notPassed.section()).append(')');
+            line.append(" — ").append(f.outcome());
+            Map<String, Object> details = f.details();
+            if (details != null && details.get("discrepancies") instanceof List<?> disagreeing
+                    && !disagreeing.isEmpty() && details.get("rowsChecked") instanceof Number checked) {
+                line.append(": ").append(disagreeing.size()).append(" of ").append(checked.longValue())
+                        .append(" rows disagree with the printed balance");
+                if (Boolean.TRUE.equals(details.get("gapsCancel"))) line.append("; the gaps cancel out");
+            }
+            lines.add(line.toString());
+        }
+        return lines;
     }
 
     /** The fingerprint every document with no recognised headers shares -- see the class comment. */
@@ -184,7 +229,7 @@ public class LayoutReviewService {
     }
 
     private void record(String fingerprint, String sourceFormat, Set<String> reasons, String analysisReference,
-                        LayoutIdentity identity) {
+                        LayoutIdentity identity, List<String> findingLines) {
         if (fingerprint == null || fingerprint.isBlank()) return;
         Flagged flagged;
         try {
@@ -197,7 +242,8 @@ public class LayoutReviewService {
         }
         if (flagged != null && flagged.newlyRaised()) {
             try {
-                alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile());
+                alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile(),
+                        findingLines);
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
             }

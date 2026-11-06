@@ -149,4 +149,63 @@ class LayoutReviewServiceTest {
                 new com.finora.exception.ApiException(com.finora.exception.ErrorCode.IMPORT_PDF_PASSWORD_INVALID))).isFalse();
         assertThat(LayoutReviewService.isParserSideFailure(null)).isFalse();
     }
+
+    private static VerificationFinding chain(String outcome, int rowsChecked, int disagreeing, Boolean gapsCancel) {
+        java.util.List<com.finora.dto.ImportDto.RowDiscrepancy> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < disagreeing; i++) {
+            rows.add(new com.finora.dto.ImportDto.RowDiscrepancy(257 + i, 257 + i,
+                    new BigDecimal("91234.56"), new BigDecimal("87654.32"), new BigDecimal("3580.24")));
+        }
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("rowsChecked", rowsChecked);
+        details.put("discrepancies", rows);
+        if (gapsCancel != null) details.put("gapsCancel", gapsCancel);
+        return new VerificationFinding("BALANCE_CHAIN", outcome, details);
+    }
+
+    @Test
+    void findingSummaries_saysHowManyRowsDisagreedAndWhetherTheGapsCancel_withoutAnyCustomerNumber() {
+        List<String> lines = LayoutReviewService.findingSummaries(
+                List.of(new VerificationReport(List.of(chain("WARNING", 1691, 3, true)))));
+
+        assertThat(lines).containsExactly(
+                "BALANCE_CHAIN — WARNING: 3 of 1691 rows disagree with the printed balance; the gaps cancel out");
+        assertThat(String.join(" ", lines)).doesNotContain("91234").doesNotContain("87654").doesNotContain("3580");
+    }
+
+    @Test
+    void findingSummaries_omitsTheCancelClauseWhenTheyDoNot_andNamesTheSectionOnlyWhenThereAreSeveral() {
+        assertThat(LayoutReviewService.findingSummaries(
+                List.of(new VerificationReport(List.of(chain("FAILED", 40, 30, false))))))
+                .containsExactly("BALANCE_CHAIN — FAILED: 30 of 40 rows disagree with the printed balance");
+
+        VerificationReport clean = new VerificationReport(List.of(new VerificationFinding("BALANCE_CHAIN", "VERIFIED", Map.of())));
+        VerificationReport bad = new VerificationReport(List.of(chain("WARNING", 10, 1, null)));
+        assertThat(LayoutReviewService.findingSummaries(List.of(clean, bad)))
+                .containsExactly("BALANCE_CHAIN (section 1) — WARNING: 1 of 10 rows disagree with the printed balance");
+    }
+
+    @Test
+    void findingSummaries_handlesRulesWithNoRowDetail_nullsAndEmptyInput() {
+        assertThat(LayoutReviewService.findingSummaries(null)).isEmpty();
+        assertThat(LayoutReviewService.findingSummaries(List.of())).isEmpty();
+        assertThat(LayoutReviewService.findingSummaries(Arrays.asList(null, new VerificationReport(null)))).isEmpty();
+        assertThat(LayoutReviewService.findingSummaries(List.of(new VerificationReport(List.of(
+                new VerificationFinding("STATEMENT_TOTALS", "WARNING", null),
+                new VerificationFinding("SUMMARY_TOTALS", "FAILED", Map.of("rowsChecked", 5)),
+                new VerificationFinding(null, "WARNING", Map.of()))))))
+                .containsExactly("STATEMENT_TOTALS — WARNING", "SUMMARY_TOTALS — FAILED", "UNKNOWN_RULE — WARNING");
+    }
+
+    @Test
+    void findingSummaries_listsExactlyTheFindingsRulesNotPassedNames() {
+        VerificationReport report = new VerificationReport(List.of(
+                new VerificationFinding("CREDIT_CARD_FLOW_RECONCILIATION", "VERIFIED", Map.of()),
+                new VerificationFinding("CREDIT_CARD_STATEMENT_TOTALS", "WARNING", Map.of()),
+                chain("WARNING", 5, 1, null)));
+
+        assertThat(LayoutReviewService.rulesNotPassed(List.of(report))).containsExactly("BALANCE_CHAIN");
+        assertThat(LayoutReviewService.findingSummaries(List.of(report))).hasSize(1)
+                .allMatch(line -> line.startsWith("BALANCE_CHAIN"));
+    }
 }

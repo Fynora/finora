@@ -527,7 +527,7 @@ class ImportVerificationDetailAllowlistTest {
         Map<String, Object> safe = ImportVerificationRecorder.structuralDetailsOf(
                 Map.of("reorderHypothesis", Map.of("tested", "yes", "windows", List.of())));
 
-        assertThat(safe.get("reorderHypothesis")).isEqualTo(Map.of());
+        assertThat(safe).doesNotContainKey("reorderHypothesis");
     }
 
     @Test

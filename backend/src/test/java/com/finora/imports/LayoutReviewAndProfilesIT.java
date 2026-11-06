@@ -299,6 +299,23 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
     }
 
+    /** Flagged for a new reason that has already had its urgent alert since it was flagged: an
+     *  acknowledged reason coming back adds nothing, the operator has just been told. */
+    @Test
+    void anAcknowledgedReasonOnALayoutFlaggedAndAlreadyAlertedUrgentlyStaysSilent() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-30", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-ACK-31", null); // BLANK_DESCRIPTIONS, urgent
+        clearInvocations(alertService);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-32", new IllegalStateException("parser broke"));
+
+        assertThat(layout(fp).getReviewReasons()).containsExactly("BLANK_DESCRIPTIONS");
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+        verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+    }
+
     @Test
     void aLayoutResolvedBeforeThisChangeIsCoveredToo() {
         String fp = fingerprint();

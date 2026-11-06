@@ -81,7 +81,9 @@ class LayoutReviewAlertServiceTest {
                 .contains("already acknowledged")
                 .contains("was not flagged again")
                 .contains("The layout was recognised but staging failed")
-                .contains("SA-000200");
+                .contains("SA-000200")
+                .contains("this layout is not in the review queue")
+                .doesNotContain("Open the layout review queue");
     }
 
     @Test

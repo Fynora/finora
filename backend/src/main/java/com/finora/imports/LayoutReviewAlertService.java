@@ -110,7 +110,11 @@ public class LayoutReviewAlertService {
                 + "</ul>"
                 + "<p><strong>Why:</strong></p><ul>" + reasonItems + "</ul>"
                 + findingsBlock
-                + "<p><a href=\"" + adminBaseUrl() + "/layout-intelligence?tab=review\">Open the layout review queue</a></p>";
+                + "<p><a href=\"" + adminBaseUrl() + "/layout-intelligence?tab=review\">"
+                + (acknowledgedRecurrence
+                        ? "Open layout intelligence (this layout is not in the review queue)"
+                        : "Open the layout review queue")
+                + "</a></p>";
 
         List<User> recipients = userRepository.findByPermissionNameAndAccountScope(LAYOUT_REGISTRY_MANAGE, User.SCOPE_ADMIN);
         if (recipients.isEmpty()) {

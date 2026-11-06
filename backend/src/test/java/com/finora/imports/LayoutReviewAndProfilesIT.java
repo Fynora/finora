@@ -242,7 +242,8 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         String fp = fingerprint();
         reviewService.onStagingFailed(fp, "PDF", "SA-TEST-50", new IllegalStateException("parser broke"));
         curationService.resolveReview(adminId(), fp);
-        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-51", new IllegalStateException("parser broke"));
+        // A resolved reason stays resolved, so the flag is raised again by a different one.
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-TEST-51", null);
 
         verify(alertService, timeout(5000).times(2)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(),
                 eq(LayoutAlertTier.IMMEDIATE));

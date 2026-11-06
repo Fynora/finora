@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -272,6 +273,20 @@ public class LayoutReviewService {
         return blank * 2 > rows.size();
     }
 
+    /**
+     * The tier over everything this run found AND everything the alert lists. An admin may have
+     * acknowledged a reason earlier ({@code acknowledged_reasons}), which drops it from the alert's
+     * list; the acknowledgement is of the reason's name, so a later run that fails the same check
+     * far worse still carries it. Judging only the listed reasons would call that run routine.
+     */
+    static LayoutAlertTier alertTier(Collection<String> thisRunsReasons, Collection<String> alertedReasons,
+                                     List<VerificationReport> reports) {
+        Set<String> all = new TreeSet<>();
+        if (thisRunsReasons != null) all.addAll(thisRunsReasons);
+        if (alertedReasons != null) all.addAll(alertedReasons);
+        return LayoutAlertTier.of(all, reports);
+    }
+
     private void record(String fingerprint, String sourceFormat, Set<String> reasons, String analysisReference,
                         LayoutIdentity identity, List<String> findingLines, List<VerificationReport> reports) {
         if (fingerprint == null || fingerprint.isBlank()) return;
@@ -287,7 +302,7 @@ public class LayoutReviewService {
         if (flagged != null && flagged.newlyRaised()) {
             try {
                 alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile(),
-                        findingLines, LayoutAlertTier.of(flagged.reasons(), reports));
+                        findingLines, alertTier(reasons, flagged.reasons(), reports));
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
             }

@@ -58,8 +58,28 @@ public class LayoutReviewAlertService {
     public void alertLayoutNeedsReview(String fingerprint, List<String> reasons, String analysisReference,
                                        String profile, List<String> findingLines,
                                        LayoutAlertTier tier) {
+        deliver(fingerprint, reasons, analysisReference, profile, findingLines, tier, false);
+    }
+
+    /**
+     * A layout whose every reason an operator had already acknowledged has now come back with a
+     * result that is not explained as harmless. The layout is not re-flagged; this one email says
+     * so. Runs on {@code layoutReviewAlertExecutor}, like {@link #alertLayoutNeedsReview}.
+     */
+    @org.springframework.scheduling.annotation.Async("layoutReviewAlertExecutor")
+    public void alertAcknowledgedLayoutRecurred(String fingerprint, List<String> reasons, String analysisReference,
+                                                String profile, List<String> findingLines,
+                                                LayoutAlertTier tier) {
+        deliver(fingerprint, reasons, analysisReference, profile, findingLines, tier, true);
+    }
+
+    private void deliver(String fingerprint, List<String> reasons, String analysisReference,
+                         String profile, List<String> findingLines,
+                         LayoutAlertTier tier, boolean acknowledgedRecurrence) {
         boolean urgent = tier != LayoutAlertTier.DIGEST;
-        String subject = (urgent ? "[URGENT] " : "") + "Statement layout needs review — " + fingerprint;
+        String subject = (urgent ? "[URGENT] " : "")
+                + (acknowledgedRecurrence ? "Acknowledged statement layout came back — " : "Statement layout needs review — ")
+                + fingerprint;
         StringBuilder reasonItems = new StringBuilder();
         for (String reason : reasons) {
             reasonItems.append("<li>").append(escape(describe(reason))).append("</li>");
@@ -75,7 +95,11 @@ public class LayoutReviewAlertService {
         }
         String findingsBlock = findingItems.length() == 0 ? ""
                 : "<p><strong>What the check found:</strong></p><ul>" + findingItems + "</ul>";
-        String html = "<p>A statement layout was flagged for review while a statement was being staged.</p>"
+        String intro = acknowledgedRecurrence
+                ? "<p>A statement layout you had already acknowledged came back with a result that is not "
+                  + "explained as harmless. It was not flagged again, because these reasons were acknowledged.</p>"
+                : "<p>A statement layout was flagged for review while a statement was being staged.</p>";
+        String html = intro
                 + "<ul>"
                 + "<li><strong>Layout:</strong> " + escape(fingerprint) + "</li>"
                 + profileLine

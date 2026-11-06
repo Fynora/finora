@@ -172,6 +172,9 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-7", null);
         assertThat(layout(fp).isNeedsReview()).isFalse();
         verify(alertService, after(500).never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+        // Not flagged again, but an unexplained warning is not silent: one acknowledged-recurrence alert.
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), eq("SA-TEST-7"),
+                any(), any(), eq(LayoutAlertTier.IMMEDIATE));
 
         reviewService.onStaged(fp, "PDF", rows(1, 3), report("WARNING"), "SA-TEST-8", null);
         RegisteredLayout layout = layout(fp);
@@ -256,6 +259,60 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-61", null, true);
 
         verify(alertService, after(500).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    // ------------------------------------------------ acknowledged reasons that come back worse
+
+    @Test
+    void anAcknowledgedReasonThatComesBackUrgentIsAlertedOncePerAcknowledgement() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-1", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-2", new IllegalStateException("parser broke"));
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-3", new IllegalStateException("parser broke"));
+
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp),
+                eq(List.of("STAGING_FAILED")), eq("SA-ACK-2"), any(), any(), eq(LayoutAlertTier.IMMEDIATE));
+        verify(alertService, after(500).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), any(), any(), any(), any());
+
+        // Acknowledging again opens a new window.
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-ACK-4", null);
+        curationService.resolveReview(adminId(), fp);
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-5", new IllegalStateException("parser broke"));
+
+        verify(alertService, timeout(5000).times(2)).alertAcknowledgedLayoutRecurred(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void anAcknowledgedReasonThatComesBackRoutineStaysSilent() {
+        String fp = fingerprint();
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-ACK-10", null); // NEW_LAYOUT, routine
+        curationService.resolveReview(adminId(), fp);
+        clearInvocations(alertService);
+
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-ACK-11", null);
+
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+        verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aLayoutResolvedBeforeThisChangeIsCoveredToo() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-20", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        // What V307 left on a layout resolved earlier: an alert time, as if one had been sent.
+        jdbc.update("UPDATE layout_registry SET last_immediate_alert_at = now() WHERE fingerprint = ?", fp);
+        // V308 clears it for every unflagged layout.
+        jdbc.update("UPDATE layout_registry SET last_immediate_alert_at = NULL WHERE NOT needs_review AND fingerprint = ?", fp);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-21", new IllegalStateException("parser broke"));
+
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), eq("SA-ACK-21"),
+                any(), any(), any());
     }
 
     // ------------------------------------------------------------------ reason sources (V270)

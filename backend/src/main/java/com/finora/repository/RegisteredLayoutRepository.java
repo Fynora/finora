@@ -104,4 +104,16 @@ public interface RegisteredLayoutRepository extends JpaRepository<RegisteredLayo
                 @Param("sourceFormat") String sourceFormat,
                 @Param("parser") String parser,
                 @Param("seenAt") Instant seenAt);
+
+    /**
+     * Forgets that an urgent alert was sent for this layout. Called when an operator resolves the
+     * review, so the first urgent result after that acknowledgement is alerted once -- see
+     * docs/superpowers/specs/2026-11-06-layout-alert-acknowledged-reason-design.md. The column is
+     * deliberately not mapped on the entity: LayoutReviewService claims it with its own statement
+     * under a row lock, and an entity save must not write a stale value back over that.
+     */
+    @Modifying
+    @Query(value = "UPDATE layout_registry SET last_immediate_alert_at = NULL WHERE fingerprint = :fingerprint",
+           nativeQuery = true)
+    int clearLastImmediateAlert(@Param("fingerprint") String fingerprint);
 }

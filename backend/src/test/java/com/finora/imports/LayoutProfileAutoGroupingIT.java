@@ -282,7 +282,7 @@ class LayoutProfileAutoGroupingIT extends AbstractIntegrationTest {
         stage(fp, identity);
 
         verify(alertService, timeout(5000)).alertLayoutNeedsReview(eq(fp), any(), any(),
-                eq("Test Bank " + bankId + " — Savings / Current v1"), any());
+                eq("Test Bank " + bankId + " — Savings / Current v1"), any(), any());
     }
 
     @Test

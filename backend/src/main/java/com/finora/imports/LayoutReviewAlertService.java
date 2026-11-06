@@ -56,8 +56,10 @@ public class LayoutReviewAlertService {
     /** Runs on {@code layoutReviewAlertExecutor}, never on the upload request -- see that bean. */
     @org.springframework.scheduling.annotation.Async("layoutReviewAlertExecutor")
     public void alertLayoutNeedsReview(String fingerprint, List<String> reasons, String analysisReference,
-                                       String profile, List<String> findingLines) {
-        String subject = "Statement layout needs review — " + fingerprint;
+                                       String profile, List<String> findingLines,
+                                       LayoutAlertTier tier) {
+        boolean urgent = tier != LayoutAlertTier.DIGEST;
+        String subject = (urgent ? "[URGENT] " : "") + "Statement layout needs review — " + fingerprint;
         StringBuilder reasonItems = new StringBuilder();
         for (String reason : reasons) {
             reasonItems.append("<li>").append(escape(describe(reason))).append("</li>");
@@ -77,6 +79,9 @@ public class LayoutReviewAlertService {
                 + "<ul>"
                 + "<li><strong>Layout:</strong> " + escape(fingerprint) + "</li>"
                 + profileLine
+                + "<li><strong>Priority:</strong> " + (urgent
+                        ? "Urgent — not explained as harmless"
+                        : "Routine — a new layout or a fully explained warning") + "</li>"
                 + referenceLine
                 + "</ul>"
                 + "<p><strong>Why:</strong></p><ul>" + reasonItems + "</ul>"

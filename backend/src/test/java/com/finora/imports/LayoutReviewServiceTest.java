@@ -260,4 +260,18 @@ class LayoutReviewServiceTest {
         assertThat(lines).containsExactly("BALANCE_CHAIN — WARNING: 3 of 1691 rows disagree with the printed balance; "
                 + "the gaps cancel out; rows 257, 258, 259 add up if taken in the order 258, 257, 259");
     }
+
+    @Test
+    void alertTier_judgesWhatThisRunFound_notOnlyWhatTheAlertLists() {
+        // BALANCE_CHAIN was acknowledged earlier, so the alert lists only the new reason -- but this
+        // run failed the chain outright. Listed alone, the reason would read as routine.
+        VerificationReport failed = new VerificationReport(List.of(chain("FAILED", 40, 30, false)));
+        assertThat(LayoutReviewService.alertTier(
+                java.util.Set.of("HOLDER_NAME_UNREADABLE", "VERIFICATION_NOT_PASSED:BALANCE_CHAIN"),
+                List.of("HOLDER_NAME_UNREADABLE"), List.of(failed))).isEqualTo(LayoutAlertTier.IMMEDIATE);
+
+        assertThat(LayoutReviewService.alertTier(java.util.Set.of("NEW_LAYOUT"), List.of("NEW_LAYOUT"), List.of()))
+                .isEqualTo(LayoutAlertTier.DIGEST);
+        assertThat(LayoutReviewService.alertTier(null, null, null)).isEqualTo(LayoutAlertTier.IMMEDIATE);
+    }
 }

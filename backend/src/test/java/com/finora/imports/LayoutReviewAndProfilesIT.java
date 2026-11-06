@@ -115,7 +115,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         assertThat(layout.isNeedsReview()).isTrue();
         assertThat(layout.getReviewReasons()).containsExactly("NEW_LAYOUT");
         assertThat(layout.getReviewAnalysisReference()).isEqualTo("SA-TEST-1");
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), eq(List.of("NEW_LAYOUT")), eq("SA-TEST-1"), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), eq(List.of("NEW_LAYOUT")), eq("SA-TEST-1"), any(), any(), eq(LayoutAlertTier.DIGEST));
     }
 
     @Test
@@ -129,7 +129,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         assertThat(layout.isNeedsReview()).isFalse();
         assertThat(layout.getStagingCount()).isEqualTo(1);
         assertThat(layout.getObservationCount()).isEqualTo(1);
-        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any());
+        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -142,7 +142,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         RegisteredLayout layout = layout(fp);
         assertThat(layout.getReviewReasons()).containsExactly("HOLDER_NAME_UNREADABLE");
         verify(alertService, timeout(5000).times(1))
-                .alertLayoutNeedsReview(eq(fp), eq(List.of("HOLDER_NAME_UNREADABLE")), eq("SA-TEST-30"), any(), any());
+                .alertLayoutNeedsReview(eq(fp), eq(List.of("HOLDER_NAME_UNREADABLE")), eq("SA-TEST-30"), any(), any(), eq(LayoutAlertTier.DIGEST));
     }
 
     @Test
@@ -171,14 +171,14 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
 
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-7", null);
         assertThat(layout(fp).isNeedsReview()).isFalse();
-        verify(alertService, after(500).never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any());
+        verify(alertService, after(500).never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
 
         reviewService.onStaged(fp, "PDF", rows(1, 3), report("WARNING"), "SA-TEST-8", null);
         RegisteredLayout layout = layout(fp);
         assertThat(layout.isNeedsReview()).isTrue();
         assertThat(layout.getReviewReasons()).containsExactly("BLANK_DESCRIPTIONS");
         assertThat(layout.getAcknowledgedReasons()).containsExactly("VERIFICATION_NOT_PASSED:SOME_RULE");
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), eq(List.of("BLANK_DESCRIPTIONS")), eq("SA-TEST-8"), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), eq(List.of("BLANK_DESCRIPTIONS")), eq("SA-TEST-8"), any(), any(), eq(LayoutAlertTier.IMMEDIATE));
     }
 
     /** Acknowledging one rule's routine warning must not silence a different rule failing later. */
@@ -195,7 +195,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
 
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("CHAIN_RULE", "FAILED"), "SA-TEST-22", null);
         assertThat(layout(fp).getReviewReasons()).containsExactly("VERIFICATION_NOT_PASSED:CHAIN_RULE");
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), eq("SA-TEST-22"), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), eq("SA-TEST-22"), any(), any(), any());
     }
 
     @Test
@@ -207,7 +207,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
 
         assertThat(layoutRepository.findByFingerprint(headerless).map(RegisteredLayout::getStagingCount).orElse(0L))
                 .isEqualTo(before);
-        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any(), any());
+        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -217,7 +217,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-10", null);
 
         assertThat(layout(fp).getReviewReasons()).containsExactly("NEW_LAYOUT", "VERIFICATION_NOT_PASSED:SOME_RULE");
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
     }
 
     // ------------------------------------------------------------------ reason sources (V270)
@@ -604,7 +604,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         assertThat(layout.getObservationCount()).isZero();
         assertThat(layout.getReviewReasons()).contains("NEW_LAYOUT");
         assertThat(layout.getReviewAnalysisReference()).isEqualTo(analysis.get("reference"));
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), eq((String) analysis.get("reference")), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), eq((String) analysis.get("reference")), any(), any(), any());
     }
 
     /** Real staging of a file with no recognisable transaction table: the failure path records the
@@ -627,7 +627,7 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         assertThat(recorded).isEqualTo(headerless);
         assertThat(layoutRepository.findByFingerprint(headerless).map(RegisteredLayout::getStagingCount).orElse(0L))
                 .isEqualTo(before);
-        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any(), any());
+        verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any(), any(), any());
     }
 
     /** Statement refresh and the reimport preview re-stage through parseAndStageAnyFormat with

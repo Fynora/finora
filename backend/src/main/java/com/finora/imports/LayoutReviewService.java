@@ -123,7 +123,7 @@ public class LayoutReviewService {
         if (bankConflict) reasons.add(Reason.IDENTITY_CONFLICT.name());
         for (String rule : rulesNotPassed(reports)) reasons.add(Reason.VERIFICATION_NOT_PASSED.name() + ":" + rule);
         if (mostlyBlankDescriptions(rows)) reasons.add(Reason.BLANK_DESCRIPTIONS.name());
-        record(fingerprint, sourceFormat, reasons, analysisReference, identity, findingSummaries(reports));
+        record(fingerprint, sourceFormat, reasons, analysisReference, identity, findingSummaries(reports), reports);
     }
 
     /** A staging run that failed after the document's layout was fingerprinted. Flags the layout
@@ -132,7 +132,7 @@ public class LayoutReviewService {
     public void onStagingFailed(String fingerprint, String sourceFormat, String analysisReference,
                                 RuntimeException failure) {
         Set<String> reasons = isParserSideFailure(failure) ? Set.of(Reason.STAGING_FAILED.name()) : Set.of();
-        record(fingerprint, sourceFormat, reasons, analysisReference, null, List.of());
+        record(fingerprint, sourceFormat, reasons, analysisReference, null, List.of(), null);
     }
 
     /**
@@ -273,7 +273,7 @@ public class LayoutReviewService {
     }
 
     private void record(String fingerprint, String sourceFormat, Set<String> reasons, String analysisReference,
-                        LayoutIdentity identity, List<String> findingLines) {
+                        LayoutIdentity identity, List<String> findingLines, List<VerificationReport> reports) {
         if (fingerprint == null || fingerprint.isBlank()) return;
         Flagged flagged;
         try {
@@ -287,7 +287,7 @@ public class LayoutReviewService {
         if (flagged != null && flagged.newlyRaised()) {
             try {
                 alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile(),
-                        findingLines);
+                        findingLines, LayoutAlertTier.of(flagged.reasons(), reports));
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
             }

@@ -168,6 +168,19 @@ Delivery (integration):
 - **Phase 2 changes who hears about what, when.** Phase 1 first, so Sid can check the labels against
   alerts he has seen.
 
+## Implementation notes
+
+- **Phase 1 shipped** (#2485): the tier function and the labels.
+- **Shipped ahead of the digest:** the silent-escalation fix and a counter. An urgent alert is now
+  also sent when a layout that was already flagged has had no urgent alert since it was flagged
+  (`layout_registry.last_immediate_alert_at < review_flagged_at`, claimed under the row lock). A
+  migration backfills currently flagged layouts as already alerted. `finora.layout_review.alert`
+  counts alerts by tier and by whether the layout was already flagged.
+- **Not done:** the digest itself (`digest_pending_since`, `digest_sent_at`, the scheduled job).
+- **Left as it was, on purpose:** a reason an admin acknowledged stays silent. The acknowledgement
+  is of the reason's name, so a failed check after an acknowledged warning still sends nothing. That
+  is a decision about what acknowledging means, not a bug in the tiers.
+
 ## Open questions for Sid
 
 1. **SMS for urgent alerts?** Suggested: yes, later (phase 3), via the existing 2Factor provider to

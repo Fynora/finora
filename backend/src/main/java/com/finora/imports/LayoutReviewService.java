@@ -88,10 +88,13 @@ public class LayoutReviewService {
     private final TransactionTemplate ownTransaction;
     private final LayoutReviewAlertService alertService;
     private final LayoutProfileAutoLinker autoLinker;
+    private final com.finora.observability.LayoutAlertMetrics alertMetrics;
 
     public LayoutReviewService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
-                               LayoutReviewAlertService alertService, LayoutProfileAutoLinker autoLinker) {
+                               LayoutReviewAlertService alertService, LayoutProfileAutoLinker autoLinker,
+                               com.finora.observability.LayoutAlertMetrics alertMetrics) {
         this.jdbc = jdbc;
+        this.alertMetrics = alertMetrics;
         this.autoLinker = autoLinker;
         this.ownTransaction = new TransactionTemplate(transactionManager);
         this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -294,15 +297,16 @@ public class LayoutReviewService {
         try {
             if (isHeaderlessFingerprint(fingerprint, sourceFormat)) return;
             flagged = ownTransaction.execute(status -> recordInTransaction(
-                    fingerprint, sourceFormat, new TreeSet<>(reasons), analysisReference, identity));
+                    fingerprint, sourceFormat, new TreeSet<>(reasons), analysisReference, identity, reports));
         } catch (RuntimeException e) {
             log.warn("Could not record layout review state for {}; the upload is unaffected.", fingerprint, e);
             return;
         }
-        if (flagged != null && flagged.newlyRaised()) {
+        if (flagged != null && (flagged.newlyRaised() || flagged.escalated())) {
             try {
                 alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile(),
-                        findingLines, alertTier(reasons, flagged.reasons(), reports));
+                        findingLines, flagged.tier());
+                alertMetrics.sent(flagged.tier().name(), !flagged.newlyRaised());
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
             }
@@ -322,10 +326,12 @@ public class LayoutReviewService {
 
     /** What the flag became, whether this call is the one that raised it, and the profile the
      *  layout sits in ("Kotak Mahindra Bank — Credit Card v2"), or null. */
-    record Flagged(boolean newlyRaised, List<String> reasons, String profile) {}
+    record Flagged(boolean newlyRaised, boolean escalated, List<String> reasons, String profile,
+                   LayoutAlertTier tier) {}
 
     private Flagged recordInTransaction(String fingerprint, String sourceFormat, Set<String> reasons,
-                                        String analysisReference, LayoutIdentity identity) {
+                                        String analysisReference, LayoutIdentity identity,
+                                        List<VerificationReport> reports) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         // One statement for the insert-or-count, for the same race reason
         // RegisteredLayoutRepository.observe gives: two first uploads of an unseen layout must not
@@ -390,6 +396,22 @@ public class LayoutReviewService {
                 SELECT p.name || ' v' || r.profile_version FROM layout_registry r
                 JOIN layout_profile p ON p.id = r.profile_id WHERE r.fingerprint = ?
                 """, String.class, fingerprint);
-        return new Flagged(!wasFlagged, List.copyOf(merged), profile.isEmpty() ? null : profile.get(0));
+        // The tier over everything this run found and everything the alert lists, decided here so
+        // the claim below and the flag update are one decision under the row lock.
+        LayoutAlertTier tier = alertTier(reasons, merged, reports);
+        // An urgent alert the layout has not yet had since it was last flagged. For a flag just
+        // raised that is always true, and the alert goes out as it always has; for a layout that
+        // was already flagged it is the alert a worse result used to fail to send. `now` is the
+        // same instant review_flagged_at was given, so the two compare without clock skew.
+        boolean escalated = false;
+        if (tier != LayoutAlertTier.DIGEST) {
+            escalated = jdbc.update("""
+                    UPDATE layout_registry SET last_immediate_alert_at = ?
+                    WHERE fingerprint = ?
+                      AND (last_immediate_alert_at IS NULL OR last_immediate_alert_at < review_flagged_at)
+                    """, now, fingerprint) > 0;
+        }
+        return new Flagged(!wasFlagged, escalated && wasFlagged, List.copyOf(merged),
+                profile.isEmpty() ? null : profile.get(0), tier);
     }
 }

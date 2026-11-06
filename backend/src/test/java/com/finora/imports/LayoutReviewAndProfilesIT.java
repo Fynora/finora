@@ -210,14 +210,52 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         verify(alertService, after(500).never()).alertLayoutNeedsReview(eq(headerless), any(), any(), any(), any(), any());
     }
 
+    /** The case that used to send nothing: flagged for something small, then a failed check. */
     @Test
-    void aSecondReasonWhileStillFlaggedIsAddedWithoutASecondAlert() {
+    void aWorseResultOnAnAlreadyFlaggedLayoutSendsOneUrgentAlert_andNoMore() {
         String fp = fingerprint();
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-9", null);
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-10", null);
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-10B", null);
 
         assertThat(layout(fp).getReviewReasons()).containsExactly("NEW_LAYOUT", "VERIFICATION_NOT_PASSED:SOME_RULE");
-        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp), eq(List.of("NEW_LAYOUT")),
+                eq("SA-TEST-9"), any(), any(), eq(LayoutAlertTier.DIGEST));
+        verify(alertService, timeout(5000).times(1)).alertLayoutNeedsReview(eq(fp),
+                eq(List.of("NEW_LAYOUT", "VERIFICATION_NOT_PASSED:SOME_RULE")), eq("SA-TEST-10"), any(), any(),
+                eq(LayoutAlertTier.IMMEDIATE));
+        // Two alerts in all: the third upload is urgent too, but the layout has had its urgent alert.
+        verify(alertService, after(500).times(2)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void anUrgentFirstAlertIsNotRepeatedByALaterUrgentRun() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-40", new IllegalStateException("parser broke"));
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("FAILED"), "SA-TEST-41", null);
+
+        verify(alertService, after(500).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aFlagRaisedAgainAfterBeingResolvedGetsItsOwnUrgentAlert() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-TEST-50", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        // A resolved reason stays resolved, so the flag is raised again by a different one.
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-TEST-51", null);
+
+        verify(alertService, timeout(5000).times(2)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(),
+                eq(LayoutAlertTier.IMMEDIATE));
+    }
+
+    @Test
+    void aRoutineRunOnAnAlreadyFlaggedLayoutSendsNothing() {
+        String fp = fingerprint();
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-60", null);
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-61", null, true);
+
+        verify(alertService, after(500).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
     }
 
     // ------------------------------------------------------------------ reason sources (V270)

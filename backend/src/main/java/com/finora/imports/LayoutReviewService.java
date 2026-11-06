@@ -229,6 +229,15 @@ public class LayoutReviewService {
     static String reorderClause(Object hypothesis) {
         if (!(hypothesis instanceof Map<?, ?> found) || !(found.get("windows") instanceof List<?> windows)) return "";
         StringBuilder clause = new StringBuilder();
+        boolean anyReconciles = false;
+        for (Object element : windows) {
+            if (element instanceof Map<?, ?> w && Boolean.TRUE.equals(w.get("reconciles"))) anyReconciles = true;
+        }
+        // A tried-and-failed result is worth one line too: it rules re-ordering out from a phone.
+        if (!anyReconciles) {
+            return Boolean.TRUE.equals(found.get("tested"))
+                    ? "; re-ordering the disagreeing rows does not explain it" : "";
+        }
         for (Object element : windows) {
             if (!(element instanceof Map<?, ?> window) || !Boolean.TRUE.equals(window.get("reconciles"))) continue;
             List<Integer> rows = wholeNumbers(window.get("rows"));

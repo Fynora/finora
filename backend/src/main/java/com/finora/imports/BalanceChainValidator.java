@@ -589,6 +589,12 @@ public class BalanceChainValidator {
             followOn = c;
             break;
         }
+        // A follow-on row that already disagrees for its own reasons cannot be asked to hold: every
+        // ordering would be refused on its account and the answer would read "no order works" when
+        // the truth is that this run cannot be judged.
+        if (followOn >= 0 && walk.chainIndexes().contains(followOn)) {
+            return notTested(window, "NOT_TESTED_ROW_INCOMPLETE");
+        }
 
         BigDecimal start = walk.runningBefore().get(from);
         List<int[]> orderings = new ArrayList<>();

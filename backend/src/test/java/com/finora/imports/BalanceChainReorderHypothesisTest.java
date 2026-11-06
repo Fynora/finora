@@ -279,4 +279,23 @@ class BalanceChainReorderHypothesisTest {
         // Not a benchmark: a generous ceiling that a pass over all 1700 rows per ordering would break.
         assertThat(millis).isLessThan(5_000);
     }
+
+    @Test
+    void aRunWhoseFollowOnRowAlreadyDisagreesIsNotJudged() {
+        // X and Y transposed, then a row with no printed balance, then a row that is wrong for its own
+        // reasons: asking that row to hold would refuse every ordering for the wrong cause.
+        List<StagedRow> rows = openingRun();
+        rows.add(row("2026-07-16", "X DEBIT", "50.00", "EXPENSE", "1100.00"));
+        rows.add(row("2026-07-16", "Y CREDIT", "200.00", "INCOME", "1150.00"));
+        rows.add(row("2026-07-16", "NO BALANCE", "10.00", "EXPENSE", null));
+        rows.add(row("2026-07-16", "W DEBIT", "10.00", "EXPENSE", "9999.00"));
+        rows.addAll(cleanTail(17, 9999));
+        assertThat(validator.report(rows, null).findings().get(0).outcome()).isEqualTo("WARNING");
+
+        var hypothesis = hypothesisOf(rows, null);
+
+        assertThat(windows(hypothesis).get(0)).containsEntry("rows", List.of(6, 7))
+                .containsEntry("tested", false).containsEntry("reason", "NOT_TESTED_ROW_INCOMPLETE")
+                .doesNotContainKey("reconciles");
+    }
 }

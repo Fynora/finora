@@ -224,10 +224,19 @@ class LayoutReviewServiceTest {
     }
 
     @Test
+    void reorderClause_saysSoWhenItWasTriedAndNothingReconciled() {
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", true, "windows", List.of(
+                Map.of("rows", List.of(3), "tested", true, "reconciles", false, "orderings", 0)))))
+                .isEqualTo("; re-ordering the disagreeing rows does not explain it");
+    }
+
+    @Test
     void reorderClause_isEmptyForNothingUsable_andNeverPrintsANonWholeNumber() {
         assertThat(LayoutReviewService.reorderClause(null)).isEmpty();
         assertThat(LayoutReviewService.reorderClause("x")).isEmpty();
         assertThat(LayoutReviewService.reorderClause(Map.of("tested", false, "reason", "NOT_TESTED_FAILED_VERDICT"))).isEmpty();
+        assertThat(LayoutReviewService.reorderClause(Map.of("tested", false, "windows", List.of(
+                Map.of("rows", List.of(1, 2), "tested", false, "reason", "NOT_TESTED_DIFFERENT_DAYS"))))).isEmpty();
         Map<String, Object> odd = Map.of("rows", List.of(1, new BigDecimal("91234.56")), "reconciles", true,
                 "order", List.of(1, new BigDecimal("91234.56")));
         // The amount is skipped, leaving one row against one order entry: not a pair worth printing.

@@ -316,6 +316,34 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
     }
 
+    /** The case that started this: a balance-chain warning fully explained as a same-day reorder is
+     *  acknowledged as harmless, and the same layout later FAILS the balance chain. */
+    @Test
+    void anAcknowledgedExplainedBalanceChainWarningThatLaterFailsIsAlerted() {
+        String fp = fingerprint();
+        Map<String, Object> details = Map.of("gapsCancel", true, "reorderHypothesis",
+                Map.of("tested", true, "windows", List.of(Map.of("tested", true, "reconciles", true))));
+        List<VerificationReport> explained = List.of(new VerificationReport(
+                List.of(new VerificationFinding("BALANCE_CHAIN", "WARNING", details)), false, null, null));
+        registryService.observe(fp, "PDF", null);
+
+        reviewService.onStaged(fp, "PDF", rows(3, 0), explained, "SA-ACK-40", null);
+        assertThat(layout(fp).getReviewReasons()).containsExactly("VERIFICATION_NOT_PASSED:BALANCE_CHAIN");
+        curationService.resolveReview(adminId(), fp);
+        clearInvocations(alertService);
+
+        // The same explained warning again: silent.
+        reviewService.onStaged(fp, "PDF", rows(3, 0), explained, "SA-ACK-41", null);
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+
+        // The balance chain now fails outright: the acknowledgement no longer hides it.
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("BALANCE_CHAIN", "FAILED"), "SA-ACK-42", null);
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp),
+                eq(List.of("VERIFICATION_NOT_PASSED:BALANCE_CHAIN")), eq("SA-ACK-42"), any(), any(),
+                eq(LayoutAlertTier.IMMEDIATE));
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+    }
+
     @Test
     void aLayoutResolvedBeforeThisChangeIsCoveredToo() {
         String fp = fingerprint();

@@ -304,8 +304,13 @@ public class LayoutReviewService {
         }
         if (flagged != null && (flagged.newlyRaised() || flagged.escalated())) {
             try {
-                alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference, flagged.profile(),
-                        findingLines, flagged.tier());
+                if (flagged.acknowledgedRecurrence()) {
+                    alertService.alertAcknowledgedLayoutRecurred(fingerprint, flagged.reasons(), analysisReference,
+                            flagged.profile(), findingLines, flagged.tier());
+                } else {
+                    alertService.alertLayoutNeedsReview(fingerprint, flagged.reasons(), analysisReference,
+                            flagged.profile(), findingLines, flagged.tier());
+                }
                 alertMetrics.sent(flagged.tier().name(), !flagged.newlyRaised());
             } catch (RuntimeException e) {
                 log.warn("Could not send the layout review alert for {}.", fingerprint, e);
@@ -327,7 +332,7 @@ public class LayoutReviewService {
     /** What the flag became, whether this call is the one that raised it, and the profile the
      *  layout sits in ("Kotak Mahindra Bank — Credit Card v2"), or null. */
     record Flagged(boolean newlyRaised, boolean escalated, List<String> reasons, String profile,
-                   LayoutAlertTier tier) {}
+                   LayoutAlertTier tier, boolean acknowledgedRecurrence) {}
 
     private Flagged recordInTransaction(String fingerprint, String sourceFormat, Set<String> reasons,
                                         String analysisReference, LayoutIdentity identity,
@@ -367,7 +372,7 @@ public class LayoutReviewService {
 
         List<String> fresh = new ArrayList<>();
         for (String r : reasons) if (!acknowledged.contains(r)) fresh.add(r);
-        if (fresh.isEmpty()) return null;
+        if (fresh.isEmpty()) return acknowledgedRecurrence(fingerprint, reasons, reports, now);
 
         Set<String> alreadyFlagged = wasFlagged
                 ? new TreeSet<>(RegisteredLayout.reasonsOf((String) current.get("review_reasons")))
@@ -412,6 +417,30 @@ public class LayoutReviewService {
                     """, now, fingerprint) > 0;
         }
         return new Flagged(!wasFlagged, escalated && wasFlagged, List.copyOf(merged),
-                profile.isEmpty() ? null : profile.get(0), tier);
+                profile.isEmpty() ? null : profile.get(0), tier, false);
+    }
+
+    /**
+     * Every reason of this run was acknowledged earlier, so nothing is flagged. If the run is still
+     * not explained as harmless, the layout gets one urgent alert per acknowledgement: the claim
+     * below succeeds only while no urgent alert has been sent since the last flag, and resolving
+     * the review clears it again. The flag itself is left as it is. Called under the row lock.
+     */
+    private Flagged acknowledgedRecurrence(String fingerprint, Set<String> reasons,
+                                           List<VerificationReport> reports, OffsetDateTime now) {
+        LayoutAlertTier tier = LayoutAlertTier.of(reasons, reports);
+        if (tier == LayoutAlertTier.DIGEST) return null;
+        boolean claimed = jdbc.update("""
+                UPDATE layout_registry SET last_immediate_alert_at = ?
+                WHERE fingerprint = ?
+                  AND (last_immediate_alert_at IS NULL
+                       OR (review_flagged_at IS NOT NULL AND last_immediate_alert_at < review_flagged_at))
+                """, now, fingerprint) > 0;
+        if (!claimed) return null;
+        List<String> profile = jdbc.queryForList("""
+                SELECT p.name || ' v' || r.profile_version FROM layout_registry r
+                JOIN layout_profile p ON p.id = r.profile_id WHERE r.fingerprint = ?
+                """, String.class, fingerprint);
+        return new Flagged(false, true, List.copyOf(reasons), profile.isEmpty() ? null : profile.get(0), tier, true);
     }
 }

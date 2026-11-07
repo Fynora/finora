@@ -172,6 +172,9 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("WARNING"), "SA-TEST-7", null);
         assertThat(layout(fp).isNeedsReview()).isFalse();
         verify(alertService, after(500).never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+        // Not flagged again, but an unexplained warning is not silent: one acknowledged-recurrence alert.
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), eq("SA-TEST-7"),
+                any(), any(), eq(LayoutAlertTier.IMMEDIATE));
 
         reviewService.onStaged(fp, "PDF", rows(1, 3), report("WARNING"), "SA-TEST-8", null);
         RegisteredLayout layout = layout(fp);
@@ -256,6 +259,105 @@ class LayoutReviewAndProfilesIT extends AbstractIntegrationTest {
         reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-TEST-61", null, true);
 
         verify(alertService, after(500).times(1)).alertLayoutNeedsReview(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    // ------------------------------------------------ acknowledged reasons that come back worse
+
+    @Test
+    void anAcknowledgedReasonThatComesBackUrgentIsAlertedOncePerAcknowledgement() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-1", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-2", new IllegalStateException("parser broke"));
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-3", new IllegalStateException("parser broke"));
+
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp),
+                eq(List.of("STAGING_FAILED")), eq("SA-ACK-2"), any(), any(), eq(LayoutAlertTier.IMMEDIATE));
+        verify(alertService, after(500).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), any(), any(), any(), any());
+
+        // Acknowledging again opens a new window.
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-ACK-4", null);
+        curationService.resolveReview(adminId(), fp);
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-5", new IllegalStateException("parser broke"));
+
+        verify(alertService, timeout(5000).times(2)).alertAcknowledgedLayoutRecurred(eq(fp), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void anAcknowledgedReasonThatComesBackRoutineStaysSilent() {
+        String fp = fingerprint();
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-ACK-10", null); // NEW_LAYOUT, routine
+        curationService.resolveReview(adminId(), fp);
+        clearInvocations(alertService);
+
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("VERIFIED"), "SA-ACK-11", null);
+
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+        verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+    }
+
+    /** Flagged for a new reason that has already had its urgent alert since it was flagged: an
+     *  acknowledged reason coming back adds nothing, the operator has just been told. */
+    @Test
+    void anAcknowledgedReasonOnALayoutFlaggedAndAlreadyAlertedUrgentlyStaysSilent() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-30", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        reviewService.onStaged(fp, "PDF", rows(1, 3), report("VERIFIED"), "SA-ACK-31", null); // BLANK_DESCRIPTIONS, urgent
+        clearInvocations(alertService);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-32", new IllegalStateException("parser broke"));
+
+        assertThat(layout(fp).getReviewReasons()).containsExactly("BLANK_DESCRIPTIONS");
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+        verify(alertService, never()).alertLayoutNeedsReview(anyString(), any(), any(), any(), any(), any());
+    }
+
+    /** The case that started this: a balance-chain warning fully explained as a same-day reorder is
+     *  acknowledged as harmless, and the same layout later FAILS the balance chain. */
+    @Test
+    void anAcknowledgedExplainedBalanceChainWarningThatLaterFailsIsAlerted() {
+        String fp = fingerprint();
+        Map<String, Object> details = Map.of("gapsCancel", true, "reorderHypothesis",
+                Map.of("tested", true, "windows", List.of(Map.of("tested", true, "reconciles", true))));
+        List<VerificationReport> explained = List.of(new VerificationReport(
+                List.of(new VerificationFinding("BALANCE_CHAIN", "WARNING", details)), false, null, null));
+        registryService.observe(fp, "PDF", null);
+
+        reviewService.onStaged(fp, "PDF", rows(3, 0), explained, "SA-ACK-40", null);
+        assertThat(layout(fp).getReviewReasons()).containsExactly("VERIFICATION_NOT_PASSED:BALANCE_CHAIN");
+        curationService.resolveReview(adminId(), fp);
+        clearInvocations(alertService);
+
+        // The same explained warning again: silent.
+        reviewService.onStaged(fp, "PDF", rows(3, 0), explained, "SA-ACK-41", null);
+        verify(alertService, after(500).never()).alertAcknowledgedLayoutRecurred(anyString(), any(), any(), any(), any(), any());
+
+        // The balance chain now fails outright: the acknowledgement no longer hides it.
+        reviewService.onStaged(fp, "PDF", rows(3, 0), report("BALANCE_CHAIN", "FAILED"), "SA-ACK-42", null);
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp),
+                eq(List.of("VERIFICATION_NOT_PASSED:BALANCE_CHAIN")), eq("SA-ACK-42"), any(), any(),
+                eq(LayoutAlertTier.IMMEDIATE));
+        assertThat(layout(fp).isNeedsReview()).isFalse();
+    }
+
+    @Test
+    void aLayoutResolvedBeforeThisChangeIsCoveredToo() {
+        String fp = fingerprint();
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-20", new IllegalStateException("parser broke"));
+        curationService.resolveReview(adminId(), fp);
+        // What V307 left on a layout resolved earlier: an alert time, as if one had been sent.
+        jdbc.update("UPDATE layout_registry SET last_immediate_alert_at = now() WHERE fingerprint = ?", fp);
+        // V308 clears it for every unflagged layout.
+        jdbc.update("UPDATE layout_registry SET last_immediate_alert_at = NULL WHERE NOT needs_review AND fingerprint = ?", fp);
+
+        reviewService.onStagingFailed(fp, "PDF", "SA-ACK-21", new IllegalStateException("parser broke"));
+
+        verify(alertService, timeout(5000).times(1)).alertAcknowledgedLayoutRecurred(eq(fp), any(), eq("SA-ACK-21"),
+                any(), any(), any());
     }
 
     // ------------------------------------------------------------------ reason sources (V270)

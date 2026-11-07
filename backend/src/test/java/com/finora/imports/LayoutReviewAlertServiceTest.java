@@ -64,6 +64,29 @@ class LayoutReviewAlertServiceTest {
     }
 
     @Test
+    void anAcknowledgedLayoutThatCameBackSaysSoAndIsUrgent() {
+        when(userRepository.findByPermissionNameAndAccountScope("LAYOUT_REGISTRY_MANAGE", User.SCOPE_ADMIN))
+                .thenReturn(List.of(admin("a@example.com")));
+
+        service.alertAcknowledgedLayoutRecurred("FP-1-ABCDEF12", List.of("STAGING_FAILED"), "SA-000200", null,
+                List.of(), LayoutAlertTier.IMMEDIATE);
+
+        ArgumentCaptor<EmailMessage> sent = ArgumentCaptor.forClass(EmailMessage.class);
+        verify(emailProvider).send(sent.capture());
+        assertThat(sent.getValue().subject())
+                .startsWith("[URGENT] ")
+                .contains("Acknowledged statement layout came back")
+                .contains("FP-1-ABCDEF12");
+        assertThat(sent.getValue().html())
+                .contains("already acknowledged")
+                .contains("was not flagged again")
+                .contains("The layout was recognised but staging failed")
+                .contains("SA-000200")
+                .contains("this layout is not in the review queue")
+                .doesNotContain("Open the layout review queue");
+    }
+
+    @Test
     void sendsNothingWhenNoAdminHoldsThePermission() {
         when(userRepository.findByPermissionNameAndAccountScope("LAYOUT_REGISTRY_MANAGE", User.SCOPE_ADMIN))
                 .thenReturn(List.of());

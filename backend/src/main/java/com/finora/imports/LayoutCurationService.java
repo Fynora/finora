@@ -190,6 +190,8 @@ public class LayoutCurationService {
         }
         List<String> resolvedReasons = layout.getReviewReasons();
         layout.resolveReview();
+        // Acknowledging starts a new window: the first urgent result after it is alerted once.
+        layoutRepository.clearLastImmediateAlert(fingerprint);
         audit(actingAdminId, "LAYOUT_REVIEW_RESOLVED", layout, Map.of("reasons", resolvedReasons));
         return entryOf(layout, profileNames());
     }

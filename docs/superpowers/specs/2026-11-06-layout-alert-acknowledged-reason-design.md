@@ -96,3 +96,24 @@ No new data. The alert carries reason names and the same booleans already in the
 
 1. Option A, B or C?
 2. Should the acknowledged-recurrence alert use the `[URGENT]` prefix, or a distinct one?
+
+## Implementation notes
+
+Option A shipped in #2488. Where it differs from the design above:
+
+- **Migration.** V308 clears `last_immediate_alert_at` for every layout that is not flagged, instead
+  of backfilling it. A backfill would have left layouts acknowledged before this change silent until
+  their next acknowledgement. The migration sends nothing; an alert needs a new staging run whose
+  result is urgent.
+- **Reset on resolve.** `LayoutCurationService.resolveReview` clears the column through a native
+  `@Modifying` query. The column is deliberately not mapped on the entity, so an entity save cannot
+  write a stale value over the claim made under the row lock.
+- **Metric.** No new tag. The existing `finora.layout_review.alert` counter is used with
+  `escalated=true`, because a third tag would give one meter name two tag sets.
+- **Flagged layout, acknowledged reason.** If the layout is flagged and has already had an urgent
+  alert since it was flagged, an acknowledged reason coming back is silent: the operator was just
+  told. If it has had only routine alerts, the acknowledged-recurrence alert is sent.
+- **Email.** A separate subject ("Acknowledged statement layout came back") and a link line saying
+  the layout is not in the review queue.
+
+Not established: how often this fires on real data. No query has been run.

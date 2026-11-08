@@ -388,6 +388,60 @@ class ImportJobWorkerTest {
     }
 
     /**
+     * What the held-item email shows as "Reason" is this stored text. For a no-transactions failure
+     * it must say whether the reader judged the file to be a statement, so whoever opens the email
+     * can tell a parser gap from a wrong file without opening the statement.
+     */
+    @Test
+    void aHeldFailureStoresTheTriageCountsAfterItsMessage() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND.defaultStatus(),
+                        ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND, "No transactions were found.",
+                        java.util.Map.of("recoveredLines", 107, "transactionShapedLines", 52,
+                                "looksLikeAStatement", true)));
+
+        worker.drainOnce();
+
+        assertThat(job.getStatus()).isEqualTo(ImportJob.Status.HELD_FOR_REVIEW);
+        assertThat(job.getLastError()).isEqualTo(
+                "ApiException: No transactions were found."
+                        + " [recoveredLines=107, transactionShapedLines=52, looksLikeAStatement=true]");
+    }
+
+    /**
+     * Nothing from the statement may ride along. Only the three allow-listed keys are read, and only
+     * when the value is a number or a boolean: a text value under an allow-listed key, and any other
+     * key, are left out.
+     */
+    @Test
+    void theStoredTextCarriesOnlyAllowListedNumbersAndBooleans() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND.defaultStatus(),
+                        ErrorCode.IMPORT_NO_TRANSACTIONS_FOUND, "No transactions were found.",
+                        java.util.Map.of("recoveredLines", "Salary credit 50,000.00",
+                                "transactionShapedLines", 3, "looksLikeAStatement", true,
+                                "accountNumber", "XXXX1234", "fileName", "secret.pdf")));
+
+        worker.drainOnce();
+
+        assertThat(job.getLastError())
+                .isEqualTo("ApiException: No transactions were found."
+                        + " [transactionShapedLines=3, looksLikeAStatement=true]")
+                .doesNotContain("Salary").doesNotContain("XXXX1234").doesNotContain("secret.pdf");
+    }
+
+    /** A failure with no triage counts keeps exactly the text it had before. */
+    @Test
+    void aFailureWithoutTriageCountsKeepsItsOldText() throws IOException {
+        when(importService.parseAndStageWithSession(any(), any(), any()))
+                .thenThrow(new ApiException(ErrorCode.IMPORT_NO_ACTIVITY_IN_PERIOD));
+
+        worker.drainOnce();
+
+        assertThat(job.getLastError()).startsWith("ApiException: ").doesNotContain("[");
+    }
+
+    /**
      * The wrong file: recovered lines exist (a parser sets aside every line it cannot use, so any
      * document with text has some) but none of them reads like a transaction. An invoice, a bill, a
      * résumé. The user gets the "check you uploaded the right file" message straight away; nobody is

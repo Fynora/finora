@@ -62,3 +62,30 @@ change, decided after reading how the email is built.
 ## Out of scope
 
 The trace page for failures before staging (it shows no analysis row), SMS, and the daily digest.
+
+## Implementation notes
+
+Option A was implemented in `ImportJobWorker.describe` only. Confirmed by reading the code (not run):
+
+- `describe(cause)` is what `recordFailure` stores as `lastError` (`ImportJob.recordFailure` assigns it),
+  and `HeldItemAdminAlertService.alertImportHeld` prints `getLastError()` as the email's "Reason". So
+  the counts reach the email and the admin held-import detail with no change to either.
+- `ApiException.getDetails()` is never null (an empty map when none is given).
+- The customer-facing response is built by `GlobalExceptionHandler` from the exception, not from
+  `lastError`, and is untouched.
+
+The stored text is now, for example, `ApiException: <message> [recoveredLines=N,
+transactionShapedLines=N, looksLikeAStatement=true]`. Only those three keys are read, and only
+integer, long or boolean values; anything else is left out. Three worker tests pin this.
+
+Still open, not done here:
+
+- The held-import email links to the queue (`/held-imports`), not to the job. The admin portal has no
+  per-job route in `App.tsx`, so a deep link needs a portal change.
+- The first held-import email has no Claude-fix line. The overdue email has one (`claudeFixLine`). The
+  fix starts after the hold is committed, so its status may not exist yet when the first email is sent;
+  not looked into.
+- A summary of the columns the reader found in the header (names only) would have pointed straight at
+  the 2026-11-08 cause. Not added: it needs a decision on whether header text counts as "from the
+  statement" for this email.
+- Not run: the worker tests (no Maven here); CI runs them.

@@ -804,10 +804,31 @@ public class ImportJobWorker {
         }
     }
 
+    /** The counts a curated "no transactions" failure carries about the document, as {@link
+     *  ExtractionCheck} puts them in {@code ApiException.getDetails()}. Whoever reads the held email
+     *  needs them to tell "not a statement" from "a statement the reader could not read" without
+     *  opening the file. An allow-list, and numbers or a boolean only: nothing from the statement
+     *  itself can ride along. (Spec 2026-11-08-held-import-triage-facts-design.md, option A.) */
+    private static final List<String> TRIAGE_FACT_KEYS =
+            List.of("recoveredLines", "transactionShapedLines", "looksLikeAStatement");
+
     /** Class name plus message. The class name matters as much as the text: "storage unavailable"
-     *  and "unparseable statement" need different responses from whoever reads the admin queue. */
+     *  and "unparseable statement" need different responses from whoever reads the admin queue.
+     *  For a curated failure that carries triage counts, they follow the message in brackets. This
+     *  text is stored as {@code lastError} and shown in the held-item email and the admin queue; the
+     *  customer-facing response is built elsewhere and does not use it. */
     private static String describe(Exception e) {
-        return e.getClass().getSimpleName() + ": " + e.getMessage();
+        String base = e.getClass().getSimpleName() + ": " + e.getMessage();
+        if (!(e instanceof ApiException api) || api.getDetails() == null) return base;
+        StringBuilder facts = new StringBuilder();
+        for (String key : TRIAGE_FACT_KEYS) {
+            Object value = api.getDetails().get(key);
+            if (value instanceof Integer || value instanceof Long || value instanceof Boolean) {
+                if (facts.length() > 0) facts.append(", ");
+                facts.append(key).append('=').append(value);
+            }
+        }
+        return facts.length() == 0 ? base : base + " [" + facts + "]";
     }
 
     /**

@@ -4579,8 +4579,14 @@ public class PdfTableLocator {
         List<List<PositionedText>> sample = sampleRealDataRows(
                 rows, headerIndex + wrappedHeaderLines + 1, HEADER_QUALITY_SAMPLE_SIZE);
         if (sample.size() < HEADER_QUALITY_MIN_SAMPLE) return false;
-        int explained = rowsCleanlyExplainedBy(new HeaderColumns(headerNames, headerAnchors, headerEnds), sample);
-        return explained * 2 < sample.size();
+        HeaderColumns header = new HeaderColumns(headerNames, headerAnchors, headerEnds);
+        int explained = rowsCleanlyExplainedBy(header, sample);
+        if (explained * 2 < sample.size()) return true;
+        // Rows with no date can never be counted as explained, so a statement that prints each
+        // transaction as a date line plus an amounts line caps `explained` at half the sample and sits
+        // exactly on the line above, whatever the header says. Collisions on those undated lines are the
+        // evidence that count cannot see: two of their values landing in one column.
+        return undatedCollidingRows(header, sample) >= HEADER_QUALITY_MIN_SAMPLE;
     }
 
     /** Turns an accepted header {@code row} into {@code headerNames}/{@code headerAnchors}/
@@ -4745,7 +4751,22 @@ public class PdfTableLocator {
         // actually line up with the data, silently collapsing every real row into one blob.
         int before = rowsCleanlyExplainedBy(coalescedNamesAnchorsEnds(headerRow), sample);
         int after = rowsCleanlyExplainedBy(coalescedNamesAnchorsEnds(candidate), sample);
-        if (after <= before) return null;
+        if (after < before) return null;
+        if (after == before) {
+            // No change in how many dated rows are explained. A candidate is still worth adopting when
+            // it rescues rows the accepted line cannot place -- values that collided in one column
+            // under it and land in separate columns under the candidate -- and breaks none that were
+            // clean. rowsCleanlyExplainedBy cannot see this: it only counts rows that carry a date.
+            int rescued = 0;
+            int broken = 0;
+            boolean[] collidedBefore = collidingRows(coalescedNamesAnchorsEnds(headerRow), sample);
+            boolean[] collidesAfter = collidingRows(coalescedNamesAnchorsEnds(candidate), sample);
+            for (int i = 0; i < sample.size(); i++) {
+                if (collidedBefore[i] && !collidesAfter[i]) rescued++;
+                if (!collidedBefore[i] && collidesAfter[i]) broken++;
+            }
+            if (rescued < HEADER_QUALITY_MIN_SAMPLE || broken > 0) return null;
+        }
 
         return candidate;
     }
@@ -4915,6 +4936,42 @@ public class PdfTableLocator {
             explained++;
         }
         return explained;
+    }
+
+    /** For each sampled row, whether two of its raw values land in the same column under {@code header}
+     *  -- the same collision test {@link #rowsCleanlyExplainedBy} applies, kept per row. */
+    private boolean[] collidingRows(HeaderColumns header, List<List<PositionedText>> sample) {
+        boolean[] collides = new boolean[sample.size()];
+        for (int i = 0; i < sample.size(); i++) {
+            List<PositionedText> row = sample.get(i);
+            Map<String, String> bucketed = bucketRow(row, header.names(), header.anchors(), header.ends(), null,
+                    PageDateEvidence.NONE);
+            collides[i] = bucketed.size() < nonBlankCount(row);
+        }
+        return collides;
+    }
+
+    /** How many sampled rows collide under {@code header} AND carry no parseable date in its date column
+     *  -- the rows {@link #rowsCleanlyExplainedBy} can never count, whatever the header is. */
+    private int undatedCollidingRows(HeaderColumns header, List<List<PositionedText>> sample) {
+        int dateColumn = -1;
+        for (int i = 0; i < header.names().size(); i++) {
+            if (isDateColumn(header.names().get(i))) { dateColumn = i; break; }
+        }
+        boolean[] collides = collidingRows(header, sample);
+        int count = 0;
+        for (int i = 0; i < sample.size(); i++) {
+            if (!collides[i]) continue;
+            boolean dated = false;
+            if (dateColumn >= 0) {
+                Map<String, String> bucketed = bucketRow(sample.get(i), header.names(), header.anchors(),
+                        header.ends(), null, PageDateEvidence.NONE);
+                String dateValue = bucketed.get(header.names().get(dateColumn));
+                dated = dateValue != null && CsvParser.parseDate(dateValue.trim()) != null;
+            }
+            if (!dated) count++;
+        }
+        return count;
     }
 
     private int nonBlankCount(List<PositionedText> row) {

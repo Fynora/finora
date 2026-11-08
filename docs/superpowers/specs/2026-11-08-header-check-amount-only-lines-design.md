@@ -4,9 +4,13 @@ Status: proposal, awaiting a decision from Sid. No code in this change.
 
 ## Why
 
-A real customer statement (layout `FP-1-60BDD09DF`, analysis `SA-20261108-0212`, held job
-`08e83192-1480-4cdb-8f91-83d55bea949c`) is held with `IMPORT_NO_TRANSACTIONS_FOUND`. The reader finds
-107 rows but none has a debit, credit or balance, so nothing is a transaction.
+A real customer statement (held in the admin queue on 2026-11-08; the reference is deliberately not
+written here) is held with `IMPORT_NO_TRANSACTIONS_FOUND`. The reader finds 107 rows but none has a
+debit, credit or balance, so nothing is a transaction.
+
+This document holds no value from that statement: no amount, date, balance, account detail or
+reference. Where a check compared the reader's output with figures printed on the statement, only the
+result of the comparison is given.
 
 The statement prints its header on three stacked lines and each transaction on two:
 
@@ -18,39 +22,52 @@ The statement prints its header on three stacked lines and each transaction on t
 
 ## What was measured
 
-All of this ran the real `PdfTableLocator` on the blanked trace (the held item's blanked copy), with
-four classes stubbed so it compiles without Maven: `ImportDto`, `ErrorCode`/`ApiException`, opencsv's
-`CSVReader`, `TransactionNormalizer.recognizedColumnNames()` and
-`MerchantIdentityLookup.knownEntityTerms()`. None of them is on the header or column path.
+All of this ran the real `PdfTableLocator` and `TraceFormat` on the held item's blanked copy, with five
+stand-ins so it compiles without Maven: a reduced `ImportDto` (three records), a reduced
+`ErrorCode`/`ApiException`, an empty opencsv `CSVReader`, `TransactionNormalizer` reduced to
+`recognizedColumnNames()` returning an empty set, and `MerchantIdentityLookup` returning no known
+entities. By reading the code, none of them is on the header or column path; that was not tested by
+running with the real versions. The blanked copy is not the original PDF.
 
 1. The accepted header line is line 3. `recoverMissingDescriptionColumn` adds "Particulars" from line 2
    and nothing else. Final columns: `Date)`, `Particulars`, `/Cheque No`, `Type`. No amount column.
-2. `headerQualityWeak` sampled 10 rows, `rowsCleanlyExplainedBy` returned 5, and the rule
-   `explained * 2 < sample.size()` is `10 < 10`, false. `reconstructHeader` never ran.
+2. `headerQualityWeak`, judging the 4-column header, sampled 10 rows. `rowsCleanlyExplainedBy`
+   returned 5, and the rule `explained * 2 < sample.size()` is `10 < 10`, false. `reconstructHeader`
+   never ran. (This boundary case is also why the result is fragile: 4 of 10 would have run it.)
 3. Forcing `reconstructHeader` to run, it composed a 7-column header (`Date)`, `Particulars`,
    `/Cheque No`, `Type`, `Debit( Rs)`, `Credit(Rs)`, `Balance(Rs)`) and then declined: `before=5`,
-   `after=5`.
+   `after=5`. Its `before` is scored against the accepted line alone (3 columns), not the recovered
+   4-column header the gate used.
 4. Per-row verdicts explain the tie. `rowsCleanlyExplainedBy` counts a row only if it has a parseable
    date in the date column and no collision. The three amount-only lines in the sample have no date.
-   Under the old header they collide (5 raw cells, 2 bucketed). Under the 7-column header they are
-   clean (5 raw, 5 bucketed). They are counted as not explained in both cases.
+   Under the 3-column header they collide (5 raw cells, 2 bucketed). Under the 7-column header they
+   are clean (5 raw, 5 bucketed). They are counted as not explained in both cases. No sampled row
+   went from clean to colliding under the 7-column header; two rows collide under both (the line
+   holding the narration and the amounts, and a bracketed value-date line).
 5. Forcing the 7-column header through to row output gave 106 transactions plus one footer row. Every
-   row had exactly one of debit or credit, and balance was present. Checked row against the row
-   below it, 105 of 105 balance steps agree to the paisa. The newest balance (17,982.83) equals the
-   balance printed in the statement's footer. Credits sum to 1,90,448.00, equal to the footer. Debits
-   sum to 1,81,406.81 against a footer of 1,81,406.80.
+   transaction had exactly one of debit or credit, and balance was present. Each row's balance was
+   checked against the row below it using its own debit or credit: 105 of 105 steps agree to the
+   paisa. The newest row's balance equals the available balance printed in the statement's footer,
+   and the credits sum to the footer's credit total. The debits sum is one paisa above the footer's
+   debit total.
 
 ## Not established
 
 - The one-paisa difference in total debits. Every row's own amount agrees with the balance chain, and
-  the oldest row's debit reads 500.00 in the raw text, so it is not a misread in this reader. It may be
-  how the statement itself rounds its total.
+  the oldest row's debit, which the chain cannot check, reads the same in the raw text as in the
+  output, so it is not a misread in this reader. It may be how the statement itself rounds its total.
 - Whether the downstream stages accept the forced result. The column names come out as `Date)`,
   `/Cheque No` and `Debit( Rs)`. Only the locator was run, not `TransactionNormalizer`, so it is not
   known that the normalizer recognises these as the date, reference and debit columns.
 - The footer row appears as a row with the footer text in the date column and the totals in the debit
   and credit columns. It does this today too. What the later stages do with it was not run.
 - Which of the 32 private traces would change. They were not run for this proposal.
+- How often the sample contains a colliding row on statements that are read correctly today. Option A
+  runs `reconstructHeader` whenever it does, so this decides how much more often that code runs. Not
+  measured.
+- How a held import is released after a fix ships (a retry by a person, or by the worker). Not looked
+  up. Until then the customer has no statements from this layout.
+- Whether the original PDF reads the same as the blanked copy.
 - Whether any real statement besides this one prints a date on its own line.
 
 ## Options
@@ -61,9 +78,10 @@ collide under the header being judged. Then:
 - `reconstructHeader` adopts a candidate when its explained count is higher, or when the same
   explained count holds, at least one sampled row that collided under the old header is clean under
   the candidate, and no sampled row that was clean has started to collide.
-- `headerQualityWeak` also reports weak when any sampled row collides under the current header and
-  the reconstruction below would be tried. The reconstruction already refuses anything that is not a
-  strict improvement, so trying it more often cannot adopt a worse header by itself.
+- `headerQualityWeak` also reports weak when any sampled row collides under the current header, so the
+  reconstruction is tried. The reconstruction only adopts a strict improvement under the rule above,
+  so trying it more often cannot by itself adopt a worse header. That is by reading the code; it has
+  not been run over other statements.
 - Cost: `reconstructHeader` runs for more statements (every one with a collision in the sample). It
   runs on a copy and records capabilities only when adopted.
 
@@ -90,7 +108,9 @@ A, as a change to the reader only. No schema, API or other layout change.
 3. The same statement taken through `TransactionNormalizer` and the staging path, not only the
    locator, with the transaction count and balance verification reported.
 4. Negative tests: a statement whose header is fine and whose sampled rows include narration-only
-   continuation lines must produce an identical header and rows before and after the change.
+   continuation lines must produce an identical header and rows before and after the change. Also the
+   boundary of the old rule (4, 5 and 6 explained of 10), and a document whose header repeats on
+   every page.
 5. The "Traces against public code" workflow run against the branch. All 32 existing traces pass, and
    the golden outputs are compared row by row, not by count.
 6. The full CI run for the PR (the `full-ci` label plus a push), with the jobs actually running.

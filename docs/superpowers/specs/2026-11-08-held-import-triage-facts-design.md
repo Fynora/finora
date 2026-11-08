@@ -10,14 +10,16 @@ puts `recoveredLines`, `transactionShapedLines` and `looksLikeAStatement` into t
 `details`, and `ImportJobWorker.carriesRecoveredEvidence` uses `looksLikeAStatement` to decide whether
 to hold the job at all. A person looking at the held item cannot see these facts.
 
-On 2026-11-08 this cost a long investigation. The held item showed "no transactions found" and 107
-recovered lines. That did not say that the reader had judged the file a statement, so it was unclear
+On 2026-11-08 this cost a long investigation. The held item showed "no transactions found" and a
+recovered-line count. That did not say that the reader had judged the file a statement, so it was unclear
 whether the held queue and the parse result contradicted each other.
 
 ## What was checked in the code (read, not run)
 
 - `ExtractionCheck` lines ~151-160 build the three details.
-- `ImportJobWorker` line ~593 reads `looksLikeAStatement` from `api.getDetails()`.
+- `ImportJobWorker` line ~593 reads `looksLikeAStatement` from `api.getDetails()`. Its own comment
+  says `recoveredLines` is non-zero for any document with text, so the two values that mean something
+  are `transactionShapedLines` and `looksLikeAStatement`; `recoveredLines` is context only.
 - `ImportJobWorker.describe(e)` returns the exception's class name plus message. This is the text kept
   for a failed job. I found no place that stores the `details` map itself.
 - `HeldImportDto.Detail` carries `lastError`; the row form withholds it on purpose.

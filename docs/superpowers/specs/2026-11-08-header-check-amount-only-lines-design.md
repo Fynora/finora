@@ -119,3 +119,28 @@ A, as a change to the reader only. No schema, API or other layout change.
 
 Releasing the held import, the one-paisa debit difference, the footer row handling, and the
 "Date(Value"/"Transaction" tier above the header.
+
+## Implementation notes
+
+Option A was implemented in `PdfTableLocator` only (no schema, API or other-class change):
+
+- `headerQualityWeak` also reports weak when at least `HEADER_QUALITY_MIN_SAMPLE` (2) sampled rows
+  collide under the current header and carry no parseable date (`undatedCollidingRows`).
+- `reconstructHeader` still declines when the candidate explains fewer dated rows. On a tie it now
+  adopts the candidate when at least 2 sampled rows collide under the accepted line and are clean
+  under the candidate, and none that were clean now collide (`collidingRows`).
+
+Measured, with the same stand-ins as above (the real `PdfTableLocator`, no Maven):
+
+- On the held item's blanked copy, run unforced: 7 columns, 106 transactions plus the footer row, one
+  of debit or credit on every transaction, 105 of 105 balance steps agree. This equals the forced run.
+- Old and new locator run over all 32 traces in `Fynora/finora-statement-traces`: every section's
+  rows, auxiliary text and capability list identical, no exceptions. 2,048 rows were compared; two of
+  the 32 traces produced no rows in this harness, so they were not exercised by it.
+- A synthetic three-line-header fixture fails on the old locator and passes on the new one. The
+  rescue works from 2 transactions and does not apply to a table of 1 (deliberate: one colliding
+  line is not enough evidence). That limit is pinned by a test.
+
+Not run: the JUnit suite, `TransactionNormalizer` and the staging path, the "Traces against public
+code" workflow, and the blanked copy as a 33rd test in the private repository. The new test class
+was checked by mirroring its assertions, not by running JUnit.

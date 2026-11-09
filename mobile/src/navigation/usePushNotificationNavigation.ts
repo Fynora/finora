@@ -58,7 +58,11 @@ type PushRoute = 'Settings' | 'Statements' | 'Import';
 
 const TYPE_ROUTE: Record<string, PushRoute> = {
   PASSWORD_CHANGED: 'Settings',
-  IMPORT_STATEMENT_READY: 'Statements',
+  // "Your statement is ready to review": the review opens from the Import tab's list of statements
+  // waiting to be confirmed. Statements deliberately leaves such a statement out of its recent
+  // imports (listedRecentImports drops a COMPLETED job until its review expires), so a customer sent
+  // there on 2026-11-09 found nothing to review.
+  IMPORT_STATEMENT_READY: 'Import',
   IMPORT_STATEMENT_HELD: 'Statements',
   IMPORT_STATEMENT_RESOLVED: 'Statements',
   IMPORT_STATEMENT_REJECTED: 'Statements',

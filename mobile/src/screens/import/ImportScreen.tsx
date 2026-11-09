@@ -277,6 +277,17 @@ export function ImportScreen() {
     retry: false,
   });
   const recentFailures = failuresQ.data ?? [];
+
+  // Both lists are asked for again every time this tab comes into view. A tab stays mounted when the
+  // user switches away, and a query re-asks on its own only when the app returns from the background,
+  // so a statement that became ready while the app was open never appeared: a customer on 2026-11-09
+  // was told their statement was ready, opened Import, and saw only an old failed attempt. A tapped
+  // "Statement ready" notification lands here too (usePushNotificationNavigation), so it opens on a
+  // fresh list. May repeat the mount's own first fetch once; both are small reads.
+  useEffect(() => navigation.addListener('focus', () => {
+    void queryClient.invalidateQueries({ queryKey: ['import-sessions'] });
+    void queryClient.invalidateQueries({ queryKey: ['import-failures'] });
+  }), [navigation, queryClient]);
   // Expired sessions are filtered client-side too, not just server-side: this list is fetched once,
   // so leaving the screen open is enough for a row to go stale, and offering a resume the server
   // would refuse is worse than not offering it.

@@ -124,5 +124,11 @@ env:
 - tapOn:
     text: "Import [1-9]\\d* transactions?"
 
-- assertVisible: "Import complete"
+# The summary step's headline is "Imported N transaction(s)" (ImportScreen.tsx, the `header` Text for
+# step === 'summary'), not a fixed "Import complete" -- the Import redesign replaced that headline.
+# On 2026-11-09 the nightly's import flow failed here on both attempts although the backend had
+# accepted the confirm and the saved view hierarchy showed "Imported 3 transactions" (the failure
+# screenshots were solid black, a capture artifact, not the app).
+- assertVisible:
+    text: "Imported [1-9]\\d* transactions?"
 - assertVisible: "Import another"

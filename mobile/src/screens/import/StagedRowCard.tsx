@@ -56,6 +56,9 @@ interface Props {
   /** The verification panel says this row's description may have picked up text from elsewhere on
    *  the page. The description is then shown in full: reading it is the whole point of the mark. */
   descriptionFlagged?: boolean;
+  /** This row's balance disagreed only because same-day rows are listed out of the bank's order
+   *  (spec 2026-11-09). Marked so the panel can point at it, but neutral: the row is right. */
+  sameDayOrderFlagged?: boolean;
   /** `'unresolved'` while the engine's question is outstanding. Rows never questioned are
    *  `'import'` from the start and render no review block at all. */
   decision: DuplicateDecision;
@@ -74,6 +77,7 @@ function StagedRowCardInner({
   onPressCategory,
   balanceFlagged = false,
   descriptionFlagged = false,
+  sameDayOrderFlagged = false,
   decision,
   onDecide,
   similarUnresolved,
@@ -175,6 +179,11 @@ function StagedRowCardInner({
         {descriptionFlagged ? (
           <Text style={[styles.badge, { color: c.warningInk, backgroundColor: c.warningBg }]}>
             {ROW_FLAG_LABEL.description}
+          </Text>
+        ) : null}
+        {sameDayOrderFlagged ? (
+          <Text style={[styles.badge, { color: c.muted, backgroundColor: c.bg /* glass-exempt: badge inside a glass card, same as International */ }]}>
+            {ROW_FLAG_LABEL.sameDayOrder}
           </Text>
         ) : null}
 

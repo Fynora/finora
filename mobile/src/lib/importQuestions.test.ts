@@ -3,6 +3,7 @@ import {
   categoryGuessCount, fileIntoCollapsed, importBarMessage, questionRows, undismissedFlagCount,
 } from './importQuestions';
 import type { DuplicateDecision } from './importReview';
+import { flaggedRows } from '../components/verificationFlags';
 import type { StagedRow } from '../types';
 
 function row(over: Partial<StagedRow> = {}): StagedRow {
@@ -130,5 +131,36 @@ describe('importBarMessage', () => {
     for (const s of states) {
       expect([s, importBarMessage(s, 0)?.kind === 'blocked']).toEqual([s, !canConfirmImport(s)]);
     }
+  });
+});
+
+// Spec 2026-11-09: rows whose balance disagreed only through same-day order are not rows to check.
+// Built through the real flaggedRows, so this proves the whole path from the server's flag.
+describe('same-day order rows', () => {
+  const sameDayReport = (sameDayOrderOnly: boolean) => ({
+    headerReconstructionUncertain: false, textSource: 'NATIVE_PDF' as const, reliabilityStatus: null,
+    findings: [{
+      rule: 'BALANCE_CHAIN', outcome: 'WARNING' as const,
+      details: {
+        rowsChecked: 3, discrepancies: [{ displayIndex: 0 }, { displayIndex: 1 }],
+        ...(sameDayOrderOnly ? { sameDayOrderOnly: true } : {}),
+      },
+    }],
+  });
+  const rows = [row(), row(), row()];
+  const decisions: DuplicateDecision[] = ['import', 'import', 'import'];
+
+  it('are neither questions nor counted as rows to check', () => {
+    const flagged = flaggedRows(sameDayReport(true) as never, rows.length);
+
+    expect(questionRows(rows, decisions, flagged, new Set())).toEqual([]);
+    expect(undismissedFlagCount(flagged, new Set())).toBe(0);
+  });
+
+  it('while the same rows without the flag still are', () => {
+    const flagged = flaggedRows(sameDayReport(false) as never, rows.length);
+
+    expect(questionRows(rows, decisions, flagged, new Set())).toEqual([0, 1]);
+    expect(undismissedFlagCount(flagged, new Set())).toBe(2);
   });
 });

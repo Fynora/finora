@@ -2684,6 +2684,11 @@ function TransactionPreviewTable({
                 {flagged.balance?.includes(i) && (
                   <span className="text-2xs uppercase ml-1 text-warning">{ROW_FLAG_LABEL.balance}</span>
                 )}
+                {/* Same-day order (spec 2026-11-09): marked so the panel can point at it, but muted --
+                    the row's amount and balance are right. */}
+                {flagged.sameDayOrder?.includes(i) && (
+                  <span className="text-2xs uppercase ml-1 text-muted">{ROW_FLAG_LABEL.sameDayOrder}</span>
+                )}
                 {flagged.description?.includes(i) && (
                   <span className="text-2xs uppercase ml-1 text-warning">{ROW_FLAG_LABEL.description}</span>
                 )}

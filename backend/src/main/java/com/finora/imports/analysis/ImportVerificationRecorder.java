@@ -147,9 +147,10 @@ public class ImportVerificationRecorder {
     /**
      * Yes/no facts about a finding as a whole, kept only when the value really is a boolean.
      * {@code gapsCancel} says BALANCE_CHAIN's gaps sum to nothing -- a relation between the gaps,
-     * which says nothing about the size of any of them.
+     * which says nothing about the size of any of them. {@code sameDayOrderOnly} says the warning is
+     * wholly explained by rows listed out of the bank's order (BalanceChainValidator.explainedBySameDayOrder).
      */
-    private static final Set<String> FLAG_KEYS = Set.of("gapsCancel");
+    private static final Set<String> FLAG_KEYS = Set.of("gapsCancel", "sameDayOrderOnly");
 
     /**
      * BALANCE_CHAIN's answer to "would re-ordering a few rows make this reconcile": row positions and

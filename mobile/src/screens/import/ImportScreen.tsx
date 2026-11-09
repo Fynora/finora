@@ -1697,6 +1697,7 @@ export function ImportScreen() {
       onPressCategory={() => setCategoryPickerFor(index)}
       balanceFlagged={flagged.balance?.includes(index) ?? false}
       descriptionFlagged={flagged.description?.includes(index) ?? false}
+      sameDayOrderFlagged={flagged.sameDayOrder?.includes(index) ?? false}
       decision={review.decisions[index]}
       onDecide={(d: DuplicateDecision) => setReview((prev) => decide(rows, prev, index, d))}
       similarUnresolved={similarUnresolved[index] ?? 0}

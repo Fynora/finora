@@ -1064,4 +1064,51 @@ describe('VerificationPanel', () => {
       expect(container.textContent).not.toMatch(/undefined|NaN|null/);
     });
   });
+  // Spec 2026-11-09: a balance warning the server found wholly explained by same-day order.
+  describe('same-day order', () => {
+    const sameDayReport = (sameDayOrderOnly: boolean): VerificationReport => ({
+      findings: [{
+        rule: 'BALANCE_CHAIN', outcome: 'WARNING',
+        details: {
+          rowsChecked: 1691, rowsWithBalance: 1692, anchoredOnOpeningBalance: false, gapsCancel: true,
+          ...(sameDayOrderOnly ? { sameDayOrderOnly: true } : {}),
+          discrepancies: [
+            { rowIndex: 256, displayIndex: 256, expectedBalance: 1000, actualBalance: 1200, difference: 200 },
+            { rowIndex: 257, displayIndex: 257, expectedBalance: 1350, actualBalance: 1150, difference: -150 },
+            { rowIndex: 258, displayIndex: 258, expectedBalance: 1040, actualBalance: 990, difference: -50 },
+          ],
+        },
+      }],
+      headerReconstructionUncertain: false, textSource: null,
+      reliabilityStatus: sameDayOrderOnly ? 'CLEAN' : 'REVIEW_RECOMMENDED',
+    });
+
+    it('says plainly that only the order differs, in muted text, with no table of differences', async () => {
+      const report = sameDayReport(true);
+      const user = userEvent.setup();
+      render(<VerificationPanel verification={report} flagged={flaggedRows(report, 1692)} />);
+      expect(screen.getByText('Imported successfully')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+
+      expect(screen.getByText('· same-day order')).toHaveClass('text-muted');
+      expect(screen.queryByText(/needs review/)).not.toBeInTheDocument();
+      expect(screen.getByText(/listed in a different order from the one your bank applied them/)).toBeInTheDocument();
+      expect(screen.getByText(/nothing is missing or wrong/)).toBeInTheDocument();
+      expect(screen.queryByText('Expected balance')).not.toBeInTheDocument();
+      expect(screen.queryByText('Difference')).not.toBeInTheDocument();
+      expect(screen.getByText('Those rows are marked "Same-day order" in the list below.')).toBeInTheDocument();
+      expect(screen.queryByText(/Balance didn't match/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the full warning and table when the server did not say same-day order', async () => {
+      const report = sameDayReport(false);
+      const user = userEvent.setup();
+      render(<VerificationPanel verification={report} flagged={flaggedRows(report, 1692)} />);
+      await user.click(screen.getByRole('button', { name: /Statement verification/ }));
+
+      expect(screen.getByText(/needs review/)).toBeInTheDocument();
+      expect(screen.getByText('Expected balance')).toBeInTheDocument();
+      expect(screen.queryByText(/listed in a different order/)).not.toBeInTheDocument();
+    });
+  });
 });

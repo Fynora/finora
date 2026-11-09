@@ -1092,6 +1092,22 @@ describe('Import — rows a verification finding points at are marked in the rev
     expect(within(listRow('ROW 021')).queryByText(/match|check/i)).not.toBeInTheDocument();
   });
 
+  // Spec 2026-11-09: rows that disagree only because same-day rows are listed out of the bank's
+  // order get a muted "Same-day order" mark, never the amber balance mark.
+  it('marks a same-day order row muted, and never as a balance that did not match', async () => {
+    const report = verification([{ rowIndex: 2, displayIndex: 2, ...amounts }], []);
+    report.findings[0].details = { ...report.findings[0].details, sameDayOrderOnly: true } as never;
+    stage(report);
+    const user = userEvent.setup();
+    renderImport();
+    await pickAndUploadPdf(user);
+    await screen.findByText('ROW 001');
+
+    const mark = within(listRow('ROW 003')).getByText('Same-day order');
+    expect(mark).toHaveClass('text-muted');
+    expect(screen.queryByText(BALANCE)).not.toBeInTheDocument();
+  });
+
   it('marks nothing and names no row for a report that only has rowIndex', async () => {
     // A review staged before the backend sent displayIndex, opened again after this build.
     stage(verification(

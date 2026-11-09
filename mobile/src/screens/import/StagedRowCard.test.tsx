@@ -217,6 +217,14 @@ describe('StagedRowCard — rows the verification panel points at', () => {
     expect(screen.getByText(long).props.numberOfLines).toBeUndefined();
   });
 
+  // Spec 2026-11-09: a neutral mark for a row whose balance disagreed only through same-day order.
+  it('marks a same-day order row neutrally, never as a balance that did not match', () => {
+    renderCard({ ...plain, sameDayOrderFlagged: true });
+
+    expect(screen.getByText('Same-day order')).toBeTruthy();
+    expect(screen.queryByText("Balance didn't match")).toBeNull();
+  });
+
   it('carries both marks, beside a duplicate question', () => {
     renderCard({ balanceFlagged: true, descriptionFlagged: true });
 

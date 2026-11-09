@@ -807,4 +807,46 @@ describe('VerificationPanel', () => {
       expect(screen.queryByText(/undefined|NaN|null/)).toBeNull();
     });
   });
+  // Spec 2026-11-09: a balance warning the server found wholly explained by same-day order.
+  describe('same-day order', () => {
+    const sameDay = (sameDayOrderOnly: boolean) => report({
+      reliabilityStatus: sameDayOrderOnly ? 'CLEAN' : 'REVIEW_RECOMMENDED',
+      findings: [finding({
+        outcome: 'WARNING',
+        details: {
+          rowsChecked: 1691, rowsWithBalance: 1692, anchoredOnOpeningBalance: false, gapsCancel: true,
+          ...(sameDayOrderOnly ? { sameDayOrderOnly: true } : {}),
+          discrepancies: [
+            { rowIndex: 256, displayIndex: 256, expectedBalance: 1000, actualBalance: 1200, difference: 200 },
+            { rowIndex: 257, displayIndex: 257, expectedBalance: 1350, actualBalance: 1150, difference: -150 },
+            { rowIndex: 258, displayIndex: 258, expectedBalance: 1040, actualBalance: 990, difference: -50 },
+          ],
+        },
+      })],
+    });
+
+    it('says plainly that only the order differs, and points at the muted marks', () => {
+      const r = sameDay(true);
+      render(<VerificationPanel verification={r} flagged={flaggedRows(r, 1692)} />);
+      expect(screen.getByText('Imported successfully')).toBeTruthy();
+
+      fireEvent.press(screen.getByText('Statement verification'));
+
+      expect(screen.getByText(/Running balance.*same-day order/)).toBeTruthy();
+      expect(screen.queryByText(/needs review/)).toBeNull();
+      expect(screen.getByText(/listed in a different order from the one your bank applied them/)).toBeTruthy();
+      expect(screen.queryByText(/didn't match/)).toBeNull();
+      expect(screen.getByText('Those rows are marked "Same-day order" in the list below.')).toBeTruthy();
+    });
+
+    it('keeps the full warning when the server did not say same-day order', () => {
+      const r = sameDay(false);
+      render(<VerificationPanel verification={r} flagged={flaggedRows(r, 1692)} />);
+
+      fireEvent.press(screen.getByText('Statement verification'));
+
+      expect(screen.getByText(/3 rows didn't match/)).toBeTruthy();
+      expect(screen.queryByText(/listed in a different order/)).toBeNull();
+    });
+  });
 });

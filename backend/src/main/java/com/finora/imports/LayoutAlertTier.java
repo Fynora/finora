@@ -58,17 +58,9 @@ public enum LayoutAlertTier {
         return DIGEST;
     }
 
+    /** One rule for "this warning is only same-day order", shared with the finding itself and so with
+     *  what the customer is shown. */
     private static boolean explained(String outcome, Map<String, Object> details) {
-        if (!"WARNING".equals(outcome) || details == null) return false;
-        if (!Boolean.TRUE.equals(details.get("gapsCancel"))) return false;
-        if (!(details.get("reorderHypothesis") instanceof Map<?, ?> hypothesis)) return false;
-        if (!Boolean.TRUE.equals(hypothesis.get("tested"))) return false;
-        if (Boolean.TRUE.equals(hypothesis.get("moreWindowsNotTested"))) return false;
-        if (!(hypothesis.get("windows") instanceof List<?> windows) || windows.isEmpty()) return false;
-        for (Object element : windows) {
-            if (!(element instanceof Map<?, ?> window)) return false;
-            if (!Boolean.TRUE.equals(window.get("tested")) || !Boolean.TRUE.equals(window.get("reconciles"))) return false;
-        }
-        return true;
+        return BalanceChainValidator.explainedBySameDayOrder(outcome, details);
     }
 }

@@ -8,7 +8,7 @@ import {
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { SuspendDialog } from '../components/SuspendDialog';
+import { SuspendDialog, SUSPENSION_REASONS } from '../components/SuspendDialog';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminAuditApi, adminRolesApi, adminUsersApi, type SuspensionReason } from '../api/endpoints';
 import { STATUS_LABELS, promptReactivationReason } from './Users';
@@ -139,6 +139,16 @@ function UserDetailContent({ id }: { id: string }) {
                 <ShieldBan size={15} /> Suspend account
               </button>
             )}
+            {canModify && user.status === 'SUSPENDED' && (
+              <button
+                type="button"
+                disabled={suspendMutation.isPending}
+                onClick={() => setConfirmSuspend(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-ink border border-border hover:bg-bg rounded-lg px-3.5 py-2"
+              >
+                <Pencil size={14} /> {user.suspensionReason ? 'Change reason' : 'Record reason'}
+              </button>
+            )}
             {/* Covers both admin-SUSPENDED and self-service DEACTIVATED -- see Users.tsx's
                 Actions column for the same widened check and why. */}
             {canModify && (user.status === 'SUSPENDED' || user.status === 'DEACTIVATED') && (
@@ -171,6 +181,24 @@ function UserDetailContent({ id }: { id: string }) {
             <div className="flex items-center gap-2 text-muted"><Phone size={14} /> {user.phoneNumber ?? '—'} {user.phoneVerified ? '(verified)' : '(unverified)'}</div>
             <div className="flex items-center gap-2 text-muted"><Calendar size={14} /> Joined {new Date(user.createdAt).toLocaleDateString()}</div>
             <div className="flex items-center gap-2 text-muted">Roles: {user.roleNames.join(', ')}</div>
+          </div>
+        )}
+
+        {/* Privacy workstream 10: what the customer was told. */}
+        {user.status === 'SUSPENDED' && (
+          <div className="mt-4 rounded-lg bg-danger-bg p-3 text-sm text-ink" data-testid="suspension-details">
+            {user.suspensionReason ? (
+              <p>
+                <span className="font-semibold">Suspended for: </span>
+                {SUSPENSION_REASONS.find((r) => r.value === user.suspensionReason)?.label ?? user.suspensionReason}
+                {user.suspendedAt && ` since ${new Date(user.suspendedAt).toLocaleDateString()}`}
+              </p>
+            ) : (
+              <p className="font-semibold">
+                No reason recorded. The customer has not been told why. Record one to send them the notice.
+              </p>
+            )}
+            {user.suspensionMessage && <p className="mt-1">Message to the customer: {user.suspensionMessage}</p>}
           </div>
         )}
 
@@ -291,6 +319,9 @@ function UserDetailContent({ id }: { id: string }) {
       {confirmSuspend && (
         <SuspendDialog
           name={user.fullName}
+          alreadySuspended={user.status === 'SUSPENDED'}
+          initialReason={user.suspensionReason}
+          initialMessage={user.suspensionMessage}
           onConfirm={(reason, message) => { setConfirmSuspend(false); suspendMutation.mutate({ reason, message }); }}
           onCancel={() => setConfirmSuspend(false)}
         />

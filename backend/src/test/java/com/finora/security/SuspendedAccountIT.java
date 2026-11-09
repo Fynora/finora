@@ -150,6 +150,75 @@ class SuspendedAccountIT extends AbstractIntegrationTest {
         assertThat(json(elsewhere).get("errorCode").asText()).isEqualTo("AUTH_018");
     }
 
+    /** Signing in again ends the previous suspended-screen session, and lifting the suspension ends
+     *  the last one: none is left to show as an active session afterwards. */
+    @Test
+    void suspendedScreenSessions_doNotPileUp_andEndWhenTheSuspensionIsLifted() throws Exception {
+        User user = customer(User.SCOPE_USER);
+        adminUserService.suspend(user.getId(), adminId, SuspensionReason.TERMS_VIOLATION, null);
+
+        String first = json(signIn(user, "USER")).at("/details/suspendedAccessToken").asText();
+        String second = json(signIn(user, "USER")).at("/details/suspendedAccessToken").asText();
+
+        assertThat(refreshTokens.findAll()).filteredOn(t -> t.getUserId().equals(user.getId()) && t.getRevokedAt() == null)
+                .hasSize(1);
+        assertThat(call(first, HttpMethod.GET, "/api/v1/users/me/suspension", null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(call(second, HttpMethod.GET, "/api/v1/users/me/suspension", null).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        adminUserService.reactivate(user.getId(), adminId, null);
+
+        assertThat(refreshTokens.findAll()).filteredOn(t -> t.getUserId().equals(user.getId()) && t.getRevokedAt() == null)
+                .isEmpty();
+    }
+
+    /** The data download carries the suspension itself, not only the tickets. */
+    @Test
+    void theDataDownload_includesTheSuspension() throws Exception {
+        User user = customer(User.SCOPE_USER);
+        adminUserService.suspend(user.getId(), adminId, SuspensionReason.FRAUD, "Synthetic message.");
+        String token = json(signIn(user, "USER")).at("/details/suspendedAccessToken").asText();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<byte[]> export = restTemplate.exchange("/api/v1/users/me/data-export", HttpMethod.POST,
+                new HttpEntity<>("{\"currentPassword\":\"" + PASSWORD + "\"}", headers), byte[].class);
+        assertThat(export.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        String suspensionJson = null;
+        try (var zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(export.getBody()))) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                if (entry.getName().equals("suspension.json")) {
+                    suspensionJson = new String(zip.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                }
+            }
+        }
+        assertThat(suspensionJson).isNotNull();
+        JsonNode rows = mapper.readTree(suspensionJson);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("reason").asText()).isEqualTo("FRAUD");
+        assertThat(rows.get(0).get("message").asText()).isEqualTo("Synthetic message.");
+    }
+
+    /** Deleting a suspended account takes the suspension's ground and message with it. */
+    @Test
+    void deletingASuspendedAccount_clearsTheSuspension() {
+        User user = customer(User.SCOPE_USER);
+        // A real admin row: the purge records its audit against the admin who ran it.
+        User admin = customer(User.SCOPE_ADMIN);
+        adminUserService.suspend(user.getId(), admin.getId(), SuspensionReason.FRAUD, "About this person.");
+
+        adminUserService.purge(user.getId(), admin.getId());
+
+        User deleted = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(deleted.isDeleted()).isTrue();
+        assertThat(deleted.getSuspensionReason()).isNull();
+        assertThat(deleted.getSuspensionMessage()).isNull();
+        assertThat(deleted.getSuspendedAt()).isNull();
+    }
+
     @Test
     void anAppealNeedsText() {
         User user = customer(User.SCOPE_USER);

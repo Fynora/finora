@@ -16,8 +16,8 @@ import java.util.Set;
 
 /**
  * Confines a suspended account to what it may still do (privacy workstream 10): read why it was
- * suspended, appeal or ask for deletion, download its data, see whether it pays for Plus through a
- * store, and sign out. Every other endpoint answers {@link ErrorCode#AUTH_ACCOUNT_SUSPENDED}.
+ * suspended (which includes whether it pays for Plus through a store), appeal or ask for deletion,
+ * download its data, and sign out. Every other endpoint answers {@link ErrorCode#AUTH_ACCOUNT_SUSPENDED}.
  *
  * <p>Applies to every token of a suspended account, not only the one sign-in hands out on the
  * refusal ({@code AuthService.refuseSuspendedSignIn}): a token issued before the suspension is
@@ -40,7 +40,6 @@ public class SuspendedAccountInterceptor implements HandlerInterceptor {
             "GET /api/v1/users/me/suspension",
             "POST /api/v1/users/me/suspension/requests",
             "POST /api/v1/users/me/data-export",
-            "GET /api/v1/billing/subscription",
             "POST /api/v1/auth/logout");
 
     @Override

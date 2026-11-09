@@ -6,6 +6,8 @@ import { ExportDataModal } from './ExportDataModal';
 
 const OPEN = new Set<SuspensionRequest['status']>(['OPEN', 'IN_PROGRESS']);
 const MAX_TEXT = 4000;
+/** The suspended screen's token lasts 15 minutes. What is typed stays on the page. */
+const TIMED_OUT = 'This page timed out. Copy anything you typed, then go back and sign in again to send it.';
 
 function openRequest(status: SuspensionStatus | undefined, type: SuspensionRequest['type']) {
   return status?.requests.find((r) => r.type === type && OPEN.has(r.status)) ?? null;
@@ -40,7 +42,9 @@ export function SuspendedAccountScreen({ token, onClose }: { token: string; onCl
       setConfirmDeletion(false);
       setError(null);
     },
-    onError: (err: any) => setError(err.response?.data?.message ?? 'Could not send that. Please try again.'),
+    onError: (err: any) => setError(err.response?.status === 401
+      ? TIMED_OUT
+      : err.response?.data?.message ?? 'Could not send that. Please try again.'),
   });
 
   const status = statusQ.data;
@@ -66,6 +70,7 @@ export function SuspendedAccountScreen({ token, onClose }: { token: string; onCl
         <>
           <p className="text-sm text-muted mb-4">
             {since ? `Since ${since}, you can't use Fynora.` : "You can't use Fynora while your account is suspended."}
+            {' '}This page works for 15 minutes after you sign in.
           </p>
           <div className="rounded-lg bg-danger-bg p-3 mb-4">
             <p className="text-sm text-ink font-semibold">Why</p>
@@ -177,8 +182,17 @@ export function SuspendedAccountScreen({ token, onClose }: { token: string; onCl
         <ExportDataModal
           signInMethod={status.signInMethod}
           onClose={() => setShowExport(false)}
-          exportData={(password, googleIdToken, appleIdToken) =>
-            suspensionApi.exportData(token, password, googleIdToken, appleIdToken)}
+          exportData={async (password, googleIdToken, appleIdToken) => {
+            try {
+              await suspensionApi.exportData(token, password, googleIdToken, appleIdToken);
+            } catch (err: any) {
+              // The dialog shows response.data.message; an expired token says why in plain words.
+              if (err?.response?.status === 401) {
+                throw { ...err, response: { ...err.response, data: { ...err.response.data, message: TIMED_OUT } } };
+              }
+              throw err;
+            }
+          }}
         />
       )}
     </div>

@@ -239,6 +239,11 @@ public final class DataExportDto {
      *  it came from (UNKNOWN for one recorded before V302) and how (CHECKBOX or the earlier NOTICE). */
     public record TermsAcceptanceExportDto(String termsVersion, Instant acceptedAt, String channel, String method) {}
 
+    /** V309, privacy workstream 10. The account's current suspension: when it began, its ground (null
+     *  for one suspended before reasons were recorded), the ground in plain words, and the message
+     *  Fynora wrote to the customer. No row for an account that is not suspended. */
+    public record SuspensionExportDto(Instant suspendedAt, String reason, String reasonText, String message) {}
+
     /** V306. One change to a notification switch: which one, on or off, when, the app it came from
      *  (UNKNOWN for the settings already stored when the record began), the wording version the app
      *  showed (when it said), and how (SWITCH, or BACKFILL for those earlier settings). */

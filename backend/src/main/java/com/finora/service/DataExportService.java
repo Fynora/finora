@@ -855,7 +855,17 @@ public class DataExportService {
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
                 activationAnswers, insightAcknowledgements, signupSource, aiInsights, sharedPayments,
-                termsAcceptances, notificationPreferenceHistory);
+                termsAcceptances, notificationPreferenceHistory, suspensionOf(user));
+    }
+
+    /** Privacy workstream 10: a suspended customer may download their data, and the suspension is
+     *  data about them too. Empty for an account that is not suspended. */
+    static List<com.finora.dto.DataExportDto.SuspensionExportDto> suspensionOf(User user) {
+        if (!user.isSuspended()) return List.of();
+        var reason = user.getSuspensionReason();
+        return List.of(new com.finora.dto.DataExportDto.SuspensionExportDto(user.getSuspendedAt(),
+                reason == null ? null : reason.name(), reason == null ? null : reason.customerText(),
+                user.getSuspensionMessage()));
     }
 
     /**
@@ -890,6 +900,7 @@ public class DataExportService {
             writeJsonEntry(zos, "statements.json", bundle.statementSummaries());
             writeJsonEntry(zos, "gmail_connection.json", bundle.gmailConnections());
             writeJsonEntry(zos, "account_settings.json", bundle.userSettings());
+            writeJsonEntry(zos, "suspension.json", bundle.suspension());
             writeJsonEntry(zos, "workspace_settings.json", bundle.workspaceSettings());
             writeJsonEntry(zos, "subscriptions.json", bundle.subscriptions());
             writeJsonEntry(zos, "plan_changes.json", bundle.planChanges());
@@ -1044,6 +1055,7 @@ public class DataExportService {
                 new ManifestEntry("imports/", "Statement files you uploaded that Finora still holds but that are not an imported statement -- held for review, still processing, failed, cancelled, never confirmed, or since deleted -- where still retrievable. Each is named after its entry in import_jobs.json or import_sessions.json.", bundle.unimportedUploads().size()),
                 new ManifestEntry("gmail_connection.json", "Your Gmail connection status, if any (no credentials).", bundle.gmailConnections().size()),
                 new ManifestEntry("account_settings.json", "Your profile and account preferences.", null),
+                new ManifestEntry("suspension.json", "Your account's current suspension, if it is suspended: when it began, why, and our message to you.", bundle.suspension().size()),
                 new ManifestEntry("workspace_settings.json", "Your categorization workspace preferences.", null),
                 new ManifestEntry("subscriptions.json", "Your plan and subscription history.", bundle.subscriptions().size()),
                 new ManifestEntry("plan_changes.json", "Your subscription upgrade/downgrade history.", bundle.planChanges().size()),
@@ -1199,7 +1211,8 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights,
             com.finora.people.PeopleData.PeopleExport sharedPayments,
             List<com.finora.dto.DataExportDto.TermsAcceptanceExportDto> termsAcceptances,
-            List<com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto> notificationPreferenceHistory
+            List<com.finora.dto.DataExportDto.NotificationPreferenceChangeExportDto> notificationPreferenceHistory,
+            List<com.finora.dto.DataExportDto.SuspensionExportDto> suspension
     ) {}
 
     /** An {@code imports/} entry to write: just enough for {@link #writeZip} to re-fetch the row

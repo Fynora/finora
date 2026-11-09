@@ -322,7 +322,10 @@ class AuthServiceLoginTest {
             // Privacy workstream 10: still no sign-in, but a customer who proved who they are gets
             // a session confined to the suspended screen, its access token in the refusal's details
             // and its refresh token never handed out. (Until then this asserted no session at all.)
-            verify(refreshTokenService).issue(u.getId());
+            // The previous suspended-screen session ends first, so sign-ins cannot pile them up.
+            var order = org.mockito.Mockito.inOrder(refreshTokenService);
+            order.verify(refreshTokenService).revokeAllForUser(u.getId());
+            order.verify(refreshTokenService).issue(u.getId());
             assertThat(e.getDetails()).containsEntry("suspendedAccessToken", "test-access-token");
             return;
         }

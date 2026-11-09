@@ -1229,7 +1229,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances(), b.notificationPreferenceHistory());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances(), b.notificationPreferenceHistory(), b.suspension());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {

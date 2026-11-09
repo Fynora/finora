@@ -50,7 +50,13 @@ public class AdminDtos {
             /** Gate 2a: left out of the activation counts (V279). */
             boolean internalAccount,
             /** USER or ADMIN. The admin page offers the internal flag only for USER accounts. */
-            String accountScope
+            String accountScope,
+            /** Privacy workstream 10 (V309): the current suspension's ground, the message the customer
+             *  was sent, and when it began. All null unless SUSPENDED; the reason is also null on an
+             *  account suspended before V309 until an admin records one. */
+            String suspensionReason,
+            String suspensionMessage,
+            Instant suspendedAt
     ) {}
 
     /** One line of the admin Dashboard's "sign-ups by source" list (V286): {@code source} is

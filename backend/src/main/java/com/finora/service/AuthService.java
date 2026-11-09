@@ -758,6 +758,9 @@ public class AuthService {
         if (!User.SCOPE_USER.equalsIgnoreCase(user.getAccountScope())) {
             throw new ApiException(ErrorCode.AUTH_ACCOUNT_SUSPENDED);
         }
+        // At most one suspended-screen session at a time: each sign-in replaces the last, so repeated
+        // sign-ins cannot pile up sessions that stay live for the refresh token's 30 days.
+        refreshTokenService.revokeAllForUser(user.getId());
         var issued = refreshTokenService.issue(user.getId());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());

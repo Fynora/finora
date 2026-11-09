@@ -78,6 +78,9 @@ const USER: UserDetailDto = {
   transactionCount: 17,
   internalAccount: false,
   accountScope: 'USER',
+  suspensionReason: null,
+  suspensionMessage: null,
+  suspendedAt: null,
 };
 
 /**
@@ -179,6 +182,39 @@ describe('UserDetail — profile actions', () => {
 
     renderWith(['USER_VIEW', 'USER_DELETE']);
     await waitFor(() => expect(screen.getAllByRole('button', { name: /suspend/i }).length).toBeGreaterThan(0));
+  });
+
+  // Privacy workstream 10: an account suspended before reasons were recorded must be able to get
+  // one, and every suspension shows what the customer was told.
+  it('shows a suspension with no reason, and records one, sending the notice', async () => {
+    vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, status: 'SUSPENDED', suspendedAt: '2026-10-01T00:00:00Z' });
+    vi.mocked(adminUsersApi.suspend).mockResolvedValue({ ...USER, status: 'SUSPENDED' });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    expect(await screen.findByText(/No reason recorded/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /record reason/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('sends the customer the suspension notice again');
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'TERMS_VIOLATION' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and notify' }));
+
+    await waitFor(() => expect(adminUsersApi.suspend).toHaveBeenCalledWith('user-1', 'TERMS_VIOLATION', undefined));
+  });
+
+  it('shows the recorded reason and message, and offers to change them', async () => {
+    vi.mocked(adminUsersApi.get).mockResolvedValue({
+      ...USER, status: 'SUSPENDED', suspensionReason: 'FRAUD', suspensionMessage: 'Chargebacks.', suspendedAt: '2026-11-01T00:00:00Z',
+    });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    const details = await screen.findByTestId('suspension-details');
+    expect(details).toHaveTextContent('Suspended for: Fraud');
+    expect(details).toHaveTextContent('Message to the customer: Chargebacks.');
+    fireEvent.click(screen.getByRole('button', { name: /change reason/i }));
+    expect(await screen.findByLabelText('Reason')).toHaveValue('FRAUD');
+    expect(screen.getByLabelText(/Message to the customer/)).toHaveValue('Chargebacks.');
   });
 
   it('offers profile editing only with USER_UPDATE', async () => {

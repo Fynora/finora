@@ -269,6 +269,20 @@ describe('api response interceptor', () => {
     expect(error.response.data.errorCode).toBe('AUTH_018');
   });
 
+  // The suspended screen's token expires after 15 minutes; with no session in the tab, a 401 on a
+  // request that carried its own token is the screen's to explain, not a hard navigation that
+  // throws away an appeal being typed.
+  it('does not navigate away on a 401 for a request that carried its own token and no session', async () => {
+    const error = await rejectedHandler()({
+      response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },
+      config: { url: '/users/me/suspension/requests', _retried: false, headers: { Authorization: 'Bearer expired-suspended-token' } },
+    }).catch((e: any) => e);
+
+    expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(error.response.status).toBe(401);
+  });
+
   it('falls back to generic copy when there was no refresh token to explain the sign-out', async () => {
     await rejectedHandler()({
       response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },

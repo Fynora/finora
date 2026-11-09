@@ -76,7 +76,12 @@ public class AccountSuspensionService {
      *  text optional) as a support ticket, and returns the updated status. */
     @Transactional
     public SuspensionStatusDto request(UUID userId, String rawType, String text) {
-        User user = requireSuspended(userId);
+        // Locked, so two submits at once queue here and the second sees the first's ticket.
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+        if (!user.isSuspended()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "This account is not suspended.");
+        }
         SupportTicket.Category category = categoryOf(rawType);
         String trimmed = text == null ? "" : text.strip();
         if (trimmed.length() > MAX_REQUEST_TEXT_LENGTH) {

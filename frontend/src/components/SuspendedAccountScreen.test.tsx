@@ -100,6 +100,20 @@ describe('SuspendedAccountScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Your appeal is already with us.');
   });
 
+  // The token lasts 15 minutes: an appeal written slowly must not be lost when it has expired.
+  it('keeps the appeal text and explains, when the page has timed out', async () => {
+    vi.mocked(suspensionApi.status).mockResolvedValue(BASE);
+    vi.mocked(suspensionApi.raiseRequest).mockRejectedValue({ response: { status: 401, data: {} } });
+    renderScreen();
+
+    const box = await screen.findByLabelText(/why you think this is a mistake/i);
+    await userEvent.type(box, 'A long appeal.');
+    await userEvent.click(screen.getByRole('button', { name: 'Send appeal' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This page timed out.');
+    expect(box).toHaveValue('A long appeal.');
+  });
+
   it('downloads the data with the suspended token, not the app session', async () => {
     vi.mocked(suspensionApi.status).mockResolvedValue(BASE);
     vi.mocked(suspensionApi.exportData).mockResolvedValue(undefined);
@@ -111,6 +125,19 @@ describe('SuspendedAccountScreen', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /export|download/i }));
 
     await waitFor(() => expect(suspensionApi.exportData).toHaveBeenCalledWith('suspended-token', 'correct-password', null, null));
+  });
+
+  it('explains a timed-out page when the download is refused for an expired token', async () => {
+    vi.mocked(suspensionApi.status).mockResolvedValue(BASE);
+    vi.mocked(suspensionApi.exportData).mockRejectedValue({ response: { status: 401, data: { message: 'Unauthorized' } } });
+    renderScreen();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Download my data' }));
+    const dialog = await screen.findByTestId('export-data-modal');
+    await userEvent.type(within(dialog).getByLabelText(/password/i), 'correct-password');
+    await userEvent.click(within(dialog).getByRole('button', { name: /export|download/i }));
+
+    expect(await within(dialog).findByText(/This page timed out/)).toBeInTheDocument();
   });
 
   it('goes back to sign-in', async () => {

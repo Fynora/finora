@@ -12498,6 +12498,10 @@ export interface components {
             transactionCount?: number;
             internalAccount?: boolean;
             accountScope?: string;
+            suspensionReason?: string;
+            suspensionMessage?: string;
+            /** Format: date-time */
+            suspendedAt?: string;
         };
         ApiResponseListTrustedSenderDto: {
             success?: boolean;

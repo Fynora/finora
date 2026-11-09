@@ -318,13 +318,13 @@ public class ResendEmailProvider implements EmailProvider {
                 ? "<p>Message from Fynora: %s</p>".formatted(HtmlUtils.htmlEscape(message.strip())) : "";
         String storeLine = storeName != null
                 ? ("<p>Your Fynora Plus subscription is paid through %s. Fynora can't stop it, so cancel it "
-                        + "in your %s subscription settings if you don't want to be charged again.</p>")
+                        + "in %s if you don't want to be charged again.</p>")
                         .formatted(storeName, storeName)
                 : "";
         String bodyHtml = """
                 <p>We've suspended your Fynora account. %s</p>
                 %s
-                <p>While your account is suspended, you can't use Fynora. When you sign in, you can still:</p>
+                <p>While your account is suspended, you can't use Fynora. When you sign in on the Fynora website, you can still:</p>
                 <ul>
                 <li>read why it was suspended,</li>
                 <li>appeal, if you think this is a mistake,</li>
@@ -334,7 +334,11 @@ public class ResendEmailProvider implements EmailProvider {
                 <p>If you pay for Fynora Plus on our website, it won't renew. You keep it until the end of the period you've paid for.</p>
                 %s
                 """.formatted(HtmlUtils.htmlEscape(reasonText), messageLine, storeLine);
-        String html = EmailLayout.wrap("Account suspended", bodyHtml, null,
+        // The website, not "sign in" in general: the apps already in the stores show only the old
+        // "suspended" message, so the website is where these options are today.
+        String signInUrl = emailProperties.resolveBaseUrl(null) + "/auth";
+        String html = EmailLayout.wrap("Account suspended", bodyHtml,
+                new EmailLayout.CtaButton("Sign in on the website", signInUrl),
                 EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
         return EmailMessage.html(toEmail, "Your Fynora account has been suspended", html);
     }

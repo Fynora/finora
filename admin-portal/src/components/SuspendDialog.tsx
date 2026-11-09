@@ -17,20 +17,27 @@ const MAX_MESSAGE_LENGTH = 1000;
  * Both reach the customer, on the suspended screen and in the notice email, so the message field
  * says so.
  */
-export function SuspendDialog({ name, busy, onConfirm, onCancel }: {
+export function SuspendDialog({ name, busy, initialReason, initialMessage, alreadySuspended, onConfirm, onCancel }: {
   name: string;
   busy?: boolean;
+  /** The current reason and message, when changing those of an account that is already suspended. */
+  initialReason?: SuspensionReason | null;
+  initialMessage?: string | null;
+  /** Records or changes the reason of a suspended account: the customer is sent the notice again. */
+  alreadySuspended?: boolean;
   onConfirm: (reason: SuspensionReason, message: string | undefined) => void;
   onCancel: () => void;
 }) {
-  const [reason, setReason] = useState<SuspensionReason | ''>('');
-  const [message, setMessage] = useState('');
+  const [reason, setReason] = useState<SuspensionReason | ''>(initialReason ?? '');
+  const [message, setMessage] = useState(initialMessage ?? '');
 
   return (
     <ConfirmDialog
-      title={`Suspend ${name}?`}
-      message="They will be signed out and can only see why, appeal, download their data or ask for deletion until reactivated. They are emailed the reason."
-      confirmLabel="Suspend"
+      title={alreadySuspended ? `Suspension reason for ${name}` : `Suspend ${name}?`}
+      message={alreadySuspended
+        ? 'Saving a new reason or message sends the customer the suspension notice again, if their email is verified.'
+        : 'They will be signed out and can only see why, appeal, download their data or ask for deletion until reactivated. If their email is verified, they are emailed the reason.'}
+      confirmLabel={alreadySuspended ? 'Save and notify' : 'Suspend'}
       danger
       busy={busy}
       confirmDisabled={reason === ''}

@@ -15,6 +15,12 @@ import java.util.UUID;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    /** The user row, locked until the transaction ends. AccountSuspensionService takes it before
+     *  checking for an open appeal or deletion request, so a double submit cannot raise two. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") UUID id);
+
     /** The user's row, locked for the rest of the transaction. AccountService.create takes it before
      *  counting accounts against the free plan's cap: a count-then-insert let six creations at once
      *  each see room and make six accounts on a plan allowed two. Creations by one user take turns

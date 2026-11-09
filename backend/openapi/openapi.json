@@ -30521,6 +30521,16 @@
                     },
                     "accountScope": {
                         "type": "string"
+                    },
+                    "suspensionReason": {
+                        "type": "string"
+                    },
+                    "suspensionMessage": {
+                        "type": "string"
+                    },
+                    "suspendedAt": {
+                        "type": "string",
+                        "format": "date-time"
                     }
                 }
             },

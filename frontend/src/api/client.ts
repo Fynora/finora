@@ -360,6 +360,11 @@ api.interceptors.response.use(
           clearSessionAndRedirect(refreshError?.response?.data?.message);
           return Promise.reject(error);
         }
+      } else if (originalRequest.headers?.Authorization) {
+        // Privacy workstream 10. No session in this tab, but the request carried its own token: the
+        // suspended screen's calls (suspensionApi), whose token lasts 15 minutes. Its expiry is
+        // the screen's to explain; a hard navigation here would throw away an appeal mid-typing.
+        return Promise.reject(error);
       } else {
         // Bug 41. Missing a `return` here (unlike both branches of the `if` above, which return
         // immediately after calling clearSessionAndRedirect()) let execution fall through to the

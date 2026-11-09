@@ -200,7 +200,9 @@ public class AdminUserService {
                 : transactionRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds);
         return new UserDetailDto(user.getId(), user.getEmail(), user.getFullName(), user.getPhoneNumber(),
                 user.isPhoneVerified(), user.getStatus(), roleNames(user), user.getCreatedAt(),
-                user.getUpdatedAt(), accountCount, transactionCount, user.isInternalAccount(), user.getAccountScope());
+                user.getUpdatedAt(), accountCount, transactionCount, user.isInternalAccount(), user.getAccountScope(),
+                user.getSuspensionReason() == null ? null : user.getSuspensionReason().name(),
+                user.getSuspensionMessage(), user.getSuspendedAt());
     }
 
     /**
@@ -224,6 +226,11 @@ public class AdminUserService {
         }
         String customerMessage = (message == null || message.isBlank()) ? null : message.strip();
         User user = requireUser(userId);
+        if (user.isDeleted() || user.isPendingDeletion()) {
+            // Nothing left to suspend, and the notice would go to the deleted account's placeholder
+            // address (the purge replaces the email but leaves it marked verified).
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This account is deleted or being deleted.");
+        }
         if (user.isSuspended()) {
             // Already suspended: recording a different reason or message updates the notice and
             // sends it again. That is also how an account suspended before V309, with no reason
@@ -278,7 +285,14 @@ public class AdminUserService {
             auditMetadata.put("reactivatedBy", actingAdminId.toString());
             if (reason != null && !reason.isBlank()) auditMetadata.put("reason", reason);
             auditService.record(userId, "ACCOUNT_REACTIVATED_BY_ADMIN", "User", userId, auditMetadata);
-            if (wasSuspended) suspensionNotices.onSuspensionLifted(user);
+            if (wasSuspended) {
+                // The only sessions a suspended account has are the suspended screen's
+                // (AuthService.refuseSuspendedSignIn): never handed a refresh token, so unusable,
+                // but they would otherwise sit in the customer's active-sessions list for 30 days
+                // as devices they never signed in on.
+                refreshTokenService.revokeAllForUser(userId);
+                suspensionNotices.onSuspensionLifted(user);
+            }
         }
         return toSummary(user);
     }

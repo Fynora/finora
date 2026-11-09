@@ -241,6 +241,37 @@ class AdminUserServiceTest {
         verify(suspensionNotices).onSuspensionLifted(target);
     }
 
+    /** A deleted account keeps a placeholder email still marked verified: suspending it would mail
+     *  that placeholder, and there is nothing left to suspend. */
+    @Test
+    void suspend_refusesAnAccountThatIsDeletedOrBeingDeleted() {
+        for (String status : new String[]{User.STATUS_DELETED, User.STATUS_PENDING_DELETION}) {
+            User target = user(targetId, status);
+            when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+            try {
+                adminUserService.suspend(targetId, adminId, SuspensionReason.FRAUD, null);
+                throw new AssertionError("Expected suspend() to refuse a " + status + " account");
+            } catch (ApiException e) {
+                assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+            }
+        }
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(suspensionNotices);
+    }
+
+    /** The suspended screen's sessions are never handed a refresh token; lifting the suspension ends
+     *  them so they do not show in the customer's active sessions. */
+    @Test
+    void reactivate_ofASuspendedAccount_endsTheSuspendedScreensSessions() {
+        User target = user(targetId, "ACTIVE");
+        target.recordSuspension(SuspensionReason.FRAUD, null, java.time.Instant.now());
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.reactivate(targetId, adminId, null);
+
+        verify(refreshTokenService).revokeAllForUser(targetId);
+    }
+
     @Test
     void reactivate_ofASelfDeactivatedAccount_sendsNoSuspensionNotice() {
         User target = user(targetId, "DEACTIVATED");

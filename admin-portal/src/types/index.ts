@@ -29,6 +29,11 @@ export interface UserDetailDto extends UserSummaryDto {
   /** Gate 2a: left out of the activation counts. */
   internalAccount: boolean;
   accountScope: 'USER' | 'ADMIN';
+  /** Privacy workstream 10: the current suspension, all null unless SUSPENDED. The reason is also
+   *  null on an account suspended before reasons were recorded, until one is recorded. */
+  suspensionReason: 'TERMS_VIOLATION' | 'FRAUD' | 'SECURITY_RISK' | null;
+  suspensionMessage: string | null;
+  suspendedAt: string | null;
 }
 
 export interface PagedResponse<T> {

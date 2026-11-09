@@ -68,9 +68,11 @@ class SuspendedAccountInterceptorTest {
                 "POST /api/v1/users/me/account/delete",
                 "POST /api/v1/users/me/password-change/start",
                 "POST /api/v1/support/tickets",
+                // The store is in the suspension status; the subscription itself stays out of reach.
+                "GET /api/v1/billing/subscription",
                 // the right path with the wrong method is still refused
-                "POST /api/v1/billing/subscription",
-                "GET /api/v1/users/me/data-export")) {
+                "GET /api/v1/users/me/data-export",
+                "DELETE /api/v1/users/me/suspension")) {
             String[] parts = refused.split(" ", 2);
             assertThatThrownBy(() -> allows(parts[0], parts[1])).as(refused)
                     .isInstanceOf(ApiException.class)

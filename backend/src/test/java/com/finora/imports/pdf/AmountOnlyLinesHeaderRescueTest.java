@@ -25,14 +25,26 @@ class AmountOnlyLinesHeaderRescueTest {
         return new PositionedText(text, x, y, 0, width);
     }
 
+    /** "Debit(" ends at x=426 and "Rs)" starts there: touching, so SPLIT_PARENTHETICAL_HEADER rejoins
+     *  them and the three header lines merge directly. */
     private static List<PositionedText> threeLineHeaderStatement(int transactions) {
+        return threeLineHeaderStatement(transactions, 426f);
+    }
+
+    /** "Rs)" 2pt clear of "Debit(": too far to be rejoined, so the three header lines still do not
+     *  merge and only the rescue this class was written for can recover the amount columns. */
+    private static List<PositionedText> threeLineHeaderStatementWithASplitTheJoinMustNotTouch(int transactions) {
+        return threeLineHeaderStatement(transactions, 428f);
+    }
+
+    private static List<PositionedText> threeLineHeaderStatement(int transactions, float rsX) {
         List<PositionedText> r = new ArrayList<>();
         r.add(run("Date(Value", 70f, 50f, 100.0f));
         r.add(run("Ref No.", 290f, 40f, 97.7f));
         r.add(run("Transaction", 340f, 50f, 100.0f));
         r.add(run("Particulars", 170f, 43f, 103.3f));
         r.add(run("Debit(", 400f, 26f, 103.3f));
-        r.add(run("Rs)", 426f, 14f, 103.3f));
+        r.add(run("Rs)", rsX, 14f, 103.3f));
         r.add(run("Credit(Rs)", 456f, 42f, 103.3f));
         r.add(run("Balance(Rs)", 507f, 49f, 103.3f));
         r.add(run("Date)", 63f, 22f, 108.8f));
@@ -138,6 +150,39 @@ class AmountOnlyLinesHeaderRescueTest {
         assertThat(cell(rows.get(0), "Debit")).isEqualTo("100.00");
         assertThat(cell(rows.get(0), "Credit")).isEqualTo("-");
         assertThat(cell(rows.get(0), "Balance")).isEqualTo("4900.00");
+    }
+
+    // ---------- the rescue itself, on a header the split-label join does not reach ----------
+    //
+    // The fixtures above now merge their three header lines directly, so they no longer reach the
+    // rescue. These keep it covered: the same statement with "Rs)" 2pt clear of "Debit(", which the
+    // join refuses, so the header is again read from its bottom line and only the rescue recovers
+    // the debit, credit and balance columns.
+
+    @Test
+    void rescue_stillKeepsDebitCreditAndBalance_whenTheTiersDoNotMerge() {
+        List<Map<String, String>> rows = rowsOf(threeLineHeaderStatementWithASplitTheJoinMustNotTouch(6));
+
+        assertThat(rows).hasSize(6);
+        assertThat(rows.get(0).keySet()).noneMatch(k -> k.startsWith("Transaction Type"));
+        assertThat(cell(rows.get(0), "Debit")).isEqualTo("100.00");
+        assertThat(cell(rows.get(0), "Credit")).isEqualTo("-");
+        assertThat(cell(rows.get(0), "Balance")).isEqualTo("4900.00");
+        assertThat(cell(rows.get(1), "Debit")).isEqualTo("-");
+        assertThat(cell(rows.get(1), "Credit")).isEqualTo("101.00");
+        assertThat(cell(rows.get(1), "Balance")).isEqualTo("5001.00");
+        assertThat(cell(rows.get(0), "Type")).isEqualTo("Transfer");
+    }
+
+    /** Pins the rescue's evidence threshold (HEADER_QUALITY_MIN_SAMPLE): one undated colliding line
+     *  is not enough to rescue a header, so a single transaction keeps the old reading. If the
+     *  threshold is ever lowered deliberately, this is the test to change. */
+    @Test
+    void rescue_singleTransaction_isBelowTheEvidenceThreshold_andKeepsTheOldReading() {
+        List<Map<String, String>> rows = rowsOf(threeLineHeaderStatementWithASplitTheJoinMustNotTouch(1));
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).keySet()).noneMatch(k -> k.startsWith("Debit"));
     }
 
     @Test

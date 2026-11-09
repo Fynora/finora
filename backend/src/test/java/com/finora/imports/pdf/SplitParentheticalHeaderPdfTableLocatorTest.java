@@ -92,6 +92,39 @@ class SplitParentheticalHeaderPdfTableLocatorTest {
         assertThat(rows.get(1)).containsEntry("Debit(Rs)", "1,200.00").containsEntry("Balance(Rs)", "10,000.00");
     }
 
+    /** The same header reprinted at the top of page 2, split label and all, followed by a third
+     *  transaction. */
+    private List<PositionedText> twoPageDocumentRuns() {
+        List<PositionedText> runs = new ArrayList<>(documentRuns());
+        runs.addAll(List.of(
+                run("Date(Value", 50f, 100f, 48f, 1), run("Ref No.", 280f, 98f, 32f, 1),
+                run("Transaction", 330f, 100f, 50f, 1),
+                run("Particulars", 165f, 103f, 43f, 1), run("Debit(", 395f, 103f, 25f, 1),
+                run("Rs)", 420f, 103f, 14f, 1), run("Credit(Rs)", 452f, 103f, 42f, 1),
+                run("Balance(Rs)", 505f, 103f, 49f, 1),
+                run("Date)", 63f, 109f, 22f, 1), run("/Cheque No", 272f, 109f, 48f, 1),
+                run("Type", 344f, 109f, 21f, 1),
+
+                run("01-Jul-26", 45f, 130f, 40f, 1), run("RENT PAYMENT", 112f, 130f, 70f, 1),
+                run("R0003", 278f, 130f, 25f, 1), run("Transfer", 342f, 130f, 30f, 1),
+                run("800.00", 404f, 130f, 30f, 1), run("-", 491f, 130f, 3f, 1),
+                run("11,200.00", 517f, 130f, 37f, 1)));
+        return runs;
+    }
+
+    @Test
+    void aHeaderReprintedOnTheNextPage_isTheSameAccount_andNoneOfItIsReadAsATransaction() {
+        PdfTableLocator.LocatedDocument doc = new PdfTableLocator().locateAll(twoPageDocumentRuns(), null);
+
+        assertThat(doc.sections()).as("one account, not one per page").hasSize(1);
+        List<Map<String, String>> rows = doc.sections().get(0).rows();
+        assertThat(rows).hasSize(3);
+        assertThat(rows).allSatisfy(row -> assertThat(CsvParser.parseDate(row.get("Date(Value Date)")))
+                .as("every located row is a dated transaction, so no header line became a row")
+                .isNotNull());
+        assertThat(rows.get(2)).containsEntry("Debit(Rs)", "800.00").containsEntry("Balance(Rs)", "11,200.00");
+    }
+
     // ---------- the rejoining rule itself ----------
 
     @Test

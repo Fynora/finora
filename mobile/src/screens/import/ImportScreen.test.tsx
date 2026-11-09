@@ -1757,6 +1757,33 @@ describe('ImportScreen — send from a computer', () => {
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf('Ready to review')).toBeLessThan(rendered.indexOf('Import a statement'));
   });
+
+  // A customer on 2026-11-09: told their statement was ready, they opened Import, but the tab had
+  // stayed mounted since before it was ready and still showed the list from then. Returning to the
+  // tab now asks again.
+  it('asksForTheListsAgainWhenTheTabComesBackIntoView', async () => {
+    api.importJobs.availability.mockReset().mockResolvedValue({ asyncImportAvailable: true });
+    api.sendCodes.current.mockReset().mockResolvedValue({ state: 'NONE', importJobId: null });
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.listFailures.mockReset().mockResolvedValue([]);
+    render(treeAsyncAvailable());
+    await screen.findByText('Import a statement');
+    expect(screen.queryByText('Ready to review')).toBeNull();
+    const failuresAsked = api.import.listFailures.mock.calls.length;
+
+    // The statement becomes ready while the user is on another tab.
+    api.import.listSessions.mockResolvedValue([
+      { id: 'sess-9', fileName: 'Statement.pdf', rowCount: 106, createdAt: '2026-11-09T12:55:21Z', expiresAt: '2099-01-01T00:00:00Z' },
+    ] as never);
+    act(() => {
+      mockBlurListeners.forEach((l) => l());
+      mockFocusListeners.forEach((l) => l());
+    });
+
+    expect(await screen.findByText('Ready to review')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Review import of Statement.pdf')).toBeOnTheScreen();
+    expect(api.import.listFailures.mock.calls.length).toBeGreaterThan(failuresAsked);
+  });
 });
 
 // Idea B (spec 2026-11-02, Step 1): your statement months, one way to pick a file, the rest folded.

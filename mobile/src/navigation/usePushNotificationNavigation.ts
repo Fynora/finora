@@ -15,8 +15,8 @@ import type { RootParamList } from './types';
  *
  * The `Notification` domain entity carries no target/reference-entity id column at all (confirmed
  * by reading it directly, not assumed) -- there is nothing here to deep-link a
- * IMPORT_STATEMENT_READY tap to the one statement it's about, only to the screen that lists every
- * statement. That is the ceiling of what this can do without a backend schema change; routing by
+ * IMPORT_STATEMENT_READY tap to the one statement it's about, only to the Import tab, whose list of
+ * statements waiting for review holds it. That is the ceiling of what this can do without a backend schema change; routing by
  * type is still a real improvement over today's "wherever the app happens to be."
  *
  * <h2>Two distinct signals, not one</h2>
@@ -58,7 +58,11 @@ type PushRoute = 'Settings' | 'Statements' | 'Import';
 
 const TYPE_ROUTE: Record<string, PushRoute> = {
   PASSWORD_CHANGED: 'Settings',
-  IMPORT_STATEMENT_READY: 'Statements',
+  // "Your statement is ready to review": the review opens from the Import tab's list of statements
+  // waiting to be confirmed. Statements deliberately leaves such a statement out of its recent
+  // imports (listedRecentImports drops a COMPLETED job until its review expires), so a customer sent
+  // there on 2026-11-09 found nothing to review.
+  IMPORT_STATEMENT_READY: 'Import',
   IMPORT_STATEMENT_HELD: 'Statements',
   IMPORT_STATEMENT_RESOLVED: 'Statements',
   IMPORT_STATEMENT_REJECTED: 'Statements',

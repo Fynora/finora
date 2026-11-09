@@ -89,13 +89,15 @@ export function SiteFooter() {
                 Both badges are the stores' own artwork, shown unmodified: Google's and Apple's
                 rules forbid redrawing, recoloring, cropping or distorting them, so they are only
                 scaled in proportion. The two have different shapes (Google's is wider for its
-                height), so both are sized to the same visible WIDTH, 129px, which is also what
-                lines them up as a pair. That makes Apple's 43px tall and Google's 38px, both over
-                the stores' minimums (Apple 40px, Google 28px). Google's PNG carries 41/646 of its
-                width as transparent clear space on every side; the negative margin (9.4px at this
-                size) removes it from the layout so the visible badge, not its padding, sits flush
-                with the code above and with Apple's. Apple's SVG has none. The gap under each code
-                is 12px, over the quarter-of-the-badge-height clear space Apple asks for. */}
+                height: 3.36:1 against Apple's 2.99:1), so they cannot match in both dimensions
+                without distorting one. Both are sized to the same visible HEIGHT, 40px (Apple's
+                on-screen minimum; Google's is 28px), so their top and bottom edges line up; Google's
+                comes out about 134px wide and Apple's 120px. Sid chose this over equal width.
+                Google's PNG carries 41/646 of its width as transparent clear space on every side;
+                the negative margin (9.8px at this size) removes it from the layout so the visible
+                badge, not its padding, sits flush with the code above and with Apple's. Apple's SVG
+                has none. The gap under each code is 12px, over the quarter-of-the-badge-height
+                clear space Apple asks for. */}
             <div className="flex flex-wrap items-start gap-x-3 gap-y-5">
               <div className="flex flex-col items-start gap-3">
                 <img src={playStoreQr} alt={footer.playQrAlt} width={104} height={104} className="hidden md:block rounded-lg" />
@@ -105,7 +107,7 @@ export function SiteFooter() {
                   rel="noopener noreferrer"
                   className="m-tap inline-block"
                 >
-                  <img src={googlePlayBadge} alt={footer.playStoreCta} width={148} height={57} className="block h-auto max-w-none -m-[9.4px]" />
+                  <img src={googlePlayBadge} alt={footer.playStoreCta} width={154} height={60} className="block h-auto max-w-none -m-[9.8px]" />
                 </a>
               </div>
               <div className="flex flex-col items-start gap-3">
@@ -116,7 +118,7 @@ export function SiteFooter() {
                   rel="noopener noreferrer"
                   className="m-tap inline-block"
                 >
-                  <img src={appStoreBadge} alt={footer.appStoreCta} width={129} height={43} className="block h-auto" />
+                  <img src={appStoreBadge} alt={footer.appStoreCta} width={120} height={40} className="block h-auto" />
                 </a>
               </div>
             </div>

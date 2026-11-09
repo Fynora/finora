@@ -8,11 +8,11 @@ import { FormPanel } from '../components/FormPanel';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { FilterBar } from '../components/FilterBar';
-import { ConfirmDialog } from '../components/ConfirmDialog';
+import { SuspendDialog } from '../components/SuspendDialog';
 import { useSavedViews } from '../hooks/useSavedViews';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useNotify } from '../context/NotificationContext';
-import { adminUsersApi, adminRolesApi } from '../api/endpoints';
+import { adminUsersApi, adminRolesApi, type SuspensionReason } from '../api/endpoints';
 import type { UserSummaryDto, CreateUserRequest, RoleDto } from '../types';
 
 const PAGE_SIZE = 20;
@@ -193,7 +193,8 @@ function UsersTable() {
   });
 
   const suspendMutation = useMutation({
-    mutationFn: (id: string) => adminUsersApi.suspend(id),
+    mutationFn: ({ id, reason, message }: { id: string; reason: SuspensionReason; message?: string }) =>
+      adminUsersApi.suspend(id, reason, message),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       notify.success('User suspended.');
@@ -389,15 +390,12 @@ function UsersTable() {
       )}
 
       {confirmSuspend && (
-        <ConfirmDialog
-          title={`Suspend ${confirmSuspend.fullName}?`}
-          message="They will be signed out and unable to log in until reactivated."
-          confirmLabel="Suspend"
-          danger
-          onConfirm={() => {
+        <SuspendDialog
+          name={confirmSuspend.fullName}
+          onConfirm={(reason, message) => {
             const id = confirmSuspend.id;
             setConfirmSuspend(null);
-            suspendMutation.mutate(id);
+            suspendMutation.mutate({ id, reason, message });
           }}
           onCancel={() => setConfirmSuspend(null)}
         />

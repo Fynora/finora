@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { safeStorage } from '../lib/safeStorage';
+import { AUTH_ACCOUNT_SUSPENDED } from './errorCodes';
 
 // Bug fix (production-readiness pass): this was a hardcoded relative path with no env-driven
 // override at all. That's fine in local dev, where Vite's own dev-server proxy (vite.config.ts's
@@ -378,6 +379,16 @@ api.interceptors.response.use(
       if (!window.location.pathname.startsWith('/verify-phone')) {
         window.location.href = '/verify-phone';
       }
+      return Promise.reject(error);
+    }
+
+    // Privacy workstream 10. The account was suspended while this tab was signed in: every request
+    // the session makes is now refused with AUTH_018 until its token expires. End the session now,
+    // with the reason, so the user can sign in again and reach the suspended screen. Only for the
+    // app's own session (there is an access token): the suspended screen's own calls carry their
+    // token per request, with no session in this tab, and handle their own errors.
+    if (error.response?.status === 403 && error.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED && getAccessToken()) {
+      clearSessionAndRedirect('This account has been suspended. Sign in to see why and what you can do.');
       return Promise.reject(error);
     }
 

@@ -74,11 +74,15 @@ class AuthServiceLoginTest {
         // Not configured unless a test says so, exactly as the inline mock was: an unstubbed
         // isConfigured() is false, so no other test in this class sends anything.
         emailProvider = mock(EmailProvider.class);
+        // A real-looking token, not the mock's null: the suspended refusal puts it in a Map.of,
+        // which refuses nulls, exactly as production never produces one.
+        JwtService jwtService = mock(JwtService.class);
+        when(jwtService.generateToken(any(), any(), any(), any())).thenReturn("test-access-token");
         authService = new AuthService(
                 userRepository, mock(CategoryRepository.class), mock(PasswordResetTokenRepository.class),
                 reactivationTokenRepository,
                 mock(com.finora.repository.EmailVerificationTokenRepository.class),
-                mock(PasswordEncoder.class), mock(JwtService.class), authenticationManager,
+                mock(PasswordEncoder.class), jwtService, authenticationManager,
                 auditService, refreshTokenService, emailProvider,
                 new EmailProperties(), mock(PhoneVerificationProvider.class), platformSettingsService,
                 mock(PasswordHistoryService.class), new IdentityLookup(userRepository),
@@ -312,10 +316,14 @@ class AuthServiceLoginTest {
 
         try {
             authService.login(new LoginRequest("suspended@example.com", "the-right-password", "USER"));
-        } catch (Exception e) {
+        } catch (com.finora.exception.ApiException e) {
             assertThat(e.getMessage()).contains("suspended");
-            // No session for an account that cannot sign in, whatever the password was.
-            verify(refreshTokenService, never()).issue(any());
+            assertThat(e.getCode()).isEqualTo(com.finora.exception.ErrorCode.AUTH_ACCOUNT_SUSPENDED);
+            // Privacy workstream 10: still no sign-in, but a customer who proved who they are gets
+            // a session confined to the suspended screen, its access token in the refusal's details
+            // and its refresh token never handed out. (Until then this asserted no session at all.)
+            verify(refreshTokenService).issue(u.getId());
+            assertThat(e.getDetails()).containsEntry("suspendedAccessToken", "test-access-token");
             return;
         }
         throw new AssertionError("Expected login() to throw for a suspended account");

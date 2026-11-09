@@ -16,9 +16,12 @@ import { useDialogA11y } from '../design-system';
  * accountLifecycleApi.exportData() triggers the browser download itself on success, so there is
  * no separate success step here; the modal just closes.
  */
-export function ExportDataModal({ onClose, signInMethod }: {
+export function ExportDataModal({ onClose, signInMethod, exportData = accountLifecycleApi.exportData }: {
   onClose: () => void;
   signInMethod: SignInMethod;
+  /** What actually downloads. The suspended screen passes its own, bound to the token the
+   *  suspended sign-in refusal carried (privacy workstream 10); everywhere else uses the session. */
+  exportData?: (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => Promise<void>;
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -33,7 +36,7 @@ export function ExportDataModal({ onClose, signInMethod }: {
     setSubmitting(true);
     setError(null);
     try {
-      await accountLifecycleApi.exportData(currentPasswordArg, googleIdToken, appleIdToken);
+      await exportData(currentPasswordArg, googleIdToken, appleIdToken);
       onClose();
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Could not prepare your export. Please try again.');

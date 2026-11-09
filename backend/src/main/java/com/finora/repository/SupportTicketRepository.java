@@ -25,6 +25,11 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      *  {@code idx_support_tickets_by_user}. */
     long countByUserIdAndCreatedAtAfter(UUID userId, java.time.Instant since);
 
+    /** This account's tickets in the given categories, newest first: the suspended screen's
+     *  appeals and deletion requests (privacy workstream 10). A handful of rows per account. */
+    java.util.List<SupportTicket> findByUserIdAndCategoryInOrderByCreatedAtDesc(
+            UUID userId, java.util.Collection<SupportTicket.Category> categories);
+
     /**
      * Ownership is a predicate on the fetch, not a check after it.
      *

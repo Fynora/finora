@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import { PasswordInput } from '../../components/PasswordInput';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
+import { SuspendedAccountScreen } from '../../components/SuspendedAccountScreen';
+import { suspendedTokenFrom } from '../../lib/suspension';
 import { AuthDivider } from './AuthDivider';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
 import { EMAIL_PATTERN } from './identifierPatterns';
@@ -55,6 +57,8 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   const [loading, setLoading] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [reactivationToken, setReactivationToken] = useState<string | null>(null);
+  // Privacy workstream 10: set when a Google/Apple sign-in is refused because the account is suspended.
+  const [suspendedToken, setSuspendedToken] = useState<string | null>(null);
   // Seeded at 400 -- Google's own documented max button width, and its real rendered width as
   // currently measured live on production (see SocialSignInButtons.tsx/GoogleSignInButton.tsx)
   // -- rather than the form's natural full width, so the form narrows to match Google/Apple from
@@ -118,6 +122,11 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
   // Checked before the existing 403 -> onAccountExists fallback, which covers the other 403 case
   // (an existing, active-but-unverified account) that fallback was already written for.
   function handleOAuthError(err: any, fallbackMessage: string) {
+    const suspended = suspendedTokenFrom(err);
+    if (suspended) {
+      setSuspendedToken(suspended);
+      return;
+    }
     const token = err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED
       ? err.response?.data?.details?.reactivationToken
       : null;
@@ -152,6 +161,10 @@ export function RegisterStep({ prefill, referralCode, onSuccess, onAccountExists
     } finally {
       setLoading(false);
     }
+  }
+
+  if (suspendedToken) {
+    return <SuspendedAccountScreen token={suspendedToken} onClose={() => setSuspendedToken(null)} />;
   }
 
   if (reactivationToken) {

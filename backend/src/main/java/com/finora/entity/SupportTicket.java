@@ -45,7 +45,15 @@ public class SupportTicket extends BaseEntity {
 
     /** What the request is about. Adding a value is a one-constant change: V145 has no CHECK. */
     public enum Category {
-        STATEMENT_IMPORT, CATEGORIZATION, ACCOUNT_LINKING, DATA_ACCURACY, TECHNICAL_ISSUE, OTHER
+        STATEMENT_IMPORT, CATEGORIZATION, ACCOUNT_LINKING, DATA_ACCURACY, TECHNICAL_ISSUE, OTHER,
+        /** Privacy workstream 10: raised only from the suspended screen
+         *  ({@code AccountSuspensionService}), never from the ordinary support form. */
+        SUSPENSION_APPEAL, SUSPENSION_DELETION_REQUEST;
+
+        /** Categories only the suspended screen may raise. */
+        public boolean isSuspensionRequest() {
+            return this == SUSPENSION_APPEAL || this == SUSPENSION_DELETION_REQUEST;
+        }
     }
 
     /**

@@ -14,6 +14,8 @@ const CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
   ACCOUNT_LINKING: 'Account linking',
   DATA_ACCURACY: 'Data accuracy',
   TECHNICAL_ISSUE: 'Technical issue',
+  SUSPENSION_APPEAL: 'Suspension appeal',
+  SUSPENSION_DELETION_REQUEST: 'Deletion request (suspended)',
   OTHER: 'Other',
 };
 

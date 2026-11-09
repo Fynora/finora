@@ -64,6 +64,11 @@ export const IMPORT_SESSION_ALREADY_CONFIRMED = 'IMPORT_012';
 // wrong in.
 export const AUTH_ACCOUNT_DEACTIVATED = 'AUTH_007';
 
+// Privacy workstream 10. A suspended customer's sign-in is refused with this code, and its
+// details carry "suspendedAccessToken", which the suspended screen uses for the few calls a
+// suspended account may still make. Every other endpoint answers it too.
+export const AUTH_ACCOUNT_SUSPENDED = 'AUTH_018';
+
 // plans.ts's "Unlimited accounts" / "Statements longer than one month" Plus/Premium promises,
 // enforced -- see AccountService.create and ImportService.requireStatementWithinFreeLimit
 // (backend). Import.tsx branches on these to show an upgrade prompt with tailored copy rather than

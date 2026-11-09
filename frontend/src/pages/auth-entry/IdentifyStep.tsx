@@ -4,6 +4,8 @@ import { authApi } from '../../api/endpoints';
 import { useAuth } from '../../context/AuthContext';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
+import { SuspendedAccountScreen } from '../../components/SuspendedAccountScreen';
+import { suspendedTokenFrom } from '../../lib/suspension';
 import { AuthDivider } from './AuthDivider';
 import { SocialConsentNotice } from './SocialConsentNotice';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
@@ -29,6 +31,8 @@ export function IdentifyStep({ onExists, onContinue, onSuccess, referralCode }: 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reactivationToken, setReactivationToken] = useState<string | null>(null);
+  // Privacy workstream 10: set when a Google/Apple sign-in is refused because the account is suspended.
+  const [suspendedToken, setSuspendedToken] = useState<string | null>(null);
   // Seeded at 400 -- Google's own documented max button width, and its real rendered width as
   // currently measured live on production (see SocialSignInButtons.tsx/GoogleSignInButton.tsx)
   // -- rather than the form's natural full width, so the form narrows to match Google/Apple from
@@ -46,6 +50,11 @@ export function IdentifyStep({ onExists, onContinue, onSuccess, referralCode }: 
   // response (with its one-time reactivation token) is reachable from a Google/Apple sign-in here
   // exactly as it already is from PasswordStep, now that this step can complete auth directly.
   function handleOAuthError(err: any, fallbackMessage: string) {
+    const suspended = suspendedTokenFrom(err);
+    if (suspended) {
+      setSuspendedToken(suspended);
+      return;
+    }
     const token = err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED
       ? err.response?.data?.details?.reactivationToken
       : null;
@@ -100,6 +109,10 @@ export function IdentifyStep({ onExists, onContinue, onSuccess, referralCode }: 
     } finally {
       setLoading(false);
     }
+  }
+
+  if (suspendedToken) {
+    return <SuspendedAccountScreen token={suspendedToken} onClose={() => setSuspendedToken(null)} />;
   }
 
   if (reactivationToken) {

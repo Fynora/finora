@@ -242,6 +242,33 @@ describe('api response interceptor', () => {
     expect(getAccessToken()).toBeNull();
   });
 
+  // Privacy workstream 10: an account suspended mid-session is signed out at once, with the reason,
+  // instead of every request failing until the token expires.
+  it('ends a signed-in session that the backend now refuses as suspended, and says why', async () => {
+    setAccessToken('a-session-of-an-account-just-suspended');
+
+    await rejectedHandler()({
+      response: { status: 403, data: { message: 'This account has been suspended. Contact support for assistance.', errorCode: 'AUTH_018' } },
+      config: { url: '/accounts', _retried: false, headers: {} },
+    }).catch(() => { /* expected */ });
+
+    expect(localStorage.getItem('finora_session_ended_reason'))
+      .toBe('This account has been suspended. Sign in to see why and what you can do.');
+    expect(getAccessToken()).toBeNull();
+  });
+
+  // The suspended screen's own calls carry their token per request, with no session in the tab:
+  // their refusals are theirs to show, not a reason to navigate away.
+  it('leaves a suspended refusal alone when the tab has no session of its own', async () => {
+    const error = await rejectedHandler()({
+      response: { status: 403, data: { message: 'This account has been suspended. Contact support for assistance.', errorCode: 'AUTH_018' } },
+      config: { url: '/users/me/suspension/requests', _retried: false, headers: {} },
+    }).catch((e: any) => e);
+
+    expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
+    expect(error.response.data.errorCode).toBe('AUTH_018');
+  });
+
   it('falls back to generic copy when there was no refresh token to explain the sign-out', async () => {
     await rejectedHandler()({
       response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },

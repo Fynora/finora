@@ -2,6 +2,7 @@ package com.finora.controller;
 
 import com.finora.dto.AdminDtos.AdminInternalAccountRequest;
 import com.finora.dto.AdminDtos.AdminReactivateRequest;
+import com.finora.dto.AdminDtos.AdminSuspendRequest;
 import com.finora.dto.AdminDtos.AdminUpdateUserRequest;
 import com.finora.dto.PagedResponse;
 import com.finora.dto.AdminDtos.UserDetailDto;
@@ -78,8 +79,9 @@ public class AdminUserController {
 
     @PostMapping("/{id}/suspend")
     @PreAuthorize("hasAuthority('USER_DELETE')")
-    public ApiResponse<UserSummaryDto> suspend(@PathVariable UUID id) {
-        return ApiResponse.ok(adminUserService.suspend(id, currentUser.id()), "Account suspended");
+    public ApiResponse<UserSummaryDto> suspend(@PathVariable UUID id, @Valid @RequestBody AdminSuspendRequest request) {
+        return ApiResponse.ok(adminUserService.suspend(id, currentUser.id(), request.reason(), request.message()),
+                "Account suspended");
     }
 
     /** Body is optional -- a plain POST with no body (today's existing frontend-admin call) still

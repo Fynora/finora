@@ -1616,6 +1616,47 @@ export const accountLifecycleApi = {
   },
 };
 
+// Privacy workstream 10: the suspended screen. Mirrors the backend's SuspensionDtos.
+export interface SuspensionRequest {
+  type: 'APPEAL' | 'DELETION';
+  ticketNumber: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+  createdAt: string;
+}
+
+export interface SuspensionStatus {
+  suspendedAt: string | null;
+  reason: 'TERMS_VIOLATION' | 'FRAUD' | 'SECURITY_RISK' | null;
+  reasonText: string;
+  message: string | null;
+  storePlatform: 'IOS' | 'ANDROID' | null;
+  signInMethod: SignInMethod;
+  requests: SuspensionRequest[];
+}
+
+/**
+ * The suspended screen's calls. Each takes the token the suspended sign-in refusal carried, and
+ * sends it on that request only: it is never stored as the app's session, so nothing else in the
+ * app can use it, and it is gone when the screen closes.
+ */
+export const suspensionApi = {
+  status: (token: string) =>
+    api.get<SuspensionStatus>('/users/me/suspension', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.data),
+  raiseRequest: (token: string, type: 'APPEAL' | 'DELETION', text?: string) =>
+    api.post<SuspensionStatus>('/users/me/suspension/requests', text ? { type, text } : { type },
+      { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.data),
+  exportData: async (token: string, currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => {
+    try {
+      const res = await api.post('/users/me/data-export', { currentPassword, googleIdToken, appleIdToken },
+        { responseType: 'blob', headers: { Authorization: `Bearer ${token}` } });
+      downloadBlob(res.data as Blob, `fynora-data-export-${new Date().toISOString().slice(0, 10)}.zip`);
+    } catch (err) {
+      throw await withBlobErrorMessage(err);
+    }
+  },
+};
+
 // Self-service view of the caller's own active refresh-token sessions -- backs Settings.tsx's
 // Active Sessions list under Security. Mirrors the backend's DeviceSessionDto exactly; browser/
 // device/lastSeenIp are best-effort labels captured from whichever request last issued/rotated
@@ -2156,7 +2197,9 @@ export const usageApi = {
 // nothing here to render it is the failure mode PICK ONE_OF-style unions exist to catch at
 // compile time rather than as a blank row in production.
 export type SupportTicketCategory =
-  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER';
+  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER'
+  // Privacy workstream 10: raised only from the suspended screen.
+  | 'SUSPENSION_APPEAL' | 'SUSPENSION_DELETION_REQUEST';
 export type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ClientPlatform = 'WEB' | 'MOBILE_ANDROID' | 'MOBILE_IOS';
 

@@ -8,8 +8,9 @@ import {
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { SuspendDialog } from '../components/SuspendDialog';
 import { useAdminAuth } from '../context/AdminAuthContext';
-import { adminAuditApi, adminRolesApi, adminUsersApi } from '../api/endpoints';
+import { adminAuditApi, adminRolesApi, adminUsersApi, type SuspensionReason } from '../api/endpoints';
 import { STATUS_LABELS, promptReactivationReason } from './Users';
 
 // Split out of this file, which had grown to 1770 lines -- the largest source file in the repo and,
@@ -63,7 +64,11 @@ function UserDetailContent({ id }: { id: string }) {
     void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
   }
 
-  const suspendMutation = useMutation({ mutationFn: () => adminUsersApi.suspend(id), onSuccess: invalidateUser });
+  const suspendMutation = useMutation({
+    mutationFn: ({ reason, message }: { reason: SuspensionReason; message?: string }) =>
+      adminUsersApi.suspend(id, reason, message),
+    onSuccess: invalidateUser,
+  });
   const reactivateMutation = useMutation({
     mutationFn: (reason?: string) => adminUsersApi.reactivate(id, reason),
     onSuccess: invalidateUser,
@@ -284,12 +289,9 @@ function UserDetailContent({ id }: { id: string }) {
       )}
 
       {confirmSuspend && (
-        <ConfirmDialog
-          title={`Suspend ${user.fullName}?`}
-          message="They will be signed out and unable to log in until reactivated."
-          confirmLabel="Suspend"
-          danger
-          onConfirm={() => { setConfirmSuspend(false); suspendMutation.mutate(); }}
+        <SuspendDialog
+          name={user.fullName}
+          onConfirm={(reason, message) => { setConfirmSuspend(false); suspendMutation.mutate({ reason, message }); }}
           onCancel={() => setConfirmSuspend(false)}
         />
       )}

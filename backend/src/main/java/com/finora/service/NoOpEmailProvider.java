@@ -84,6 +84,18 @@ public class NoOpEmailProvider implements EmailProvider, SilentProductionFallbac
     }
 
     @Override
+    public EmailResult sendAccountSuspendedEmail(String toEmail, String reasonText, String message, String storeName) {
+        log.info("No email provider configured — would have sent an account-suspended notice to {}", LogSanitizer.sanitize(toEmail));
+        return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
+    }
+
+    @Override
+    public EmailResult sendSuspensionLiftedEmail(String toEmail) {
+        log.info("No email provider configured — would have sent a suspension-lifted notice to {}", LogSanitizer.sanitize(toEmail));
+        return EmailResult.failure(ProviderType.RESEND, "No email provider configured");
+    }
+
+    @Override
     public EmailResult sendAccountReactivatedEmail(String toEmail) {
         log.info("No email provider configured — would have sent an account-reactivated notification to {}", LogSanitizer.sanitize(toEmail));
         return EmailResult.failure(ProviderType.RESEND, "No email provider configured");

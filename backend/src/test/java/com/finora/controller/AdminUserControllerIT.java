@@ -49,6 +49,13 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
         return headers;
     }
 
+    /** A suspend request body: since privacy workstream 10 a suspension names its ground. */
+    private HttpEntity<java.util.Map<String, Object>> suspendAs(User admin) {
+        HttpHeaders headers = bearerFor(admin);
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        return new HttpEntity<>(java.util.Map.of("reason", "TERMS_VIOLATION"), headers);
+    }
+
     @Test
     void plainUser_isForbiddenFromListingUsers() {
         User user = createUser("USER");
@@ -91,7 +98,7 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> suspendResponse = restTemplate.exchange(
                 "/api/v1/admin/users/" + target.getId() + "/suspend",
-                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+                HttpMethod.POST, suspendAs(admin), String.class);
         assertThat(suspendResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(userRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo("SUSPENDED");
 
@@ -108,7 +115,7 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/admin/users/" + admin.getId() + "/suspend",
-                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+                HttpMethod.POST, suspendAs(admin), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(userRepository.findById(admin.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
@@ -120,10 +127,10 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
         User target = createUser("USER");
 
         restTemplate.exchange("/api/v1/admin/users/" + target.getId() + "/suspend",
-                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+                HttpMethod.POST, suspendAs(admin), String.class);
         ResponseEntity<String> secondSuspend = restTemplate.exchange(
                 "/api/v1/admin/users/" + target.getId() + "/suspend",
-                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+                HttpMethod.POST, suspendAs(admin), String.class);
 
         assertThat(secondSuspend.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(userRepository.findById(target.getId()).orElseThrow().getStatus()).isEqualTo("SUSPENDED");

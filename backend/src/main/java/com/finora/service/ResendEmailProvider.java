@@ -307,6 +307,54 @@ public class ResendEmailProvider implements EmailProvider {
     }
 
     @Override
+    public EmailResult sendAccountSuspendedEmail(String toEmail, String reasonText, String message, String storeName) {
+        return send(buildAccountSuspendedMessage(toEmail, reasonText, message, storeName));
+    }
+
+    EmailMessage buildAccountSuspendedMessage(String toEmail, String reasonText, String message, String storeName) {
+        // The admin's message is free text typed by staff: escaped like any other value that did not
+        // come from this template. The reason text is a fixed enum string, escaped anyway.
+        String messageLine = (message != null && !message.isBlank())
+                ? "<p>Message from Fynora: %s</p>".formatted(HtmlUtils.htmlEscape(message.strip())) : "";
+        String storeLine = storeName != null
+                ? ("<p>Your Fynora Plus subscription is paid through %s. Fynora can't stop it, so cancel it "
+                        + "in your %s subscription settings if you don't want to be charged again.</p>")
+                        .formatted(storeName, storeName)
+                : "";
+        String bodyHtml = """
+                <p>We've suspended your Fynora account. %s</p>
+                %s
+                <p>While your account is suspended, you can't use Fynora. When you sign in, you can still:</p>
+                <ul>
+                <li>read why it was suspended,</li>
+                <li>appeal, if you think this is a mistake,</li>
+                <li>download a copy of your data, and</li>
+                <li>ask us to delete your account.</li>
+                </ul>
+                <p>If you pay for Fynora Plus on our website, it won't renew. You keep it until the end of the period you've paid for.</p>
+                %s
+                """.formatted(HtmlUtils.htmlEscape(reasonText), messageLine, storeLine);
+        String html = EmailLayout.wrap("Account suspended", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account has been suspended", html);
+    }
+
+    @Override
+    public EmailResult sendSuspensionLiftedEmail(String toEmail) {
+        return send(buildSuspensionLiftedMessage(toEmail));
+    }
+
+    EmailMessage buildSuspensionLiftedMessage(String toEmail) {
+        String bodyHtml = """
+                <p>We've lifted the suspension on your Fynora account. You can sign in and use Fynora again.</p>
+                <p>If you pay for Fynora Plus on our website, its renewal was switched off when your account was suspended. Settings shows whether you can still switch it back on; if not, you can subscribe again when your current period ends.</p>
+                """;
+        String html = EmailLayout.wrap("Suspension lifted", bodyHtml, null,
+                EmailLayout.Footer.SUPPORT_LINK, emailProperties.getSupportFromAddress());
+        return EmailMessage.html(toEmail, "Your Fynora account is active again", html);
+    }
+
+    @Override
     public EmailResult sendAccountReactivatedEmail(String toEmail) {
         return send(buildAccountReactivatedMessage(toEmail));
     }

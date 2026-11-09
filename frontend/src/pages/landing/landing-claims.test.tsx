@@ -5,7 +5,7 @@ import Landing from '../Landing';
 import { AVAILABILITY_LABEL, COMPARISON, PLANS, PRICING_CARDS } from './plans';
 import { SETTINGS_CATEGORIES } from '../settings/SettingsNav';
 import { askFyn, beforeAfter, capabilities, faq, footer, hero, importSection, security, trust } from './landing-config';
-import { PLAY_STORE_URL } from '../../lib/openInApp';
+import { APP_STORE_URL, PLAY_STORE_URL } from '../../lib/openInApp';
 
 /**
  * Enforces the mechanically-checkable half of docs/project-management/standards/marketing-claims-checklist.md.
@@ -204,26 +204,30 @@ describe('landing page — marketing claims', () => {
   // promise in its own label. The inverse rule -- no signup control without a destination -- is
   // enforced below, and is the one that actually matters.
 
-  it('says the iOS app is not on the App Store yet', () => {
+  it('says both apps are live, and nowhere that either is unreleased', () => {
     renderLanding();
-    // Android is live on Google Play; iOS is not on the App Store. The page may say the first, and
-    // must keep saying the second until an iOS listing actually exists -- re-check the App Store
-    // (iTunes lookup for the bundle id) before changing this.
-    expect(screen.getByText(/iOS app is not on the App Store yet/i)).toBeTruthy();
+    // Both apps have store listings. Re-check the stores (the Play listing, an iTunes lookup for
+    // the bundle id) before changing this: the page must not claim a store the app is not on, and
+    // must not keep saying one is missing once it exists.
+    expect(screen.getByText(/live on Google Play and the App Store/i)).toBeTruthy();
+    expect(pageText()).not.toMatch(/not on the (app stores?|google play)( yet)?/i);
   });
 
-  it('links the Android app to its Google Play listing from the footer, with a scannable code beside it', () => {
+  it.each([
+    { store: 'Google Play', cta: footer.playStoreCta, url: PLAY_STORE_URL, qrAlt: footer.playQrAlt },
+    { store: 'App Store', cta: footer.appStoreCta, url: APP_STORE_URL, qrAlt: footer.appStoreQrAlt },
+  ])('links the app to its $store listing from the footer, with a scannable code beside it', ({ cta, url, qrAlt }) => {
     const { container } = renderLanding();
-    const link = screen.getByRole('link', { name: new RegExp(footer.playStoreCta, 'i') });
-    expect(link.closest('footer'), 'The Play Store link belongs in the footer').not.toBeNull();
-    expect(link.getAttribute('href')).toBe(PLAY_STORE_URL);
+    const link = screen.getByRole('link', { name: new RegExp(cta, 'i') });
+    expect(link.closest('footer'), 'The store link belongs in the footer').not.toBeNull();
+    expect(link.getAttribute('href')).toBe(url);
     expect(link.getAttribute('target')).toBe('_blank');
 
-    // The QR is a static SVG that cannot follow PLAY_STORE_URL (see SiteFooter.tsx), so the
+    // Each QR is a static SVG that cannot follow its URL constant (see SiteFooter.tsx), so the
     // listing it points at is checked by decoding it at generation time, not here. This only
     // guards that the image is present and described for screen readers.
-    const qr = container.querySelector(`img[alt="${footer.qrAlt}"]`);
-    expect(qr, 'The Play Store QR code image should render with its alt text').not.toBeNull();
+    const qr = container.querySelector(`img[alt="${qrAlt}"]`);
+    expect(qr, 'The store QR code image should render with its alt text').not.toBeNull();
     expect(qr?.getAttribute('src')).toBeTruthy();
   });
 

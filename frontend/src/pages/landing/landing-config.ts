@@ -331,14 +331,18 @@ export const everywhere = {
     { when: 'Afternoon', what: "Check what's left in the food budget before ordering lunch." },
     { when: 'Evening', what: 'Nudge a goal after the salary lands. Same numbers, same account.' },
   ],
-  // The web app is responsive and runs anywhere. The Android app is live on Google Play: checked
-  // 2026-10-24, the listing URL answers 200 and is titled "Fynora - Apps on Google Play" (a made-up
-  // package answers 404). The iOS app is not on the App Store: an iTunes lookup for its bundle id
-  // in the India store returned no results the same day. Update this note, the badge and the
-  // section wording together, never just one, and re-check both stores before changing any of it.
-  nativeStatus: 'Now on Android',
+  // The web app is responsive and runs anywhere. Both native apps are live. Android: checked
+  // 2026-10-24, the Google Play listing answers 200 and is titled "Fynora - Apps on Google Play" (a
+  // made-up package answers 404). iOS: checked 2026-11-09, an iTunes lookup for bundle id
+  // com.fynora.app in the India store returns one result, "Fynora: Personal Finance" (its id is
+  // APP_STORE_ID in lib/openInApp.ts, version 1.2.0, released 2026-11-05), and its India listing
+  // page answers 200. The
+  // US-storefront page of the same listing answers 404, so the iOS app is India-only. Update this
+  // note, the badge and the section wording together, never just one, and re-check both stores
+  // before changing any of it.
+  nativeStatus: 'Now on Android and iOS',
   nativeNote:
-    'The Fynora app for Android is live on Google Play, and Fynora runs in any browser. The iOS app is not on the App Store yet.',
+    'The Fynora app is live on Google Play and the App Store, and Fynora runs in any browser.',
 };
 
 export const useCases = {
@@ -410,11 +414,15 @@ export const footer = {
   tagline: 'Understand every rupee. Not just your balance.',
   instagram: 'https://www.instagram.com/fynora_technovation/',
   instagramHandle: '@fynora_technovation',
-  // The Android app is on Google Play (verified live 2026-10-24, see `everywhere` above). The iOS
-  // app is not on the App Store, so there is deliberately no App Store badge here.
-  appLabel: 'Get the Android app',
+  // Both apps are on their stores (verified live, see `everywhere` above). The badge texts are
+  // the stores' own wording and double as the links' accessible names.
+  appLabel: 'Get the app',
   playStoreCta: 'Get it on Google Play',
-  qrCaption: 'Scan with your phone',
-  qrAlt: 'QR code that opens the Fynora app on Google Play',
-  trademark: 'Google Play and the Google Play logo are trademarks of Google LLC.',
+  appStoreCta: 'Download on the App Store',
+  playQrAlt: 'QR code that opens the Fynora app on Google Play',
+  appStoreQrAlt: 'QR code that opens the Fynora app on the App Store',
+  // Each store's required credit line. Apple's wording is its international form ("is a
+  // trademark of Apple Inc.", the US-only form says "service mark"): this site is for India.
+  trademark:
+    'Google Play and the Google Play logo are trademarks of Google LLC. App Store is a trademark of Apple Inc.',
 };

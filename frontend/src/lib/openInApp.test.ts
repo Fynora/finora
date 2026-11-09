@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  APP_STORE_ID,
+  APP_STORE_URL,
   PLAY_STORE_URL,
   androidOpenAppUrl,
   androidOpenInAppEnabled,
@@ -49,6 +51,11 @@ describe('openInApp', () => {
         + `S.browser_fallback_url=${encodeURIComponent(PLAY_STORE_URL)};end`
     );
     expect(PLAY_STORE_URL).toBe('https://play.google.com/store/apps/details?id=com.fynora.android');
+  });
+
+  it("points the App Store link at the app's id, the same id the Smart App Banner takes", () => {
+    expect(APP_STORE_URL).toBe(`https://apps.apple.com/in/app/fynora-personal-finance/id${APP_STORE_ID}`);
+    expect(iosSmartAppBannerTag(APP_STORE_ID)).toBe(`<meta name="apple-itunes-app" content="app-id=${APP_STORE_ID}" />`);
   });
 
   it('builds the Smart App Banner tag only for an App Store id', () => {

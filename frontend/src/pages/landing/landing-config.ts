@@ -419,8 +419,6 @@ export const footer = {
   appLabel: 'Get the app',
   playStoreCta: 'Get it on Google Play',
   appStoreCta: 'Download on the App Store',
-  playQrCaption: 'Scan for Android',
-  appStoreQrCaption: 'Scan for iOS',
   playQrAlt: 'QR code that opens the Fynora app on Google Play',
   appStoreQrAlt: 'QR code that opens the Fynora app on the App Store',
   // Each store's required credit line. Apple's wording is its international form ("is a

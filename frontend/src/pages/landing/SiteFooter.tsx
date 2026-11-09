@@ -79,46 +79,44 @@ export function SiteFooter() {
 
             <p className="mt-7 mb-3 text-xs font-semibold uppercase tracking-wide text-slate-300">{footer.appLabel}</p>
 
-            {/* A phone cannot scan its own screen, so the codes only appear from tablet width up;
-                on a phone the two badges are the whole call to action. Each white tile is its
-                SVG's own quiet zone, which a scanner needs, so it is not cropped or tinted. */}
-            <div className="hidden md:flex flex-wrap gap-3">
-              {[
-                { src: playStoreQr, alt: footer.playQrAlt, caption: footer.playQrCaption },
-                { src: appStoreQr, alt: footer.appStoreQrAlt, caption: footer.appStoreQrCaption },
-              ].map((qr) => (
-                <div key={qr.caption} className="shrink-0 text-center">
-                  <img src={qr.src} alt={qr.alt} width={104} height={104} className="rounded-lg" />
-                  <p className="text-[11px] mt-1.5 text-slate-400">{qr.caption}</p>
-                </div>
-              ))}
-            </div>
+            {/* Each store is one unit: its QR code with its own badge directly beneath, so the code
+                and the badge it belongs to can never drift apart. A phone cannot scan its own
+                screen, so the codes only appear from tablet width up; on a phone each unit is just
+                its badge. Each white tile is its SVG's own quiet zone, which a scanner needs, so it
+                is not cropped or tinted. Units wrap instead of shrinking where the column is
+                narrow, so a code never drops below 104px.
 
-            <div className="mt-4 flex flex-col items-start gap-3">
-              {/* Both badges are the stores' own artwork, shown unmodified: Google's and Apple's
-                  rules forbid redrawing, recoloring, cropping or distorting them. Google's PNG
-                  carries its own clear space, so the negative margin lines its visible edge up
-                  with the text above; Apple's SVG has none, so it gets the gap instead (Apple
-                  asks for a quarter of the badge's height around it). The App Store badge is
-                  sized to match the visible height of the Google Play one. */}
-              <a
-                href={PLAY_STORE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="m-tap inline-block -ml-2.5"
-              >
-                <img src={googlePlayBadge} alt={footer.playStoreCta} width={180} height={70} className="h-auto" />
-              </a>
-              <a
-                href={APP_STORE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="m-tap inline-block"
-              >
-                <img src={appStoreBadge} alt={footer.appStoreCta} width={138} height={46} className="h-auto" />
-              </a>
+                Both badges are the stores' own artwork, shown unmodified: Google's and Apple's
+                rules forbid redrawing, recoloring, cropping or distorting them. Both are sized to
+                40px of visible height (Apple's on-screen minimum; Google's is 28px). Google's PNG
+                carries its own clear space, so the negative margin lines its visible edge up with
+                the code above; Apple's SVG has none. The gap under each code is 12px, over the
+                quarter-of-the-badge-height (10px) clear space Apple asks for. */}
+            <div className="flex flex-wrap items-start gap-x-4 gap-y-5">
+              <div className="flex flex-col items-start gap-3">
+                <img src={playStoreQr} alt={footer.playQrAlt} width={104} height={104} className="hidden md:block rounded-lg" />
+                <a
+                  href={PLAY_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="m-tap inline-block -ml-2.5"
+                >
+                  <img src={googlePlayBadge} alt={footer.playStoreCta} width={155} height={60} className="h-auto" />
+                </a>
+              </div>
+              <div className="flex flex-col items-start gap-3">
+                <img src={appStoreQr} alt={footer.appStoreQrAlt} width={104} height={104} className="hidden md:block rounded-lg" />
+                <a
+                  href={APP_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="m-tap inline-block"
+                >
+                  <img src={appStoreBadge} alt={footer.appStoreCta} width={120} height={40} className="h-auto" />
+                </a>
+              </div>
             </div>
-            <p className="text-[11px] mt-3 max-w-[260px] leading-snug text-slate-400">{footer.trademark}</p>
+            <p className="text-[11px] mt-4 max-w-[260px] leading-snug text-slate-400">{footer.trademark}</p>
           </div>
 
           {COLUMNS.map((col) => (

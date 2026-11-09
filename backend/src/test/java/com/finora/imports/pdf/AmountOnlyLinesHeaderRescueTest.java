@@ -91,8 +91,9 @@ class AmountOnlyLinesHeaderRescueTest {
         assertThat(cell(rows.get(1), "Debit")).isEqualTo("-");
         assertThat(cell(rows.get(1), "Credit")).isEqualTo("101.00");
         assertThat(cell(rows.get(1), "Balance")).isEqualTo("5001.00");
-        // The amount no longer rides inside the last text column.
-        assertThat(cell(rows.get(0), "Type")).isEqualTo("Transfer");
+        // The amount no longer rides inside the last text column. Named "Transaction Type" since
+        // SPLIT_PARENTHETICAL_HEADER joins all three header tiers (see SplitParentheticalHeaderPdfTableLocatorTest).
+        assertThat(cell(rows.get(0), "Transaction Type")).isEqualTo("Transfer");
     }
 
     @Test
@@ -120,16 +121,23 @@ class AmountOnlyLinesHeaderRescueTest {
     }
 
     /**
-     * Pins the evidence threshold on purpose: one undated colliding line is not enough to rescue a
-     * header (HEADER_QUALITY_MIN_SAMPLE). A table of a single transaction therefore keeps the old
-     * result. If this threshold is ever lowered deliberately, this is the test to change.
+     * One transaction is below the rescue's evidence threshold (HEADER_QUALITY_MIN_SAMPLE), and this
+     * test used to pin that such a table kept the old reading, with no Debit column. Since
+     * SPLIT_PARENTHETICAL_HEADER this header shape no longer needs the rescue: "Debit(" + "Rs)" is
+     * rejoined before the three tiers are merged, so the header is read whole however few
+     * transactions follow it, and the single transaction keeps every value under its own column.
      */
     @Test
-    void singleTransaction_isBelowTheEvidenceThreshold_andKeepsTheOldReading() {
+    void singleTransaction_readsAllSevenColumns_becauseTheTiersAreJoinedDirectly() {
         List<Map<String, String>> rows = rowsOf(threeLineHeaderStatement(1));
 
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).keySet()).noneMatch(k -> k.startsWith("Debit"));
+        assertThat(rows.get(0).keySet()).containsExactlyInAnyOrder(
+                "Date(Value Date)", "Particulars", "Ref No. /Cheque No", "Transaction Type",
+                "Debit(Rs)", "Credit(Rs)", "Balance(Rs)");
+        assertThat(cell(rows.get(0), "Debit")).isEqualTo("100.00");
+        assertThat(cell(rows.get(0), "Credit")).isEqualTo("-");
+        assertThat(cell(rows.get(0), "Balance")).isEqualTo("4900.00");
     }
 
     @Test

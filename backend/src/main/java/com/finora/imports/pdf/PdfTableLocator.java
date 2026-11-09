@@ -122,6 +122,11 @@ public class PdfTableLocator {
     private static final float HEADER_WRAP_MAX_GAP = 12.0f;
     private static final int HEADER_WRAP_MAX_LINES = 3;
     private static final float HEADER_WRAP_MAX_COLUMN_JOIN = 40.0f;
+    // SPLIT_PARENTHETICAL_HEADER. How far apart two runs on one header line may be and still be one
+    // label the PDF wrote in two pieces. On the real Indian Overseas Bank savings statement held on
+    // 2026-11-08, "Debit(" ends at exactly the x where "Rs)" begins. 1pt is room for rounding, not
+    // for a word space; and a join also needs the left run to open a bracket the right run closes.
+    private static final float SPLIT_PARENTHETICAL_MAX_GAP = 1.0f;
 
     // P-001 Fix B. The two bounds that admit a wrap merge onto a line that ALREADY scores as a
     // header on its own -- a case the merge used to be forbidden from touching at all. See
@@ -4162,7 +4167,7 @@ public class PdfTableLocator {
      * neighbour scores strictly LESS dense than either line did, not more.
      */
     private WrappedHeader wrappedHeaderAt(List<List<PositionedText>> rows, int index, boolean alreadyScores) {
-        List<PositionedText> first = rows.get(index);
+        List<PositionedText> first = joinSplitParentheticals(rows.get(index));
         if (first.isEmpty()) return null;
         if (!carriesNoDataValue(first)) {
             explainWrap(first, () -> "NO_MERGE: upper line carries a date or a number, so it is a data row");
@@ -4177,7 +4182,7 @@ public class PdfTableLocator {
         block.add(first);
         WrappedHeader found = null;
         for (int span = 1; span < HEADER_WRAP_MAX_LINES && index + span < rows.size(); span++) {
-            List<PositionedText> next = rows.get(index + span);
+            List<PositionedText> next = joinSplitParentheticals(rows.get(index + span));
             if (!wrapsOnto(block.get(block.size() - 1), next)) break;
             block.add(next);
             // Keeps extending while it can rather than stopping at the first span that scores: a
@@ -5381,6 +5386,63 @@ public class PdfTableLocator {
             if (!isRecognizedHeaderWord(t.text())) return false;
         }
         return nonBlank >= HEADER_WRAP_STRICT_MIN_LOWER_CELLS;
+    }
+
+    /**
+     * SPLIT_PARENTHETICAL_HEADER. {@code line} with any header label the PDF wrote as two touching
+     * runs put back together -- "Debit(" immediately followed by "Rs)" becomes "Debit(Rs)".
+     *
+     * <p>Measured on a real Indian Overseas Bank savings statement held on 2026-11-08: the same
+     * three-tier header {@link #mergeHeaderLinesAdmittingInteriorTierColumns} was written for, except
+     * that this file's text layer splits its middle tier's "Debit(Rs)" into two runs, most likely at a
+     * font change. Neither half is column-name vocabulary on its own, so {@link #isPureVocabularyTier}
+     * refused the middle tier, the three tiers were never joined, and the bottom tier alone ("Date)" /
+     * "/Cheque No" / "Type") was taken for the header. "Date)" names no date column, so every
+     * transaction was read and then rejected. The trace that tier merge was built
+     * against carries "Debit(Rs)" as one run, which is why it never showed this.
+     *
+     * <p>Joins only when the left run opens a bracket it does not close, the right run starts within
+     * {@link #SPLIT_PARENTHETICAL_MAX_GAP} of the left run's measured right edge on the same line, and
+     * the joined text closes that bracket. A label that already balances its own brackets is never
+     * touched, so two complete labels printed side by side stay two. Only header candidates pass
+     * through here (see {@link #wrappedHeaderAt}); data rows are left exactly as extracted.
+     */
+    static List<PositionedText> joinSplitParentheticals(List<PositionedText> line) {
+        if (line.size() < 2) return line;
+        List<PositionedText> out = null;
+        for (int i = 0; i < line.size(); i++) {
+            PositionedText left = line.get(i);
+            if (i + 1 < line.size() && isSplitParenthetical(left, line.get(i + 1))) {
+                PositionedText right = line.get(i + 1);
+                if (out == null) out = new ArrayList<>(line.subList(0, i));
+                float width = (right.x() + right.width()) - left.x();
+                out.add(new PositionedText(left.text().stripTrailing() + right.text().stripLeading(),
+                        left.x(), left.y(), left.pageIndex(), width,
+                        left.height(), left.confidence(), left.source()));
+                i++;
+            } else if (out != null) {
+                out.add(left);
+            }
+        }
+        return out == null ? line : out;
+    }
+
+    private static boolean isSplitParenthetical(PositionedText left, PositionedText right) {
+        if (left.pageIndex() != right.pageIndex() || left.width() <= 0) return false;
+        String l = left.text().stripTrailing();
+        String r = right.text().strip();
+        if (l.isEmpty() || r.isEmpty()) return false;
+        if (count(l, '(') <= count(l, ')')) return false;
+        float gap = right.x() - (left.x() + left.width());
+        if (gap < -SPLIT_PARENTHETICAL_MAX_GAP || gap > SPLIT_PARENTHETICAL_MAX_GAP) return false;
+        String joined = l + r;
+        return count(joined, '(') == count(joined, ')');
+    }
+
+    private static int count(String s, char c) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == c) n++;
+        return n;
     }
 
     /** True when {@code cellText}'s normalized form exactly names a recognized column -- either a

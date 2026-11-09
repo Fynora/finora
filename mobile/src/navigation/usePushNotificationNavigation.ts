@@ -15,8 +15,8 @@ import type { RootParamList } from './types';
  *
  * The `Notification` domain entity carries no target/reference-entity id column at all (confirmed
  * by reading it directly, not assumed) -- there is nothing here to deep-link a
- * IMPORT_STATEMENT_READY tap to the one statement it's about, only to the screen that lists every
- * statement. That is the ceiling of what this can do without a backend schema change; routing by
+ * IMPORT_STATEMENT_READY tap to the one statement it's about, only to the Import tab, whose list of
+ * statements waiting for review holds it. That is the ceiling of what this can do without a backend schema change; routing by
  * type is still a real improvement over today's "wherever the app happens to be."
  *
  * <h2>Two distinct signals, not one</h2>

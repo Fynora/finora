@@ -1179,6 +1179,22 @@ describe('AuthContext foreground push wiring', () => {
       },
     );
 
+    // A customer on 2026-11-09 was on the Import tab when "Statement ready" arrived. The tab got no
+    // focus event, so only the push itself can make its waiting-statements list ask again.
+    it.each(['IMPORT_STATEMENT_READY', 'IMPORT_STATEMENT_RESOLVED'])(
+      'also refreshes the Import tab lists for %s',
+      async (type) => {
+        await signedIn();
+
+        latestHandler()({ notification: { title: 'Fynora', body: 'About your statement.' }, data: { type } } as never);
+
+        const keys = invalidateSpy.mock.calls.map(([filters]) =>
+          JSON.stringify((filters as { queryKey?: unknown })?.queryKey));
+        expect(keys).toContain(JSON.stringify(['import-sessions']));
+        expect(keys).toContain(JSON.stringify(['import-failures']));
+      },
+    );
+
     it('refetches it even while the app is locked and the alert cannot show', async () => {
       await signedIn();
       appLock.setLockedFlag(true);

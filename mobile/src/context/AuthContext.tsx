@@ -391,6 +391,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const pushType = message.data?.type;
       if (typeof pushType === 'string' && pushType.startsWith('IMPORT_STATEMENT_')) {
         void queryClient.invalidateQueries({ queryKey: ['import-jobs-recent'] });
+        // And the Import tab's own lists: a statement now waiting for review appears in
+        // 'import-sessions'. Someone already on the Import tab gets no focus event, so without this
+        // the alert would say "ready to review" over a list still showing nothing to review.
+        void queryClient.invalidateQueries({ queryKey: ['import-sessions'] });
+        void queryClient.invalidateQueries({ queryKey: ['import-failures'] });
       }
       if (appLock.isLocked()) return;
       const body = message.notification?.body;

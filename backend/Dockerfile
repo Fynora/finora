@@ -42,7 +42,11 @@ WORKDIR /app
 # `--upgrade` on a named package keeps the rest of the base as pinned; it is not an exact-version
 # pin, so it cannot turn a routine rebuild into a failure. Once a base image newer than 2.9.0-r0
 # is pinned above, the extra name is harmless and can be dropped.
-RUN apk add --no-cache --upgrade libexpat tesseract-ocr tesseract-ocr-data-eng
+#
+# musl-utils is named for the same reason: the pinned base holds musl-utils 1.2.6-r2, and the
+# nightly image scan failed from 2026-11-07 on CVE-2026-107891 (HIGH, regcomp integer overflow,
+# fixed in 1.2.6-r3). Same rule -- drop the name once the pinned base ships 1.2.6-r3 or later.
+RUN apk add --no-cache --upgrade libexpat musl-utils tesseract-ocr tesseract-ocr-data-eng
 
 # The English model OCR was evaluated and tuned against: tessdata_fast 4.1.0, pinned by checksum.
 # Alpine's tesseract-ocr-data-eng ships the larger standard model instead, and every OCR measurement

@@ -340,8 +340,46 @@ describe('Privacy policy matches what the product does', () => {
       const t = policyText();
       expect(t).not.toMatch(/not\s+currently erased/i);
       expect(t).not.toMatch(/working to close it/i);
-      expect(t).toMatch(/When you delete a statement, Fynora removes at once its file name, the account-holder name it read\s+from the statement/i);
-      expect(t).toMatch(/keep the file's name until you delete your\s+account/i);
+      expect(t).toMatch(/When you delete a statement, Fynora removes at once, from the statement's own record, its file\s+name, the account-holder name it read from the statement/i);
+      expect(t).toMatch(/Two other\s+records of the same upload still hold the file's name until you delete your account: its entry\s+in your import history, and the technical record/i);
+    });
+
+    // External privacy review, November 2026: the records kept after deletion stay linked to the
+    // account's id (AccountPurgeSweepService keeps the user row, with name, email and phone
+    // replaced), so they are pseudonymous, and the policy must not call them anonymized.
+    it('does not call the records kept after deletion anonymous, and says what they stay linked to', () => {
+      const t = policyText();
+      expect(t).not.toMatch(/anonymi[sz]ed account/i);
+      expect(t).not.toMatch(/anonymi[sz]ed placeholder/i);
+      expect(t).toMatch(/stay linked to\s+your account's internal ID/i);
+      expect(t).toMatch(/the ID itself is not anonymous/i);
+    });
+
+    it('says what happens to Ask Fyn conversations while AI is off, and that one cannot be deleted alone', () => {
+      const t = policyText();
+      expect(t).toMatch(/While AI features are off, nothing from your conversations\s+is sent to the AI/i);
+      expect(t).toMatch(/A single conversation cannot yet be\s+deleted on its own/i);
+    });
+
+    it('names the staff import-diagnosis AI request and says it holds no customer data', () => {
+      const t = policyText();
+      expect(t).toMatch(/Fynora's staff can also ask an AI service to explain why an import failed, and that\s+request holds only Fynora's own status codes, never your data/i);
+    });
+
+    it('says a wrongly classified person can be recorded, so the shared record is not anonymous', () => {
+      const t = policyText();
+      expect(t).toMatch(/If a\s+person is wrongly classified as a business, their UPI ID can be recorded/i);
+      expect(t).toMatch(/the shared record described below is not anonymous/i);
+    });
+
+    it('opens with a table of each purpose, its data, and whether it is optional', () => {
+      render(<MemoryRouter><Privacy /></MemoryRouter>);
+      const table = document.querySelector('#purposes table');
+      expect(table).not.toBeNull();
+      const rows = Array.from(table!.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '');
+      expect(rows).toHaveLength(9);
+      expect(rows.find((r) => r.startsWith('AI features'))).toMatch(/Optional: off until you turn it on/);
+      expect(rows.find((r) => r.startsWith('Offers and news'))).toMatch(/Optional: off until you turn it on/);
     });
 
     it('covers deleting a Google or Apple account, Firebase, account names and store subscriptions', () => {

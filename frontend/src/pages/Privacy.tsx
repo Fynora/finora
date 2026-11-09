@@ -32,6 +32,70 @@ export default function Privacy() {
         </p>
       </PublicSection>
 
+      <PublicSection id="purposes" title="What We Use, and Why, at a Glance">
+        <p>
+          A summary of the sections below. Each section has the full detail.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr>
+                <th className="py-1 pr-3 text-ink">Purpose</th>
+                <th className="py-1 pr-3 text-ink">Data</th>
+                <th className="py-1 text-ink">Your choice</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="py-1 pr-3 align-top">Your account and signing in</td>
+                <td className="py-1 pr-3 align-top">Name, email, mobile number, sign-in times, IP address and device at sign-in</td>
+                <td className="py-1 align-top">Needed to have an account</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Tracking your money</td>
+                <td className="py-1 pr-3 align-top">Accounts, transactions, budgets, goals and the statements you upload</td>
+                <td className="py-1 align-top">Needed for the features that use them</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Fixing import problems</td>
+                <td className="py-1 pr-3 align-top">A technical record of each upload</td>
+                <td className="py-1 align-top">Kept for every upload (see Uploaded Statements)</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Better category suggestions for everyone</td>
+                <td className="py-1 pr-3 align-top">The payee&apos;s UPI ID, the category and the direction of the payment</td>
+                <td className="py-1 align-top">Recorded for payees classified as businesses (see Learning From Corrections Across Users)</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">AI features</td>
+                <td className="py-1 pr-3 align-top">Your question and the figures needed to answer it</td>
+                <td className="py-1 align-top">Optional: off until you turn it on</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Offers and news</td>
+                <td className="py-1 pr-3 align-top">The device token of each phone you use the app on</td>
+                <td className="py-1 align-top">Optional: off until you turn it on</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Opening locked statements for you</td>
+                <td className="py-1 pr-3 align-top">A statement password you choose to save</td>
+                <td className="py-1 align-top">Optional</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Learning where visitors come from</td>
+                <td className="py-1 pr-3 align-top">The site and campaign tags that brought you to sign up</td>
+                <td className="py-1 align-top">Recorded at sign-up on the website</td>
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top">Keeping your account secure</td>
+                <td className="py-1 pr-3 align-top">Security audit logs of account activity</td>
+                <td className="py-1 align-top">Kept for every account (see Data Retention)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </PublicSection>
+
       <PublicSection title="Information We Collect">
         <p>
           Fynora collects the information you provide directly (registration details, account and transaction
@@ -182,8 +246,10 @@ export default function Privacy() {
           clears, from its log of AI requests, the figures that were sent to the AI and returned to it. It keeps
           the rest of each log entry (the model, its cost and how long it took), which it uses to limit AI
           costs, and your Ask Fyn conversations, which it uses to count the Free plan's daily questions; both
-          are deleted when you delete your account. We keep a record of each time you turn AI features on or
-          off.
+          are deleted when you delete your account. While AI features are off, nothing from your conversations
+          is sent to the AI, and you can still scroll back through them. A single conversation cannot yet be
+          deleted on its own: your conversations are deleted together, with your account. We keep a record of
+          each time you turn AI features on or off.
         </p>
       </PublicSection>
 
@@ -295,7 +361,8 @@ export default function Privacy() {
           Your data is used to: provide the core features you sign up for; generate categorization suggestions
           and financial insights (via Fynora's own rule-based logic, except for the three uses of an AI service
           described under "Ask Fyn (AI Assistant)" and "AI insights" above, which run only if you turn AI
-          features on); detect duplicate or transfer transactions; and secure your account
+          features on; Fynora's staff can also ask an AI service to explain why an import failed, and that
+          request holds only Fynora's own status codes, never your data); detect duplicate or transfer transactions; and secure your account
           (fraud/lockout detection on repeated failed logins). Only if you turn on "Offers and news", it is also
           used to send you push notifications about Fynora offers and new features (see Offers and News below).
         </p>
@@ -330,7 +397,10 @@ export default function Privacy() {
           financial institution, Fynora records the payee's UPI ID, the category, the direction of the payment
           (money in or out), your account ID, how the payee was classified and the time, in an internal log that
           other users cannot see. This is used to improve category suggestions. The classification is automatic
-          and can be wrong. Payments classified as an individual, or not classified, are not recorded.
+          and can be wrong. Payments classified as an individual, or not classified, are not recorded. If a
+          person is wrongly classified as a business, their UPI ID can be recorded. A UPI ID can identify the
+          person or business it belongs to, so the shared record described below is not anonymous, even though
+          it holds no account ID.
         </p>
         <p>
           If several separate users (at least three) categorise the same payee the same way, that category
@@ -515,17 +585,17 @@ export default function Privacy() {
           safeguard against someone else deleting your account without your knowledge.
         </p>
         <p>
-          When you delete a statement, Fynora removes at once its file name, the account-holder name it read
-          from the statement, and the details of the statement's layout. Its file is deleted from our storage
-          as described under Data Retention above. The record of the upload in your import history, and the
-          technical record described under Uploaded Statements, keep the file's name until you delete your
-          account.
+          When you delete a statement, Fynora removes at once, from the statement&apos;s own record, its file
+          name, the account-holder name it read from the statement, and the details of the statement&apos;s
+          layout. Its file is deleted from our storage as described under Data Retention above. Two other
+          records of the same upload still hold the file&apos;s name until you delete your account: its entry
+          in your import history, and the technical record described under Uploaded Statements.
         </p>
         <p>
           Account deletion is immediate and permanent once confirmed — there is no waiting period and no
           self-service way to undo it. Your transactions, budgets, and goals are permanently removed, and your
-          personal information (name, phone number, email) is erased or replaced with an anonymized
-          placeholder at that point. The names you gave your accounts, and the account details Fynora read from
+          personal information (name, phone number, email) is erased or replaced with a placeholder at that
+          point. The names you gave your accounts, and the account details Fynora read from
           your statements, are removed too. Your phone number is also deleted from Firebase Authentication, the
           service we use to verify it.
         </p>
@@ -537,11 +607,14 @@ export default function Privacy() {
         <p>
           What we keep after you delete your account: a record of each version of the Terms of Service and
           this policy you agreed to (the version, the date, and whether it was on the website or an app), as
-          evidence of your consent, linked only to the anonymized account; the record of each time you turned a
-          notification switch such as "Offers and news" on or off (the switch, the date, the app and the wording
-          shown), for the same reason and linked the same way; security audit logs, as described
-          under Data Retention; and the anonymized upload records, the unlinked deletion reason and the shared
-          category suggestions described in their own sections above. A copy of your data may also briefly
+          evidence of your consent; the record of each time you turned a notification switch such as "Offers
+          and news" on or off (the switch, the date, the app and the wording shown), for the same reason;
+          security audit logs, as described under Data Retention; and the upload records with their link to
+          your account removed, the unlinked deletion reason and the shared category suggestions described in
+          their own sections above. The consent and notification records and the audit logs stay linked to
+          your account&apos;s internal ID. Your name, email and phone number are removed from that account, but
+          the ID itself is not anonymous: it appears in those records, and RevenueCat holds it for a
+          subscription bought through an app store. A copy of your data may also briefly
           persist in an encrypted backup until that backup cycles out, as described under Data Retention. If
           you'd rather not go through the in-app flow, you can also request deletion by contacting{' '}
           <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.

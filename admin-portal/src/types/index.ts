@@ -29,6 +29,11 @@ export interface UserDetailDto extends UserSummaryDto {
   /** Gate 2a: left out of the activation counts. */
   internalAccount: boolean;
   accountScope: 'USER' | 'ADMIN';
+  /** Privacy workstream 10: the current suspension, all null unless SUSPENDED. The reason is also
+   *  null on an account suspended before reasons were recorded, until one is recorded. */
+  suspensionReason: 'TERMS_VIOLATION' | 'FRAUD' | 'SECURITY_RISK' | null;
+  suspensionMessage: string | null;
+  suspendedAt: string | null;
 }
 
 export interface PagedResponse<T> {
@@ -1838,7 +1843,9 @@ export interface LayoutEvidenceReport {
 // com.finora.entity.FeedbackEntry) -- a value added on one side with nothing here to render it is
 // the failure mode a compile-time union exists to catch.
 export type SupportTicketCategory =
-  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER';
+  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER'
+  // Privacy workstream 10: raised only from the suspended screen.
+  | 'SUSPENSION_APPEAL' | 'SUSPENSION_DELETION_REQUEST';
 export type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ClientPlatform = 'WEB' | 'MOBILE_ANDROID' | 'MOBILE_IOS';
 

@@ -176,10 +176,31 @@ describe('Users', () => {
     // page's own doc comment on confirmSuspend for why. Scoped to the dialog: its confirm button
     // shares the accessible name "Suspend" with the row's own trigger button, still in the DOM.
     const dialog = await screen.findByRole('dialog');
+    // Privacy workstream 10: no suspension without a reason, and the message reaches the customer.
+    expect(within(dialog).getByRole('button', { name: 'Suspend' })).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText('Reason'), 'FRAUD');
+    await user.type(within(dialog).getByLabelText(/Message to the customer/), '  Chargebacks.  ');
     await user.click(within(dialog).getByRole('button', { name: 'Suspend' }));
 
-    await waitFor(() => expect(adminUsersApi.suspend).toHaveBeenCalledWith('user-1'));
+    await waitFor(() => expect(adminUsersApi.suspend).toHaveBeenCalledWith('user-1', 'FRAUD', 'Chargebacks.'));
     await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('User suspended.'));
+  });
+
+  it('suspends with no message when the message is left blank', async () => {
+    mockAuth(['USER_VIEW', 'USER_DELETE']);
+    vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));
+    vi.mocked(adminUsersApi.suspend).mockResolvedValue({ ...AMY, status: 'SUSPENDED' });
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Amy Active')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Suspend/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.selectOptions(within(dialog).getByLabelText('Reason'), 'TERMS_VIOLATION');
+    await user.click(within(dialog).getByRole('button', { name: 'Suspend' }));
+
+    await waitFor(() => expect(adminUsersApi.suspend).toHaveBeenCalledWith('user-1', 'TERMS_VIOLATION', undefined));
   });
 
   it('does not suspend when the confirmation is declined', async () => {
@@ -210,6 +231,7 @@ describe('Users', () => {
 
     await user.click(screen.getByRole('button', { name: /Suspend/ }));
     const dialog = await screen.findByRole('dialog');
+    await user.selectOptions(within(dialog).getByLabelText('Reason'), 'SECURITY_RISK');
     await user.click(within(dialog).getByRole('button', { name: 'Suspend' }));
 
     await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Cannot suspend yourself.'));

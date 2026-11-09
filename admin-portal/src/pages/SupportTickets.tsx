@@ -26,6 +26,8 @@ const CATEGORY_OPTIONS: { label: string; value: SupportTicketCategory }[] = [
   { label: 'Data accuracy', value: 'DATA_ACCURACY' },
   { label: 'Technical issue', value: 'TECHNICAL_ISSUE' },
   { label: 'Other', value: 'OTHER' },
+  { label: 'Suspension appeal', value: 'SUSPENSION_APPEAL' },
+  { label: 'Deletion request (suspended)', value: 'SUSPENSION_DELETION_REQUEST' },
 ];
 
 const STATUS_TONE: Record<SupportTicketStatus, string> = {

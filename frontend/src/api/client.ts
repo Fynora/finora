@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { safeStorage } from '../lib/safeStorage';
+import { AUTH_ACCOUNT_SUSPENDED } from './errorCodes';
 
 // Bug fix (production-readiness pass): this was a hardcoded relative path with no env-driven
 // override at all. That's fine in local dev, where Vite's own dev-server proxy (vite.config.ts's
@@ -359,6 +360,11 @@ api.interceptors.response.use(
           clearSessionAndRedirect(refreshError?.response?.data?.message);
           return Promise.reject(error);
         }
+      } else if (originalRequest.headers?.Authorization) {
+        // Privacy workstream 10. No session in this tab, but the request carried its own token: the
+        // suspended screen's calls (suspensionApi), whose token lasts 15 minutes. Its expiry is
+        // the screen's to explain; a hard navigation here would throw away an appeal mid-typing.
+        return Promise.reject(error);
       } else {
         // Bug 41. Missing a `return` here (unlike both branches of the `if` above, which return
         // immediately after calling clearSessionAndRedirect()) let execution fall through to the
@@ -378,6 +384,16 @@ api.interceptors.response.use(
       if (!window.location.pathname.startsWith('/verify-phone')) {
         window.location.href = '/verify-phone';
       }
+      return Promise.reject(error);
+    }
+
+    // Privacy workstream 10. The account was suspended while this tab was signed in: every request
+    // the session makes is now refused with AUTH_018 until its token expires. End the session now,
+    // with the reason, so the user can sign in again and reach the suspended screen. Only for the
+    // app's own session (there is an access token): the suspended screen's own calls carry their
+    // token per request, with no session in this tab, and handle their own errors.
+    if (error.response?.status === 403 && error.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED && getAccessToken()) {
+      clearSessionAndRedirect('This account has been suspended. Sign in to see why and what you can do.');
       return Promise.reject(error);
     }
 

@@ -82,11 +82,15 @@ class AuthServiceGoogleLoginTest {
         platformSettingsService = mock(PlatformSettingsService.class);
         when(platformSettingsService.getEntity()).thenReturn(new com.finora.entity.PlatformSettings());
 
+        // A real-looking token, not the mock's null: the suspended refusal (privacy workstream 10)
+        // carries one in a Map.of, which refuses nulls, exactly as production never produces one.
+        JwtService jwtService = mock(JwtService.class);
+        when(jwtService.generateToken(any(), any(), any(), any())).thenReturn("test-access-token");
         authService = new AuthService(
                 userRepository, categoryRepository, mock(PasswordResetTokenRepository.class),
                 reactivationTokenRepository,
                 emailVerificationTokenRepository,
-                passwordEncoder, mock(JwtService.class), mock(AuthenticationManager.class),
+                passwordEncoder, jwtService, mock(AuthenticationManager.class),
                 auditService, refreshTokenService, emailProvider,
                 new EmailProperties(), mock(PhoneVerificationProvider.class), platformSettingsService,
                 passwordHistoryService, new IdentityLookup(userRepository),
@@ -368,7 +372,10 @@ class AuthServiceGoogleLoginTest {
 
         assertThatThrownBy(() -> authService.loginWithGoogle(new GoogleIdentity("jane@example.com", "Jane")))
                 .isInstanceOf(ApiException.class)
-                .hasMessageContaining("suspended");
+                .hasMessageContaining("suspended")
+                // Privacy workstream 10: the same suspended-screen token login() hands out.
+                .satisfies(e -> assertThat(((ApiException) e).getDetails())
+                        .containsEntry("suspendedAccessToken", "test-access-token"));
         verify(auditService, never()).record(any(), eq("USER_LOGIN_GOOGLE"), any(), any(), any());
     }
 

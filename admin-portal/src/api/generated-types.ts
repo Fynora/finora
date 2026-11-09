@@ -484,6 +484,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/me/suspension/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["raiseSuspensionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me/phone-change/verify-otp": {
         parameters: {
             query?: never;
@@ -3548,6 +3564,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/me/suspension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["suspensionStatus"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7347,6 +7379,39 @@ export interface components {
             /** Format: int64 */
             version?: number;
         };
+        CreateSuspensionRequest: {
+            type: string;
+            text?: string;
+        };
+        ApiResponseSuspensionStatusDto: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["SuspensionStatusDto"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        SuspensionRequestDto: {
+            type?: string;
+            ticketNumber?: string;
+            status?: string;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        SuspensionStatusDto: {
+            /** Format: date-time */
+            suspendedAt?: string;
+            reason?: string;
+            reasonText?: string;
+            message?: string;
+            storePlatform?: string;
+            signInMethod?: string;
+            requests?: components["schemas"]["SuspensionRequestDto"][];
+        };
         PhoneChangeVerifyOtpRequest: {
             sessionId: string;
             firebaseIdToken: string;
@@ -7672,7 +7737,7 @@ export interface components {
             /** Format: uuid */
             userId?: string;
             /** @enum {string} */
-            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER";
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
             subject?: string;
             description?: string;
             /** @enum {string} */
@@ -9095,6 +9160,11 @@ export interface components {
             /** Format: uuid */
             mergeFromMerchantId: string;
         };
+        AdminSuspendRequest: {
+            /** @enum {string} */
+            reason: "TERMS_VIOLATION" | "FRAUD" | "SECURITY_RISK";
+            message?: string;
+        };
         AdminReactivateRequest: {
             reason?: string;
         };
@@ -9148,7 +9218,7 @@ export interface components {
             /** Format: uuid */
             userId?: string;
             /** @enum {string} */
-            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER";
+            category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
             subject?: string;
             /** @enum {string} */
             status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
@@ -12428,6 +12498,10 @@ export interface components {
             transactionCount?: number;
             internalAccount?: boolean;
             accountScope?: string;
+            suspensionReason?: string;
+            suspensionMessage?: string;
+            /** Format: date-time */
+            suspendedAt?: string;
         };
         ApiResponseListTrustedSenderDto: {
             success?: boolean;
@@ -15840,6 +15914,30 @@ export interface operations {
             };
         };
     };
+    raiseSuspensionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSuspensionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSuspensionStatusDto"];
+                };
+            };
+        };
+    };
     verifyPhoneChangeOtp: {
         parameters: {
             query?: never;
@@ -18857,7 +18955,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminSuspendRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -21177,6 +21279,26 @@ export interface operations {
             };
         };
     };
+    suspensionStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseSuspensionStatusDto"];
+                };
+            };
+        };
+    };
     list_15: {
         parameters: {
             query?: never;
@@ -23409,7 +23531,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
-                category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER";
+                category?: "STATEMENT_IMPORT" | "CATEGORIZATION" | "ACCOUNT_LINKING" | "DATA_ACCURACY" | "TECHNICAL_ISSUE" | "OTHER" | "SUSPENSION_APPEAL" | "SUSPENSION_DELETION_REQUEST";
                 q?: string;
                 page?: number;
                 size?: number;

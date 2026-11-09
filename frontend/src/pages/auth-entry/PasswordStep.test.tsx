@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { PasswordStep } from './PasswordStep';
 import { AuthProvider } from '../../context/AuthContext';
-import { authApi } from '../../api/endpoints';
-import { AUTH_ACCOUNT_DEACTIVATED } from '../../api/errorCodes';
+import { authApi, suspensionApi } from '../../api/endpoints';
+import { AUTH_ACCOUNT_DEACTIVATED, AUTH_ACCOUNT_SUSPENDED } from '../../api/errorCodes';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../../lib/phoneAuth';
 
 vi.mock('../../api/endpoints', () => ({
@@ -14,6 +15,13 @@ vi.mock('../../api/endpoints', () => ({
     otpEmailRequest: vi.fn(), otpEmailLogin: vi.fn(), otpPhoneLogin: vi.fn(),
   },
   userApi: { get: vi.fn(), update: vi.fn() },
+  suspensionApi: {
+    status: vi.fn().mockResolvedValue({
+      suspendedAt: '2026-11-01T10:00:00Z', reason: 'FRAUD', reasonText: 'Synthetic reason text.',
+      message: null, storePlatform: null, signInMethod: 'PASSWORD', requests: [],
+    }),
+    raiseRequest: vi.fn(), exportData: vi.fn(),
+  },
 }));
 
 vi.mock('../../lib/phoneAuth', () => ({
@@ -27,13 +35,29 @@ function renderStep(props: Partial<Parameters<typeof PasswordStep>[0]> = {}) {
   const onSuccess = vi.fn();
   const onNotYou = vi.fn();
   render(
-    <MemoryRouter>
-      <AuthProvider>
-        <PasswordStep identifier="jane@example.com" banner={null} onSuccess={onSuccess} onNotYou={onNotYou} {...props} />
-      </AuthProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter>
+        <AuthProvider>
+          <PasswordStep identifier="jane@example.com" banner={null} onSuccess={onSuccess} onNotYou={onNotYou} {...props} />
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   return { onSuccess, onNotYou };
+}
+
+/** The backend's refusal of a suspended customer's sign-in (privacy workstream 10). */
+function suspendedRefusal() {
+  return Object.assign(new Error('Request failed'), {
+    response: {
+      status: 403,
+      data: {
+        errorCode: AUTH_ACCOUNT_SUSPENDED,
+        message: 'This account has been suspended. Contact support for assistance.',
+        details: { suspendedAccessToken: 'suspended-token' },
+      },
+    },
+  });
 }
 
 describe('PasswordStep', () => {
@@ -243,6 +267,32 @@ describe('PasswordStep', () => {
     expect(await screen.findByText('Welcome back')).toBeInTheDocument();
     expect(screen.getByText('Reactivate my account')).toBeInTheDocument();
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows the suspended screen, with its token, when a password sign-in is refused as suspended', async () => {
+    vi.mocked(authApi.login).mockRejectedValue(suspendedRefusal());
+    const { onSuccess } = renderStep();
+
+    await userEvent.type(screen.getByLabelText('Password'), 'correct-password');
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(await screen.findByText('Your account is suspended')).toBeInTheDocument();
+    expect(await screen.findByText('Synthetic reason text.')).toBeInTheDocument();
+    expect(suspensionApi.status).toHaveBeenCalledWith('suspended-token');
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows the suspended screen when a one-time code sign-in is refused as suspended', async () => {
+    vi.mocked(authApi.otpEmailRequest).mockResolvedValue({ message: 'sent', devCode: null });
+    vi.mocked(authApi.otpEmailLogin).mockRejectedValue(suspendedRefusal());
+    renderStep({ identifier: 'jane@example.com' });
+
+    await userEvent.click(screen.getByRole('button', { name: /login with otp/i }));
+    await userEvent.click(screen.getByRole('button', { name: /send code/i }));
+    await userEvent.type(await screen.findByLabelText(/code/i), '482913');
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
+
+    expect(await screen.findByText('Your account is suspended')).toBeInTheDocument();
   });
 
   it('shows the Terms and Privacy notice beside the Google and Apple buttons', () => {

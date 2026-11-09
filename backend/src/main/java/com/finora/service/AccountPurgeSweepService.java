@@ -1060,6 +1060,9 @@ public class AccountPurgeSweepService {
         // deactivationReason is kept -- churn analytics, the same "persists indefinitely"
         // precedent reactivation not clearing it already established.
         user.setDeactivationNote(null);
+        // A suspension's ground and the message Fynora wrote about this person (privacy workstream
+        // 10) are about them, not about how the service is run: they go with the account.
+        user.clearSuspension();
         // The setup answer goes with the account, like the financial-focus answers deleted above.
         user.recordSpendingTracking(null, null);
         // Explicit RBAC grants (user_roles) -- functionally inert on a DELETED account (login()

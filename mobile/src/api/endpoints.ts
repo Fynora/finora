@@ -2057,7 +2057,9 @@ export const deviceTokensApi = {
 // for why a value added on one side with nothing here to render it is worth guarding against at
 // compile time.
 export type SupportTicketCategory =
-  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER';
+  | 'STATEMENT_IMPORT' | 'CATEGORIZATION' | 'ACCOUNT_LINKING' | 'DATA_ACCURACY' | 'TECHNICAL_ISSUE' | 'OTHER'
+  // Privacy workstream 10: raised only from the suspended screen.
+  | 'SUSPENSION_APPEAL' | 'SUSPENSION_DELETION_REQUEST';
 export type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ClientPlatform = 'WEB' | 'MOBILE_ANDROID' | 'MOBILE_IOS';
 

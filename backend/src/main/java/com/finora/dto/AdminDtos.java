@@ -50,7 +50,13 @@ public class AdminDtos {
             /** Gate 2a: left out of the activation counts (V279). */
             boolean internalAccount,
             /** USER or ADMIN. The admin page offers the internal flag only for USER accounts. */
-            String accountScope
+            String accountScope,
+            /** Privacy workstream 10 (V309): the current suspension's ground, the message the customer
+             *  was sent, and when it began. All null unless SUSPENDED; the reason is also null on an
+             *  account suspended before V309 until an admin records one. */
+            String suspensionReason,
+            String suspensionMessage,
+            Instant suspendedAt
     ) {}
 
     /** One line of the admin Dashboard's "sign-ups by source" list (V286): {@code source} is
@@ -263,6 +269,15 @@ public class AdminDtos {
      *  convention above, not a validation error. */
     /** Gate 2a spec §6: mark or unmark a USER account as internal, so activation counts leave it out. */
     public record AdminInternalAccountRequest(@jakarta.validation.constraints.NotNull Boolean internal) {}
+
+    /** Privacy workstream 10: a suspension names its ground, and may carry a message the customer
+     *  reads on the suspended screen and in the notice email. */
+    public record AdminSuspendRequest(
+            @jakarta.validation.constraints.NotNull(message = "Choose a reason for the suspension")
+            com.finora.entity.SuspensionReason reason,
+            @jakarta.validation.constraints.Size(max = 1000, message = "Message is too long")
+            String message
+    ) {}
 
     public record AdminReactivateRequest(
             @jakarta.validation.constraints.Size(max = 500, message = "Reason is too long")

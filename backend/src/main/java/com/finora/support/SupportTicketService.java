@@ -149,6 +149,27 @@ public class SupportTicketService {
     public SupportTicketDto.Detail create(UUID userId, String rawCategory, String subject,
                                           String description, MultipartFile file) {
         SupportTicket.Category category = parseCategory(rawCategory);
+        if (category.isSuspensionRequest()) {
+            // Raised only from the suspended screen, which checks the account is suspended and
+            // allows one open request of each kind; the ordinary form must not bypass that.
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Unknown category: " + rawCategory);
+        }
+        return createTicket(userId, category, subject, description, file);
+    }
+
+    /** Privacy workstream 10: an appeal or deletion request from the suspended screen. The caller
+     *  ({@code AccountSuspensionService}) has already checked the account is suspended. */
+    @Transactional
+    public SupportTicketDto.Detail createSuspensionRequest(UUID userId, SupportTicket.Category category,
+                                                           String subject, String description) {
+        if (!category.isSuspensionRequest()) {
+            throw new IllegalArgumentException("Not a suspension request category: " + category);
+        }
+        return createTicket(userId, category, subject, description, null);
+    }
+
+    private SupportTicketDto.Detail createTicket(UUID userId, SupportTicket.Category category, String subject,
+                                                 String description, MultipartFile file) {
         String trimmedSubject = requireBounded(subject, "Subject", MAX_SUBJECT_LENGTH);
         String trimmedDescription = requireNonBlank(description, "Description");
         SupportAttachmentUpload.Validated validated =

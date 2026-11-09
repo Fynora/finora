@@ -64,6 +64,11 @@ public class CurrentUserDetailsService implements UserDetailsService {
         for (String name : authorizationService.cachedAuthorityNames(user)) {
             authorities.add(new SimpleGrantedAuthority(name));
         }
+        // Privacy workstream 10. Read from the row loaded fresh above, never from the cache, so a
+        // suspension confines the account's very next request. SuspendedAccountInterceptor reads it.
+        if (user.isSuspended()) {
+            authorities.add(new SimpleGrantedAuthority(SuspendedAccountInterceptor.SUSPENDED_MARKER));
+        }
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getId().toString())
                 .password(user.getPasswordHash())

@@ -712,8 +712,7 @@ public class AuthService {
      */
     private void enforceAccountIsSignable(User user) {
         if (user.isSuspended()) {
-            throw new ApiException(HttpStatus.FORBIDDEN,
-                    "This account has been suspended. Contact support for assistance.");
+            refuseSuspendedSignIn(user);
         }
         if (user.isDeactivated()) {
             if (selfServiceReactivationWindowHasClosed(user)) {
@@ -741,6 +740,36 @@ public class AuthService {
      *  This is for an already-authenticated self-service mutation reached via a still-valid JWT
      *  (verifyPhoneWithFirebase today), where a deactivated account gets a flat rejection instead
      *  -- there is no login screen here to hand a reactivation prompt to. */
+    /**
+     * Privacy workstream 10. A suspended customer who has just proved who they are still cannot
+     * sign in, but is handed a session confined to the suspended screen: reading why, appealing,
+     * downloading their data and asking for deletion. The access token travels in the refusal's
+     * details, as the MFA challenge token does, so an app released before this keeps showing the
+     * same refusal and nothing more. Its refresh token is never handed out: the session ends when
+     * the access token expires, and {@link #refresh} refuses a suspended account anyway.
+     *
+     * <p>Customers only. A suspended admin account gets the plain refusal, with no session.
+     *
+     * <p>Every caller is a sign-in method with {@code noRollbackFor = ApiException.class}, so the
+     * session row written here commits even though this throws; without it the token would name a
+     * session that does not exist and JwtAuthFilter would refuse it.
+     */
+    private void refuseSuspendedSignIn(User user) {
+        if (!User.SCOPE_USER.equalsIgnoreCase(user.getAccountScope())) {
+            throw new ApiException(ErrorCode.AUTH_ACCOUNT_SUSPENDED);
+        }
+        // At most one suspended-screen session at a time: each sign-in replaces the last, so repeated
+        // sign-ins cannot pile up sessions that stay live for the refresh token's 30 days.
+        refreshTokenService.revokeAllForUser(user.getId());
+        var issued = refreshTokenService.issue(user.getId());
+        String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
+                user.getAccountScope());
+        auditService.record(user.getId(), "SUSPENDED_ACCOUNT_SIGN_IN", "User", user.getId(),
+                requestMetadata.addTo(new java.util.HashMap<>()));
+        throw new ApiException(HttpStatus.FORBIDDEN, ErrorCode.AUTH_ACCOUNT_SUSPENDED,
+                ErrorCode.AUTH_ACCOUNT_SUSPENDED.defaultMessage(), Map.of("suspendedAccessToken", accessToken));
+    }
+
     private void requireActiveAccountForSelfService(User user) {
         if (user.isSuspended()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "This account has been suspended.");

@@ -141,6 +141,52 @@ class ResendEmailProviderTest {
         assertThat(message.html()).doesNotContain("shared networks");
     }
 
+    // --- Privacy workstream 10: the suspension notice and the lifted notice ---
+
+    @Test
+    void accountSuspended_givesTheReasonTheMessageWhatTheyCanDoAndTheWebsite() {
+        EmailMessage message = provider.buildAccountSuspendedMessage("user@example.test",
+                "We found activity on your account that looks like fraud.", "  Chargebacks on synthetic cards.  ", null);
+
+        assertThat(message.subject()).isEqualTo("Your Fynora account has been suspended");
+        assertThat(message.html()).contains("We found activity on your account that looks like fraud.");
+        assertThat(message.html()).contains("Message from Fynora: Chargebacks on synthetic cards.");
+        assertThat(message.html()).contains("appeal", "download a copy of your data", "ask us to delete your account");
+        // The apps in the stores cannot show the suspended screen yet: the button goes to the website.
+        assertThat(message.html()).contains("https://app.fynora.net/auth");
+        assertThat(message.html()).contains("won't renew");
+        assertThat(message.html()).doesNotContain("App Store").doesNotContain("Google Play");
+    }
+
+    @Test
+    void accountSuspended_escapesTheAdminsMessage_andLeavesOutABlankOne() {
+        EmailMessage escaped = provider.buildAccountSuspendedMessage("user@example.test",
+                "Reason.", "<img src=x onerror=alert(1)>", null);
+        assertThat(escaped.html()).doesNotContain("<img src=x").contains("&lt;img src=x");
+
+        EmailMessage blank = provider.buildAccountSuspendedMessage("user@example.test", "Reason.", "   ", null);
+        assertThat(blank.html()).doesNotContain("Message from Fynora");
+    }
+
+    @Test
+    void accountSuspended_namesTheStoreThatKeepsCharging() {
+        EmailMessage message = provider.buildAccountSuspendedMessage("user@example.test", "Reason.", null, "the App Store");
+
+        assertThat(message.html()).contains("paid through the App Store")
+                .contains("so cancel it in the App Store if you don't want to be charged again");
+        assertThat(provider.buildAccountSuspendedMessage("user@example.test", "Reason.", null, "Google Play").html())
+                .contains("so cancel it in Google Play if you don't want to be charged again");
+    }
+
+    @Test
+    void suspensionLifted_saysTheyCanSignInAgain() {
+        EmailMessage message = provider.buildSuspensionLiftedMessage("user@example.test");
+
+        assertThat(message.subject()).isEqualTo("Your Fynora account is active again");
+        assertThat(message.html()).contains("You can sign in and use Fynora again.");
+        assertThat(message.html()).doesNotContain("If you didn't do this");
+    }
+
     @Test
     void accountReactivated_hasNoButtonAndTheExpectedSubject() {
         EmailMessage message = provider.buildAccountReactivatedMessage("user@example.test");

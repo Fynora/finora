@@ -5,6 +5,8 @@ import type { ConfirmationResult } from 'firebase/auth';
 import { useAuth } from '../../context/AuthContext';
 import { PasswordInput } from '../../components/PasswordInput';
 import { ReactivateAccountPrompt } from '../../components/ReactivateAccountPrompt';
+import { SuspendedAccountScreen } from '../../components/SuspendedAccountScreen';
+import { suspendedTokenFrom } from '../../lib/suspension';
 import { SocialSignInButtons } from '../../components/SocialSignInButtons';
 import { AuthDivider } from './AuthDivider';
 import { SocialConsentNotice } from './SocialConsentNotice';
@@ -52,6 +54,8 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reactivationToken, setReactivationToken] = useState<string | null>(null);
+  // Privacy workstream 10: set when sign-in is refused because the account is suspended.
+  const [suspendedToken, setSuspendedToken] = useState<string | null>(null);
   // Seeded at 400 -- Google's own documented max button width, and its real rendered width as
   // currently measured live on production (see SocialSignInButtons.tsx/GoogleSignInButton.tsx)
   // -- rather than the form's natural full width, so the form narrows to match Google/Apple from
@@ -98,7 +102,10 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
     const token = err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED
       ? err.response?.data?.details?.reactivationToken
       : null;
-    if (token) {
+    const suspended = suspendedTokenFrom(err);
+    if (suspended) {
+      setSuspendedToken(suspended);
+    } else if (token) {
       setReactivationToken(token);
     } else {
       setError(err.response?.data?.message ?? fallbackMessage);
@@ -210,7 +217,8 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
       // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
       // same reactivation escape hatch handleAuthError already gives the password path, not a
       // dead-end "invalid or expired" message with no way forward.
-      if (err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED) {
+      // Same for a suspended one: the code was right, so it gets the suspended screen.
+      if (err.response?.data?.errorCode === AUTH_ACCOUNT_DEACTIVATED || suspendedTokenFrom(err)) {
         handleAuthError(err, 'Login failed. Check your credentials.');
       } else if (phoneConfirmation) {
         // A wrong/expired SMS code is rejected by Firebase on-device, so there is no backend
@@ -222,6 +230,10 @@ export function PasswordStep({ identifier: initialIdentifier, banner, onSuccess,
     } finally {
       setOtpVerifying(false);
     }
+  }
+
+  if (suspendedToken) {
+    return <SuspendedAccountScreen token={suspendedToken} onClose={() => setSuspendedToken(null)} />;
   }
 
   if (reactivationToken) {

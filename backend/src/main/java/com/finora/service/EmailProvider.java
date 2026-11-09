@@ -47,6 +47,14 @@ public interface EmailProvider {
      *  account into the lock, null-safe like {@link #sendAccountDeactivatedEmail}. */
     EmailResult sendAccountLockedEmail(String toEmail, Instant lockedAt, Instant unlocksAt, String device, String ip);
     EmailResult sendAccountReactivatedEmail(String toEmail);
+    /** Privacy workstream 10. The suspension notice: the ground ({@code reasonText}, from
+     *  {@code SuspensionReason.customerText}), the admin's message to the customer (null for none),
+     *  and what they can still do. {@code storeName} is "the App Store" or "Google Play" when the
+     *  customer pays for Plus through a store, which Fynora cannot stop, and null otherwise. */
+    EmailResult sendAccountSuspendedEmail(String toEmail, String reasonText, String message, String storeName);
+    /** Sent when an admin lifts a suspension. Not {@link #sendAccountReactivatedEmail}, whose
+     *  "if you didn't do this" copy is written for the customer reactivating their own account. */
+    EmailResult sendSuspensionLiftedEmail(String toEmail);
     /** Sent after the account and all its data have already been purged, not before -- deletion is
      *  synchronous (product decision), so there is nothing left to warn about in advance and no
      *  cancel window to describe. Purely informational: what happened and when. */

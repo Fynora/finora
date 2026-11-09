@@ -109,7 +109,11 @@ public class PhoneVerificationFilter extends OncePerRequestFilter {
                                      @NonNull FilterChain filterChain) throws ServletException, IOException {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
+        // A suspended account is not asked to verify a phone (privacy workstream 10): it can reach
+        // only the suspended screen's routes, which SuspendedAccountInterceptor enforces, and it
+        // must reach those (why it was suspended, appeal, its own data) whether or not it verified.
         if (auth != null && auth.isAuthenticated() && auth.getPrincipal() instanceof UserDetails userDetails
+                && !SuspendedAccountInterceptor.isSuspended(auth)
                 && !PHONE_ENDPOINTS.matches(request) && !AUTH_ENDPOINTS.matches(request)
                 && !SETUP_STATUS_ENDPOINT.matches(request) && !USER_ME_ENDPOINT.matches(request)
                 && !PHONE_CHANGE_ENDPOINTS.matches(request) && !APP_ICON_ENDPOINT.matches(request)) {

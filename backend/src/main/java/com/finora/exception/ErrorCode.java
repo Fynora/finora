@@ -419,6 +419,15 @@ public enum ErrorCode {
     AUTH_RESET_REQUEST_LIMIT("AUTH_017", HttpStatus.TOO_MANY_REQUESTS,
             "Too many reset emails have been requested for this address. Try again later."),
 
+    // Privacy workstream 10. Same shape as AUTH_MFA_REQUIRED: thrown only after sign-in has proved
+    // who the customer is, and for a customer account its details carry "suspendedAccessToken", a
+    // short-lived token the suspended screen uses for what a suspended customer may still do (see
+    // SuspendedAccountInterceptor). Also what that interceptor answers for every other endpoint.
+    // The message is the one sign-in always gave a suspended account, so an app released before
+    // this code existed still shows the same text.
+    AUTH_ACCOUNT_SUSPENDED("AUTH_018", HttpStatus.FORBIDDEN,
+            "This account has been suspended. Contact support for assistance."),
+
     // Uploads (com.finora.uploads.UploadScanGate, audit F-18). Every upload endpoint shares these,
     // so a client can tell "your file was refused" from "the platform could not check it" by code
     // rather than by parsing a message. The 503 is an intentional rejection like

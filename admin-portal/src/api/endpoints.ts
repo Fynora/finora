@@ -167,13 +167,17 @@ export interface UserListFilters {
   size?: number;
 }
 
+/** The backend's SuspensionReason: the grounds section 15 of the Terms of Service gives. */
+export type SuspensionReason = 'TERMS_VIOLATION' | 'FRAUD' | 'SECURITY_RISK';
+
 export const adminUsersApi = {
   list: (filters: UserListFilters) =>
     api.get<PagedResponse<UserSummaryDto>>('/admin/users', { params: filters }).then((r) => r.data),
   get: (id: string) =>
     api.get<UserDetailDto>(`/admin/users/${id}`).then((r) => r.data),
-  suspend: (id: string) =>
-    api.post<UserSummaryDto>(`/admin/users/${id}/suspend`).then((r) => r.data),
+  // Privacy workstream 10: the reason is required; the message reaches the customer.
+  suspend: (id: string, reason: SuspensionReason, message?: string) =>
+    api.post<UserSummaryDto>(`/admin/users/${id}/suspend`, message ? { reason, message } : { reason }).then((r) => r.data),
   reactivate: (id: string, reason?: string) =>
     api.post<UserSummaryDto>(`/admin/users/${id}/reactivate`, reason ? { reason } : undefined).then((r) => r.data),
   create: (request: CreateUserRequest) =>

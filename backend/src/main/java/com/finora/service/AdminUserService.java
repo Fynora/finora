@@ -5,6 +5,7 @@ import com.finora.dto.PagedResponse;
 import com.finora.dto.AdminDtos.UserDetailDto;
 import com.finora.dto.AdminDtos.UserSummaryDto;
 import com.finora.dto.AuthDtos.RegisterRequest;
+import com.finora.entity.SuspensionReason;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
@@ -47,11 +48,13 @@ public class AdminUserService {
     private final AuthService authService;
     private final RefreshTokenService refreshTokenService;
     private final AccountPurgeSweepService accountPurgeSweepService;
+    private final AccountSuspensionNotices suspensionNotices;
 
     public AdminUserService(UserRepository userRepository, AccountRepository accountRepository,
                              TransactionRepository transactionRepository, AuditService auditService,
                              AuthService authService, RefreshTokenService refreshTokenService,
-                             AccountPurgeSweepService accountPurgeSweepService) {
+                             AccountPurgeSweepService accountPurgeSweepService,
+                             AccountSuspensionNotices suspensionNotices) {
         this.userRepository = userRepository;
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
@@ -59,6 +62,7 @@ public class AdminUserService {
         this.authService = authService;
         this.refreshTokenService = refreshTokenService;
         this.accountPurgeSweepService = accountPurgeSweepService;
+        this.suspensionNotices = suspensionNotices;
     }
 
     /** Support-assisted signup (USER_CREATE) -- delegates the actual user-creation work to
@@ -196,7 +200,9 @@ public class AdminUserService {
                 : transactionRepository.countByUserIdAndAccountIdIn(userId, liveAccountIds);
         return new UserDetailDto(user.getId(), user.getEmail(), user.getFullName(), user.getPhoneNumber(),
                 user.isPhoneVerified(), user.getStatus(), roleNames(user), user.getCreatedAt(),
-                user.getUpdatedAt(), accountCount, transactionCount, user.isInternalAccount(), user.getAccountScope());
+                user.getUpdatedAt(), accountCount, transactionCount, user.isInternalAccount(), user.getAccountScope(),
+                user.getSuspensionReason() == null ? null : user.getSuspensionReason().name(),
+                user.getSuspensionMessage(), user.getSuspendedAt());
     }
 
     /**
@@ -206,31 +212,51 @@ public class AdminUserService {
      * admin UI retrying the same action shouldn't be treated as a failure.
      */
     @Transactional
-    public UserSummaryDto suspend(UUID userId, UUID actingAdminId) {
+    public UserSummaryDto suspend(UUID userId, UUID actingAdminId, SuspensionReason reason, String message) {
         if (userId.equals(actingAdminId)) {
             // An admin locking themselves out has no recovery path short of another admin (or
             // direct DB access) reversing it -- worth blocking outright rather than trusting
             // every caller of this UI to never misclick on their own row.
             throw new ApiException(HttpStatus.BAD_REQUEST, "You cannot suspend your own account.");
         }
-        User user = requireUser(userId);
-        if (!user.isSuspended()) {
-            user.setStatus("SUSPENDED");
-            userRepository.save(user);
-            // Suspension has to EVICT, not just bar the door. Status alone blocks new logins and
-            // refreshes, but it does nothing about an access token already issued: JwtAuthFilter
-            // authenticates it normally for the rest of its 15-minute life, because
-            // CurrentUserDetailsService builds the principal without .disabled() and
-            // AuthorizationService.effectiveAuthorities never reads user.status. SetupService
-            // already documents that gap and works around it for the bootstrap account alone
-            // ("Explicitly revoking BOOTSTRAP_ADMIN means SYSTEM_INITIALIZE is gone immediately,
-            // not just until this token's 15-minute expiry"); ordinary suspension had no
-            // equivalent. Revoking every refresh token closes the renewal path in the same
-            // transaction as the status change, so the suspended session cannot outlive the
-            // access token it is currently holding.
-            refreshTokenService.revokeAllForUser(userId);
-            auditService.record(userId, "ACCOUNT_SUSPENDED", "User", userId, Map.of("suspendedBy", actingAdminId.toString()));
+        if (reason == null) {
+            // Privacy workstream 10: the customer is told the ground for a suspension, so there
+            // must be one. The controller's validation catches this first; this guards other callers.
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a reason for the suspension.");
         }
+        String customerMessage = (message == null || message.isBlank()) ? null : message.strip();
+        User user = requireUser(userId);
+        if (user.isDeleted() || user.isPendingDeletion()) {
+            // Nothing left to suspend, and the notice would go to the deleted account's placeholder
+            // address (the purge replaces the email but leaves it marked verified).
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This account is deleted or being deleted.");
+        }
+        if (user.isSuspended()) {
+            // Already suspended: recording a different reason or message updates the notice and
+            // sends it again. That is also how an account suspended before V309, with no reason
+            // on record, finally gets its notice. Unchanged details stay a no-op, as before.
+            if (reason != user.getSuspensionReason()
+                    || !java.util.Objects.equals(customerMessage, user.getSuspensionMessage())) {
+                user.recordSuspension(reason, customerMessage, Instant.now());
+                userRepository.save(user);
+                auditService.record(userId, "ACCOUNT_SUSPENSION_REASON_RECORDED", "User", userId,
+                        Map.of("recordedBy", actingAdminId.toString(), "reason", reason.name()));
+                suspensionNotices.onSuspended(user, actingAdminId);
+            }
+            return toSummary(user);
+        }
+        user.recordSuspension(reason, customerMessage, Instant.now());
+        userRepository.save(user);
+        // Suspension has to EVICT, not just bar the door. Status alone blocks new logins and
+        // refreshes, but an access token already issued stays signed and live for the rest of its
+        // 15-minute life. Two things close that: revoking every refresh token here closes the
+        // renewal path in the same transaction as the status change, and from the next request on
+        // CurrentUserDetailsService marks the principal suspended, so SuspendedAccountInterceptor
+        // confines the remaining token to what a suspended customer may still do.
+        refreshTokenService.revokeAllForUser(userId);
+        auditService.record(userId, "ACCOUNT_SUSPENDED", "User", userId,
+                Map.of("suspendedBy", actingAdminId.toString(), "reason", reason.name()));
+        suspensionNotices.onSuspended(user, actingAdminId);
         return toSummary(user);
     }
 
@@ -251,12 +277,22 @@ public class AdminUserService {
     public UserSummaryDto reactivate(UUID userId, UUID actingAdminId, String reason) {
         User user = requireUser(userId);
         if (user.isSuspended() || user.isDeactivated()) {
+            boolean wasSuspended = user.isSuspended();
             user.setStatus(User.STATUS_ACTIVE);
+            user.clearSuspension();
             userRepository.save(user);
             Map<String, Object> auditMetadata = new java.util.HashMap<>();
             auditMetadata.put("reactivatedBy", actingAdminId.toString());
             if (reason != null && !reason.isBlank()) auditMetadata.put("reason", reason);
             auditService.record(userId, "ACCOUNT_REACTIVATED_BY_ADMIN", "User", userId, auditMetadata);
+            if (wasSuspended) {
+                // The only sessions a suspended account has are the suspended screen's
+                // (AuthService.refuseSuspendedSignIn): never handed a refresh token, so unusable,
+                // but they would otherwise sit in the customer's active-sessions list for 30 days
+                // as devices they never signed in on.
+                refreshTokenService.revokeAllForUser(userId);
+                suspensionNotices.onSuspensionLifted(user);
+            }
         }
         return toSummary(user);
     }

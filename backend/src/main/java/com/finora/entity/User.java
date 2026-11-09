@@ -244,6 +244,19 @@ public class User {
     @Column(name = "deactivated_at")
     private Instant deactivatedAt;
 
+    // The current suspension's ground, the admin's message to the customer, and when it began (V309).
+    // All three are null unless status is SUSPENDED; recordSuspension sets them, clearSuspension
+    // empties them. The reason is null on an account suspended before V309 until an admin records it.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suspension_reason", length = 32)
+    private SuspensionReason suspensionReason;
+
+    @Column(name = "suspension_message", length = 1000)
+    private String suspensionMessage;
+
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
     // When the self-service deletion request was accepted -- AccountPurgeSweepService's
     // eligibility query floors off this. Null unless status is (or was) PENDING_DELETION.
     @Column(name = "deletion_requested_at")
@@ -358,6 +371,26 @@ public class User {
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
     public Instant getDeactivatedAt() { return deactivatedAt; }
     public void setDeactivatedAt(Instant deactivatedAt) { this.deactivatedAt = deactivatedAt; }
+    public SuspensionReason getSuspensionReason() { return suspensionReason; }
+    public String getSuspensionMessage() { return suspensionMessage; }
+    public Instant getSuspendedAt() { return suspendedAt; }
+
+    /** Suspends the account with its ground and the customer-facing message (null for none). Keeps
+     *  an existing start time, so recording the reason on an account that was already suspended does
+     *  not restart its suspension. */
+    public void recordSuspension(SuspensionReason reason, String message, Instant now) {
+        this.status = STATUS_SUSPENDED;
+        this.suspensionReason = reason;
+        this.suspensionMessage = message;
+        if (this.suspendedAt == null) this.suspendedAt = now;
+    }
+
+    /** Empties the suspension fields when the account is reactivated. */
+    public void clearSuspension() {
+        this.suspensionReason = null;
+        this.suspensionMessage = null;
+        this.suspendedAt = null;
+    }
     public String getTimezone() { return timezone; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
     public Instant getPasswordChangedAt() { return passwordChangedAt; }

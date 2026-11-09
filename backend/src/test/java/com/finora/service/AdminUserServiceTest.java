@@ -2,6 +2,7 @@ package com.finora.service;
 
 import com.finora.dto.AdminDtos.AdminUpdateUserRequest;
 import com.finora.entity.Account;
+import com.finora.entity.SuspensionReason;
 import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.repository.AccountRepository;
@@ -37,6 +38,7 @@ class AdminUserServiceTest {
     private AuditService auditService;
     private RefreshTokenService refreshTokenService;
     private AccountPurgeSweepService accountPurgeSweepService;
+    private AccountSuspensionNotices suspensionNotices;
     private AdminUserService adminUserService;
     private final UUID adminId = UUID.randomUUID();
     private final UUID targetId = UUID.randomUUID();
@@ -49,9 +51,10 @@ class AdminUserServiceTest {
         auditService = mock(AuditService.class);
         refreshTokenService = mock(RefreshTokenService.class);
         accountPurgeSweepService = mock(AccountPurgeSweepService.class);
+        suspensionNotices = mock(AccountSuspensionNotices.class);
         adminUserService = new AdminUserService(
                 userRepository, accountRepository, transactionRepository, auditService,
-                mock(AuthService.class), refreshTokenService, accountPurgeSweepService);
+                mock(AuthService.class), refreshTokenService, accountPurgeSweepService, suspensionNotices);
     }
 
     private User user(UUID id, String status) {
@@ -66,7 +69,7 @@ class AdminUserServiceTest {
     @Test
     void suspend_rejectsAnAdminSuspendingTheirOwnAccount() {
         try {
-            adminUserService.suspend(adminId, adminId);
+            adminUserService.suspend(adminId, adminId, SuspensionReason.TERMS_VIOLATION, null);
         } catch (ApiException e) {
             assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
             verify(userRepository, never()).save(any());
@@ -81,7 +84,7 @@ class AdminUserServiceTest {
         User target = user(targetId, "ACTIVE");
         when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
 
-        adminUserService.suspend(targetId, adminId);
+        adminUserService.suspend(targetId, adminId, SuspensionReason.TERMS_VIOLATION, null);
 
         assertThat(target.getStatus()).isEqualTo("SUSPENDED");
         verify(userRepository).save(target);
@@ -103,7 +106,7 @@ class AdminUserServiceTest {
         User target = user(targetId, "ACTIVE");
         when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
 
-        adminUserService.suspend(targetId, adminId);
+        adminUserService.suspend(targetId, adminId, SuspensionReason.TERMS_VIOLATION, null);
 
         verify(refreshTokenService).revokeAllForUser(targetId);
     }
@@ -150,15 +153,133 @@ class AdminUserServiceTest {
 
     @Test
     void suspend_isIdempotent_forAnAlreadySuspendedUser() {
-        User target = user(targetId, "SUSPENDED");
+        User target = user(targetId, "ACTIVE");
+        target.recordSuspension(SuspensionReason.TERMS_VIOLATION, null, java.time.Instant.parse("2026-11-01T00:00:00Z"));
         when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
 
-        adminUserService.suspend(targetId, adminId);
+        adminUserService.suspend(targetId, adminId, SuspensionReason.TERMS_VIOLATION, null);
 
         // No state change, no save, no duplicate audit entry -- a double-click or a stale admin
         // UI retrying the same action shouldn't write a second "just suspended" event.
         verify(userRepository, never()).save(any());
         verifyNoInteractions(auditService);
+        verifyNoInteractions(suspensionNotices);
+    }
+
+    // --- Privacy workstream 10: the reason, the customer's message and the notice ---
+
+    @Test
+    void suspend_requiresAReason() {
+        try {
+            adminUserService.suspend(targetId, adminId, null, null);
+        } catch (ApiException e) {
+            assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+            verifyNoInteractions(userRepository, auditService, suspensionNotices);
+            return;
+        }
+        throw new AssertionError("Expected suspend() to refuse a suspension with no reason");
+    }
+
+    @Test
+    void suspend_recordsTheReasonMessageAndStart_andSendsTheNotice() {
+        User target = user(targetId, "ACTIVE");
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.suspend(targetId, adminId, SuspensionReason.FRAUD, "  Chargebacks on three cards.  ");
+
+        assertThat(target.getSuspensionReason()).isEqualTo(SuspensionReason.FRAUD);
+        assertThat(target.getSuspensionMessage()).isEqualTo("Chargebacks on three cards.");
+        assertThat(target.getSuspendedAt()).isNotNull();
+        @SuppressWarnings("unchecked")
+        var captor = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(auditService).record(eq(targetId), eq("ACCOUNT_SUSPENDED"), eq("User"), eq(targetId), captor.capture());
+        assertThat(captor.getValue()).containsEntry("reason", "FRAUD");
+        verify(suspensionNotices).onSuspended(target, adminId);
+    }
+
+    @Test
+    void suspend_treatsABlankMessageAsNone() {
+        User target = user(targetId, "ACTIVE");
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.suspend(targetId, adminId, SuspensionReason.SECURITY_RISK, "   ");
+
+        assertThat(target.getSuspensionMessage()).isNull();
+    }
+
+    /** An account suspended before V309 has no reason on record. Suspending it again records one
+     *  and sends the notice it never got, without restarting its suspension or revoking again. */
+    @Test
+    void suspend_recordsAReasonOnAnAccountSuspendedWithoutOne_keepingItsStart() {
+        User target = user(targetId, "SUSPENDED");
+        java.time.Instant start = java.time.Instant.parse("2026-10-01T00:00:00Z");
+        ReflectionTestUtils.setField(target, "suspendedAt", start);
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.suspend(targetId, adminId, SuspensionReason.TERMS_VIOLATION, null);
+
+        assertThat(target.getSuspensionReason()).isEqualTo(SuspensionReason.TERMS_VIOLATION);
+        assertThat(target.getSuspendedAt()).isEqualTo(start);
+        verify(userRepository).save(target);
+        verify(auditService).record(eq(targetId), eq("ACCOUNT_SUSPENSION_REASON_RECORDED"), eq("User"), eq(targetId), any());
+        verify(auditService, never()).record(eq(targetId), eq("ACCOUNT_SUSPENDED"), any(), any(), any());
+        verify(refreshTokenService, never()).revokeAllForUser(any());
+        verify(suspensionNotices).onSuspended(target, adminId);
+    }
+
+    @Test
+    void reactivate_clearsTheSuspension_andSendsTheLiftedNotice() {
+        User target = user(targetId, "ACTIVE");
+        target.recordSuspension(SuspensionReason.FRAUD, "Note", java.time.Instant.now());
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.reactivate(targetId, adminId, null);
+
+        assertThat(target.getSuspensionReason()).isNull();
+        assertThat(target.getSuspensionMessage()).isNull();
+        assertThat(target.getSuspendedAt()).isNull();
+        verify(suspensionNotices).onSuspensionLifted(target);
+    }
+
+    /** A deleted account keeps a placeholder email still marked verified: suspending it would mail
+     *  that placeholder, and there is nothing left to suspend. */
+    @Test
+    void suspend_refusesAnAccountThatIsDeletedOrBeingDeleted() {
+        for (String status : new String[]{User.STATUS_DELETED, User.STATUS_PENDING_DELETION}) {
+            User target = user(targetId, status);
+            when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+            try {
+                adminUserService.suspend(targetId, adminId, SuspensionReason.FRAUD, null);
+                throw new AssertionError("Expected suspend() to refuse a " + status + " account");
+            } catch (ApiException e) {
+                assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+            }
+        }
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(suspensionNotices);
+    }
+
+    /** The suspended screen's sessions are never handed a refresh token; lifting the suspension ends
+     *  them so they do not show in the customer's active sessions. */
+    @Test
+    void reactivate_ofASuspendedAccount_endsTheSuspendedScreensSessions() {
+        User target = user(targetId, "ACTIVE");
+        target.recordSuspension(SuspensionReason.FRAUD, null, java.time.Instant.now());
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.reactivate(targetId, adminId, null);
+
+        verify(refreshTokenService).revokeAllForUser(targetId);
+    }
+
+    @Test
+    void reactivate_ofASelfDeactivatedAccount_sendsNoSuspensionNotice() {
+        User target = user(targetId, "DEACTIVATED");
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(target));
+
+        adminUserService.reactivate(targetId, adminId, null);
+
+        verifyNoInteractions(suspensionNotices);
     }
 
     @Test
@@ -193,7 +314,7 @@ class AdminUserServiceTest {
         when(userRepository.findById(targetId)).thenReturn(Optional.empty());
 
         try {
-            adminUserService.suspend(targetId, adminId);
+            adminUserService.suspend(targetId, adminId, SuspensionReason.TERMS_VIOLATION, null);
         } catch (ApiException e) {
             assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
             return;

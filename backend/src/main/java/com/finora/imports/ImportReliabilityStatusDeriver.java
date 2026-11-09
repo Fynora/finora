@@ -38,10 +38,21 @@ final class ImportReliabilityStatusDeriver {
             return ImportReliabilityStatus.NEEDS_ATTENTION;
         }
         if (textSource == TextSource.OCR || textSource == TextSource.NATIVE_PLUS_OCR
-                || hasOutcome(findings, "WARNING")) {
+                || hasWarningThatCounts(findings)) {
             return ImportReliabilityStatus.REVIEW_RECOMMENDED;
         }
         return ImportReliabilityStatus.CLEAN;
+    }
+
+    /** Any WARNING, except a BALANCE_CHAIN one wholly explained by same-day order: every amount and
+     *  balance there is right, only the listed order differs (spec 2026-11-09, Sid's decision 1). The
+     *  finding itself stays a WARNING; it just does not, on its own, turn the top line amber. */
+    private static boolean hasWarningThatCounts(List<VerificationFinding> findings) {
+        if (findings == null) return false;
+        return findings.stream().anyMatch(f -> "WARNING".equals(f.outcome())
+                && !(BalanceChainValidator.RULE.equals(f.rule())
+                        && f.details() != null
+                        && Boolean.TRUE.equals(f.details().get(BalanceChainValidator.SAME_DAY_ORDER_ONLY))));
     }
 
     private static boolean hasOutcome(List<VerificationFinding> findings, String outcome) {

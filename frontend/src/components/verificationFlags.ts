@@ -27,9 +27,25 @@ export interface FlaggedRows {
   balance: readonly number[] | null;
   /** Positions in the list shown whose description looks too long. Null on the same terms. */
   description: readonly number[] | null;
+  /**
+   * Positions whose balance did not match only because same-day rows are listed in a different
+   * order from the one the bank applied them (the server's `sameDayOrderOnly`, spec 2026-11-09).
+   * Kept apart from `balance`, which is then null, so nothing that counts or asks about rows to
+   * check treats them as a problem. Null on the same terms as the others. Optional so a caller
+   * building one by hand need not name it.
+   */
+  sameDayOrder?: readonly number[] | null;
 }
 
 export const NO_FLAGGED_ROWS: FlaggedRows = { balance: null, description: null };
+
+/** Whether this finding is a BALANCE_CHAIN warning the server found wholly explained by same-day
+ *  order. Read from the server's own flag, never worked out here, so both apps say the same. */
+export function isSameDayOrderOnly(finding: VerificationFinding | undefined): boolean {
+  return finding?.rule === 'BALANCE_CHAIN'
+    && finding.outcome === 'WARNING'
+    && (finding.details as Record<string, unknown> | null | undefined)?.sameDayOrderOnly === true;
+}
 
 const disagrees = (finding: VerificationFinding) => finding.outcome === 'WARNING' || finding.outcome === 'FAILED';
 
@@ -55,13 +71,20 @@ function positionsOf(finding: VerificationFinding | undefined, key: string, rowC
  */
 export function flaggedRows(verification: VerificationReport | null | undefined, rowCount: number): FlaggedRows {
   const findings = verification?.findings ?? [];
-  const balance = positionsOf(findings.find((f) => f.rule === 'BALANCE_CHAIN'), 'discrepancies', rowCount);
+  const chain = findings.find((f) => f.rule === 'BALANCE_CHAIN');
+  const chainRows = positionsOf(chain, 'discrepancies', rowCount);
+  const sameDay = isSameDayOrderOnly(chain);
+  const balance = sameDay ? null : chainRows;
+  const sameDayOrder = sameDay ? chainRows : null;
   const description = positionsOf(findings.find((f) => f.rule === 'DESCRIPTION_CORRUPTION'), 'outliers', rowCount);
-  return balance === null && description === null ? NO_FLAGGED_ROWS : { balance, description };
+  if (balance === null && description === null && sameDayOrder === null) return NO_FLAGGED_ROWS;
+  // Named only when it applies, so a report with no same-day order reads exactly as before.
+  return sameDayOrder === null ? { balance, description } : { balance, description, sameDayOrder };
 }
 
 /** The label a marked row carries in the list. The panel quotes these, so they are decided once. */
 export const ROW_FLAG_LABEL = {
   balance: "Balance didn't match",
   description: 'Check description',
+  sameDayOrder: 'Same-day order',
 } as const;

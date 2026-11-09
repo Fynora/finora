@@ -4,7 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { Card } from './Card';
 import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
-import { NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
+import { isSameDayOrderOnly, NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
 import { spacing, useTheme, type Palette } from '../theme';
 
 /**
@@ -128,8 +128,10 @@ function Finding({ finding, flagged, c }: { finding: VerificationFinding; flagge
     <View style={styles.finding}>
       <Text style={[styles.findingLabel, { color: c.ink }]}>
         {renderer?.label ?? finding.rule}
-        <Text style={{ color: outcomeColor(finding.outcome, c), fontWeight: '400' }}>
-          {' · '}{OUTCOME_LABEL[finding.outcome]}
+        {/* A balance warning the server found wholly explained by same-day order is not a problem
+            to review: every amount and balance is right (spec 2026-11-09). Muted, not amber. */}
+        <Text style={{ color: isSameDayOrderOnly(finding) ? c.muted : outcomeColor(finding.outcome, c), fontWeight: '400' }}>
+          {' · '}{isSameDayOrderOnly(finding) ? 'same-day order' : OUTCOME_LABEL[finding.outcome]}
         </Text>
       </Text>
       {renderer ? (
@@ -172,6 +174,23 @@ const RULE_RENDERERS: Record<string, {
     summary: (finding, c, flagged) => {
       const d = finding.details as unknown as BalanceChainDetails;
       const discrepancyCount = d?.discrepancies?.length ?? 0;
+      if (isSameDayOrderOnly(finding)) {
+        // Spec 2026-11-09: the plain facts, nothing that reads as money missing.
+        const marked = flagged.sameDayOrder ?? null;
+        return (
+          <>
+            <Text style={[styles.findingBody, { color: c.muted }]}>
+              A few transactions from the same day are listed in a different order from the one your
+              bank applied them. In your bank's order every balance adds up, so nothing is missing or wrong.
+            </Text>
+            {marked !== null ? (
+              <Text style={[styles.findingBody, { color: c.muted }]}>
+                {`${marked.length === 1 ? 'That row is' : 'Those rows are'} marked "${ROW_FLAG_LABEL.sameDayOrder}" in the list below.`}
+              </Text>
+            ) : null}
+          </>
+        );
+      }
       return (
         <>
           <Text style={[styles.findingBody, { color: c.muted }]}>

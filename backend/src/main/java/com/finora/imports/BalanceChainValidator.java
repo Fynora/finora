@@ -128,6 +128,9 @@ public class BalanceChainValidator {
     /** The machine identifier this validator reports findings under. Stable by contract: clients
      *  group, count and explain by it, so it must not change when the wording does. */
     public static final String RULE = "BALANCE_CHAIN";
+    /** Details key: true when {@link #explainedBySameDayOrder} holds; absent otherwise. The review
+     *  screens show such a warning calmly, and {@link ImportReliabilityStatusDeriver} does not count it. */
+    public static final String SAME_DAY_ORDER_ONLY = "sameDayOrderOnly";
 
     /**
      * How many discrepancies get a shape. A whole column misread breaks hundreds of rows that all
@@ -245,6 +248,9 @@ public class BalanceChainValidator {
             details.put("discrepancyShapes", shapesOf(shown, located));
             details.put("gapsCancel", gapsCancel(result.discrepancies()));
             details.put("reorderHypothesis", reorderHypothesis(walk, displayedPositionOf));
+            // Decided here, once, so the web and phone review screens cannot disagree about it. See
+            // explainedBySameDayOrder and docs/superpowers/specs/2026-11-09-same-day-order-calm-warning-design.md.
+            if (explainedBySameDayOrder(result.status().name(), details)) details.put(SAME_DAY_ORDER_ONLY, true);
         }
 
         // The rule's verdict about its own domain, keeping the WARNING/FAILED distinction rather
@@ -692,6 +698,30 @@ public class BalanceChainValidator {
         BigDecimal sum = BigDecimal.ZERO;
         for (Discrepancy discrepancy : discrepancies) sum = sum.add(discrepancy.difference());
         return sum.signum() == 0;
+    }
+
+    /**
+     * Whether a BALANCE_CHAIN finding is wholly explained by rows listed in a different order from the
+     * one the bank applied them: a WARNING whose gaps cancel, where every short run of disagreeing
+     * same-day rows was tried and reconciles exactly in some order, and no run was left untested.
+     * Windows are built from every disagreeing row, so no discrepancy can sit outside them unless
+     * {@code moreWindowsNotTested} says so, which is refused.
+     *
+     * <p>Read from {@code details} alone, so the same answer serves the finding being built here, the
+     * layout-alert tier ({@link LayoutAlertTier}) and anything reading a stored report.
+     */
+    public static boolean explainedBySameDayOrder(String outcome, Map<String, ?> details) {
+        if (!"WARNING".equals(outcome) || details == null) return false;
+        if (!Boolean.TRUE.equals(details.get("gapsCancel"))) return false;
+        if (!(details.get("reorderHypothesis") instanceof Map<?, ?> hypothesis)) return false;
+        if (!Boolean.TRUE.equals(hypothesis.get("tested"))) return false;
+        if (Boolean.TRUE.equals(hypothesis.get("moreWindowsNotTested"))) return false;
+        if (!(hypothesis.get("windows") instanceof List<?> windows) || windows.isEmpty()) return false;
+        for (Object element : windows) {
+            if (!(element instanceof Map<?, ?> window)) return false;
+            if (!Boolean.TRUE.equals(window.get("tested")) || !Boolean.TRUE.equals(window.get("reconciles"))) return false;
+        }
+        return true;
     }
 
     private static boolean sameDay(StagedRow a, StagedRow b) {

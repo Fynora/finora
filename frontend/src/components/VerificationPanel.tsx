@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, ShieldQuestion } from 'lucide-react';
 import type { BalanceChainDetails, VerificationFinding, VerificationReport } from '../types';
 import { cardFlowCopy, cardSummaryCopy, descriptionCopy, rowAccountingCopy, type CheckCopy } from './verificationCopy';
-import { NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
+import { isSameDayOrderOnly, NO_FLAGGED_ROWS, ROW_FLAG_LABEL, type FlaggedRows } from './verificationFlags';
 
 /**
  * Shows whether an import could be proven faithful to the statement it came from.
@@ -129,7 +129,11 @@ function Finding({ finding, flagged }: { finding: VerificationFinding; flagged: 
     <div>
       <p className="text-xs font-semibold text-ink mb-1.5">
         {renderer?.label ?? finding.rule}
-        <OutcomeTag outcome={finding.outcome} />
+        {/* A balance warning the server found wholly explained by same-day order is not a problem
+            to review: every amount and balance is right (spec 2026-11-09). Muted, not amber. */}
+        {isSameDayOrderOnly(finding)
+          ? <span className="ml-2 font-normal text-muted">· same-day order</span>
+          : <OutcomeTag outcome={finding.outcome} />}
       </p>
       {renderer
         ? renderer.render(finding, flagged)
@@ -185,6 +189,25 @@ const RULE_RENDERERS: Record<string, {
     render: (finding, flagged) => {
       const details = finding.details as unknown as BalanceChainDetails;
       const discrepancies = details?.discrepancies ?? [];
+      if (isSameDayOrderOnly(finding)) {
+        // Spec 2026-11-09: the plain facts, and no table of differences. The differences are real
+        // arithmetic, but they only describe the listed order, and a column of them reads as money
+        // missing when none is.
+        const marked = flagged.sameDayOrder ?? null;
+        return (
+          <>
+            <p className="text-xs text-muted">
+              A few transactions from the same day are listed in a different order from the one your
+              bank applied them. In your bank's order every balance adds up, so nothing is missing or wrong.
+            </p>
+            {marked !== null && (
+              <p className="text-xs text-muted mt-2">
+                {`${marked.length === 1 ? 'That row is' : 'Those rows are'} marked "${ROW_FLAG_LABEL.sameDayOrder}" in the list below.`}
+              </p>
+            )}
+          </>
+        );
+      }
       // Numbered only when the list has marked every one of these rows. Otherwise the report does
       // not say where they are on this screen (an import staged before it could), and a number
       // would send the reader to some other transaction.

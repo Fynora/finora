@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flaggedRows, NO_FLAGGED_ROWS } from './verificationFlags';
+import { flaggedRows, isSameDayOrderOnly, NO_FLAGGED_ROWS } from './verificationFlags';
 import type { VerificationFinding, VerificationReport } from '../types';
 
 /**
@@ -101,5 +101,49 @@ describe('flaggedRows', () => {
       rule: 'COLUMN_AMBIGUITY', outcome: 'WARNING',
       details: { ambiguities: [{ rowIndex: 3, displayIndex: 3 }], discrepancies: [{ displayIndex: 3 }] },
     }), 7)).toBe(NO_FLAGGED_ROWS);
+  });
+  // Spec 2026-11-09: a balance warning the server found wholly explained by same-day order.
+  describe('same-day order', () => {
+    const sameDay = (discrepancies: unknown, outcome: VerificationFinding['outcome'] = 'WARNING'): VerificationFinding => ({
+      rule: 'BALANCE_CHAIN', outcome, details: { rowsChecked: 40, discrepancies, sameDayOrderOnly: true },
+    });
+
+    it('moves its rows out of balance, so nothing counts them as rows to check', () => {
+      const flagged = flaggedRows(report(sameDay([{ displayIndex: 5 }, { displayIndex: 6 }, { displayIndex: 7 }])), 10);
+
+      expect(flagged).toEqual({ balance: null, description: null, sameDayOrder: [5, 6, 7] });
+    });
+
+    it('keeps a description mark beside it', () => {
+      const flagged = flaggedRows(report(
+        sameDay([{ displayIndex: 5 }]),
+        descriptions([{ displayIndex: 1 }]),
+      ), 10);
+
+      expect(flagged).toEqual({ balance: null, description: [1], sameDayOrder: [5] });
+    });
+
+    it('is only ever a warning: a failed check with the flag still marks balance', () => {
+      expect(flaggedRows(report(sameDay([{ displayIndex: 5 }], 'FAILED')), 10)).toEqual({ balance: [5], description: null });
+    });
+
+    it('needs the flag to be exactly true', () => {
+      const almost: VerificationFinding = {
+        rule: 'BALANCE_CHAIN', outcome: 'WARNING',
+        details: { rowsChecked: 40, discrepancies: [{ displayIndex: 5 }], sameDayOrderOnly: 'true' },
+      };
+      expect(flaggedRows(report(almost), 10)).toEqual({ balance: [5], description: null });
+    });
+
+    it('marks nothing when any of its rows has no position, as for balance', () => {
+      expect(flaggedRows(report(sameDay([{ displayIndex: 5 }, { rowIndex: 6 }])), 10)).toBe(NO_FLAGGED_ROWS);
+    });
+
+    it('is recognised from the finding alone', () => {
+      expect(isSameDayOrderOnly(sameDay([]))).toBe(true);
+      expect(isSameDayOrderOnly(sameDay([], 'FAILED'))).toBe(false);
+      expect(isSameDayOrderOnly(chain([]))).toBe(false);
+      expect(isSameDayOrderOnly(undefined)).toBe(false);
+    });
   });
 });

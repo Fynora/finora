@@ -11,9 +11,9 @@ import { everywhere } from './landing-config';
  *
  * The honesty constraint here is specific and easy to lose in a redesign: the WEB app is
  * responsive and genuinely runs on any device today, so the three moments below are all true.
- * The Android app is live on Google Play and the iOS app is not on the App Store yet, and the
- * note at the bottom says exactly that. Update the wording and the note together, not just one.
- * The Play Store button and QR code live in SiteFooter.tsx.
+ * Both native apps are live (Google Play and the App Store), and the note at the bottom says
+ * exactly that. Update the wording and the note together, not just one. The store badges and QR
+ * codes live in SiteFooter.tsx.
  */
 const ICONS = [<Laptop size={18} />, <Smartphone size={18} />, <Tablet size={18} />];
 

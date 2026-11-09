@@ -12,9 +12,12 @@
  *    included, and its "Open" starts the app on its home screen. Those links already open the app
  *    directly when it is installed (universal links), and the page in Safari keeps working.
  *
- * Both are OFF in the shipped state: the apps are not on the stores yet, and a banner shown now
- * would send people to an app they cannot install. Turning either on is a Cloudflare Pages build
- * variable and a redeploy, the same convention as lib/features.ts.
+ * Both are OFF until their build variable is set (VITE_OPEN_IN_APP_ANDROID, VITE_IOS_APP_STORE_ID).
+ * The apps themselves are on the stores now -- Android's Google Play listing and iOS's App Store
+ * listing (id {@link APP_STORE_ID}, India storefront) both resolve -- so what keeps the banners off
+ * is a deployment choice, not store availability. Turning either on is a Cloudflare Pages build
+ * variable and a redeploy, the same convention as lib/features.ts. The landing page's footer
+ * links both stores regardless of these switches.
  */
 
 /** The production Android app's package (mobile/app.config.ts `android.package`). */
@@ -25,6 +28,18 @@ export const ANDROID_PACKAGE = 'com.fynora.android';
 export const APP_SCHEME = 'finora';
 
 export const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+
+/** The iOS app's App Store id: the digits in its App Store URL, the same value
+ *  VITE_IOS_APP_STORE_ID takes for the Smart App Banner. */
+export const APP_STORE_ID = '6809816093'; // synthetic-ok: a public App Store id (it is in the listing's URL), not customer data
+
+/**
+ * The iOS app's App Store page, in the India storefront. The storefront is in the path on purpose:
+ * the country-less form (apps.apple.com/app/id...) and the US storefront both answer 404 for this
+ * app (checked 2026-11-09), and the slug form is the one Apple's own links use. Apple's `?uo=4`
+ * tracking tag is left off.
+ */
+export const APP_STORE_URL = `https://apps.apple.com/in/app/fynora-personal-finance/id${APP_STORE_ID}`;
 
 /** Remembers, on this device, that the visitor closed the banner. */
 export const DISMISSED_KEY = 'fynora.openInAppBannerDismissed';

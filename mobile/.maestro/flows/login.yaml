@@ -57,7 +57,27 @@ env:
 # same account server-side, so their own logins (after this flow's skip has run) land on Home
 # directly, same as any returning user.
 #
-# Before onboarding comes the required "How do you keep track of your spending today?" question
+# Before either of those comes the consent step (useConsent / ConsentScreen, V302): the account
+# seed-test-user.sh registers has not accepted the current Terms, so this full-screen step replaces
+# everything until the required box is ticked and Continue is pressed. The AI box is left alone, so
+# AI features stay off for this account. The notice above the boxes is longer than the emulator
+# screen (a failed CI run's screenshot shows only the notice), so the box and the button are
+# scrolled to rather than tapped where they would be on a taller screen.
+- assertVisible: "Before you continue"
+- scrollUntilVisible:
+    element:
+      id: "consent-terms-box"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "consent-terms-box"
+- scrollUntilVisible:
+    element: "Continue"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Continue"
+
+# Then the required "How do you keep track of your spending today?" question
 # (useSpendingQuestion / SpendingTrackingQuestionScreen): a brand-new account has not answered it,
 # so it replaces everything until one answer is chosen and saved. Answered through the real screen,
 # for the same reason onboarding is skipped through the real button below.

@@ -62,6 +62,8 @@ class AuthServiceAppleLoginTest {
         refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any())).thenReturn(
                 new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any())).thenReturn(
+                new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
             User u = inv.getArgument(0);
             if (u.getId() == null) {
@@ -216,6 +218,7 @@ class AuthServiceAppleLoginTest {
         verify(emailProvider).sendEmailVerificationEmail(eq("jane@example.com"), anyString());
         verify(auditService).recordEvenOnRollback(eq(userId), eq("EMAIL_SENT"), eq("User"), eq(userId), any());
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN_APPLE"), any(), any(), any());
     }
 

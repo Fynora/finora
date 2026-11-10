@@ -5,6 +5,7 @@ import com.finora.config.JwtProperties;
 import com.finora.entity.ClientPlatform;
 import com.finora.entity.RefreshToken;
 import com.finora.entity.SessionKind;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.observability.AuthMetrics;
@@ -96,15 +97,28 @@ public class RefreshTokenService {
     public record IssuedToken(String rawToken, Instant expiresAt, UUID sessionId) {}
     public record RotationResult(UUID userId, IssuedToken newToken) {}
 
-    /** A fresh sign-in: a new session, whose clock starts now. Counted here, not in the shared
-     *  3-arg {@code issue} below -- that overload is also how {@link #rotate} mints a replacement
-     *  token for an EXISTING session, which is a refresh, not a new login, and must not double-count
-     *  against {@link AuthMetrics#loginSucceeded}. */
+    /** A fresh sign-in with web limits, whatever the client: for a session that must stay short, such
+     *  as the suspended-account screen. Counted here, not in the shared 4-arg {@code issue} below --
+     *  that overload is also how {@link #rotate} mints a replacement token for an EXISTING session,
+     *  which is a refresh, not a new login, and must not double-count against
+     *  {@link AuthMetrics#loginSucceeded}. */
     public IssuedToken issue(UUID userId) {
+        return issueNewSession(userId, SessionKind.WEB);
+    }
+
+    /** A fresh sign-in: a new session, whose clock starts now. A customer account signing in from the
+     *  PIN-lock phone app gets a phone session (see {@link #sessionKindForSignIn}); an admin account
+     *  never does -- the admin portal is web-only and its sessions stay short. */
+    public IssuedToken issue(UUID userId, String accountScope) {
+        SessionKind kind = User.SCOPE_USER.equals(accountScope) ? sessionKindForSignIn() : SessionKind.WEB;
+        return issueNewSession(userId, kind);
+    }
+
+    private IssuedToken issueNewSession(UUID userId, SessionKind kind) {
         // Counted AFTER the delegated call, not before: that call is what actually persists the
         // new row, and incrementing first would report a login as successful even if the save
         // inside it throws -- the same ordering rotate() uses for refreshSucceeded() below.
-        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID(), sessionKindForSignIn());
+        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID(), kind);
         authMetrics.loginSucceeded();
         return token;
     }

@@ -59,6 +59,8 @@ class AuthServiceGoogleLoginTest {
         refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any())).thenReturn(
                 new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any())).thenReturn(
+                new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
         // Every save() this class does just needs to hand back the same entity it was given,
         // including a real generated id -- the entity itself is what later assertions inspect.
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
@@ -318,6 +320,7 @@ class AuthServiceGoogleLoginTest {
         verify(auditService).recordEvenOnRollback(eq(userId), eq("EMAIL_SENT"), eq("User"), eq(userId), any());
         // Never actually signed in -- no session issued, no login recorded.
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN_GOOGLE"), any(), any(), any());
     }
 
@@ -341,6 +344,7 @@ class AuthServiceGoogleLoginTest {
         verify(emailVerificationTokenRepository, never()).save(any());
         verify(emailProvider, never()).sendEmailVerificationEmail(any(), any());
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
     }
 
     @Test

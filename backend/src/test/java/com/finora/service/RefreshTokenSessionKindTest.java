@@ -4,6 +4,7 @@ import com.finora.config.ClientIpResolver;
 import com.finora.config.JwtProperties;
 import com.finora.entity.RefreshToken;
 import com.finora.entity.SessionKind;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.observability.AuthMetrics;
@@ -154,7 +155,7 @@ class RefreshTokenSessionKindTest {
     void signInFromPinBuildIsMobile() {
         headers("MOBILE_IOS", "pin");
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.MOBILE);
     }
@@ -163,7 +164,7 @@ class RefreshTokenSessionKindTest {
     void signInFromAndroidPinBuildIsMobile() {
         headers("MOBILE_ANDROID", "pin");
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.MOBILE);
     }
@@ -174,7 +175,7 @@ class RefreshTokenSessionKindTest {
         // the session on the device, so it keeps the 24-hour rule.
         headers("MOBILE_IOS", null);
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
     }
@@ -183,7 +184,7 @@ class RefreshTokenSessionKindTest {
     void signInFromWebHeaderIsWeb() {
         headers("WEB", "pin");
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
     }
@@ -192,7 +193,7 @@ class RefreshTokenSessionKindTest {
     void signInWithAnUnknownLockValueIsWeb() {
         headers("MOBILE_IOS", "yes");
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
     }
@@ -201,7 +202,7 @@ class RefreshTokenSessionKindTest {
     void signInWithNoRequestContextIsWeb() {
         when(request.getHeader(any())).thenThrow(new IllegalStateException("no request bound"));
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
     }
@@ -210,7 +211,7 @@ class RefreshTokenSessionKindTest {
     void webSignInTokenExpiryIsUnchanged() {
         headers(null, null);
 
-        service.issue(userId);
+        service.issue(userId, User.SCOPE_USER);
 
         assertThat(lastSaved().getExpiresAt())
                 .isBefore(Instant.now().plus(Duration.ofDays(30)).plus(Duration.ofMinutes(1)));
@@ -241,5 +242,26 @@ class RefreshTokenSessionKindTest {
     @Test
     void aRowWithNoKindReadsAsWeb() {
         assertThat(new RefreshToken().getSessionKind()).isEqualTo(SessionKind.WEB);
+    }
+
+    @Test
+    void anAdminSignInIsNeverAPhoneSession() {
+        // Admin sessions stay short whatever the request claims: the phone limits exist for the
+        // customer app behind its PIN, and the admin portal is web-only.
+        headers("MOBILE_IOS", "pin");
+
+        service.issue(userId, User.SCOPE_ADMIN);
+
+        assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
+    }
+
+    @Test
+    void theOneArgumentIssueIsAlwaysWeb() {
+        // Used where a session must stay short regardless of client -- the suspended-account screen.
+        headers("MOBILE_IOS", "pin");
+
+        service.issue(userId);
+
+        assertThat(lastSaved().getSessionKind()).isEqualTo(SessionKind.WEB);
     }
 }

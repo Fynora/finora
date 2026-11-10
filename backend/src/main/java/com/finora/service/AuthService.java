@@ -255,7 +255,7 @@ public class AuthService {
 
         // Refresh token first: it is what mints the session, and the access token has to carry
         // that session's id in its sid claim.
-        var issued = refreshTokenService.issue(user.getId());
+        var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
@@ -688,7 +688,7 @@ public class AuthService {
      *  {@link #completeMfaLogin} (MFA just satisfied) -- both are "a session begins now," which is
      *  exactly the one thing this method does. */
     private AuthResponse issueSessionTokens(User user) {
-        var issued = refreshTokenService.issue(user.getId());
+        var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
@@ -989,7 +989,7 @@ public class AuthService {
             signupAttributionService.record(user.getId(), attribution);
         }
 
-        var issued = refreshTokenService.issue(user.getId());
+        var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         String refreshToken = issued.rawToken();
@@ -1257,7 +1257,7 @@ public class AuthService {
 
         auditService.record(user.getId(), "USER_LOGIN", "User", user.getId(),
                 requestMetadata.addTo(new java.util.HashMap<>()));
-        var issued = refreshTokenService.issue(user.getId());
+        var issued = refreshTokenService.issue(user.getId(), user.getAccountScope());
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), issued.sessionId(),
                 user.getAccountScope());
         return new AuthResponse(accessToken, issued.rawToken(), user.getEmail(), user.getFullName(),

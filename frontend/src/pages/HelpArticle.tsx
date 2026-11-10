@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { PublicLayout } from '../components/PublicLayout';
 import NotFound from './NotFound';
 import { HelpContactCard } from './HelpContactCard';
+import { GetTheApp } from '../components/GetTheApp';
 import {
   type HelpArticle as HelpArticleData,
   helpArticleBySlug,
@@ -27,6 +28,8 @@ export function HelpArticleView({ article }: { article: HelpArticleData }) {
       <article className="mb-10">
         <p className="text-base text-ink leading-relaxed max-w-2xl">{article.answer}</p>
       </article>
+
+      <GetTheApp variant="compact" placement="badge_top" className="mb-10 max-w-2xl" />
 
       <nav aria-label="Breadcrumb" className="mb-10 text-xs text-muted">
         <ol className="flex flex-wrap items-center gap-1.5">

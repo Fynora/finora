@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { PublicLayout } from '../components/PublicLayout';
 import { HelpContactCard } from './HelpContactCard';
+import { GetTheApp } from '../components/GetTheApp';
 import { HELP_ARTICLES, HELP_CATEGORIES, helpArticlePath } from './helpArticles';
 
 
@@ -94,6 +95,8 @@ export default function Help() {
           ))}
         </div>
       )}
+
+      <GetTheApp variant="full" placement="badge_bottom" className="mb-10" />
 
       <HelpContactCard />
     </PublicLayout>

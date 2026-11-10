@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { PublicLayout } from '../components/PublicLayout';
+import { GetTheApp } from '../components/GetTheApp';
 import { BANK_PAGES, BANKS_HUB_TITLE, bankPagePath, type BankPage } from './bankPages';
 
 function PageList({ heading, pages }: { heading: string; pages: BankPage[] }) {
@@ -42,6 +43,7 @@ export default function Banks() {
       </div>
       <PageList heading="Bank account statements" pages={savings} />
       <PageList heading="Credit card statements" pages={cards} />
+      <GetTheApp variant="full" placement="badge_bottom" className="mt-10 max-w-2xl" />
     </PublicLayout>
   );
 }

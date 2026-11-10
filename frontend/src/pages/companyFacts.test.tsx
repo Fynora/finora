@@ -13,7 +13,7 @@ import {
   REGISTERED_OFFICE_TEXT,
   SUPPORT_EMAIL,
 } from '../lib/contact';
-import { PLAY_STORE_URL } from '../lib/openInApp';
+import { playStoreLink } from '../lib/playStoreLink';
 
 function textOf(Page: React.ComponentType): string {
   const { container, unmount } = render(<MemoryRouter><Page /></MemoryRouter>);
@@ -53,7 +53,7 @@ describe('About: The Company', () => {
   it("states the apps' availability in the homepage's own words, with the Play listing", () => {
     render(<MemoryRouter><About /></MemoryRouter>);
     expect(document.body.textContent).toContain(everywhere.nativeNote);
-    expect(screen.getByRole('link', { name: 'Fynora on Google Play' })).toHaveAttribute('href', PLAY_STORE_URL);
+    expect(screen.getByRole('link', { name: 'Fynora on Google Play' })).toHaveAttribute('href', playStoreLink('/about', 'text'));
   });
 
   it('gives the support and grievance mailboxes, and links Help and Contact', () => {

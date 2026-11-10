@@ -4,6 +4,8 @@ import { sentryVitePlugin } from '@sentry/vite-plugin';
 
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { iosSmartAppBannerTag } from './src/lib/openInApp';
+import { playQrLinkForFile } from './src/lib/playStoreLink';
+import { qrSvg } from './scripts/playQr.mjs';
 
 /**
  * Apple's Smart App Banner ("Open" in the Fynora app when installed, "Get" when not) is a <meta>
@@ -24,6 +26,28 @@ function iosSmartAppBanner(): Plugin {
   };
 }
 
+/**
+ * The Google Play QR codes (/qr/play-<page type>-<slug>.svg) are written by scripts/prerender.mjs
+ * after `vite build`, so `vite dev` has no files for them. This answers the same paths in dev with
+ * the same SVG, built from the name (src/lib/playStoreLink.ts playQrLinkForFile). Dev only.
+ */
+function playQrDevServer(): Plugin {
+  return {
+    name: 'fynora-play-qr-dev',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const link = req.url ? playQrLinkForFile(req.url.split('?')[0]) : null;
+        if (!link) return next();
+        qrSvg(link).then((svg) => {
+          res.setHeader('Content-Type', 'image/svg+xml');
+          res.end(svg);
+        }, next);
+      });
+    },
+  };
+}
+
 // Cloudflare Pages sets this in the build environment automatically, for every build (Production
 // and Preview alike) -- no dashboard configuration needed, unlike the SENTRY_* vars below. Reused
 // for two things below: the Sentry release name this build's events report under (see
@@ -35,6 +59,7 @@ export default defineConfig({
   plugins: [
     react(),
     iosSmartAppBanner(),
+    playQrDevServer(),
     cloudflare(),
     // Uploads source maps to Sentry so a crash resolves to real file/line numbers instead of
     // minified bundle offsets -- see docs/operations/deployment/deployment-guide.md's Sentry

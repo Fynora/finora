@@ -7,6 +7,8 @@ import { converterApi } from '../api/endpoints';
 import { downloadBlob } from '../lib/download';
 import { CONVERTER_FAQ, CONVERTER_TITLE, TESTED_BANKS } from './converter/converterContent';
 import type { ConvertedStatement } from './converter/statementSheets';
+import { playStoreLink } from '../lib/playStoreLink';
+import { PLAY_BADGE_ALT } from '../components/GetTheApp';
 
 vi.mock('../api/endpoints', () => ({
   converterApi: { availability: vi.fn(), convert: vi.fn() },
@@ -79,6 +81,26 @@ describe('StatementConverter', () => {
     for (const bank of TESTED_BANKS) expect(screen.getByText(bank)).toBeInTheDocument();
     for (const [question] of CONVERTER_FAQ) expect(screen.getByText(question)).toBeInTheDocument();
     expect(screen.getByText(/not affiliated with/i)).toBeInTheDocument();
+  });
+
+  it('links the Android app on Google Play from the page itself, with the converter referrer', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: PLAY_BADGE_ALT })).toHaveAttribute(
+      'href', playStoreLink('/bank-statement-to-excel', 'badge_bottom'));
+  });
+
+  it('offers the Android app on the result screen too, attributed to the result', async () => {
+    convert.mockResolvedValue(RESULT);
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(availability).toHaveBeenCalled());
+    await chooseAndConvert(user, pdf());
+    await screen.findByText('Your file is ready');
+    const hrefs = screen.getAllByRole('link', { name: PLAY_BADGE_ALT }).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([
+      playStoreLink('/bank-statement-to-excel', 'result'),
+      playStoreLink('/bank-statement-to-excel', 'badge_bottom'),
+    ]);
   });
 
   it('reads nothing until the consent box is ticked', async () => {

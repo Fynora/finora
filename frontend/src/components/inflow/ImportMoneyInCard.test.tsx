@@ -109,6 +109,14 @@ describe('ImportMoneyInCard', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('says so when the choices cannot be loaded, instead of rows that cannot be answered', async () => {
+    vi.mocked(inflowApi.unresolvedForImport).mockResolvedValue([sender('t1', 'NEHA RAO', 6000, '2026-11-06')]);
+    vi.mocked(inflowApi.kinds).mockRejectedValue(new Error('down'));
+    renderCard(['imp-1']);
+
+    expect(await screen.findByText("Couldn't load the choices. See all on the Money not counted page.")).toBeInTheDocument();
+  });
+
   it('merges several imports into one question', async () => {
     vi.mocked(inflowApi.unresolvedForImport).mockImplementation(async (id) =>
       id === 'imp-1' ? [sender('t1', 'NEHA RAO', 6000, '2026-11-06', 2)] : [sender('t2', 'RAVI SEN', 9000, '2026-11-07')]);

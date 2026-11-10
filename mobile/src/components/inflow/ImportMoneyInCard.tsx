@@ -101,7 +101,11 @@ export function ImportMoneyInCard({ statementImportIds, onSeeAll }: {
         </Card>
       ) : null}
       {error ? <Text style={[typography.caption, { color: c.dangerInk }]}>{error}</Text> : null}
-      {senders.slice(0, SHOWN).map((s) => (
+      {/* Without the choices a row opens to nothing; point at the screen that can retry instead. */}
+      {kindsQ.isError ? (
+        <Text style={[typography.bodyS, { color: c.mutedInk }]}>Couldn't load the choices. See all on the Money not counted page.</Text>
+      ) : null}
+      {!kindsQ.isError && senders.slice(0, SHOWN).map((s) => (
         <UnresolvedSenderRow
           key={s.sampleTransactionId}
           sender={s}
@@ -119,7 +123,7 @@ export function ImportMoneyInCard({ statementImportIds, onSeeAll }: {
       ))}
       {payments > 0 ? (
         <View style={styles.links}>
-          {senders.length > SHOWN && dates.length > 0 ? (
+          {(senders.length > SHOWN || kindsQ.isError) && dates.length > 0 ? (
             <Pressable accessibilityRole="link" hitSlop={8} onPress={() => onSeeAll(dates[0], dates[dates.length - 1])}>
               <Text style={[typography.labelS, { color: c.primary }]}>See all</Text>
             </Pressable>

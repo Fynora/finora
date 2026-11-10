@@ -24,6 +24,7 @@ export function ImportMoneyInCard({ statementImportIds }: { statementImportIds: 
   const [error, setError] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ transactionId: string; scope: ChoiceScope; label: string } | null>(null);
   const [skipped, setSkipped] = useState(false);
+  const [kindsFailed, setKindsFailed] = useState(false);
   const invalidateMoneyFigures = useInvalidateMoneyFigures();
   const idsKey = statementImportIds.join(',');
 
@@ -36,7 +37,7 @@ export function ImportMoneyInCard({ statementImportIds }: { statementImportIds: 
 
   useEffect(() => {
     load();
-    inflowApi.kinds().then(setKinds).catch(() => setKinds([]));
+    inflowApi.kinds().then(setKinds).catch(() => setKindsFailed(true));
   }, [load]);
 
   async function apply(transactionId: string, kindId: string, scope: ChoiceScope, label: string) {
@@ -92,7 +93,11 @@ export function ImportMoneyInCard({ statementImportIds }: { statementImportIds: 
         </div>
       )}
       {error && <p className="text-danger text-sm">{error}</p>}
-      {senders.slice(0, SHOWN).map((s) => (
+      {/* Without the choices a row opens to nothing; point at the page that can retry instead. */}
+      {kindsFailed && (
+        <p className="text-sm text-muted">Couldn't load the choices. See all on the Money not counted page.</p>
+      )}
+      {!kindsFailed && senders.slice(0, SHOWN).map((s) => (
         <UnresolvedSenderRow
           key={s.sampleTransactionId}
           sender={s}
@@ -110,7 +115,7 @@ export function ImportMoneyInCard({ statementImportIds }: { statementImportIds: 
       ))}
       {payments > 0 && (
         <div className="flex items-center justify-end gap-4 text-xs">
-          {senders.length > SHOWN && dates.length > 0 && (
+          {(senders.length > SHOWN || kindsFailed) && dates.length > 0 && (
             <Link to={`/app/money-review?start=${dates[0]}&end=${dates[dates.length - 1]}`} className="text-primary font-medium">
               See all
             </Link>

@@ -954,6 +954,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      *  credits among them (InflowKindService.setChoice). */
     List<Transaction> findByUserIdAndCounterpartyKeyAndNeedsCategoryReviewTrue(UUID userId, String counterpartyKey);
 
+    /** Every live row with this sender, for undoing a sender-wide "what was it" answer. */
+    List<Transaction> findByUserIdAndCounterpartyKey(UUID userId, String counterpartyKey);
+
     Optional<Transaction> findFirstByUserIdAndCounterpartyKeyOrderByTxnDateDesc(UUID userId, String counterpartyKey);
 
     /** One of a statement's transactions as a statement refresh sees it -- see findStatementRowsIncludingDeleted. */

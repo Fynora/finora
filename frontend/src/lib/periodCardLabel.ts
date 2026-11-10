@@ -1,0 +1,35 @@
+// Labels for the dashboard's Income / Expenses / Net Savings cards that name the days they cover.
+// Dates are read as plain YYYY-MM-DD parts: `new Date('2026-11-08')` is midnight UTC, which is the
+// day before in any time zone west of it. Mirrored in mobile/src/lib/periodCardLabel.ts.
+
+const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
+  'October', 'November', 'December'];
+
+function parts(date: string): [number, number, number] {
+  const [y, m, d] = date.split('-').map(Number);
+  return [y, m, d];
+}
+
+/**
+ * "1–8 Nov" while the month is partly covered, "1 Nov" for its first day only, "November" once the
+ * data reaches the month's last day. `fallback` when there is no month, no date, or the date is not
+ * in that month (an older server, or an empty account).
+ */
+export function monthCardLabel(reportingMonth: string | null | undefined,
+  figuresThrough: string | null | undefined, fallback: string): string {
+  if (!reportingMonth || !figuresThrough || !figuresThrough.startsWith(`${reportingMonth}-`)) return fallback;
+  const [y, m, d] = parts(figuresThrough);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (d >= daysInMonth) return LONG[m - 1];
+  return d === 1 ? `1 ${SHORT[m - 1]}` : `1–${d} ${SHORT[m - 1]}`;
+}
+
+/** "Jun–Nov 2026", "Dec 2025–Feb 2026", or "Nov 2026" for a range inside one month. */
+export function rangeCardLabel(startDate: string, endDate: string): string {
+  const [sy, sm] = parts(startDate);
+  const [ey, em] = parts(endDate);
+  if (sy === ey && sm === em) return `${SHORT[em - 1]} ${ey}`;
+  if (sy === ey) return `${SHORT[sm - 1]}–${SHORT[em - 1]} ${ey}`;
+  return `${SHORT[sm - 1]} ${sy}–${SHORT[em - 1]} ${ey}`;
+}

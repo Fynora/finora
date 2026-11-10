@@ -330,7 +330,7 @@ export interface DashboardSummary {
   incomePrior: number | null;
   /**
    * This reporting month's credits Fynora cannot yet call income -- money from a person, an
-   * unexplained credit-card credit. Never part of monthlyIncome; shown in the banner beside it.
+   * unexplained credit-card credit. Never part of monthlyIncome; shown on the Income card as "not counted yet".
    * unresolvedTopReason is the backend FlowReason carrying most of the value ('PERSON_INFLOW',
    * 'CARD_UNEXPLAINED_CREDIT', ...), null when nothing is unresolved. A string, not a union: a
    * reason added later must degrade to "no reason line", not a type error.

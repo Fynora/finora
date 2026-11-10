@@ -3,18 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import * as pinLockModule from './pinLock';
 import * as appLock from './appLock';
 
-// No native module under the test runner: back expo-crypto with Node's own, so the hash really is
-// SHA-256 of what pinLock hands it rather than a fake that would pass whatever pinLock did.
-jest.mock('expo-crypto', () => {
-  const nodeCrypto = jest.requireActual<typeof import('crypto')>('crypto');
-  return {
-    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
-    CryptoEncoding: { HEX: 'hex' },
-    getRandomBytesAsync: jest.fn(async (n: number) => new Uint8Array(nodeCrypto.randomBytes(n))),
-    digestStringAsync: jest.fn(async (_algorithm: string, data: string) =>
-      nodeCrypto.createHash('sha256').update(data, 'utf8').digest('hex')),
-  };
-});
+// Real SHA-256 from Node -- see test/expoCryptoNodeMock.ts.
+jest.mock('expo-crypto', () => require('../test/expoCryptoNodeMock'));
 
 const store = (SecureStore as unknown as { __store: Map<string, string> }).__store;
 

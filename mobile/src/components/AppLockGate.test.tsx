@@ -1,46 +1,138 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AppState, BackHandler, Keyboard, Text, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as appLock from '../lib/appLock';
-import { AppLockGate } from './AppLockGate';
+import * as pinLock from '../lib/pinLock';
+import { AppLockGate, RELOCK_AFTER_MS } from './AppLockGate';
 import { AppModal, LaunchCoveredProvider } from './AppModal';
 import { AppAlert, getCurrentAppAlert, __resetAppAlertForTests } from '../lib/appAlert';
 import { AppBanner, __resetAppBannerForTests } from '../lib/appBanner';
-import { AuthProvider } from '../context/AuthContext';
-import { ThemeProvider, useThemeSetting } from '../theme';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { ThemeProvider } from '../theme';
 import App from '../../App';
 import { setLaunchAnimationPlayedForTests } from './LaunchAnimation';
 
-// Same reasoning as OfflineBanner.test.tsx / RootWarningBanner.test.tsx: isolates the mount test
-// to App's own composition rather than the whole navigation tree.
+// Real SHA-256 for the PIN -- see test/expoCryptoNodeMock.ts.
+jest.mock('expo-crypto', () => require('../test/expoCryptoNodeMock'));
+
+// Isolates the App mount test to App's own composition rather than the whole navigation tree.
 jest.mock('../navigation/RootNavigator', () => {
   const { Text: RNText } = require('react-native');
   return { RootNavigator: () => <RNText>navigator</RNText> };
 });
 
-// AuthProvider (mounted for real here, via App) now calls configureRevenueCat() at sign-in --
-// unmocked, this pulls in the real react-native-purchases package, which Jest can't transform
-// (an ESM-only transitive dependency). This test has nothing to do with RevenueCat.
+// AuthProvider calls configureRevenueCat() for a restored session; the real package cannot load
+// under Jest and has nothing to do with the lock.
 jest.mock('../lib/revenueCat', () => ({ configureRevenueCat: jest.fn() }));
 
 const mockedAuthenticateAsync = LocalAuthentication.authenticateAsync as jest.MockedFunction<
   typeof LocalAuthentication.authenticateAsync
 >;
+const mockedIsEnrolled = LocalAuthentication.isEnrolledAsync as jest.MockedFunction<
+  typeof LocalAuthentication.isEnrolledAsync
+>;
 
-const LOCK_TEXT = /Fynora is locked/i;
+const LOCK_TEXT = 'Enter your Fynora PIN';
+const PIN = '4821';
 
-/** Seeds a signed-in session the same way AuthContext.test.tsx does -- AuthProvider reads these
- *  SecureStore keys on its bootstrap effect, which AppLockGate waits on before it can lock. */
+/** A saved session, the way AuthProvider's bootstrap reads it. */
 async function signIn() {
   await SecureStore.setItemAsync('finora_token', 'access-token');
+  await SecureStore.setItemAsync('finora_refresh_token', 'refresh-token');
   await SecureStore.setItemAsync('finora_email', 'someone@example.com');
 }
 
-async function enableAppLock() {
-  await SecureStore.setItemAsync('finora_app_lock_enabled', 'true');
+async function signInWithPin({ biometrics = false } = {}) {
+  await signIn();
+  await pinLock.setPin(PIN);
+  if (biometrics) await SecureStore.setItemAsync('finora_app_lock_enabled', 'true');
+}
+
+/**
+ * What the server says to the cold-start session check (verifySession, one /auth/refresh). Driven
+ * through the real client by replacing the refresh instance's transport, so the real 'ended' path
+ * -- clearing the session through AuthProvider's callback -- runs as it would on a phone.
+ */
+function serverSays(answer: 'alive' | 'ended' | 'offline') {
+  const { rawApi } = require('../api/client') as typeof import('../api/client');
+  rawApi.defaults.adapter = ((config: unknown) => {
+    if (answer === 'alive') {
+      return Promise.resolve({
+        config, status: 200, statusText: 'OK', headers: {},
+        data: { success: true, data: { token: 'access-token-2', refreshToken: 'refresh-token-2' } },
+      });
+    }
+    if (answer === 'ended') {
+      return Promise.reject(Object.assign(new Error('HTTP 401'), {
+        config, response: { status: 401, data: { message: 'x', errorCode: 'AUTH_005' } },
+      }));
+    }
+    return Promise.reject(Object.assign(new Error('Network Error'), { config }));
+  }) as never;
+}
+
+async function typePin(pin: string) {
+  for (const d of pin) {
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText(d));
+    });
+  }
+}
+
+let appStateListeners: ((status: AppStateStatus) => void)[] = [];
+let now = 0;
+
+async function fireAppState(status: AppStateStatus) {
+  await act(async () => {
+    appStateListeners.forEach((listener) => listener(status));
+  });
+}
+
+/** Leaves the app for `ms`, then comes back, through the same listeners a real AppState fans out to. */
+async function awayFor(ms: number) {
+  await fireAppState('background');
+  now += ms;
+  await fireAppState('active');
+}
+
+let signOutFromOutside: (() => void) | undefined;
+/** Sits beside the gate inside AuthProvider, the way a failed refresh reaches logout from outside. */
+function LogoutHandle() {
+  const { logout } = useAuth();
+  useEffect(() => {
+    signOutFromOutside = logout;
+  }, [logout]);
+  return null;
+}
+
+function renderGate(children = <Text>protected content</Text>, { launching = false } = {}) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const tree = (isLaunching: boolean) => (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <LaunchCoveredProvider value={isLaunching}>
+          <AuthProvider>
+            <LogoutHandle />
+            <AppLockGate>{children}</AppLockGate>
+          </AuthProvider>
+        </LaunchCoveredProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+  const result = render(tree(launching));
+  return { ...result, setLaunching: (value: boolean) => result.rerender(tree(value)) };
+}
+
+let mounts = 0;
+function Counter() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    mounts += 1;
+  }, []);
+  return <Text onPress={() => setN(n + 1)}>{`typed ${n}`}</Text>;
 }
 
 beforeEach(() => {
@@ -50,411 +142,408 @@ beforeEach(() => {
     if (event !== 'change') return { remove: jest.fn() };
     const entry = listener as (status: AppStateStatus) => void;
     appStateListeners.push(entry);
-    // remove() has to actually deregister, not just be a no-op spy: both AppLockGate and
-    // AuthProvider re-register their 'change' listener whenever their own effect dependencies
-    // change (token, in both cases -- see each component's own effect), which happens more than
-    // once during a single test's bootstrap sequence. A no-op remove() left every torn-down
-    // closure in the array alongside its replacement, all sharing AppLockGate's single
-    // `appState` ref (a useRef is stable across those re-registrations) -- so the FIRST stale
-    // listener to see a background->active transition flipped the shared ref and starved every
-    // listener registered after it, including the current, live one. Actually removing the entry
-    // here is what keeps the array matching what's really still subscribed.
     return {
       remove: jest.fn(() => {
         appStateListeners = appStateListeners.filter((l) => l !== entry);
       }),
     };
   });
-  // appLock's isAuthenticating/justFinishedAuthenticating are module-level, not component state --
-  // see appLock.ts's own comment on why -- which makes them a cross-test hazard without this: a
-  // prior test's real authenticate() call stamps the real wall-clock time, easily within a later
-  // test's own reground-grace window.
+  // A realistic clock (not a small number): appLock's grace windows compare against real stamps.
+  now = Date.now() + 10 * 60_000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
   appLock.__resetAuthenticatingStateForTests();
-  // D5 (Track D security cleanup): isSharing/justFinishedSharing are the identical shape, for the
-  // identical reason -- same cross-test hazard without a reset.
   appLock.__resetSharingStateForTests();
-  // Same shape, same reason: isLocked is module-level too, and a prior test leaving it `true`
-  // would make the very next test's "unlocked" assertions pass for the wrong reason.
   appLock.__resetLockedFlagForTests();
+  appLock.__resetEnabledCacheForTests();
   __resetAppAlertForTests();
   __resetAppBannerForTests();
+  signOutFromOutside = undefined;
+  serverSays('alive');
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
 });
 
-/** The real native AppState module never fires a 'change' event under the test runner (there's
- *  no bridge), so it's a safe no-op for every other test here -- but the two foreground tests
- *  below need to actually trigger the listeners AppLockGate and AuthProvider each register, so
- *  they capture every 'change' listener directly rather than trying to simulate a real native
- *  event.
- *
- *  An array, not a single captured callback: AuthProvider registers its own 'change' listener too
- *  (Task 14 -- re-registers the push token on foreground), and both this component tree's mount
- *  order and real AppState's own fan-out (every listener is notified, not just the last one
- *  registered) mean a single-slot capture would silently stop replaying events to AppLockGate's
- *  listener the moment a second consumer registered one.
- *
- *  Driving it through the SAME listener callbacks both times (not just mutating
- *  AppState.currentState directly) matters: AppLockGate's own "was I in the background" memory is
- *  a ref written INSIDE its callback (`appState.current = next`), not a read of the module's live
- *  value -- so a background transition has to go through the listener too, or the later foreground
- *  call has nothing to compare against and never detects a transition at all. */
-let appStateListeners: ((status: AppStateStatus) => void)[] = [];
-
-function goToBackground() {
-  appStateListeners.forEach((listener) => listener('background'));
-}
-
-function returnToForeground() {
-  appStateListeners.forEach((listener) => listener('active'));
-}
-
-// Flips dark on via the real public setter (same approach as AccountsCard.test.tsx) for the
-// lock-cover opacity test below, which has to hold in both themes.
-function ForceDarkTheme({ children }: { children: ReactNode }) {
-  const { setSetting } = useThemeSetting();
-  useEffect(() => { setSetting('dark'); }, [setSetting]);
-  return <>{children}</>;
-}
-
-function renderGate(children = <Text>protected content</Text>, { dark = false } = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const gate = (
-    <AuthProvider>
-      <AppLockGate>{children}</AppLockGate>
-    </AuthProvider>
-  );
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        {dark ? <ForceDarkTheme>{gate}</ForceDarkTheme> : gate}
-      </ThemeProvider>
-    </QueryClientProvider>
-  );
-}
-
 describe('AppLockGate', () => {
-  it('renders children unlocked while there is no session, regardless of the setting', async () => {
-    await enableAppLock();
+  it('shows the app with no lock while signed out', async () => {
     renderGate();
-
     expect(await screen.findByText('protected content')).toBeTruthy();
     expect(screen.queryByText(LOCK_TEXT)).toBeNull();
   });
 
-  it('renders children unlocked for a session with the setting off', async () => {
+  it('requires setting a PIN before showing the app', async () => {
     await signIn();
     renderGate();
+
+    expect(await screen.findByText('Set a 4-digit PIN')).toBeTruthy();
+    expect(screen.queryByText('protected content', { includeHiddenElements: true })).toBeNull();
+    expect(appLock.isLocked()).toBe(true);
+
+    await typePin(PIN);
+    await screen.findByText('Enter it again');
+    await typePin(PIN);
 
     expect(await screen.findByText('protected content')).toBeTruthy();
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+    expect(appLock.isLocked()).toBe(false);
+    expect(await pinLock.checkPin(PIN)).toEqual({ ok: true });
   });
 
-  it('locks and auto-prompts a session with the setting on, unlocking on success', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+  it('locks a saved session and opens with the right PIN', async () => {
+    await signInWithPin();
     renderGate();
-
-    // The auto-prompt fires as soon as the setting loads -- a real success clears it without
-    // the user ever needing to press the Unlock button. Waiting on the mock call first (rather
-    // than going straight for "lock text is gone", which is trivially true before the effect has
-    // even run) is what actually proves the auto-prompt fired.
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(screen.getByText('protected content')).toBeTruthy();
-  });
-
-  // The system's Face ID sheet is drawn above everything, so prompting during the cold-start launch
-  // animation would put it on top of the animation. The lock itself must still engage at once.
-  it('locks at once under the launch animation but holds the biometric prompt until it has gone', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-    const tree = (launching: boolean) => (
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <LaunchCoveredProvider value={launching}>
-            <AuthProvider>
-              <AppLockGate>
-                <Text>protected content</Text>
-              </AppLockGate>
-            </AuthProvider>
-          </LaunchCoveredProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    );
-    const { rerender } = render(tree(true));
 
     expect(await screen.findByText(LOCK_TEXT)).toBeTruthy();
-    expect(screen.queryByText('protected content')).toBeNull();
-    // Give any stray prompt every chance to fire before asserting that none did.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-    expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByText('protected content', { includeHiddenElements: true })).toBeNull();
+    expect(appLock.isLocked()).toBe(true);
 
-    rerender(tree(false));
+    await typePin(PIN);
+
+    expect(await screen.findByText('protected content')).toBeTruthy();
+    expect(appLock.isLocked()).toBe(false);
+  });
+
+  it('auto-prompts for Face ID when it is on, and opens on success', async () => {
+    await signInWithPin({ biometrics: true });
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+    renderGate();
 
     await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(screen.getByText('protected content')).toBeTruthy();
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('protected content')).toBeTruthy();
   });
 
-  // Regression: the app running in the background must resume exactly where the user left it.
-  // The re-check gate used to `return null` during a foreground return, which UNMOUNTS every child
-  // (the whole navigator, onboarding step, screen state) -- so a backgrounded, never-killed app came
-  // back on Home. Lock is OFF here: nothing should be torn down at all.
-  it('keeps children mounted, with their state, across a background -> foreground return (lock off)', async () => {
-    await signIn();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(4_000_000);
-    let mounts = 0;
-    function Counter() {
-      const [n, setN] = useState(0);
-      useEffect(() => {
-        mounts += 1;
-      }, []);
-      return <Text onPress={() => setN(n + 1)}>{`count ${n}`}</Text>;
-    }
-    renderGate(<Counter />);
-    // Startup (session restore, then the first lock check) legitimately mounts children more
-    // than once; let it settle so the assertions below are about the foreground return only.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-    await screen.findByText('count 0');
-    mounts = 0;
-    fireEvent.press(screen.getByText('count 0'));
-    expect(screen.getByText('count 1')).toBeTruthy();
-
-    nowSpy.mockReturnValue(4_000_000 + 5000);
-    goToBackground();
-    // Sync act, so the render triggered by the foreground event commits BEFORE the async lock
-    // check resolves -- as on a device, where the check is a real native round trip. An async act
-    // would batch both renders into one and hide the teardown this test exists to catch.
-    act(() => {
-      returnToForeground();
-    });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-
-    expect(screen.getByText('count 1')).toBeTruthy();
-    expect(mounts).toBe(0);
-  });
-
-  // The cover exists only to hide the app while the async lock check is in flight. Once the setting
-  // is CONFIRMED off there is nothing to hide, so a lock-off user (the default) must not see even a
-  // blank frame when they come back to the app.
-  it('does not cover the app on a foreground return once the lock is known to be off', async () => {
-    await signIn();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
+  it('stays on the PIN pad when Face ID fails, and the biometric key retries', async () => {
+    await signInWithPin({ biometrics: true });
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'user_cancel' });
     renderGate();
+
+    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+
+    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      fireEvent.press(screen.getByLabelText('Unlock with Face ID or fingerprint'));
     });
-    await screen.findByText('protected content');
-
-    nowSpy.mockReturnValue(5_000_000 + 5000);
-    goToBackground();
-    act(() => {
-      returnToForeground();
-    });
-
-    expect(screen.queryByTestId('app-lock-cover')).toBeNull();
-    expect(screen.getByText('protected content')).toBeTruthy();
+    expect(await screen.findByText('protected content')).toBeTruthy();
   });
 
-  // The dangerous direction of the cache: it says "off" until Settings turns the lock on. Because
-  // setEnabled() updates it at once, the very next return to the app must cover and then lock --
-  // skipping the cover there would show the protected screen for the frames before the lock.
-  it('covers and then locks on the first foreground after the lock is turned on mid-session', async () => {
-    await signIn();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(7_000_000);
+  it('has no biometric key and never prompts when biometrics are off', async () => {
+    await signInWithPin();
     renderGate();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-    await screen.findByText('protected content');
-    expect(appLock.isKnownDisabled()).toBe(true);
 
-    await act(async () => {
-      await appLock.setEnabled(true);
-    });
-    nowSpy.mockReturnValue(7_000_000 + 5000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    goToBackground();
-    act(() => {
-      returnToForeground();
-    });
-
-    expect(screen.getByTestId('app-lock-cover')).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    await screen.findByText(LOCK_TEXT);
+    await act(async () => {});
+    expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Unlock with Face ID or fingerprint')).toBeNull();
   });
 
-  // A native alert traps a screen reader's focus; this one is in the tree, so the app behind it has
-  // to be hidden from accessibility or TalkBack could wander onto (and activate) the screen behind
-  // a destructive confirmation.
-  it('hides the app from screen readers while an alert is up, and shows it again after', async () => {
-    await signIn();
-    renderGate();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+  describe('the cold-start session check', () => {
+    it('goes to sign-in without prompting when the server says the session ended', async () => {
+      await signInWithPin({ biometrics: true });
+      serverSays('ended');
+      renderGate();
+
+      // Signed out: the app tree (here, the sign-in screen's stand-in) with no lock and no prompt.
+      expect(await screen.findByText('protected content')).toBeTruthy();
+      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+      await act(async () => {});
+      expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+      expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
     });
-    await screen.findByText('protected content');
 
-    act(() => {
-      AppAlert.alert('Delete this goal?', undefined, [{ text: 'Cancel' }]);
+    it('asks for the PIN when the session check cannot reach the server', async () => {
+      await signInWithPin({ biometrics: true });
+      serverSays('offline');
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'user_cancel' });
+      renderGate();
+
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+      await typePin(PIN);
+      expect(await screen.findByText('protected content')).toBeTruthy();
+      expect(await SecureStore.getItemAsync('finora_refresh_token')).toBe('refresh-token');
     });
-    expect(screen.getByText('Delete this goal?')).toBeTruthy();
-    expect(screen.queryByText('protected content')).toBeNull();
-    expect(screen.getByText('protected content', { includeHiddenElements: true })).toBeTruthy();
 
-    fireEvent.press(screen.getByText('Cancel'));
-
-    expect(screen.getByText('protected content')).toBeTruthy();
-  });
-
-  describe('once unlocked, the lock screen covers the app instead of replacing it', () => {
-    let mounts = 0;
-    function Counter() {
-      const [n, setN] = useState(0);
-      useEffect(() => {
-        mounts += 1;
-      }, []);
-      return <Text onPress={() => setN(n + 1)}>{`typed ${n}`}</Text>;
-    }
-
-    async function unlockedWithState() {
-      await signIn();
-      await enableAppLock();
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(6_000_000);
+    it('holds the Face ID prompt until the server has answered', async () => {
+      await signInWithPin({ biometrics: true });
+      let answer: (() => void) | undefined;
+      const { rawApi } = require('../api/client') as typeof import('../api/client');
+      rawApi.defaults.adapter = ((config: unknown) => new Promise((resolve) => {
+        answer = () => resolve({
+          config, status: 200, statusText: 'OK', headers: {},
+          data: { success: true, data: { token: 'a2', refreshToken: 'r2' } },
+        });
+      })) as never;
       mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      renderGate();
+
+      await screen.findByText(LOCK_TEXT);
+      await act(async () => {});
+      expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+
+      await act(async () => answer?.());
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe('the launch animation', () => {
+    it('locks at once under the launch animation but holds the prompt until it has gone', async () => {
+      await signInWithPin({ biometrics: true });
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      const { setLaunching } = renderGate(undefined, { launching: true });
+
+      await screen.findByText(LOCK_TEXT, { includeHiddenElements: true });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+
+      setLaunching(false);
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      expect(await screen.findByText('protected content')).toBeTruthy();
+    });
+
+    // The bug Sid reported (2026-11-10): Face ID asked for over the sign-in screen after the
+    // session had ended while the launch animation was still up.
+    it('does not prompt when the session ends while the launch animation is up', async () => {
+      await signInWithPin({ biometrics: true });
+      const { setLaunching } = renderGate(undefined, { launching: true });
+      await screen.findByText(LOCK_TEXT, { includeHiddenElements: true });
+
+      await act(async () => {
+        signOutFromOutside?.();
+      });
+      setLaunching(false);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(mockedAuthenticateAsync).not.toHaveBeenCalled();
+      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+      expect(screen.getByText('protected content')).toBeTruthy();
+    });
+  });
+
+  describe('locking again after time away', () => {
+    async function openApp() {
+      await signInWithPin();
+      renderGate(<Counter />);
+      await screen.findByText(LOCK_TEXT);
+      await typePin(PIN);
+      await screen.findByText('typed 0');
+    }
+
+    it('does not lock after 59 seconds away', async () => {
+      await openApp();
+      await awayFor(59_000);
+      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+      expect(screen.getByText('typed 0')).toBeTruthy();
+    });
+
+    it('locks after 61 seconds away', async () => {
+      await openApp();
+      await awayFor(61_000);
+      expect(await screen.findByText(LOCK_TEXT)).toBeTruthy();
+      expect(appLock.isLocked()).toBe(true);
+      expect(RELOCK_AFTER_MS).toBe(60_000);
+    });
+
+    it('counts from the first step out of the foreground (inactive, then background)', async () => {
+      await openApp();
+      await fireAppState('inactive');
+      now += 40_000;
+      await fireAppState('background');
+      now += 30_000;
+      await fireAppState('active');
+      expect(await screen.findByText(LOCK_TEXT)).toBeTruthy();
+    });
+
+    it('prompts for Face ID on the relock if it was turned on mid-session', async () => {
+      await openApp();
+      await SecureStore.setItemAsync('finora_app_lock_enabled', 'true');
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+
+      await awayFor(61_000);
+
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+    });
+
+    it('does not lock while a share sheet is open, however long it stays open', async () => {
+      await openApp();
+      let finishShare: (() => void) | undefined;
+      const share = appLock.withShareSuppression(() => new Promise<void>((r) => { finishShare = r; }));
+
+      await awayFor(5 * 60_000);
+      finishShare?.();
+      await share;
+
+      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+      expect(screen.getByText('typed 0')).toBeTruthy();
+    });
+
+    it('does not lock when the Face ID sheet itself sends the app to the background', async () => {
+      await signInWithPin({ biometrics: true });
+      let finishAuth: ((r: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
+      mockedAuthenticateAsync.mockImplementationOnce(() => new Promise((r) => { finishAuth = r; }));
+      renderGate();
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+
+      await fireAppState('inactive');
+      await act(async () => finishAuth?.({ success: true }));
+      now += 2 * 60_000;
+      await fireAppState('active');
+
+      expect(await screen.findByText('protected content')).toBeTruthy();
+      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+      expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('wrong PINs', () => {
+    it('says the PIN was wrong, and shows tries left once two or fewer remain', async () => {
+      await signInWithPin();
+      renderGate();
+      await screen.findByText(LOCK_TEXT);
+
+      await typePin('0000');
+      expect(await screen.findByText('Wrong PIN. Try again.')).toBeTruthy();
+      await typePin('0000');
+      expect(await screen.findByText('Wrong PIN. Try again.')).toBeTruthy();
+      await typePin('0000');
+      expect(await screen.findByText('Wrong PIN. 2 tries left.')).toBeTruthy();
+      await typePin('0000');
+      expect(await screen.findByText('Wrong PIN. 1 try left.')).toBeTruthy();
+    });
+
+    it('signs out after the fifth wrong PIN, clearing the PIN and biometric choice', async () => {
+      await signInWithPin({ biometrics: true });
+      mockedAuthenticateAsync.mockResolvedValue({ success: false, error: 'user_cancel' });
+      renderGate();
+      await screen.findByText(LOCK_TEXT);
+
+      for (let i = 0; i < 5; i++) await typePin('0000');
+
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+      expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
+      await waitFor(async () => expect(await pinLock.hasPin()).toBe(false));
+      expect(await appLock.isEnabled()).toBe(false);
+    });
+
+    it('Forgot PIN signs out after a confirm', async () => {
+      await signInWithPin();
+      renderGate();
+      await screen.findByText(LOCK_TEXT);
+
+      fireEvent.press(screen.getByText('Forgot PIN?'));
+      expect(screen.getByText("You'll be signed out on this phone. Sign in again, then set a new PIN.")).toBeTruthy();
+      fireEvent.press(screen.getByText('Cancel'));
+      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+
+      fireEvent.press(screen.getByText('Forgot PIN?'));
+      await act(async () => {
+        fireEvent.press(screen.getByText('Sign out'));
+      });
+
+      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
+      expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
+    });
+  });
+
+  describe('once opened, the lock screen covers the app instead of replacing it', () => {
+    async function openWithState() {
+      await signInWithPin();
       mounts = 0;
       renderGate(<Counter />);
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await screen.findByText(LOCK_TEXT);
+      await typePin(PIN);
       await screen.findByText('typed 0');
       fireEvent.press(screen.getByText('typed 0'));
       expect(screen.getByText('typed 1')).toBeTruthy();
-      nowSpy.mockReturnValue(6_000_000 + 5000);
-      return nowSpy;
     }
 
     async function relock() {
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-      goToBackground();
-      await act(async () => returnToForeground());
-      await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+      await awayFor(RELOCK_AFTER_MS + 1000);
+      await screen.findByText(LOCK_TEXT);
     }
 
-    // Half-typed text and scroll position live in component state; tearing the tree down for the
-    // lock screen threw all of it away, so a user who was mid-form lost it on every unlock.
-    it('keeps the screen and its state through a re-lock and unlock', async () => {
-      await unlockedWithState();
+    it('keeps the screen and its state through a relock and unlock', async () => {
+      await openWithState();
       const mountsBefore = mounts;
 
       await relock();
-      // Still mounted, but hidden from sight and from screen readers while locked.
       expect(screen.queryByText('typed 1')).toBeNull();
       expect(screen.getByText('typed 1', { includeHiddenElements: true })).toBeTruthy();
 
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      await act(async () => fireEvent.press(screen.getByText('Unlock')));
+      await typePin(PIN);
       await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-
       expect(screen.getByText('typed 1')).toBeTruthy();
       expect(mounts).toBe(mountsBefore);
     });
 
-    // A native Modal is presented above the whole React Native root, so the lock overlay cannot
-    // cover it. Keeping the app mounted is only safe because every Modal hides itself while locked.
     it('does not leave an open sheet visible over the lock screen, and restores it after unlock', async () => {
       function SheetOwner() {
-        const [n, setN] = useState(0);
         return (
-          <>
-            <Text onPress={() => setN(n + 1)}>{`typed ${n}`}</Text>
-            <AppModal visible>
-              <Text>sheet body</Text>
-            </AppModal>
-          </>
+          <AppModal visible>
+            <Text>sheet body</Text>
+          </AppModal>
         );
       }
-      await signIn();
-      await enableAppLock();
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(8_000_000);
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      await signInWithPin();
       renderGate(<SheetOwner />);
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await screen.findByText(LOCK_TEXT);
+      await typePin(PIN);
       await screen.findByText('sheet body');
-      fireEvent.press(screen.getByText('typed 0'));
-      nowSpy.mockReturnValue(8_000_000 + 5000);
 
       await relock();
-
       expect(screen.queryByText('sheet body', { includeHiddenElements: true })).toBeNull();
 
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      await act(async () => fireEvent.press(screen.getByText('Unlock')));
-      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-      expect(screen.getByText('sheet body')).toBeTruthy();
-      expect(screen.getByText('typed 1')).toBeTruthy();
+      await typePin(PIN);
+      expect(await screen.findByText('sheet body')).toBeTruthy();
     });
 
-    // A native Alert could not be hidden once open; AppAlert is drawn by the app, so it hides with
-    // it and is still waiting after unlock.
     it('hides an open alert while locked and shows it again after unlock', async () => {
-      await unlockedWithState();
+      await openWithState();
       act(() => {
         AppAlert.alert('Delete this account?', '"Savings" will be removed.');
       });
       expect(screen.getByText('Delete this account?')).toBeTruthy();
 
       await relock();
-      // Still waiting in the tree underneath, but not reachable: hidden from touch and screen
-      // readers, and covered by the lock screen, exactly like the rest of the app.
-      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
       expect(screen.queryByText('Delete this account?')).toBeNull();
-      expect(screen.queryByText('"Savings" will be removed.')).toBeNull();
 
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      await act(async () => fireEvent.press(screen.getByText('Unlock')));
-      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-      expect(screen.getByText('Delete this account?')).toBeTruthy();
+      await typePin(PIN);
+      expect(await screen.findByText('Delete this account?')).toBeTruthy();
     });
 
-    // The banner for an admin campaign push is drawn at this same root, so it must never show over
-    // the lock screen: a push's text is exactly what the lock is there to keep private.
-    it('shows a campaign banner over the open app and hides it behind the lock screen', async () => {
-      await unlockedWithState();
+    it('hides a campaign banner behind the lock screen', async () => {
+      await openWithState();
       act(() => {
         AppBanner.show('Welcome to Fynora', 'Welcome to Fynora body.');
       });
       expect(screen.getByText('Welcome to Fynora body.')).toBeTruthy();
 
       await relock();
-
-      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
-      expect(screen.queryByText('Welcome to Fynora')).toBeNull();
       expect(screen.queryByText('Welcome to Fynora body.')).toBeNull();
     });
 
-    // Back must reach the lock screen. An alert queued while locked waits (hidden) at the root; if it
-    // took the back press it would be dismissed unseen and the user could not leave the app.
-    it('sends Android back to the lock screen, not to an alert waiting underneath it', async () => {
+    it('drops the keyboard when it locks', async () => {
+      await openWithState();
+      const dismiss = jest.spyOn(Keyboard, 'dismiss');
+      await relock();
+      expect(dismiss).toHaveBeenCalled();
+    });
+
+    it('takes over the Android back button while locked, and leaves an alert underneath untouched', async () => {
       const exitApp = jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => {});
       const handlers: (() => boolean)[] = [];
       jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
         handlers.push(listener as () => boolean);
         return { remove: jest.fn(() => handlers.splice(handlers.indexOf(listener as () => boolean), 1)) };
       });
-      // The way RN delivers it: most recently registered listener first, stopping at the first true.
       const pressBack = () => [...handlers].reverse().some((handler) => handler());
-      await unlockedWithState();
+      await openWithState();
+      expect(handlers).toHaveLength(0);
       await relock();
 
       act(() => {
@@ -467,605 +556,46 @@ describe('AppLockGate', () => {
       expect(exitApp).toHaveBeenCalled();
       expect(getCurrentAppAlert()?.title).toBe('Delete this account?');
     });
-
-    it('drops the keyboard when it locks, so nothing can be typed into the hidden screen', async () => {
-      await unlockedWithState();
-      const dismiss = jest.spyOn(Keyboard, 'dismiss');
-
-      await relock();
-
-      expect(dismiss).toHaveBeenCalled();
-    });
-
-    // The hidden navigator is still mounted and still listening for Android's back button; without
-    // this, pressing back on the lock screen would pop a screen the user cannot see.
-    it('takes over the Android back button while locked, leaving the hidden screen untouched', async () => {
-      const exitApp = jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => {});
-      let handler: (() => boolean) | undefined;
-      jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
-        handler = listener as () => boolean;
-        return { remove: jest.fn() };
-      });
-      await unlockedWithState();
-      expect(handler).toBeUndefined();
-
-      await relock();
-
-      expect(handler).toBeDefined();
-      expect(handler?.()).toBe(true);
-      expect(exitApp).toHaveBeenCalled();
-    });
   });
 
-  // A deep-link handler can raise an alert before the user has authenticated. It must wait, not
-  // appear over the lock screen.
-  it('holds an alert raised before the first unlock until the app is unlocked', async () => {
-    await signIn();
-    await enableAppLock();
-    let finishAuth: (result: LocalAuthentication.LocalAuthenticationResult) => void = () => {};
-    mockedAuthenticateAsync.mockImplementationOnce(() => new Promise((resolve) => { finishAuth = resolve; }));
+  it('holds an alert raised before the first unlock until the app is opened', async () => {
+    await signInWithPin();
     renderGate();
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
+    await screen.findByText(LOCK_TEXT);
 
     act(() => {
       AppAlert.alert('Email verified', "You're all set.");
     });
     expect(screen.queryByText('Email verified', { includeHiddenElements: true })).toBeNull();
 
-    await act(async () => finishAuth({ success: true }));
-    await waitFor(() => expect(screen.getByText('Email verified')).toBeTruthy());
+    await typePin(PIN);
+    expect(await screen.findByText('Email verified')).toBeTruthy();
   });
 
-  it('does not flash protected content between a genuine foreground return and the async lock check resolving', async () => {
+  it('offers Face ID during setup on a phone that has it', async () => {
+    mockedIsEnrolled.mockResolvedValue(true);
     await signIn();
-    await enableAppLock();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(3_000_000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
     renderGate();
+    await screen.findByText('Set a 4-digit PIN');
+    await typePin(PIN);
+    await screen.findByText('Enter it again');
+    await typePin(PIN);
 
-    // Let the cold-start lock check resolve and the auto-prompt clear it, same as the
-    // existing "locks and auto-prompts" test above.
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(screen.getByText('protected content')).toBeTruthy();
-
-    // Well past REGROUND_GRACE_MS -- a genuine return, not the cold-start auto-prompt's own
-    // trailing blip (see the grace-period describe block below for that case). This foreground
-    // return's own re-prompt fails, same as the "still re-locks..." test below, so the lock
-    // screen stays up long enough to assert on rather than racing its own auto-unlock.
-    nowSpy.mockReturnValue(3_000_000 + 5000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    goToBackground();
-
-    // Fire the foreground transition inside a sync act() so this assertion runs BEFORE
-    // appLock.isEnabled()'s promise has a chance to resolve -- that pending microtask is
-    // exactly the gap this test exists to close.
-    act(() => {
-      returnToForeground();
-    });
-    // Children stay mounted (so a lock-off user loses nothing) but are covered, so nothing
-    // protected is visible before the lock check resolves.
-    expect(screen.getByTestId('app-lock-cover')).toBeTruthy();
-
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    expect(screen.queryByText('protected content')).toBeNull();
-  });
-
-  // The glass redesign makes screens translucent over a mesh backdrop. The lock cover is the one
-  // surface that must never be: balances would show through. Pinned in both themes, with the
-  // exact opaque bg value and no mesh anywhere in the tree while the cover is up.
-  it.each([
-    ['light', '#F8FAFC'],
-    ['dark', '#15171C'],
-  ])('%s: lock cover stays fully opaque under the glass redesign', async (theme, bg) => {
-    await signIn();
-    await enableAppLock();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(3_000_000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    renderGate(undefined, { dark: theme === 'dark' });
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-
-    nowSpy.mockReturnValue(3_000_000 + 5000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    goToBackground();
-    act(() => {
-      returnToForeground();
-    });
-    expect(screen.getByTestId('app-lock-cover')).toHaveStyle({ backgroundColor: bg });
-    expect(screen.queryByTestId('glass-mesh', { includeHiddenElements: true })).toBeNull();
-
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    expect(screen.queryByTestId('glass-mesh', { includeHiddenElements: true })).toBeNull();
-  });
-
-  it('stays locked and offers a retry when the auto-prompt fails', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    renderGate();
-
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    expect(screen.queryByText('protected content')).toBeNull();
-
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    await act(async () => fireEvent.press(screen.getByText('Unlock')));
-
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(screen.getByText('protected content')).toBeTruthy();
-  });
-
-  // Regression coverage: AuthContext's foreground-push handler reads appLock.isLocked() (outside
-  // this component's own subtree entirely) to decide whether it's safe to show a native Alert --
-  // see setLockedFlag's own doc comment for why that has to be a shared flag, not local state.
-  it('keeps appLock.isLocked() in sync with whether the lock screen is actually showing', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    renderGate();
-
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    expect(appLock.isLocked()).toBe(true);
-
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    await act(async () => fireEvent.press(screen.getByText('Unlock')));
-
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(appLock.isLocked()).toBe(false);
-  });
-
-  it('offers Sign Out as an escape hatch from the lock screen', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    renderGate();
-
-    await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    expect(screen.getByText('Sign Out')).toBeTruthy();
-  });
-
-  // Regression coverage: AppLockGate must not cache the setting in state across the session --
-  // AppLockSection (Settings) writes straight to SecureStore with no shared state or event bridge
-  // back to this component, so a cached value read once at mount would go stale the moment the
-  // user flips the toggle without restarting the app.
-  //
-  // Both tests spy on appLock.isEnabled() directly rather than writing to SecureStore and racing
-  // it against the component's own read -- this component reads the setting TWICE (once from the
-  // mount effect, once from the foreground listener), and an unsynchronized SecureStore write from
-  // the test can land before either read, making a test pass for the wrong reason (the mount
-  // effect happening to see the new value, rather than the foreground listener actually re-reading
-  // it -- this is exactly what happened on the first version of these two tests, caught only by
-  // deliberately reverting the fix locally and finding they still passed against the bug).
-  // Queuing exact resolved values per call removes the race and pins down which read is which.
-  describe('the setting can change mid-session, without an app restart', () => {
-    it('engages on the very next foreground after being turned ON mid-session', async () => {
-      await signIn();
-      const isEnabledSpy = jest.spyOn(appLock, 'isEnabled').mockResolvedValueOnce(false);
-      renderGate();
-      expect(await screen.findByText('protected content')).toBeTruthy();
-      await waitFor(() => expect(isEnabledSpy).toHaveBeenCalledTimes(1));
-
-      // Simulates the toggle having been turned on in Settings since the mount check above.
-      isEnabledSpy.mockResolvedValueOnce(true);
-      goToBackground();
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-      await act(async () => returnToForeground());
-
-      await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    });
-
-    it('does not lock on the next foreground after being turned OFF mid-session', async () => {
-      await signIn();
-      const isEnabledSpy = jest.spyOn(appLock, 'isEnabled').mockResolvedValueOnce(true);
-      // Past the mount-time auto-prompt's own reground grace window by the time the foreground
-      // check below fires -- without this, that foreground check is itself indistinguishable
-      // from the prompt's own trailing blip and gets correctly suppressed, same as the dedicated
-      // "blip arrives after authenticate() has already resolved" tests below expect. This test's
-      // job is to prove the SETTING is re-read fresh on a genuine foreground return, which needs
-      // that return to actually reach the check, not to also prove the grace period itself.
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(3_000_000);
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      renderGate();
-      // Let the mount-time auto-prompt actually happen and resolve before moving on -- waiting on
-      // the mock call first (rather than going straight for "lock text is gone", which is
-      // trivially true before the effect has even run) is what proves it really unlocked rather
-      // than never having locked in the first place.
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-
-      // Simulates the toggle having been turned off in Settings since the mount check above, on
-      // a genuine return well after the earlier prompt's own grace window has elapsed.
-      nowSpy.mockReturnValue(3_000_000 + 5000);
-      isEnabledSpy.mockResolvedValueOnce(false);
-      goToBackground();
-      await act(async () => returnToForeground());
-
-      // Give the foreground check a chance to actually run before asserting no re-lock happened.
-      await waitFor(() => expect(isEnabledSpy).toHaveBeenCalledTimes(2));
-      expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-      expect(screen.getByText('protected content')).toBeTruthy();
-      nowSpy.mockRestore();
-    });
-  });
-});
-
-// Regression coverage for a real on-device bug: presenting the native Face ID sheet drives
-// AppState through inactive/background and back to active on its own, as a side effect of the
-// prompt itself -- not the user backgrounding the app. Before authenticatingRef existed, the
-// foreground listener could not tell that transition apart from a genuine return, so it re-locked
-// and re-prompted, which blipped AppState again, on and on: Face ID asked again and again in a
-// loop, exactly as reported.
-describe('a self-induced AppState blip during authentication', () => {
-  it('does not re-prompt when the prompt itself causes a background/foreground blip mid-flight', async () => {
-    await signIn();
-    await enableAppLock();
-    let resolveAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
-    mockedAuthenticateAsync.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveAuth = resolve; })
-    );
-    renderGate();
-
-    // The mount-time auto-prompt is now in flight, unresolved -- this is the window a real Face
-    // ID sheet occupies on-device.
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-
-    // The sheet itself drives this same blip -- same listener, same event shapes the real
-    // AppLockGate.tsx doc comment describes, not a distinct user action.
-    await act(async () => {
-      goToBackground();
-      returnToForeground();
-    });
-
-    // The bug: this would have been 2 (or climbing forever on a real device, one more prompt per
-    // blip). A second concurrent authenticateAsync() call while the first is still unresolved is
-    // exactly the loop that was reported.
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
-
-    // The original prompt still resolves normally afterward -- the guard only suppresses the
-    // self-induced blip, not real authentication.
-    await act(async () => resolveAuth?.({ success: true }));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-    expect(screen.getByText('protected content')).toBeTruthy();
-  });
-
-  // The bug as actually reported on-device: the first version of this fix (authenticatingRef
-  // alone, covering only the call while it was still in flight) did NOT stop the loop -- Face ID
-  // kept re-prompting. Root cause: the native "app became active" notification for a dismissed
-  // Face ID sheet can arrive AFTER authenticateAsync()'s own promise has already resolved, i.e.
-  // once authenticatingRef is already back to false. Reproduces that exact ordering by mocking
-  // Date.now() directly (not jest.useFakeTimers(), which also fakes the timers waitFor's own
-  // polling relies on, and would make these tests hang) rather than by racing real elapsed time,
-  // which a slow CI run could make flaky in either direction.
-  describe('the blip arrives after authenticate() has already resolved', () => {
-    afterEach(() => jest.restoreAllMocks());
-
-    it('does not re-prompt when the blip lands within the reground grace period', async () => {
-      await signIn();
-      await enableAppLock();
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      renderGate();
-
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-      // authResolvedAtRef is now stamped at 1_000_000 (authenticate() resolved just now).
-
-      // 200ms later -- comfortably inside REGROUND_GRACE_MS -- the sheet's own dismissal notice
-      // arrives as a background/foreground blip, same as it does on-device.
-      nowSpy.mockReturnValue(1_000_000 + 200);
-      await act(async () => {
-        goToBackground();
-        returnToForeground();
-      });
-
-      // The bug: this used to climb to 2, then 3, forever -- one more prompt per blip, none of
-      // them ever landing outside the (nonexistent) grace window.
-      expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-    });
-
-    it('still re-locks on a genuine foreground return once the grace period has elapsed', async () => {
-      await signIn();
-      const isEnabledSpy = jest.spyOn(appLock, 'isEnabled').mockResolvedValueOnce(true);
-      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(2_000_000);
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-      renderGate();
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-
-      // Well past REGROUND_GRACE_MS -- a real return, not the sheet's own trailing blip -- must
-      // not be swallowed the way the two tests above are.
-      nowSpy.mockReturnValue(2_000_000 + 5000);
-      isEnabledSpy.mockResolvedValueOnce(true);
-      mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-      goToBackground();
-      await act(async () => returnToForeground());
-
-      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(2));
-      expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
-    });
-  });
-});
-
-// Regression coverage for a third real on-device report of the same loop, after the two fixes
-// above (authenticatingRef, then the cross-caller appLock module) had already shipped: the prior
-// fix still depended on the dismissed sheet's 'active' notification landing within
-// REGROUND_GRACE_MS (1500ms) of authenticate() resolving. On-device, Face ID's own retry UI ("Move
-// iPhone lower", a second attempt after a partial match) can push the real dismissal well past any
-// fixed window -- this reproduces exactly that: the OUTGOING transition is observed while
-// authenticating, but the matching 'active' event arrives long after both authenticate() has
-// resolved AND the fixed grace window has elapsed.
-describe('a self-induced blip whose own dismissal outlasts the fixed grace window', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('does not re-prompt even when the blip lands after REGROUND_GRACE_MS has elapsed', async () => {
-    await signIn();
-    await enableAppLock();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(6_000_000);
-    let resolveAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
-    mockedAuthenticateAsync.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveAuth = resolve; })
-    );
-    renderGate();
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
-
-    // The sheet's own departure from the app, captured while the call is still in flight -- same
-    // as a real Face ID sheet appearing.
-    await act(async () => goToBackground());
-
-    // The prompt resolves (a real match, just a slow one -- "Move iPhone lower" and a retry), well
-    // past the fixed grace window (REGROUND_GRACE_MS in AppLockGate.tsx is 1500ms; not imported
-    // here since the component doesn't export it -- same reason the sibling tests above hardcode
-    // it too), before the OS gets around to notifying 'active' for the dismissal.
-    nowSpy.mockReturnValue(6_000_000 + 1500 + 1000);
-    await act(async () => resolveAuth?.({ success: true }));
-    await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
-
-    // The dismissal notification finally arrives, long after both authenticate() resolved and
-    // REGROUND_GRACE_MS elapsed -- isAuthenticating() and justFinishedAuthenticating() are both
-    // false by now, so only the background-time capture can still recognize this as self-induced.
-    nowSpy.mockReturnValue(6_000_000 + 1500 + 5000);
-    await act(async () => returnToForeground());
-
-    // The bug: without capturing the outgoing transition, this re-locks and re-prompts here,
-    // whose own dismissal (just as slow) re-triggers the same check again -- the loop, exactly as
-    // reported a third time.
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-    expect(screen.getByText('protected content')).toBeTruthy();
-  });
-});
-
-// Regression coverage for the actual reported root cause, found only after the two fixes above
-// (both scoped entirely to AppLockGate's own local state) still did not stop the loop on-device:
-// AppLockSection's "confirm to enable App Lock" prompt in Settings calls appLock.authenticate()
-// completely independently of AppLockGate -- a second, uncoordinated caller neither prior fix had
-// any visibility into. Its own AppState blip still reached AppLockGate's foreground listener as
-// if it were a genuine return, and it locked the app on top of the confirmation the user had just
-// given -- this is what actually starts the loop the moment someone turns the setting on, not
-// something scoped to AppLockGate's own re-lock prompt.
-describe('a prompt from elsewhere in the app (e.g. AppLockSection enabling the setting)', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('does not lock while that prompt is in flight, or shortly after it resolves', async () => {
-    await signIn();
-    // The setting starts OFF -- same as a user who has never turned this on before, about to for
-    // the first time. AppLockGate's own mount check finds it off and does nothing.
-    renderGate();
+    expect(await screen.findByText('Unlock with Face ID or fingerprint?')).toBeTruthy();
+    fireEvent.press(screen.getByText('Not now'));
     expect(await screen.findByText('protected content')).toBeTruthy();
-
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(4_000_000);
-    // AppLockSection.handleToggle's own call, not routed through AppLockGate at all.
-    let resolveExternalAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
-    mockedAuthenticateAsync.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveExternalAuth = resolve; })
-    );
-    const externalAuth = appLock.authenticate('Confirm to enable App Lock');
-
-    // The blip while that call is still in flight.
-    await act(async () => {
-      goToBackground();
-      returnToForeground();
-    });
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // only the external call so far
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-
-    // The external call succeeds; AppLockSection would now persist the setting.
-    resolveExternalAuth?.({ success: true });
-    await externalAuth;
-    await appLock.setEnabled(true);
-
-    // The trailing blip, shortly after -- the exact ordering that defeated the two prior fixes,
-    // which had no way to know an authenticate() call had ever happened outside AppLockGate.
-    nowSpy.mockReturnValue(4_000_000 + 200);
-    await act(async () => {
-      goToBackground();
-      returnToForeground();
-    });
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // still just the external call
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-
-    nowSpy.mockRestore();
-  });
-
-  it('still locks on a genuine foreground return once the grace period has elapsed', async () => {
-    await signIn();
-    renderGate();
-    expect(await screen.findByText('protected content')).toBeTruthy();
-
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    await appLock.authenticate('Confirm to enable App Lock');
-    await appLock.setEnabled(true);
-
-    // Well past the grace window -- a real return, not the toggle's own trailing blip.
-    nowSpy.mockReturnValue(5_000_000 + 5000);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    goToBackground();
-    await act(async () => returnToForeground());
-
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
-    nowSpy.mockRestore();
-  });
-
-  // The exact scenario actually reported on-device a third time: turning App Lock ON in Settings,
-  // not AppLockGate's own re-lock prompt. Same gap as "a self-induced blip whose own dismissal
-  // outlasts the fixed grace window" above, but for the OTHER caller appLock.isAuthenticating()
-  // has to cover -- proven separately rather than assumed from that test, since this is the
-  // caller whose blip actually started the loop the two prior fixes didn't stop (see this
-  // describe block's own comment).
-  it('does not re-lock even when the toggle prompt\'s own dismissal lands after the grace period', async () => {
-    await signIn();
-    renderGate();
-    expect(await screen.findByText('protected content')).toBeTruthy();
-
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(7_000_000);
-    let resolveExternalAuth: ((result: LocalAuthentication.LocalAuthenticationResult) => void) | undefined;
-    mockedAuthenticateAsync.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveExternalAuth = resolve; })
-    );
-    const externalAuth = appLock.authenticate('Confirm to enable App Lock');
-
-    // The toggle prompt's own departure from the app, captured while AppLockSection's call is
-    // still in flight -- AppLockGate's listener sees this regardless of which component called
-    // authenticate(), since AppState is a single, app-wide module.
-    await act(async () => goToBackground());
-
-    // Resolves well past REGROUND_GRACE_MS, same slow-match/retry scenario as the AppLockGate-own
-    // version of this test -- a real success, just not a fast one.
-    nowSpy.mockReturnValue(7_000_000 + 1500 + 1000);
-    await act(async () => resolveExternalAuth?.({ success: true }));
-    await externalAuth;
-    await appLock.setEnabled(true);
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-
-    // The dismissal notification finally arrives, long after both the external authenticate()
-    // resolved and REGROUND_GRACE_MS elapsed.
-    nowSpy.mockReturnValue(7_000_000 + 1500 + 5000);
-    await act(async () => returnToForeground());
-
-    // The bug this closes: without capturing the outgoing transition, this re-locks and
-    // auto-prompts on top of the confirmation the user just gave, starting the loop.
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // still just the external call
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-    expect(screen.getByText('protected content')).toBeTruthy();
-    nowSpy.mockRestore();
-  });
-});
-
-// D5 (Track D security cleanup). Opening the OS share sheet (statementImportsApi.downloadFile,
-// supportApi.downloadAttachment, reportExport.ts's shareCsv/sharePdf, all wrapped in
-// appLock.withShareSuppression) backgrounds the app the same way a biometric prompt does -- same
-// blip, same fix shape as "a prompt from elsewhere in the app" above, just from a different
-// unrelated-to-authentication caller.
-describe('an in-flight share (e.g. downloading a statement or exporting a report)', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('does not lock while a share is in flight, or shortly after it resolves', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    renderGate();
-    await waitFor(() => expect(screen.getByText('protected content')).toBeTruthy());
-    // See the "still locks" test below's identical line for why this is here: the foreground-
-    // listener effect re-registers (dropping its stale token:null closure for the current one)
-    // slightly after content becomes visible, and the very first blip below needs the CURRENT
-    // listener already in place to exercise the sharing check at all.
-    await act(async () => {});
-
-    // Mocked AFTER mount/unlock, from a REAL Date.now() reading, not an arbitrary small number:
-    // lastResolvedAt above was just stamped with the true wall-clock time (nothing mocked yet),
-    // and a small mocked base (e.g. 6_000_000) minus that real, much larger timestamp is a huge
-    // NEGATIVE number -- which is "< windowMs" by accident, keeping justFinishedAuthenticating
-    // spuriously true no matter how far the mocked clock is later advanced, and letting the test
-    // pass without the sharing check under test ever being exercised. Starting from a realistic
-    // `Date.now()` keeps every comparison below on the same real scale.
-    const baseTime = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime);
-    // Past the mount-unlock's own authenticating grace -- isAuthenticating/justFinishedAuthenticating
-    // are both false from here on, isolating what's under test.
-    nowSpy.mockReturnValue(baseTime + 1500 + 1);
-
-    // statementImportsApi.downloadFile's own call shape: opens the OS share sheet, nothing to do
-    // with authentication at all.
-    let resolveShare: (() => void) | undefined;
-    const share = appLock.withShareSuppression(
-      () => new Promise<void>((resolve) => { resolveShare = resolve; })
-    );
-
-    // The blip while the share sheet is still open.
-    await act(async () => {
-      goToBackground();
-      returnToForeground();
-    });
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // only the unlock above, no re-prompt
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-
-    resolveShare?.();
-    await share;
-
-    // The trailing blip returning from the share sheet, shortly after it closes.
-    nowSpy.mockReturnValue(baseTime + 1500 + 1 + 200);
-    await act(async () => {
-      goToBackground();
-      returnToForeground();
-    });
-    expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1); // still no re-prompt
-    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
-
-    nowSpy.mockRestore();
-  });
-
-  it('still locks on a genuine foreground return once the grace period has elapsed', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
-    renderGate();
-    await waitFor(() => expect(screen.getByText('protected content')).toBeTruthy());
-    // AppLockGate's foreground-listener effect re-registers once the mount effect's own
-    // setCheckedToken(token) commits (its dependency array includes `token`, which starts at
-    // null) -- content being visible only proves the UNLOCK happened, not that this second
-    // effect has already swapped its stale (token: null) listener for the current one. One more
-    // flush closes that gap; the sibling test above never needs this because its two-blip
-    // structure already spans enough awaits for it to happen incidentally.
-    await act(async () => {});
-
-    // See the sibling test above for why this starts from a real Date.now() reading.
-    const baseTime = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime + 1500 + 1);
-    await appLock.withShareSuppression(() => Promise.resolve());
-
-    // Well past BOTH the authenticating grace AND the sharing grace -- a real return, not the
-    // share sheet's own trailing blip.
-    nowSpy.mockReturnValue(baseTime + 1500 + 1 + 1500 + 1);
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
-    goToBackground();
-    await act(async () => returnToForeground());
-
-    await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
-    nowSpy.mockRestore();
   });
 });
 
 describe('the app actually mounts it', () => {
-  // Steady state, after the cold-start launch animation: while it is up, the app behind it is hidden
-  // from screen readers, and so from these queries too (see App.tsx).
   beforeEach(() => setLaunchAnimationPlayedForTests(true));
   afterEach(() => setLaunchAnimationPlayedForTests(false));
 
-  it('locks the real App tree for a signed-in session with the setting on', async () => {
-    await signIn();
-    await enableAppLock();
-    mockedAuthenticateAsync.mockResolvedValueOnce({ success: false, error: 'authentication_failed' });
+  it('locks the real App tree for a signed-in session', async () => {
+    await signInWithPin();
     render(<App />);
 
     await waitFor(() => expect(screen.getByText(LOCK_TEXT)).toBeTruthy());
-    // Locked means the navigator underneath is not what's on screen -- same wiring-not-behavior
-    // assertion OfflineBanner.test.tsx and RootWarningBanner.test.tsx make for their own boundary.
     expect(screen.queryByText('navigator')).toBeNull();
   });
 });

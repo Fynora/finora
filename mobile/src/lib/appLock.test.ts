@@ -192,12 +192,15 @@ describe('authenticate', () => {
     expect(await appLock.authenticate('Unlock Fynora')).toBe(false);
   });
 
-  it('leaves the device passcode fallback enabled (does not set disableDeviceFallback)', async () => {
+  // Reversed on purpose (design 2026-11-10): with a required app PIN, the fallback is that PIN.
+  // Leaving the phone's passcode as a fallback would let anyone who knows it skip the app PIN.
+  it('turns off the phone passcode fallback, because the fallback is the Fynora PIN', async () => {
     mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
     await appLock.authenticate('Unlock Fynora');
 
     const call = mockedAuthenticateAsync.mock.calls[0][0];
-    expect(call?.disableDeviceFallback).not.toBe(true);
+    expect(call?.disableDeviceFallback).toBe(true);
+    expect(call?.fallbackLabel).toBe('Use PIN');
   });
 });
 

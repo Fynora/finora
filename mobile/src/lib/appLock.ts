@@ -80,6 +80,18 @@ export function justFinishedAuthenticating(windowMs: number): boolean {
   return authenticating.justFinished(windowMs);
 }
 
+/** Runs `fn` counted as an authentication in progress -- for the PIN check, which has to read as
+ *  "authenticating" to everything that already respects a biometric prompt (the store-rating
+ *  prompt, the foreground relock), exactly like authenticate() does. */
+export async function withAuthenticating<T>(fn: () => Promise<T>): Promise<T> {
+  authenticating.enter();
+  try {
+    return await fn();
+  } finally {
+    authenticating.exit();
+  }
+}
+
 export function __resetAuthenticatingStateForTests(): void {
   authenticating.resetForTests();
 }
@@ -251,13 +263,14 @@ export async function authenticate(promptMessage: string): Promise<boolean> {
   try {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage,
-      // Device passcode fallback left ON (the default) deliberately, not disabled: biometric
-      // hardware can legitimately fail (a wet finger, a face partly covered, a temporary sensor
-      // fault), and disableDeviceFallback would turn that into a dead end with no way back into
-      // an app the user cannot currently reach Settings inside of to turn the lock back off.
-      // Requiring the phone's own passcode is still a real, meaningful check -- an attacker who
-      // has neither the biometric nor the passcode still cannot get in.
       cancelLabel: 'Cancel',
+      // The fallback is the Fynora PIN (lib/pinLock.ts), not the phone's own passcode: otherwise
+      // anyone who knows the phone's passcode could skip the app PIN. This used to be left on
+      // because, with biometrics as the only lock, turning it off made a failing sensor a dead end;
+      // the PIN pad under the prompt is now the way back in. expo-local-authentication 58.0.2 maps
+      // this to iOS's LAPolicyDeviceOwnerAuthenticationWithBiometrics.
+      disableDeviceFallback: true,
+      fallbackLabel: 'Use PIN',
     });
     return result.success;
   } catch {

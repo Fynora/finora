@@ -78,6 +78,22 @@ public class WorkspaceDashboardService {
         this.confidenceEngine = confidenceEngine;
     }
 
+    /**
+     * The customer's own dashboard (GET /api/v1/workspace/dashboard): {@link #summarize} without
+     * {@code recentActivity}. Those are raw audit rows filed under the customer, and staff actions on
+     * their account are filed there too -- an admin opening their support ticket, claiming it or
+     * adding an internal note, with the admin's id in the metadata. No customer screen shows the list
+     * (Financial Memory on web and mobile reads other fields), so it is left out rather than filtered:
+     * audit rows carry no actor column, and a filter keyed on metadata names would miss the next
+     * admin action written with a different key. The health check still sees the real rows.
+     */
+    @Transactional(readOnly = true)
+    public WorkspaceSummaryDto summarizeForOwner(UUID userId) {
+        return summarize(userId).withoutRecentActivity();
+    }
+
+    /** Everything, recent activity included: the admin portal's view of a user
+     *  (AdminUserWorkspaceController, behind RECONCILIATION_VIEW). */
     @Transactional(readOnly = true)
     public WorkspaceSummaryDto summarize(UUID userId) {
         // Soft-deleting an account never touches its transactions'/statements' own deleted_at (see

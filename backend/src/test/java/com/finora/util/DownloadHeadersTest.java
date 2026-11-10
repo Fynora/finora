@@ -2,6 +2,11 @@ package com.finora.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ContentDisposition;
 
@@ -38,5 +43,33 @@ class DownloadHeadersTest {
     void controlCharacters_neverReachTheHeader() {
         String header = DownloadHeaders.attachment("a\r\nSet-Cookie: x=1é.txt");
         assertThat(header).doesNotContain("\r").doesNotContain("\n");
+    }
+
+    /**
+     * Every download goes through {@link DownloadHeaders}: a new endpoint that builds the header
+     * itself with {@code ContentDisposition.attachment().filename(name)} brings back the dropped
+     * header for any name outside ASCII. Scans the main sources, as other architecture tests here do.
+     */
+    @Test
+    void noDownloadBuildsItsOwnAttachmentHeader() throws IOException {
+        Path root = Path.of("src/main/java");
+        List<String> offenders;
+        try (Stream<Path> files = Files.walk(root)) {
+            offenders = files.filter(f -> f.toString().endsWith(".java"))
+                    .filter(f -> !f.endsWith(Path.of("com/finora/util/DownloadHeaders.java")))
+                    .filter(f -> {
+                        try {
+                            String source = Files.readString(f);
+                            return source.contains("ContentDisposition.attachment()")
+                                    || source.contains("ContentDisposition.inline()")
+                                    || source.contains("ContentDisposition.builder(");
+                        } catch (IOException e) {
+                            throw new IllegalStateException(e);
+                        }
+                    })
+                    .map(Path::toString)
+                    .toList();
+        }
+        assertThat(offenders).as("build the download header with DownloadHeaders.attachment(name)").isEmpty();
     }
 }

@@ -129,6 +129,18 @@ class SupportTicketServiceTest {
         verify(ticketRepository, never()).save(any());
     }
 
+    /** Tickets sent at once each counted before any was saved (10 at once queued 8 receipts against
+     *  a cap of 3): the customer's row is locked before the daily ceiling is counted. */
+    @Test
+    void theCustomersRowIsLocked_beforeTheDailyCeilingIsCounted() {
+        service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, submissionLimiter, ticketRepository);
+        order.verify(userRepository).findByIdForUpdate(userId);
+        order.verify(submissionLimiter).requireTicketAllowance(userId);
+        order.verify(ticketRepository).save(any());
+    }
+
     @Test
     void createsATicketWithNoAttachmentWhenNoFileIsGiven() {
         var detail = service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);

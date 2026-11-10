@@ -19,12 +19,14 @@ import type { AlertDto, ProviderStatusDto, NeedsAttentionDto, ActivationFunnelDt
 const STATUS_DOT: Record<string, string> = {
   UP: 'bg-success',
   DEGRADED: 'bg-warning',
+  OFF: 'bg-border',
   DOWN: 'bg-danger',
 };
 
 const STATUS_TEXT: Record<string, string> = {
   UP: 'text-success',
   DEGRADED: 'text-warning',
+  OFF: 'text-muted',
   DOWN: 'text-danger',
 };
 

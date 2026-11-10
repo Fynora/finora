@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.User;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.repository.UserActivityDayRepository;
 import com.finora.repository.UserRepository;
 import com.finora.security.JwtService;
 import com.finora.testsupport.TestSessions;
@@ -15,6 +16,8 @@ import org.springframework.http.*;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
@@ -30,6 +33,7 @@ class AdminOperationalDashboardControllerIT extends AbstractIntegrationTest {
     @Autowired private UserRepository userRepository;
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
+    @Autowired private UserActivityDayRepository activityDays;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User createUser(String role) {
@@ -64,9 +68,18 @@ class AdminOperationalDashboardControllerIT extends AbstractIntegrationTest {
     }
 
     private long inactiveUsersLast7Days(User admin) throws Exception {
+        return overviewField(admin, "inactiveUsersLast7Days");
+    }
+
+    private long overviewField(User admin, String field) throws Exception {
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/admin/dashboard/overview", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
-        return mapper.readTree(response.getBody()).get("data").get("inactiveUsersLast7Days").asLong();
+        return mapper.readTree(response.getBody()).get("data").get(field).asLong();
+    }
+
+    /** The dashboard's "today": the platform reporting zone, IST unless configured otherwise. */
+    private static LocalDate todayInIst() {
+        return LocalDate.now(ZoneId.of("Asia/Kolkata"));
     }
 
     private HttpHeaders bearerFor(User user) {
@@ -184,6 +197,76 @@ class AdminOperationalDashboardControllerIT extends AbstractIntegrationTest {
         long before = inactiveUsersLast7Days(admin);
 
         createUser("USER");
+
+        assertThat(inactiveUsersLast7Days(admin)).isEqualTo(before);
+    }
+
+    // Audit 2026-11-10: "Active today" and "Inactive 7+ days" counted only USER_LOGIN audit rows.
+    // App sessions last weeks without a fresh login, so production showed "Active today 0" on a day
+    // with an import and 106 new transactions. user_activity_days (V249) records every day a
+    // user-portal account made an authenticated request, which is what these tiles mean.
+
+    @Test
+    void activeUsersToday_countsAUserWhoUsedTheAppTodayWithoutLoggingIn() throws Exception {
+        User admin = createUser("ADMIN");
+        long before = overviewField(admin, "activeUsersToday");
+
+        User user = createUserAt("USER", Instant.now().minus(30, ChronoUnit.DAYS));
+        activityDays.recordDay(user.getId(), todayInIst());
+
+        assertThat(overviewField(admin, "activeUsersToday")).isEqualTo(before + 1);
+    }
+
+    @Test
+    void activeUsersYesterday_feedsThePreviousDayDelta() throws Exception {
+        User admin = createUser("ADMIN");
+        ResponseEntity<String> first = restTemplate.exchange(
+                "/api/v1/admin/dashboard/overview", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        long before = mapper.readTree(first.getBody()).get("data").get("previousDay").get("activeUsers").asLong();
+
+        User user = createUserAt("USER", Instant.now().minus(30, ChronoUnit.DAYS));
+        activityDays.recordDay(user.getId(), todayInIst().minusDays(1));
+
+        ResponseEntity<String> second = restTemplate.exchange(
+                "/api/v1/admin/dashboard/overview", HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(mapper.readTree(second.getBody()).get("data").get("previousDay").get("activeUsers").asLong())
+                .isEqualTo(before + 1);
+    }
+
+    @Test
+    void inactiveUsersLast7Days_excludesAUserActiveInTheWindowWithoutLoggingIn() throws Exception {
+        User admin = createUser("ADMIN");
+        long before = inactiveUsersLast7Days(admin);
+
+        User user = createUserAt("USER", Instant.now().minus(30, ChronoUnit.DAYS));
+        activityDays.recordDay(user.getId(), todayInIst().minusDays(3));
+
+        assertThat(inactiveUsersLast7Days(admin)).isEqualTo(before);
+    }
+
+    @Test
+    void inactiveUsersLast7Days_stillCountsAUserWhoseLastActiveDayIsBeforeTheWindow() throws Exception {
+        User admin = createUser("ADMIN");
+        long before = inactiveUsersLast7Days(admin);
+
+        User user = createUserAt("USER", Instant.now().minus(30, ChronoUnit.DAYS));
+        activityDays.recordDay(user.getId(), todayInIst().minusDays(20));
+
+        assertThat(inactiveUsersLast7Days(admin)).isEqualTo(before + 1);
+    }
+
+    @Test
+    void inactiveUsersLast7Days_leavesOutAdminAccountsAndDeletedAccounts() throws Exception {
+        // Admin-portal accounts never get activity days (UserActivityInterceptor records user-portal
+        // accounts only), and a deleted account is anonymized and can never come back -- neither is
+        // a quiet customer.
+        User admin = createUser("ADMIN");
+        long before = inactiveUsersLast7Days(admin);
+
+        createUserAt("ADMIN", Instant.now().minus(30, ChronoUnit.DAYS));
+        User deleted = createUserAt("USER", Instant.now().minus(30, ChronoUnit.DAYS));
+        deleted.setStatus(User.STATUS_DELETED);
+        userRepository.save(deleted);
 
         assertThat(inactiveUsersLast7Days(admin)).isEqualTo(before);
     }

@@ -261,6 +261,7 @@ function GlobalRulesContent() {
   const toggleEnabledMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => adminRulesApi.update(id, { enabled }),
     onSuccess: invalidate,
+    onError: (err: any) => notify.error(errorMessage(err, 'Failed to change this rule.')),
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => adminRulesApi.delete(id),

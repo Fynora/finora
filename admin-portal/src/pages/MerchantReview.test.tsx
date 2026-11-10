@@ -127,6 +127,19 @@ describe('MerchantReview', () => {
     expect(screen.getByRole('button', { name: /Discard/ })).toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a refused action used to leave the row exactly as it was, with no message.
+  it('says why an approval was refused', async () => {
+    mockAuth(['MERCHANT_REVIEW']);
+    vi.mocked(adminMerchantReviewApi.queue).mockResolvedValue(queueOf(guessWithNoHistory));
+    vi.mocked(adminMerchantReviewApi.approve).mockRejectedValue({ response: { data: { message: 'Merchant already reviewed' } } });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('SWIGGYORDR9182')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Merchant already reviewed');
+  });
+
   it('approves a guess against its owning user', async () => {
     mockAuth(['MERCHANT_REVIEW']);
     vi.mocked(adminMerchantReviewApi.queue).mockResolvedValue(queueOf(guessWithNoHistory));

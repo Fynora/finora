@@ -34,6 +34,8 @@ function MerchantReviewContent() {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<MerchantReviewItem | null>(null);
   const [renaming, setRenaming] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const onActionError = (err: unknown) => setActionError(refusal(err, 'That action could not be completed.'));
   const queryClient = useQueryClient();
 
   const queue = useQuery({
@@ -45,6 +47,7 @@ function MerchantReviewContent() {
   // admin stranded on a now-empty page -- back off to the previous one so the list they land on
   // actually has something in it, same as Pagination.tsx never rendering "Page 2 of 1".
   const refresh = (removedCount = 1) => {
+    setActionError(null);
     setPage((p) => (p > 0 && (queue.data?.content.length ?? 0) <= removedCount ? p - 1 : p));
     void queryClient.invalidateQueries({ queryKey: ['merchant-review'] });
     setSelected(null);
@@ -53,6 +56,7 @@ function MerchantReviewContent() {
   const approve = useMutation({
     mutationFn: (row: MerchantReviewItem) => adminMerchantReviewApi.approve(row.userId, row.id),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const approveAll = useMutation({
@@ -60,23 +64,27 @@ function MerchantReviewContent() {
     // approveAll can clear every row on the page belonging to this user, not just one.
     onSuccess: (_data, userId) =>
       refresh(queue.data?.content.filter((row) => row.userId === userId).length ?? 1),
+    onError: onActionError,
   });
 
   const rename = useMutation({
     mutationFn: (vars: { row: MerchantReviewItem; name: string }) =>
       adminMerchantReviewApi.rename(vars.row.userId, vars.row.id, vars.name),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const discard = useMutation({
     mutationFn: (row: MerchantReviewItem) => adminMerchantReviewApi.discard(row.userId, row.id),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const merge = useMutation({
     mutationFn: (vars: { row: MerchantReviewItem; into: string }) =>
       adminMerchantReviewApi.merge(vars.row.userId, vars.row.id, vars.into),
     onSuccess: () => refresh(),
+    onError: onActionError,
   });
 
   const columns: DataTableColumn<MerchantReviewItem>[] = [
@@ -134,8 +142,14 @@ function MerchantReviewContent() {
     },
   ];
 
+  // Shown next to whatever the admin just clicked: above the open panel, else above the list.
+  const alertEl = actionError && (
+    <p role="alert" className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{actionError}</p>
+  );
+
   return (
     <div className="space-y-6">
+      {!selected && alertEl}
       <p className="text-muted text-sm">
         Merchants the import engine created from descriptions it had not seen before. Approving
         confirms the guess; renaming corrects it; merging folds it into a merchant this account
@@ -160,6 +174,7 @@ function MerchantReviewContent() {
         />
       )}
 
+      {selected && alertEl}
       {selected && (
         <ReviewPanel
           row={selected}
@@ -175,6 +190,11 @@ function MerchantReviewContent() {
       )}
     </div>
   );
+}
+
+/** The server's own message when it sent one; a refused action used to show nothing at all. */
+function refusal(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { message?: string } } } | null)?.response?.data?.message ?? fallback;
 }
 
 /**

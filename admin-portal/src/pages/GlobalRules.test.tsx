@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -105,6 +105,21 @@ describe('GlobalRules', () => {
 
     await waitFor(() => expect(screen.getByText(/Netflix/)).toBeInTheDocument());
     expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
+
+  // Audit 2026-11-10: the Enabled/Disabled switch used to fail with no message.
+  it('reports a refused enable/disable', async () => {
+    mockAuth(['RULE_MANAGE']);
+    vi.mocked(adminRulesApi.list).mockResolvedValue(pageOf({
+      id: 'rule-1', scope: 'GLOBAL', field: 'DESCRIPTION', operator: 'CONTAINS', comparisonValue: 'Netflix',
+      actionType: 'MARK_SUBSCRIPTION', actionValue: null, priority: 100, enabled: true, matchCount: 3, lastMatchedAt: null,
+    }));
+    vi.mocked(adminRulesApi.update).mockRejectedValue({ response: { data: { message: 'Rule was changed by someone else' } } });
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Enabled' }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Rule was changed by someone else'));
   });
 
   it("shows a rule's amount range in the list", async () => {

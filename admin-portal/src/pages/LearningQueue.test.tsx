@@ -124,6 +124,18 @@ describe('LearningQueue', () => {
     expect(screen.getByText(/No session \(direct file import\)/)).toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a refused retry used to look exactly like nothing happened.
+  it('says why a retry was refused', async () => {
+    mockAuth(['LEARNING_QUEUE_MANAGE']);
+    vi.mocked(adminLearningQueueApi.retry).mockRejectedValue({ response: { data: { message: 'Event is not retryable' } } });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('SWIGGY')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Event is not retryable');
+  });
+
   it('retries a failed event and refreshes the queue', async () => {
     mockAuth(['LEARNING_QUEUE_MANAGE']);
     vi.mocked(adminLearningQueueApi.retry).mockResolvedValue({

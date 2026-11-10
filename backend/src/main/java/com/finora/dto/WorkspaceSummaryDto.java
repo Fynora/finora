@@ -67,12 +67,21 @@ public record WorkspaceSummaryDto(
         long refundMatches,
         long recurringTransactions,
 
-        // Latest 5 entries across every AuditService-backed action (see ActivityController's own
-        // doc comment for exactly what is and isn't captured yet).
+        // Latest 5 audit rows filed under the user -- staff actions on the account included -- for
+        // the admin portal only. Always empty on the customer's own GET /workspace/dashboard; see
+        // WorkspaceDashboardService.summarizeForOwner.
         List<AuditLogDto> recentActivity,
 
         WorkspaceHealthDto health
 ) {
+    /** The same summary with {@code recentActivity} empty: what the customer's own dashboard sends. */
+    public WorkspaceSummaryDto withoutRecentActivity() {
+        return new WorkspaceSummaryDto(totalTransactions, totalAccounts, totalMerchants, learnedMerchants,
+                identifiedMerchants, activeRules, relationships, statementsImported, monthsOfHistory,
+                completenessPercent, categorizationAccuracy, totalManualCorrections, confidenceDistribution,
+                duplicateMatches, transferMatches, refundMatches, recurringTransactions, List.of(), health);
+    }
+
     /** "Is this feature actually active/intact for this user" — see WorkspaceDashboardService's
      *  doc comment on this record for exactly what each field does and doesn't check. Not all
      *  five are equally real yet; that's stated explicitly per-field rather than left implicit,

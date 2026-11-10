@@ -8,7 +8,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -19,15 +18,10 @@ import java.util.UUID;
  * read-only as "coming in a future release" (a purely frontend, unpersisted label; nothing to
  * wire up here for those yet).
  *
- * This threshold is NOT currently wired into any live categorization decision.
- * ConfidenceEngine.meetsAutoApplyThreshold(int, int) exists as a hook for exactly this purpose
- * but has zero callers today -- confidence itself isn't threaded through CategorizationService's
- * Suggestion record or either write path (TransactionService.create, CsvImportService.confirm) at
- * all yet; both currently gate "needs review" purely on suggestion source ("default" vs a rule/
- * learned match), never on a numeric score. Wiring this setting into real behavior would mean
- * adding a confidence field to Suggestion and touching ~20 call sites across 3 files -- a
- * separate, larger change. This service exists so the value is real and persisted (not a fake
- * decorative slider) and ready to be read by that future change.
+ * The threshold is live: CategorizationService.needsCategoryReview reads it to decide whether a
+ * default ("Other") guess goes to the review queue. A guess whose confidence is at or above it is
+ * not flagged, so 0 sends nothing there. That is why a save must carry a real whole number: a
+ * missing value used to be read as 0 and stored.
  */
 @Service
 public class WorkspaceSettingsService {
@@ -50,17 +44,16 @@ public class WorkspaceSettingsService {
 
     @Transactional
     public WorkspaceSettingsDto update(UUID userId, WorkspaceSettingsDto.UpdateRequest request) {
-        if (request.autoApplyConfidenceThreshold() < 0 || request.autoApplyConfidenceThreshold() > 100) {
+        Integer threshold = request == null ? null : request.autoApplyConfidenceThreshold();
+        if (threshold == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Choose a confidence threshold from 0 to 100.");
+        }
+        if (threshold < 0 || threshold > 100) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Confidence threshold must be between 0 and 100.");
         }
-        UserSettings settings = userSettingsRepository.findByUserId(userId).orElseGet(() -> {
-            UserSettings s = new UserSettings();
-            s.setUserId(userId);
-            return s;
-        });
-        settings.setAutoApplyConfidenceThreshold(request.autoApplyConfidenceThreshold());
-        settings.setUpdatedAt(Instant.now());
-        return toDto(userSettingsRepository.save(settings));
+        userSettingsRepository.upsertThreshold(userId, threshold);
+        return userSettingsRepository.findByUserId(userId).map(this::toDto)
+                .orElseThrow(() -> new IllegalStateException("user_settings row missing right after its upsert"));
     }
 
     private WorkspaceSettingsDto toDto(UserSettings s) {

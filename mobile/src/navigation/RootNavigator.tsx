@@ -3,6 +3,7 @@ import { NavigationContainer, DefaultTheme, DarkTheme, useNavigationContainerRef
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthEntryScreen } from '../screens/AuthEntryScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { SuspendedAccountScreen } from '../screens/SuspendedAccountScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
@@ -215,6 +216,13 @@ export function RootNavigator() {
           <AuthStack.Screen
             name="ResetPassword"
             component={ResetPasswordScreen}
+            getId={({ params }) => params.token}
+          />
+          {/* getId by token for the same reason: a second refused sign-in opens a fresh screen with
+              the new token, rather than the old one's state under a token that may have expired. */}
+          <AuthStack.Screen
+            name="SuspendedAccount"
+            component={SuspendedAccountScreen}
             getId={({ params }) => params.token}
           />
         </AuthStack.Navigator>

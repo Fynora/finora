@@ -3,6 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import { safeStorage } from '../lib/safeStorage';
 import { reportHandledEvent } from '../lib/monitoring';
 import { APP_VERSION, PLATFORM_HEADER, VERSION_HEADER, clientPlatform } from '../lib/clientIdentity';
+import { SUSPENDED_SIGN_OUT_MESSAGE } from '../lib/suspension';
+import { AUTH_ACCOUNT_SUSPENDED } from './errorCodes';
 
 // Same fixup as the web app's client.ts: whatever EXPO_PUBLIC_API_BASE_URL is set to always
 // resolves to exactly one /api/v1 suffix, whether or not the value already includes it.
@@ -93,6 +95,9 @@ async function attachClientHeaders(config: any) {
     const token = await safeStorage.getItem(TOKEN_KEY);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      // Sent under the app's own signed-in session, not a token the caller supplied (the suspended
+      // screen's, sign-out's clean-up). Only such a request may end the session on AUTH_018.
+      config._sentWithSession = true;
     }
   }
   // Which app and which build, for support tickets and feedback to record. Sent on every request
@@ -129,8 +134,10 @@ telemetryApi.interceptors.request.use(attachClientHeaders);
 type SessionCallback = () => void;
 /** `endedDeliberately`: the server ended this session on purpose (signed out from another device,
  *  "sign out other devices", a security sign-out, or the account deactivated) rather than it timing
- *  out. AuthContext stops this phone's notifications only in that case. */
-export type SessionExpiredCallback = (info: { endedDeliberately: boolean }) => void;
+ *  out. AuthContext stops this phone's notifications only in that case.
+ *  `message`: why, in words for the sign-in screen, when there is something to say (today only the
+ *  account being suspended mid-session). */
+export type SessionExpiredCallback = (info: { endedDeliberately: boolean; message?: string }) => void;
 let onSessionExpired: SessionExpiredCallback = () => {};
 let onPhoneVerificationRequired: SessionCallback = () => {};
 
@@ -260,7 +267,7 @@ export function sessionStorageCleared(): void {
 }
 
 // Mirrors every key AuthContext.logout() clears on the web app.
-async function clearSessionAndRedirect(endedDeliberately = false) {
+async function clearSessionAndRedirect(endedDeliberately = false, message?: string) {
   // A refresh failing is what brings us here, so none is left in flight to hand anything over.
   void markSessionEnded();
   try {
@@ -274,7 +281,7 @@ async function clearSessionAndRedirect(endedDeliberately = false) {
   } finally {
     sessionStorageCleared();
   }
-  onSessionExpired({ endedDeliberately });
+  onSessionExpired(message ? { endedDeliberately, message } : { endedDeliberately });
 }
 
 // Every backend response arrives wrapped in a standard envelope:
@@ -426,6 +433,26 @@ api.interceptors.response.use(
     // registered callback rather than leaving every subsequent call silently failing.
     if (error.response?.status === 403 && error.response?.data?.errorCode === 'PHONE_VERIFICATION_REQUIRED') {
       onPhoneVerificationRequired();
+      return Promise.reject(error);
+    }
+
+    // Privacy workstream 10. The account was suspended while this phone was signed in: every
+    // request the session makes is now refused with AUTH_018 until its access token expires (and
+    // the refresh after that is refused too). End the session now, with the reason, so the user can
+    // sign in again and reach the suspended screen. Mirrors the web app's client.ts.
+    //
+    // Only for a request sent under the app's own session. The suspended screen's own calls carry
+    // their token per request and handle their own errors, and a sign-in refusal (also AUTH_018)
+    // goes to an auth endpoint, which never carries the session. A request from a session that has
+    // already ended does nothing: the first AUTH_018 ended it, and the rest of a burst must not
+    // sign out whoever signs in next.
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED &&
+      originalRequest?._sentWithSession &&
+      belongsToCurrentSession
+    ) {
+      await clearSessionAndRedirect(false, SUSPENDED_SIGN_OUT_MESSAGE);
       return Promise.reject(error);
     }
 

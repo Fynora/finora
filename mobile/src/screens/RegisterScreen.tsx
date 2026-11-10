@@ -12,6 +12,7 @@ import { TextField } from '../components/TextField';
 import { TrustNote } from '../components/TrustNote';
 import { useAuth } from '../context/AuthContext';
 import { toUserMessage } from '../lib/apiError';
+import { suspendedTokenFrom } from '../lib/suspension';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import {
   EMAIL_PATTERN, FULL_NAME_PATTERN, PHONE_PATTERN, passwordStrength, sanitizePhoneNumber,
@@ -99,6 +100,15 @@ export function RegisterScreen({ navigation, route }: Props) {
     }
   }
 
+  // Privacy workstream 10. Google/Apple here sign an EXISTING account in too, so a suspended one is
+  // refused with AUTH_018 and opens the suspended screen, as on Login and AuthEntry.
+  function openSuspendedScreen(err: unknown): boolean {
+    const token = suspendedTokenFrom(err);
+    if (!token) return false;
+    navigation.navigate('SuspendedAccount', { token });
+    return true;
+  }
+
   // No navigation on success, same reasoning as handleSubmit above.
   async function handleGoogleCredential(idToken: string) {
     setError(null);
@@ -109,6 +119,7 @@ export function RegisterScreen({ navigation, route }: Props) {
       await loginWithGoogle(idToken, referralCode);
     } catch (err) {
       reportTransportFailure(err, 'register:google', startedAt);
+      if (openSuspendedScreen(err)) return;
       setError(toUserMessage(err, 'Sign up with Google failed.'));
     }
   }
@@ -120,6 +131,7 @@ export function RegisterScreen({ navigation, route }: Props) {
       await loginWithApple(idToken, fullName, referralCode);
     } catch (err) {
       reportTransportFailure(err, 'register:apple', startedAt);
+      if (openSuspendedScreen(err)) return;
       setError(toUserMessage(err, 'Sign up with Apple failed.'));
     }
   }

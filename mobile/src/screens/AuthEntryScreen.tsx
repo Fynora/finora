@@ -15,6 +15,7 @@ import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED } from '../api/errorCodes';
 import { EMAIL_PATTERN, looksLikeValidIdentifier } from '../lib/validation';
+import { suspendedTokenFrom } from '../lib/suspension';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
 
@@ -57,6 +58,12 @@ export function AuthEntryScreen({ navigation }: Props) {
   const identifierValid = looksLikeValidIdentifier(identifier);
 
   function handleAuthError(err: unknown, fallback: string) {
+    // Same as LoginScreen: a suspended account's Google/Apple sign-in opens the suspended screen.
+    const suspendedToken = suspendedTokenFrom(err);
+    if (suspendedToken) {
+      navigation.navigate('SuspendedAccount', { token: suspendedToken });
+      return;
+    }
     const details = apiErrorDetails<{ reactivationToken?: string }>(err);
     const token = apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED ? details?.reactivationToken : null;
     if (token) {

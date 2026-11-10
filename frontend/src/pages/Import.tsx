@@ -57,6 +57,7 @@ import { BankPicker } from '../components/BankPicker';
 import { isHeld } from '../lib/importJob';
 import { Button, ConfirmDialog, IconButton, FinoraCard, useDialogA11y } from '../design-system';
 import { QuickSortCta } from '../components/QuickSortCta';
+import { ImportMoneyInCard } from '../components/inflow/ImportMoneyInCard';
 import type { ImportNavState } from '../lib/importNavState';
 import { useAuth } from '../context/AuthContext';
 import type { Account, AccountStatementGroup, BankInfo, DetectedAccountInfo, VerificationReport, ImportSummary, StagedAccountSection, StagedRow, SupersedeResult, UnparseableRow } from '../types';
@@ -3007,6 +3008,9 @@ function ImportSummaryScreen({
 
       <StatementWarnings summary={summary} />
 
+      {/* Above Quick sort: these answers change the headline Income figure. */}
+      <ImportMoneyInCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
+
       <div className="flex flex-wrap gap-3">
         <QuickSortCta />
         <Button variant="secondary" onClick={onDone}>Go to Dashboard</Button>
@@ -3090,6 +3094,8 @@ function MultiImportSummaryScreen({
           Created: <span className="text-ink font-medium">{accountsCreated.join(', ')}</span>
         </p>
       )}
+
+      <ImportMoneyInCard statementImportIds={summaries.map((s) => s.statementImportId).filter(Boolean)} />
 
       <div className="flex flex-wrap gap-3">
         <QuickSortCta />

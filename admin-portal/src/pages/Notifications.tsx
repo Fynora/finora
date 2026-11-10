@@ -172,6 +172,7 @@ function NotificationsContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
+        error={list.error}
         emptyMessage={
           status === 'DEAD_LETTER'
             ? 'Nothing has dead-lettered. Delivery is healthy.'

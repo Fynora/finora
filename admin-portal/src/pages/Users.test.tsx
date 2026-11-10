@@ -90,6 +90,17 @@ describe('Users', () => {
     expect(screen.getByText("You don't have access to this section")).toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a failed load said "No users match this search".
+  it('says the list could not be loaded when the request fails', async () => {
+    mockAuth(['USER_VIEW']);
+    vi.mocked(adminUsersApi.list).mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load this list: Service unavailable");
+    expect(screen.queryByText('No users match this search.')).not.toBeInTheDocument();
+  });
+
   it('renders the user list', async () => {
     mockAuth(['USER_VIEW']);
     vi.mocked(adminUsersApi.list).mockResolvedValue(pagedResponse([AMY]));

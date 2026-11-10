@@ -359,3 +359,29 @@ describe('Dashboard — needs attention: open holds', () => {
     expect(held.closest('[data-overdue]')).toBeNull();
   });
 });
+
+// Audit 2026-11-10: with the overview request failed, overallStatus was undefined, so the banner
+// stayed green (the default tone) while its text fell through to "A monitored system is down".
+describe('Dashboard — overview request fails', () => {
+  beforeEach(() => {
+    vi.mocked(useAdminAuth).mockReset();
+    vi.mocked(adminDashboardApi.overview).mockReset().mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+    vi.mocked(adminDashboardApi.activationFunnel).mockReset().mockResolvedValue({
+      signedUp: 0, firstImport: 0, firstBudget: 0, firstGoal: 0,
+    });
+    vi.mocked(adminDashboardApi.activityTrend).mockReset().mockResolvedValue([]);
+    vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
+      totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
+    } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
+    vi.mocked(adminSystemApi.health).mockReset();
+    mockAuth(['PLATFORM_STATS_VIEW']);
+  });
+
+  it('says the status could not be checked instead of claiming a system is down', async () => {
+    renderPage();
+
+    expect(await screen.findByText(/Couldn't check system status/)).toBeInTheDocument();
+    expect(screen.queryByText('A monitored system is down')).not.toBeInTheDocument();
+  });
+});

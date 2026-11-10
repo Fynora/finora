@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../components/LoadError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users as UsersIcon, CheckCircle2, Clock, XCircle, Ban, Hourglass, PauseCircle } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
@@ -26,13 +27,13 @@ function SubscriptionsContent() {
   const [confirmingCancelFor, setConfirmingCancelFor] = useState<SubscriptionSummaryDto | null>(null);
   const queryClient = useQueryClient();
   const notify = useNotify();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-subscriptions', page],
     queryFn: () => adminSubscriptionsApi.list(page, PAGE_SIZE),
   });
   // Plan 3 review -- Subscription Health. A small stat row above the table, not folded into
   // `data` above: it's a platform-wide summary, unrelated to which page of the list is showing.
-  const { data: health, isLoading: healthLoading } = useQuery({
+  const { data: health, isLoading: healthLoading, error: healthError } = useQuery({
     queryKey: ['admin-subscriptions-health'],
     queryFn: () => adminSubscriptionsApi.health(),
   });
@@ -120,6 +121,7 @@ function SubscriptionsContent() {
 
   return (
     <div className="space-y-4">
+      <LoadError error={healthError} />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard icon={CheckCircle2} label="Active" value={healthLoading ? '…' : health?.activeCount ?? 0} tone="success" />
         <StatCard icon={Clock} label="Past due" value={healthLoading ? '…' : health?.pastDueCount ?? 0} tone="warning" />
@@ -137,6 +139,7 @@ function SubscriptionsContent() {
         rows={data?.content ?? []}
         keyFor={(s) => s.subscriptionId}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No subscriptions yet."
       />
       {data && (

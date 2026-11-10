@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../../components/LoadError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import { Trash2 } from 'lucide-react';
@@ -14,7 +15,7 @@ export function TransactionsSection({ userId }: { userId: string }) {
   const [confirmDelete, setConfirmDelete] = useState<TransactionDto | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const { data: transactions, isLoading } = useQuery({
+  const { data: transactions, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-user-transactions', userId],
     queryFn: () => adminTransactionsApi.list(userId),
   });
@@ -36,7 +37,8 @@ export function TransactionsSection({ userId }: { userId: string }) {
       <p className="text-xs text-muted mb-3">Most recent 50. For CSV import on a user's behalf, ask them to import it themselves.</p>
       {deleteError && <p role="alert" className="text-xs text-danger mb-2">{deleteError}</p>}
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
-      {!isLoading && (transactions ?? []).length === 0 && (
+      <LoadError error={loadError} />
+      {!isLoading && !loadError && (transactions ?? []).length === 0 && (
         <p className="text-sm text-muted">No transactions on file for this user.</p>
       )}
       <div className="space-y-1.5">

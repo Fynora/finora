@@ -67,6 +67,15 @@ describe('SupportTickets', () => {
     expect(adminSupportTicketApi.list).not.toHaveBeenCalled();
   });
 
+  it('says the queue could not be loaded when the request fails', async () => {
+    mockAuth(['SUPPORT_MANAGE']);
+    vi.mocked(adminSupportTicketApi.list).mockRejectedValue(new Error('Network Error'));
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load this list. Please try again.");
+    expect(screen.queryByText('No support tickets match this filter.')).not.toBeInTheDocument();
+  });
+
   it('lists a ticket with its number, subject, category, status and claimed-by column', async () => {
     mockAuth(['SUPPORT_MANAGE']);
     renderPage();

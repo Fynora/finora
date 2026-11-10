@@ -56,7 +56,7 @@ function ReferralsContent() {
   const notify = useNotify();
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-referrals', page],
     queryFn: () => adminReferralsApi.list(page, PAGE_SIZE),
   });
@@ -126,6 +126,7 @@ function ReferralsContent() {
         rows={data?.content ?? []}
         keyFor={(r) => r.referralId}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No referrals yet."
       />
       {data && (

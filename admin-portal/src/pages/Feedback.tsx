@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../components/LoadError';
 import { useQuery } from '@tanstack/react-query';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
@@ -191,6 +192,7 @@ function FeedbackContent() {
 
   return (
     <div className="space-y-6">
+      <LoadError error={breakdown.error} />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <BreakdownPanel title={`By Type (${breakdown.data?.total ?? 0} total)`} counts={breakdown.data?.byType ?? []} />
         <BreakdownPanel title="By Context" counts={breakdown.data?.byContext ?? []} />
@@ -221,6 +223,7 @@ function FeedbackContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
+        error={list.error}
         emptyMessage="No feedback matches this filter."
       />
 

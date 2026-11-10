@@ -161,6 +161,7 @@ function MerchantReviewContent() {
         rows={queue.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={queue.isLoading}
+        error={queue.error}
         emptyMessage="Nothing awaiting review. Every merchant has been confirmed."
       />
 

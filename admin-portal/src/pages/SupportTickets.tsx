@@ -148,6 +148,7 @@ function SupportTicketsContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
+        error={list.error}
         emptyMessage="No support tickets match this filter."
       />
 

@@ -228,6 +228,7 @@ function LearningQueueContent() {
         rows={queue.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={queue.isLoading}
+        error={queue.error}
         emptyMessage={
           status === 'FAILED'
             ? 'Nothing has failed. The queue is healthy.'

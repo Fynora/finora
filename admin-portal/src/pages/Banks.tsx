@@ -384,7 +384,7 @@ function BanksContent() {
   const [saveVersion, setSaveVersion] = useState(0);
   const [page, setPage] = useState(0);
 
-  const { data: banks, isLoading } = useQuery({
+  const { data: banks, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-banks', page],
     queryFn: () => adminBanksApi.list(page, PAGE_SIZE),
   });
@@ -529,6 +529,7 @@ function BanksContent() {
         rows={banks?.content ?? []}
         keyFor={(bank) => bank.id}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No custom banks added yet."
       />
       {banks && (

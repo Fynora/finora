@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { LoadError } from '../components/LoadError';
 import { Sparkles, CheckCircle2, RotateCcw, TrendingUp } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { StatCard } from '../components/StatCard';
@@ -15,7 +16,7 @@ import type { LearningGrowthPoint } from '../types';
  * on the self-service Merchants console, see AdminUserLearningController's class comment).
  */
 function LearningEngineContent() {
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-learning-stats'],
     queryFn: () => adminLearningApi.platformStats(),
   });
@@ -35,6 +36,7 @@ function LearningEngineContent() {
         look like if it's working.
       </p>
 
+      <LoadError error={loadError} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? 0} />
         <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? 0} />
@@ -49,6 +51,7 @@ function LearningEngineContent() {
           rows={stats?.trend}
           keyFor={(p) => p.month}
           loading={isLoading}
+          error={loadError}
           emptyMessage="No learning activity recorded on the platform yet."
         />
       </div>

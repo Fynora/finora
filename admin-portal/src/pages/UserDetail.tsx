@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../components/LoadError';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -55,7 +56,7 @@ function UserDetailContent({ id }: { id: string }) {
     queryKey: ['admin-user', id],
     queryFn: () => adminUsersApi.get(id),
   });
-  const { data: auditLogs } = useQuery({
+  const { data: auditLogs, error: auditError } = useQuery({
     queryKey: ['admin-user-audit', id],
     queryFn: () => adminAuditApi.forUser(id),
     enabled: hasPermission('AUDIT_VIEW'),
@@ -327,7 +328,8 @@ function UserDetailContent({ id }: { id: string }) {
         <div className="bg-card border border-border rounded-xl2 shadow-card p-6">
           <h3 className="text-sm font-semibold text-ink mb-3">Recent activity</h3>
           <div className="space-y-2">
-            {(auditLogs ?? []).length === 0 && <p className="text-sm text-muted">No recorded activity for this account.</p>}
+            <LoadError error={auditError} />
+            {!auditError && (auditLogs ?? []).length === 0 && <p className="text-sm text-muted">No recorded activity for this account.</p>}
             {(auditLogs ?? []).slice(0, 20).map((log) => (
               <div key={log.id} className="flex items-center justify-between text-sm py-2 border-b border-border last:border-b-0">
                 <span className="text-ink font-medium">{log.action}</span>

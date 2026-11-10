@@ -276,7 +276,7 @@ function DashboardContent() {
   // Shared with AdminLayout's NotificationBell -- same cache entry, one fetch either surface can
   // trigger, both stay in sync. See useDashboardOverview's own doc comment for the permission
   // gating this relies on.
-  const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useDashboardOverview();
+  const { data, isLoading, isError, dataUpdatedAt, refetch, isFetching } = useDashboardOverview();
   // Platform Activity chart -- its own query, not folded into useDashboardOverview, since the
   // 7-day trend costs materially more on the backend and only this page needs it (unlike overview
   // data, which NotificationBell also shares). See useActivityTrend's own doc comment.
@@ -313,8 +313,11 @@ function DashboardContent() {
   });
 
   const overallStatus = data?.health.overallStatus;
+  // No status at all (the overview request failed) is a warning, not the green default: the banner
+  // used to stay green while its text fell through to "A monitored system is down".
+  const statusUnknown = !isLoading && isError && !data;
   const tone: 'success' | 'warning' | 'danger' =
-    overallStatus === 'DOWN' ? 'danger' : overallStatus === 'DEGRADED' ? 'warning' : 'success';
+    overallStatus === 'DOWN' ? 'danger' : overallStatus === 'DEGRADED' || statusUnknown ? 'warning' : 'success';
   const bannerBg = tone === 'success' ? 'bg-success-bg' : tone === 'warning' ? 'bg-warning-bg' : 'bg-danger-bg';
   const bannerText = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-danger';
 
@@ -335,6 +338,7 @@ function DashboardContent() {
               <div className="min-w-0">
                 <p className={`text-sm font-bold ${bannerText}`}>
                   {isLoading ? 'Checking systems…'
+                    : statusUnknown ? "Couldn't check system status. Refresh to try again."
                     : overallStatus === 'UP' ? 'All systems operational'
                     : overallStatus === 'DEGRADED' ? 'Some systems are degraded'
                     : 'A monitored system is down'}

@@ -18,6 +18,12 @@ beforeEach(() => resetActivationAnsweredForTests());
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
 // the fresh-upload describe block below.
 jest.mock('../../api/endpoints', () => ({
+  // ImportMoneyInCard on the done step lists money not counted as income; nothing by default.
+  inflowApi: {
+    unresolvedForImport: jest.fn().mockResolvedValue([]),
+    kinds: jest.fn().mockResolvedValue([]),
+    setChoice: jest.fn(), clearChoice: jest.fn(), createKind: jest.fn(),
+  },
   // QuickSortCta on the success screen counts waiting questions; nothing here is waiting.
   transactionsApi: {
     quickSort: jest.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
@@ -456,6 +462,20 @@ describe('ImportScreen — "View in Ledger" (Track C/C6)', () => {
       // The other ways on never wait.
       expect(screen.getByRole('button', { name: 'Import another' })).toBeOnTheScreen();
       expect(screen.getByRole('button', { name: 'See them in Transactions' })).toBeOnTheScreen();
+    });
+
+    it('asks about money this import added that is not counted as income, above the buttons', async () => {
+      const { inflowApi } = jest.requireMock('../../api/endpoints');
+      inflowApi.unresolvedForImport.mockResolvedValueOnce([{
+        sampleTransactionId: 't1', label: 'NEHA RAO', senderKnown: true, count: 1, senderPaymentCount: 1, total: 6000,
+        latestDate: '2026-09-06', accountName: 'Sample Bank Savings',
+        rows: [{ id: 't1', date: '2026-09-06', amount: 6000, description: 'UPI-NEHA RAO', accountName: 'Sample Bank Savings' }],
+      }]);
+      await reachSummary({ ...base, statementImportId: 'stmt-1' });
+
+      expect(await screen.findByText("1 payment you received isn't counted as income")).toBeOnTheScreen();
+      expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-1');
+      expect(within(screen.getByTestId('import-summary-actions')).queryByText(/counted as income/)).toBeNull();
     });
 
     it('makes See Insights the main button when nothing is waiting', async () => {

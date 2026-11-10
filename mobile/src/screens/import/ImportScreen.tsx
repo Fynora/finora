@@ -10,6 +10,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
+import { ImportMoneyInCard } from '../../components/inflow/ImportMoneyInCard';
 import { Card, SectionHeading } from '../../components/Card';
 import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
 import { SendFromComputerSheet, type StillWaiting } from '../../components/SendFromComputerSheet';
@@ -1586,6 +1587,14 @@ export function ImportScreen() {
               }}
             />
           </View>
+          {/* Above Quick sort: these answers change the headline Income figure. */}
+          <ImportMoneyInCard
+            statementImportIds={summary.statementImportId ? [summary.statementImportId] : []}
+            onSeeAll={(start, end) => {
+              trackNavigation('money-review', 'contextual');
+              navigation.navigate('More', { screen: 'MoneyReview', params: { start, end } });
+            }}
+          />
           <View testID="import-summary-actions" style={styles.summaryActions}>
             <QuickSortCta
               onCount={setQuickSortCount}

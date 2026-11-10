@@ -625,6 +625,9 @@ export interface StagedAccountSection {
 }
 
 export interface ImportSummary {
+  /** The statement import this confirm created (ImportDto.ConfirmResponse); the Done step asks
+   *  about its money not counted as income. Optional: some summaries are built on the client. */
+  statementImportId?: string | null;
   imported: number;
   skipped: number;
   duplicatesDetected: number;

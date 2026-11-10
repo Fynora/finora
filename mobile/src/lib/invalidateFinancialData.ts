@@ -123,6 +123,8 @@ export const FINANCIAL_QUERY_KEYS = [
   'inflow-kinds',
   'sender-inflow-rules',
   'unresolved-inflows',
+  // The same list for one import, on the import Done step.
+  'unresolved-inflows-import',
   'counts-as',
   // Shared payments and loans: who owes whom, the To look at rows about people, one person's page
   // and a bill's shares. Every share, loan entry or rule moves both the figures and these, and

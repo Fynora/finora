@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { ChoiceScope, InflowKind, UnresolvedSender } from '../../api/endpoints';
 import { Button, FinoraCard } from '../../design-system';
 import { InflowKindPicker } from './InflowKindPicker';
@@ -24,10 +24,13 @@ export function UnresolvedSenderRow({ sender: s, kinds, open, onToggle, busy, on
   const [picked, setPicked] = useState<InflowKind | null>(null);
   const [oneRow, setOneRow] = useState(false);
 
-  useEffect(() => {
+  // A row that closes forgets its half-made choice; reset while rendering, not in an effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     setPicked(null);
     setOneRow(false);
-  }, [open]);
+  }
 
   return (
     <FinoraCard>

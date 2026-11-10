@@ -109,6 +109,22 @@ describe('ImportMoneyInCard', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('keeps the other payments and the undo when the refresh after an answer fails', async () => {
+    vi.mocked(inflowApi.unresolvedForImport)
+      .mockResolvedValueOnce([sender('t1', 'NEHA RAO', 6000, '2026-11-06'), sender('t2', 'RAVI SEN', 9000, '2026-11-07')])
+      .mockRejectedValue(new Error('down'));
+    renderCard(['imp-1']);
+
+    await userEvent.click(await screen.findByText('NEHA RAO'));
+    await userEvent.click(await screen.findByRole('button', { name: /^Income/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Just this one' }));
+
+    expect(await screen.findByText('Saved for NEHA RAO.')).toBeInTheDocument();
+    await waitFor(() => expect(inflowApi.unresolvedForImport).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('RAVI SEN')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
+  });
+
   it('says so when the choices cannot be loaded, instead of rows that cannot be answered', async () => {
     vi.mocked(inflowApi.unresolvedForImport).mockResolvedValue([sender('t1', 'NEHA RAO', 6000, '2026-11-06')]);
     vi.mocked(inflowApi.kinds).mockRejectedValue(new Error('down'));

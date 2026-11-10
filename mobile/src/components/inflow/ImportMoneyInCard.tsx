@@ -75,7 +75,10 @@ export function ImportMoneyInCard({ statementImportIds, onSeeAll }: {
     }
   }
 
-  if (skipped || importQs.length === 0 || importQs.some((q) => q.isError || !q.data)) return null;
+  // Gate on `!data`, not `isError`: a refresh that fails after an answer (refresh() above) leaves the
+  // list it already had, and hiding it then would also hide the Undo for that answer.
+  const kindsFailed = kindsQ.isError && !kindsQ.data;
+  if (skipped || importQs.length === 0 || importQs.some((q) => !q.data)) return null;
   const senders = importQs.flatMap((q) => q.data ?? []).sort((a, b) => b.total - a.total);
   if (senders.length === 0 && !undo) return null;
 
@@ -102,10 +105,10 @@ export function ImportMoneyInCard({ statementImportIds, onSeeAll }: {
       ) : null}
       {error ? <Text style={[typography.caption, { color: c.dangerInk }]}>{error}</Text> : null}
       {/* Without the choices a row opens to nothing; point at the screen that can retry instead. */}
-      {kindsQ.isError ? (
+      {kindsFailed ? (
         <Text style={[typography.bodyS, { color: c.mutedInk }]}>Couldn't load the choices. See all on the Money not counted page.</Text>
       ) : null}
-      {!kindsQ.isError && senders.slice(0, SHOWN).map((s) => (
+      {!kindsFailed && senders.slice(0, SHOWN).map((s) => (
         <UnresolvedSenderRow
           key={s.sampleTransactionId}
           sender={s}
@@ -123,7 +126,7 @@ export function ImportMoneyInCard({ statementImportIds, onSeeAll }: {
       ))}
       {payments > 0 ? (
         <View style={styles.links}>
-          {(senders.length > SHOWN || kindsQ.isError) && dates.length > 0 ? (
+          {(senders.length > SHOWN || kindsFailed) && dates.length > 0 ? (
             <Pressable accessibilityRole="link" hitSlop={8} onPress={() => onSeeAll(dates[0], dates[dates.length - 1])}>
               <Text style={[typography.labelS, { color: c.primary }]}>See all</Text>
             </Pressable>

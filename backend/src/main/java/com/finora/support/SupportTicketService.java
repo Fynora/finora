@@ -184,7 +184,7 @@ public class SupportTicketService {
         // counted before any was saved -- 10 at once queued 8 acknowledgement emails against a cap
         // of 3, and 30 at once saved 11 against a ceiling of 10. Held to commit, so the next
         // request counts this ticket. The suspension path already holds this lock (re-entrant).
-        userRepository.findByIdForUpdate(userId);
+        SubmissionLock.acquire(userRepository, userId);
         // After validation, so a malformed request still answers 400 and never reads as "limit
         // reached"; before the ticket number is drawn, so a refused request uses none up.
         submissionLimiter.requireTicketAllowance(userId);

@@ -62,6 +62,7 @@ class FeedbackServiceTest {
         service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.OTHER, "broken");
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, submissionLimiter, repository);
+        order.verify(userRepository).setLocalLockTimeout("5s");
         order.verify(userRepository).findByIdForUpdate(userId);
         order.verify(submissionLimiter).requireFeedbackAllowance(userId);
         order.verify(repository).save(any(FeedbackEntry.class));

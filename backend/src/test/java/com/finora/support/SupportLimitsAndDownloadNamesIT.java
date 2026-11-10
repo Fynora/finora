@@ -30,6 +30,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.Statement;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -54,6 +57,7 @@ class SupportLimitsAndDownloadNamesIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private DataSource dataSource;
     private final ObjectMapper mapper = new ObjectMapper();
 
     private User createCustomer(boolean emailVerified) {
@@ -218,5 +222,72 @@ class SupportLimitsAndDownloadNamesIT extends AbstractIntegrationTest {
                 new HttpEntity<>(bearerFor(customer, MediaType.APPLICATION_JSON)), byte[].class);
         assertThat(download.getStatusCode()).isEqualTo(HttpStatus.OK);
         return download.getHeaders().getFirst(HttpHeaders.CONTENT_DISPOSITION);
+    }
+
+    /**
+     * Holds an update of the customer's own row open on another connection for {@code holdMillis},
+     * as a slow write elsewhere in the app would, and releases it on its own thread.
+     */
+    private Thread holdUserRow(User customer, long holdMillis) throws Exception {
+        CountDownLatch held = new CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+                connection.setAutoCommit(false);
+                statement.executeUpdate("UPDATE users SET updated_at = now() WHERE id = '" + customer.getId() + "'");
+                held.countDown();
+                Thread.sleep(holdMillis);
+                connection.rollback();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        });
+        holder.start();
+        assertThat(held.await(10, TimeUnit.SECONDS)).isTrue();
+        return holder;
+    }
+
+    /** Before the wait limit, a ticket waited as long as the row was held (7.07 s against an 8 s
+     *  hold, measured). Now it gives up after 5 s with a message that keeps the form as it is. */
+    @Test
+    void aTicketBlockedLongerThanTheWaitLimit_isRefusedWithTryAgain_andNothingIsSaved() throws Exception {
+        User customer = createCustomer(false);
+        HttpHeaders multipart = bearerFor(customer, MediaType.MULTIPART_FORM_DATA);
+        Thread holder = holdUserRow(customer, 9_000);
+
+        long start = System.nanoTime();
+        ResponseEntity<String> response = postTicket(multipart, "Help", "It broke", null);
+        long tookMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        holder.join();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(SubmissionLock.BUSY_MESSAGE);
+        assertThat(tookMillis).isBetween(4_500L, 8_000L);
+        assertThat(count("SELECT count(*) FROM support_tickets WHERE user_id = ?", customer.getId())).isZero();
+        // The next try, once the row is free, goes straight through.
+        assertThat(postTicket(multipart, "Help", "It broke", null).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void aShortWait_stillSucceeds() throws Exception {
+        User customer = createCustomer(false);
+        Thread holder = holdUserRow(customer, 1_500);
+
+        ResponseEntity<String> ticket = postTicket(bearerFor(customer, MediaType.MULTIPART_FORM_DATA), "Help", "It broke", null);
+        holder.join();
+
+        assertThat(ticket.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void feedbackBlockedLongerThanTheWaitLimit_isRefusedWithTryAgain() throws Exception {
+        User customer = createCustomer(false);
+        Thread holder = holdUserRow(customer, 9_000);
+
+        ResponseEntity<String> response = postFeedback(bearerFor(customer, MediaType.APPLICATION_JSON), "Feedback");
+        holder.join();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(mapper.readTree(response.getBody()).get("message").asText()).isEqualTo(SubmissionLock.BUSY_MESSAGE);
+        assertThat(count("SELECT count(*) FROM feedback_entries WHERE user_id = ?", customer.getId())).isZero();
     }
 }

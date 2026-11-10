@@ -10,6 +10,7 @@ import com.finora.repository.SubscriptionRepository;
 import com.finora.repository.SupportTicketRepository;
 import com.finora.repository.UserRepository;
 import com.finora.support.SupportTicketService;
+import com.finora.support.SubmissionLock;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,8 +77,9 @@ public class AccountSuspensionService {
      *  text optional) as a support ticket, and returns the updated status. */
     @Transactional
     public SuspensionStatusDto request(UUID userId, String rawType, String text) {
-        // Locked, so two submits at once queue here and the second sees the first's ticket.
-        User user = userRepository.findByIdForUpdate(userId)
+        // Locked, so two submits at once queue here and the second sees the first's ticket -- with
+        // SubmissionLock's wait limit, so a long-held row refuses the request instead of hanging it.
+        User user = SubmissionLock.acquire(userRepository, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
         if (!user.isSuspended()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "This account is not suspended.");

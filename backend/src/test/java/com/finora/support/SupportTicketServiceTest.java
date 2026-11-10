@@ -136,6 +136,7 @@ class SupportTicketServiceTest {
         service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, submissionLimiter, ticketRepository);
+        order.verify(userRepository).setLocalLockTimeout("5s");
         order.verify(userRepository).findByIdForUpdate(userId);
         order.verify(submissionLimiter).requireTicketAllowance(userId);
         order.verify(ticketRepository).save(any());

@@ -2,11 +2,14 @@ package com.finora.service;
 
 import com.finora.config.ClientIpResolver;
 import com.finora.config.JwtProperties;
+import com.finora.entity.ClientPlatform;
 import com.finora.entity.RefreshToken;
+import com.finora.entity.SessionKind;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.observability.AuthMetrics;
 import com.finora.repository.RefreshTokenRepository;
+import com.finora.support.ClientIdentity;
 import com.finora.util.TokenHasher;
 import com.finora.util.UserAgentParser;
 import jakarta.servlet.http.HttpServletRequest;
@@ -101,9 +104,34 @@ public class RefreshTokenService {
         // Counted AFTER the delegated call, not before: that call is what actually persists the
         // new row, and incrementing first would report a login as successful even if the save
         // inside it throws -- the same ordering rotate() uses for refreshSucceeded() below.
-        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID());
+        IssuedToken token = issue(userId, Instant.now(), UUID.randomUUID(), sessionKindForSignIn());
         authMetrics.loginSucceeded();
         return token;
+    }
+
+    /**
+     * A phone session only for a sign-in from a phone-app build that requires a PIN to open the app
+     * ({@code X-Client-Platform} MOBILE_ANDROID / MOBILE_IOS and {@code X-App-Lock: pin}); anything
+     * else, including an older app build, is a web session.
+     *
+     * <p>These headers are the client's own claim (see {@link ClientIdentity}). That is acceptable
+     * here and only here, because of where the claim is read: at sign-in, by a request that has
+     * just proved the account's password, OTP or Google/Apple identity. Faking it gives a longer
+     * session only to someone who could sign in anyway. It is never read again -- rotation copies
+     * the stored kind -- so a stolen web token cannot be turned into a phone session.
+     */
+    private SessionKind sessionKindForSignIn() {
+        try {
+            String platform = request.getHeader(ClientIdentity.PLATFORM_HEADER);
+            String appLock = request.getHeader(ClientIdentity.APP_LOCK_HEADER);
+            boolean phoneApp = platform != null && (platform.trim().equalsIgnoreCase(ClientPlatform.MOBILE_ANDROID.name())
+                    || platform.trim().equalsIgnoreCase(ClientPlatform.MOBILE_IOS.name()));
+            boolean pinLocked = appLock != null && appLock.trim().equalsIgnoreCase(ClientIdentity.APP_LOCK_PIN);
+            return phoneApp && pinLocked ? SessionKind.MOBILE : SessionKind.WEB;
+        } catch (RuntimeException e) {
+            // No request bound (a scheduled job, a test harness): nothing claimed a phone, so web.
+            return SessionKind.WEB;
+        }
     }
 
     /**
@@ -111,7 +139,7 @@ public class RefreshTokenService {
      *        value forward rather than {@code now}, which is the whole mechanism behind the
      *        absolute cap -- resetting it here would restore the perpetual sliding session.
      */
-    public IssuedToken issue(UUID userId, Instant sessionStartedAt, UUID sessionId) {
+    public IssuedToken issue(UUID userId, Instant sessionStartedAt, UUID sessionId, SessionKind kind) {
         byte[] randomBytes = new byte[32];
         secureRandom.nextBytes(randomBytes);
         String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
@@ -121,7 +149,13 @@ public class RefreshTokenService {
         rt.setTokenHash(TokenHasher.sha256(rawToken));
         rt.setSessionStartedAt(sessionStartedAt);
         rt.setSessionId(sessionId);
-        Instant expiresAt = Instant.now().plusMillis(jwtProperties.getRefreshExpirationMs());
+        rt.setSessionKind(kind);
+        // A phone token has to outlive its own idle limit, or the token's expiry would end a
+        // 90-day session at 30 days.
+        long lifetimeMs = kind == SessionKind.MOBILE
+                ? Math.max(jwtProperties.getRefreshExpirationMs(), jwtProperties.getMobileIdleTimeoutMs())
+                : jwtProperties.getRefreshExpirationMs();
+        Instant expiresAt = Instant.now().plusMillis(lifetimeMs);
         rt.setExpiresAt(expiresAt);
         captureDeviceMetadata(rt);
         refreshTokenRepository.save(rt);
@@ -204,7 +238,7 @@ public class RefreshTokenService {
                 // valid too -- revoking it would end the session for whichever instance already
                 // stored it, which is the outcome this branch exists to avoid. The orphaned one
                 // simply ages out. See app.jwt.refresh-reuse-grace-ms for the trade-off.
-                IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
+                IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind());
                 authMetrics.refreshReplayedWithinGrace();
                 return new RotationResult(rt.getUserId(), replacement);
             }
@@ -231,8 +265,9 @@ public class RefreshTokenService {
         // than lastSeenAt deliberately: lastSeenAt is best-effort device metadata that
         // captureDeviceMetadata silently skips when there is no request context, so a null or
         // stale value would quietly disable this check. createdAt is NOT NULL with a default.
-        if (jwtProperties.getIdleTimeoutMs() > 0
-                && rt.getCreatedAt().plusMillis(jwtProperties.getIdleTimeoutMs()).isBefore(now)) {
+        long idleTimeoutMs = idleTimeoutMsFor(rt.getSessionKind());
+        if (idleTimeoutMs > 0
+                && rt.getCreatedAt().plusMillis(idleTimeoutMs).isBefore(now)) {
             rt.setRevokedAt(now);
             refreshTokenRepository.save(rt);
             authMetrics.refreshExpiredIdle();
@@ -257,8 +292,9 @@ public class RefreshTokenService {
         // revokeAllForUser belongs to the cases that genuinely imply theft -- refresh token reuse
         // above, password change, an explicit "sign out everywhere" -- and dulls that signal if it
         // fires every seven days for everybody.
-        if (jwtProperties.getAbsoluteSessionMs() > 0
-                && rt.getSessionStartedAt().plusMillis(jwtProperties.getAbsoluteSessionMs()).isBefore(now)) {
+        long absoluteSessionMs = absoluteSessionMsFor(rt.getSessionKind());
+        if (absoluteSessionMs > 0
+                && rt.getSessionStartedAt().plusMillis(absoluteSessionMs).isBefore(now)) {
             rt.setRevokedAt(now);
             refreshTokenRepository.save(rt);
             authMetrics.refreshExpiredAbsolute();
@@ -274,7 +310,7 @@ public class RefreshTokenService {
 
         // The ORIGINAL session start, not now. This single argument is the difference between a
         // 7-day cap and no cap at all.
-        IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId());
+        IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind());
         authMetrics.refreshSucceeded();
         return new RotationResult(rt.getUserId(), newToken);
     }
@@ -289,6 +325,16 @@ public class RefreshTokenService {
      * platform has already ended must never mint a new one -- that would turn the grace window
      * into a way to outlive a revocation.
      */
+    /** The idle limit for this kind of session. 0 means no limit. */
+    private long idleTimeoutMsFor(SessionKind kind) {
+        return kind == SessionKind.MOBILE ? jwtProperties.getMobileIdleTimeoutMs() : jwtProperties.getIdleTimeoutMs();
+    }
+
+    /** The absolute cap for this kind of session. 0 means no cap. Also used for the device list. */
+    public long absoluteSessionMsFor(SessionKind kind) {
+        return kind == SessionKind.MOBILE ? jwtProperties.getMobileAbsoluteSessionMs() : jwtProperties.getAbsoluteSessionMs();
+    }
+
     private boolean isRecentRotation(RefreshToken rt, Instant now) {
         long graceMs = jwtProperties.getRefreshReuseGraceMs();
         return graceMs > 0 && rt.getRotatedAt() != null && !rt.getRotatedAt().plusMillis(graceMs).isBefore(now);

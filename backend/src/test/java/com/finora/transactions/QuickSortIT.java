@@ -359,6 +359,61 @@ class QuickSortIT extends AbstractIntegrationTest {
         return headers;
     }
 
+    // Money a person sent, not counted as income until the user says what it was, is asked about by
+    // the import Done step and Money Review ("what was it?"). Quick sort asking for its category as
+    // well asked twice, and its category answers mostly left the money still not counted.
+    @Test
+    void theBatchLeavesOutMoneyInThatIsNotCountedAsIncomeYet() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        moneyIn(user.getId(), "vpa:friend", 6000, CounterpartyType.PERSON);
+
+        JsonNode batch = batch(0);
+
+        assertThat(questionIds(batch)).containsExactly("vpa:samplea|EXPENSE");
+        assertThat(batch.get("waitingTotal").decimalValue()).isEqualByComparingTo("100");
+    }
+
+    @Test
+    void theBatchLeavesOutMoneyInTheUserAlreadySaidWhatItWas() throws Exception {
+        seed(user.getId(), accountId, "vpa:samplea", 100);
+        UUID credit = moneyIn(user.getId(), "vpa:friend", 6000, CounterpartyType.PERSON);
+        JsonNode kinds = data(send(HttpMethod.GET, "/api/v1/inflow-kinds", null, user));
+        String incomeKind = null;
+        for (JsonNode k : kinds) if ("INCOME".equals(k.path("builtIn").asText())) incomeKind = k.get("id").asText();
+        assertThat(send(HttpMethod.PUT, "/api/v1/transactions/" + credit + "/inflow-kind",
+                "{\"kindId\":\"" + incomeKind + "\",\"scope\":\"ROW\"}", user).getStatusCode().is2xxSuccessful()).isTrue();
+
+        assertThat(questionIds(batch(0))).containsExactly("vpa:samplea|EXPENSE");
+    }
+
+    @Test
+    void theBatchStillAsksAboutMoneyInThatAlreadyCountsAsIncome() throws Exception {
+        moneyIn(user.getId(), "vpa:sampleemployer", 50000, CounterpartyType.BUSINESS);
+
+        assertThat(questionIds(batch(0))).containsExactly("vpa:sampleemployer|INCOME");
+    }
+
+    private UUID moneyIn(UUID owner, String key, double amount, CounterpartyType type) {
+        Transaction t = new Transaction();
+        t.setUserId(owner);
+        t.setAccountId(accountId);
+        t.setCategoryId(otherId);
+        t.setTxnDate(nextDate);
+        nextDate = nextDate.minusDays(1);
+        t.setAmount(BigDecimal.valueOf(amount));
+        t.setTxnType(Transaction.Type.INCOME);
+        t.setDescription(type == CounterpartyType.PERSON
+                ? "UPI/900011112201/CR/SAMPLE FRIEND/HDF/Payment" // synthetic-ok
+                : "NEFT CR SAMPLE EMPLOYER PVT LTD 900011112202"); // synthetic-ok
+        t.setCounterpartyKey(key);
+        t.setCounterpartyType(type);
+        // Imported, as these credits are: the default MANUAL is a hand-entered row, which the flow
+        // reading counts as income on the user's word.
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        t.setNeedsCategoryReview(true);
+        return transactionRepository.save(t).getId();
+    }
+
     private User newUser() {
         User u = new User();
         u.setEmail("quick-sort-it-" + UUID.randomUUID() + "@example.com");

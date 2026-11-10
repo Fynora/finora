@@ -13,6 +13,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class WorkspaceSettingsServiceTest {
@@ -50,29 +52,28 @@ class WorkspaceSettingsServiceTest {
         assertThat(dto.autoApplyConfidenceThreshold()).isEqualTo(75);
     }
 
+    /** The row the upsert leaves behind, as findByUserId will then return it. */
+    private void upsertStoresRow() {
+        UserSettings[] row = new UserSettings[1];
+        when(userSettingsRepository.upsertThreshold(eq(userId), anyInt())).thenAnswer(inv -> {
+            UserSettings s = new UserSettings();
+            s.setUserId(userId);
+            s.setAutoApplyConfidenceThreshold(inv.getArgument(1));
+            row[0] = s;
+            return 1;
+        });
+        when(userSettingsRepository.findByUserId(userId)).thenAnswer(inv -> Optional.ofNullable(row[0]));
+    }
+
     @Test
-    void update_createsARow_onFirstSave() {
-        when(userSettingsRepository.findByUserId(userId)).thenReturn(Optional.empty());
-        when(userSettingsRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    void update_savesWithOneUpsert_andAnswersWithTheStoredRow() {
+        upsertStoresRow();
 
         WorkspaceSettingsDto dto = service.update(userId, new WorkspaceSettingsDto.UpdateRequest(80));
 
         assertThat(dto.autoApplyConfidenceThreshold()).isEqualTo(80);
-        verify(userSettingsRepository).save(argThat(s -> s.getUserId().equals(userId) && s.getAutoApplyConfidenceThreshold() == 80));
-    }
-
-    @Test
-    void update_overwritesAnExistingRow_ratherThanCreatingASecondOne() {
-        UserSettings existing = new UserSettings();
-        existing.setUserId(userId);
-        existing.setAutoApplyConfidenceThreshold(90);
-        when(userSettingsRepository.findByUserId(userId)).thenReturn(Optional.of(existing));
-        when(userSettingsRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        service.update(userId, new WorkspaceSettingsDto.UpdateRequest(50));
-
-        verify(userSettingsRepository, times(1)).save(any());
-        assertThat(existing.getAutoApplyConfidenceThreshold()).isEqualTo(50);
+        verify(userSettingsRepository).upsertThreshold(userId, 80);
+        verify(userSettingsRepository, never()).save(any());
     }
 
     @Test
@@ -89,10 +90,19 @@ class WorkspaceSettingsServiceTest {
         verifyNoInteractions(userSettingsRepository);
     }
 
+    /** A missing value used to be read as 0 and stored -- and 0 takes every guess out of review. */
+    @Test
+    void update_rejectsAMissingThreshold_insteadOfStoringZero() {
+        assertThatThrownBy(() -> service.update(userId, new WorkspaceSettingsDto.UpdateRequest(null)))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Choose a confidence threshold");
+        assertThatThrownBy(() -> service.update(userId, null)).isInstanceOf(ApiException.class);
+        verifyNoInteractions(userSettingsRepository);
+    }
+
     @Test
     void update_acceptsTheBoundaryValuesZeroAndOneHundred() {
-        when(userSettingsRepository.findByUserId(userId)).thenReturn(Optional.empty());
-        when(userSettingsRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        upsertStoresRow();
 
         assertThat(service.update(userId, new WorkspaceSettingsDto.UpdateRequest(0)).autoApplyConfidenceThreshold()).isEqualTo(0);
         assertThat(service.update(userId, new WorkspaceSettingsDto.UpdateRequest(100)).autoApplyConfidenceThreshold()).isEqualTo(100);

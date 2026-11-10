@@ -38,7 +38,8 @@ public class WorkspaceController {
 
     @GetMapping("/dashboard")
     public ApiResponse<WorkspaceSummaryDto> dashboard() {
-        return ApiResponse.ok(workspaceDashboardService.summarize(currentUser.id()));
+        // Not summarize(): that includes audit rows staff actions are filed under (see summarizeForOwner).
+        return ApiResponse.ok(workspaceDashboardService.summarizeForOwner(currentUser.id()));
     }
 
     // Financial Intelligence Workspace, System Settings module -- see WorkspaceSettingsService's

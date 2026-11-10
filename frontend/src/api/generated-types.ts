@@ -6570,7 +6570,7 @@ export interface components {
     schemas: {
         WorkspaceSettingsUpdateRequest: {
             /** Format: int32 */
-            autoApplyConfidenceThreshold?: number;
+            autoApplyConfidenceThreshold: number;
         };
         ApiResponseWorkspaceSettingsDto: {
             success?: boolean;

@@ -140,4 +140,12 @@ describe('NewTicketSheet', () => {
     expect(onClose).toHaveBeenCalled();
     expectHaptics({});
   });
+
+  // The server refuses more (support break-test, 2026-11-10); the field stops typing there instead.
+  it('limits the subject to 120 characters and the description to 10,000', () => {
+    renderSheet();
+
+    expect(screen.getByLabelText('Subject')).toHaveProp('maxLength', 120);
+    expect(screen.getByLabelText('Description')).toHaveProp('maxLength', 10000);
+  });
 });

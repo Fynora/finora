@@ -55,6 +55,19 @@ class FeedbackServiceTest {
         when(clientIdentity.appVersion()).thenReturn("1.0.0");
     }
 
+    /** The account's row is locked before the daily ceiling is counted, so entries sent at once
+     *  cannot all count before any is saved (the same gap tickets had). */
+    @Test
+    void submit_locksTheAccountsRow_beforeCountingTheDailyCeiling() {
+        service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.OTHER, "broken");
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, submissionLimiter, repository);
+        order.verify(userRepository).setLocalLockTimeout("5s");
+        order.verify(userRepository).findByIdForUpdate(userId);
+        order.verify(submissionLimiter).requireFeedbackAllowance(userId);
+        order.verify(repository).save(any(FeedbackEntry.class));
+    }
+
     @Test
     void submit_setsSourceAndAppVersionFromClientIdentity_notFromTheCaller() {
         FeedbackDto.Summary result = service.submit(userId, FeedbackEntry.Type.BUG, FeedbackEntry.Context.IMPORT_FLOW, "  broken  ");

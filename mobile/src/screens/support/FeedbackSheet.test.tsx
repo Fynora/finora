@@ -99,4 +99,11 @@ describe('FeedbackSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  // The server refuses more (support break-test, 2026-11-10); the field stops typing there instead.
+  it('limits feedback to 5,000 characters', () => {
+    renderSheet();
+
+    expect(screen.getByLabelText('Your feedback')).toHaveProp('maxLength', 5000);
+  });
 });

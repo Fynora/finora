@@ -51,6 +51,7 @@ import { ImportBar } from './ImportBar';
 import { ReviewSummary } from './ReviewSummary';
 import { YourStatements } from './YourStatements';
 import { hapticError, hapticSelectionIfChanged, hapticSuccess } from '../../lib/haptics';
+import { maybeAskForStoreReview } from '../../lib/storeReview';
 import { invalidateFinancialData } from '../../lib/invalidateFinancialData';
 import { newIdempotencyKey } from '../../lib/idempotencyKey';
 import { expiresInLabel, hasExpired } from '../../lib/importSessionExpiry';
@@ -103,6 +104,10 @@ function trackFunnelOnce(sent: Set<FunnelEvent>, event: FunnelEvent) {
 // value and same reasoning as the web app's Import.tsx (UPLOAD_COMPLETE_DWELL_MS): long enough to
 // register as a real confirmation, short enough not to feel like a delay.
 export const UPLOAD_COMPLETE_DWELL_MS = 900;
+
+// How long after a successful import the store-rating ask waits, so the "imported" summary is read
+// before the rating sheet covers it.
+export const STORE_REVIEW_DELAY_AFTER_IMPORT_MS = 1500;
 
 /**
  * iOS's first accessibility text size (AX1, about 1.65x). From here, both seen on the simulator at
@@ -301,6 +306,16 @@ export function ImportScreen() {
   // after a successful import and by resetToUpload, so a genuinely new re-import gets a new key --
   // re-importing the same statement again later is legitimate and must keep working.
   const attemptKey = useRef<string | null>(null);
+  // The store-rating ask after a successful import waits a moment, so the person sees what landed
+  // before the rating sheet covers it. Cleared if the screen goes away first.
+  const storeReviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function cancelStoreReviewAsk() {
+    if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
+    storeReviewTimer.current = null;
+  }
+  useEffect(() => () => {
+    if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
+  }, []);
   // Phase 4 (Medium-Tier Parity). Whether the user has already clicked past a holder-name mismatch
   // warning for the CURRENT confirm attempt. A ref, not state, for the same reason web's Import.tsx
   // needs its own explicit "acknowledged now" override on confirmImport: the Alert.alert callback
@@ -553,6 +568,9 @@ export function ImportScreen() {
   }, [sharedFileParam, sharedFileErrorParam]);
 
   function resetToUpload() {
+    // "Import another" pressed before the rating ask fired: the person has moved on (and may be
+    // about to open the file picker), so the ask is dropped rather than landing on top of that.
+    cancelStoreReviewAsk();
     setStep('upload');
     // The next import's done step asks Quick sort again.
     setQuickSortCount(null);
@@ -1119,6 +1137,18 @@ export function ImportScreen() {
       // The moment the import actually lands, not when the button is pressed -- firing before
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
+      // A good moment to ask for a store rating: a new statement just landed with transactions in
+      // it. Not on a re-import (it replaces a statement already there), not when nothing was added,
+      // and not when the summary has warnings to read (a missing statement period, rows left out):
+      // the rating sheet would cover them. How often anyone is asked is decided inside
+      // maybeAskForStoreReview.
+      if (!reimport && result.imported > 0 && !result.warnings?.length) {
+        cancelStoreReviewAsk();
+        storeReviewTimer.current = setTimeout(() => {
+          storeReviewTimer.current = null;
+          void maybeAskForStoreReview();
+        }, STORE_REVIEW_DELAY_AFTER_IMPORT_MS);
+      }
     } catch (e) {
       reportTransportFailure(e, 'import:confirm', startedAt);
       const message = toUserMessage(e, 'Could not complete the import.');

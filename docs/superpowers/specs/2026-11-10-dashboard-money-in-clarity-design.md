@@ -87,9 +87,10 @@ because it changes the headline numbers.
   they count as income." The heading does not say "from people": the endpoint returns every
   unresolved credit (people, card credits, cash deposits, unnamed senders) and `UnresolvedSender`
   carries no reason, so "from people" would be wrong for some rows.
-- Source: `GET /transactions/unresolved-inflows` for the imported statement's period
-  (`statementPeriodStart`–`statementPeriodEnd`; for CSV imports, the approximate period from their
-  transaction dates). This endpoint already groups by sender.
+- Source: `GET /transactions/unresolved-inflows`, which already groups by sender, given a new
+  `statementImportId` parameter so it lists only the rows this import added. (Planning change: the
+  statement period was the first idea, but CSV imports carry no printed period and a period would
+  also pick up rows from other statements.)
 - Up to 3 senders inline, biggest total first. Each uses the existing `InflowKindPicker` and the
   existing "Every payment from X" / "Just this one" choice, saved with
   `PUT /transactions/{id}/inflow-kind`. If there are more than 3, "See all" opens Money Review for the

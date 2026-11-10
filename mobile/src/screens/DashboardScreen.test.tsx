@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { Dimensions, Platform, RefreshControl, StyleSheet } from 'react-native';
 import { shadows } from '../theme';
 import { withBypass } from '../lib/changeSync';
@@ -1925,6 +1925,17 @@ describe('Spending by Category donut drill-through (Track C/C4)', () => {
 });
 
 describe('month card heading', () => {
+  it('names the days the figures cover when the server says how far they reach', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      reportingMonth: '2026-11', reportingMonthIsCurrent: true, figuresThrough: '2026-11-08',
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('1–8 Nov')).toBeOnTheScreen();
+    expect(screen.queryByText('This Month')).not.toBeOnTheScreen();
+  });
+
   it('says This Month when the figures are from the current month', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({ reportingMonth: '2026-10', reportingMonthIsCurrent: true }));
 
@@ -2042,14 +2053,16 @@ describe('brand header plan badge', () => {
   });
 });
 
-describe('unresolved inflow banner', () => {
-  it('says how many transactions and how much money are not counted as income', async () => {
+describe('money not counted, on the Income tile', () => {
+  it('says on the Income tile how much money is not counted as income', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({
       unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
     }));
     renderScreen();
 
-    expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income')).toBeOnTheScreen();
+    expect(await screen.findByText('+ ₹84,500 not counted yet')).toBeOnTheScreen();
+    expect(within(screen.getByTestId('kpi-tile-Income')).getByText('+ ₹84,500 not counted yet')).toBeOnTheScreen();
+    expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeOnTheScreen();
   });
 
   it('opens the review screen for the reporting month when pressed (Plan 2)', async () => {
@@ -2060,20 +2073,20 @@ describe('unresolved inflow banner', () => {
     navigate.mockClear();
     renderScreen();
 
-    fireEvent.press(await screen.findByRole('button', { name: 'Review money not counted yet' }));
+    fireEvent.press(await screen.findByRole('link', { name: 'Tell us what it is' }));
 
     expect(navigate).toHaveBeenCalledWith('More', {
       screen: 'MoneyReview', params: { start: '2026-02-01', end: '2026-02-28' },
     });
   });
 
-  it('uses the singular for one transaction', async () => {
+  it('shows the line for a single payment too', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({
       unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,
     }));
     renderScreen();
 
-    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income')).toBeOnTheScreen();
+    expect(await screen.findByText('+ ₹1,479 not counted yet')).toBeOnTheScreen();
   });
 
   it('is absent when nothing is unresolved', async () => {
@@ -2081,6 +2094,7 @@ describe('unresolved inflow banner', () => {
     renderScreen();
 
     expect(await screen.findByText('Income')).toBeOnTheScreen();
+    expect(screen.queryByText(/not counted yet/)).not.toBeOnTheScreen();
     expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeOnTheScreen();
   });
 
@@ -2105,7 +2119,7 @@ describe('unresolved inflow banner', () => {
     }));
     renderScreen();
 
-    expect(await screen.findByText('2 transactions need classification · ₹5,000 not counted as income')).toBeOnTheScreen();
+    expect(await screen.findByText('+ ₹5,000 not counted yet')).toBeOnTheScreen();
     expect(screen.queryByText('Mostly money received from people')).not.toBeOnTheScreen();
     expect(screen.queryByText('Mostly credits on your cards')).not.toBeOnTheScreen();
     expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeOnTheScreen();

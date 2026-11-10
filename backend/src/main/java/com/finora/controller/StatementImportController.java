@@ -12,8 +12,8 @@ import com.finora.dto.StatementImportDto.SupersedeResult;
 import com.finora.transactions.TransactionDto;
 import com.finora.security.CurrentUser;
 import com.finora.service.StatementImportService;
+import com.finora.util.DownloadHeaders;
 import jakarta.validation.Valid;
-import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -61,7 +61,7 @@ public class StatementImportController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(file.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename(file.fileName()).build().toString())
+                        DownloadHeaders.attachment(file.fileName()))
                 .body(file.content());
     }
 

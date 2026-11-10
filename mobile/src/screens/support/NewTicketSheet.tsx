@@ -115,6 +115,7 @@ export function NewTicketSheet({ onClose, onCreated }: {
               label="Subject"
               value={subject}
               onChangeText={setSubject}
+              maxLength={120}
               placeholder="A short summary of the issue"
             />
 
@@ -122,6 +123,7 @@ export function NewTicketSheet({ onClose, onCreated }: {
             <TextInput
               value={description}
               onChangeText={setDescription}
+              maxLength={10000}
               placeholder="What happened, and what did you expect instead?"
               placeholderTextColor={c.muted}
               multiline

@@ -3,7 +3,7 @@ package com.finora.support;
 import com.finora.dto.ApiResponse;
 import com.finora.dto.PagedResponse;
 import com.finora.security.CurrentUser;
-import org.springframework.http.ContentDisposition;
+import com.finora.util.DownloadHeaders;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -79,7 +79,7 @@ public class SupportTicketController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(download.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename(download.filename()).build().toString())
+                        DownloadHeaders.attachment(download.filename()))
                 .body(download.content());
     }
 

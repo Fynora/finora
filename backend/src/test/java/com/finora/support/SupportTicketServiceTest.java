@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -117,6 +118,15 @@ class SupportTicketServiceTest {
         String tooLong = "x".repeat(121);
         assertThatThrownBy(() -> service.create(userId, "OTHER", tooLong, "description", null))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void aDescriptionOver10000Characters_isRefused_beforeAnythingIsSaved() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "Subject",
+                "d".repeat(SupportTicketService.MAX_DESCRIPTION_LENGTH + 1), null))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Description must be 10000 characters or fewer.");
+        verify(ticketRepository, never()).save(any());
     }
 
     @Test
@@ -444,6 +454,17 @@ class SupportTicketServiceTest {
         assertThat(note.adminId()).isEqualTo(adminId);
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_NOTE_ADDED"), eq("SupportTicket"), eq(ticketId),
                 eq(Map.of("actorId", adminId.toString(), "ticketNumber", "SUP-000042")));
+    }
+
+    @Test
+    void aNoteOver10000Characters_isRefused_andNothingIsSaved() {
+        UUID ticketId = UUID.randomUUID();
+        when(ticketRepository.findById(ticketId)).thenReturn(Optional.of(ownedTicket(null)));
+
+        assertThatThrownBy(() -> service.addNote(adminId, ticketId, "n".repeat(SupportTicketService.MAX_NOTE_LENGTH + 1)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Note must be 10000 characters or fewer.");
+        verify(noteRepository, never()).save(any());
     }
 
     // --- admin list / search -------------------------------------------------------------------

@@ -138,6 +138,7 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
                 <TextInput
                   value={message}
                   onChangeText={setMessage}
+                  maxLength={5000}
                   placeholder="What's on your mind?"
                   placeholderTextColor={c.muted}
                   multiline

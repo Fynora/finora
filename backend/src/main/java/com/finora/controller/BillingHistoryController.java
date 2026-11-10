@@ -5,7 +5,7 @@ import com.finora.dto.BillingDtos.BillingHistoryEntryDto;
 import com.finora.security.CurrentUser;
 import com.finora.service.BillingHistoryService;
 import com.finora.service.InvoiceService;
-import org.springframework.http.ContentDisposition;
+import com.finora.util.DownloadHeaders;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -49,7 +49,7 @@ public class BillingHistoryController {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename(invoice.fileName()).build().toString())
+                        DownloadHeaders.attachment(invoice.fileName()))
                 .body(invoice.pdfBytes());
     }
 }

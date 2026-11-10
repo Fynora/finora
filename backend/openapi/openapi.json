@@ -20666,6 +20666,7 @@
                     },
                     "message": {
                         "type": "string",
+                        "maxLength": 5000,
                         "minLength": 1
                     }
                 },

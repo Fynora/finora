@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -117,6 +118,28 @@ class SupportTicketServiceTest {
         String tooLong = "x".repeat(121);
         assertThatThrownBy(() -> service.create(userId, "OTHER", tooLong, "description", null))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void aDescriptionOver10000Characters_isRefused_beforeAnythingIsSaved() {
+        assertThatThrownBy(() -> service.create(userId, "OTHER", "Subject",
+                "d".repeat(SupportTicketService.MAX_DESCRIPTION_LENGTH + 1), null))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Description must be 10000 characters or fewer.");
+        verify(ticketRepository, never()).save(any());
+    }
+
+    /** Tickets sent at once each counted before any was saved (10 at once queued 8 receipts against
+     *  a cap of 3): the customer's row is locked before the daily ceiling is counted. */
+    @Test
+    void theCustomersRowIsLocked_beforeTheDailyCeilingIsCounted() {
+        service.create(userId, "TECHNICAL_ISSUE", "Import failing", "It just spins", null);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, submissionLimiter, ticketRepository);
+        order.verify(userRepository).setLocalLockTimeout("5s");
+        order.verify(userRepository).findByIdForUpdate(userId);
+        order.verify(submissionLimiter).requireTicketAllowance(userId);
+        order.verify(ticketRepository).save(any());
     }
 
     @Test
@@ -444,6 +467,17 @@ class SupportTicketServiceTest {
         assertThat(note.adminId()).isEqualTo(adminId);
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_NOTE_ADDED"), eq("SupportTicket"), eq(ticketId),
                 eq(Map.of("actorId", adminId.toString(), "ticketNumber", "SUP-000042")));
+    }
+
+    @Test
+    void aNoteOver10000Characters_isRefused_andNothingIsSaved() {
+        UUID ticketId = UUID.randomUUID();
+        when(ticketRepository.findById(ticketId)).thenReturn(Optional.of(ownedTicket(null)));
+
+        assertThatThrownBy(() -> service.addNote(adminId, ticketId, "n".repeat(SupportTicketService.MAX_NOTE_LENGTH + 1)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Note must be 10000 characters or fewer.");
+        verify(noteRepository, never()).save(any());
     }
 
     // --- admin list / search -------------------------------------------------------------------

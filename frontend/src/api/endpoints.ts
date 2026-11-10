@@ -2406,6 +2406,9 @@ export const inflowApi = {
   forgetSender: (id: string) => api.delete(`/sender-inflow-rules/${id}`),
   unresolved: (startDate: string, endDate: string) =>
     api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { startDate, endDate } }).then((r) => r.data),
+  /** The money not counted as income among the rows one statement import added (import Done step). */
+  unresolvedForImport: (statementImportId: string) =>
+    api.get<UnresolvedSender[]>('/transactions/unresolved-inflows', { params: { statementImportId } }).then((r) => r.data),
 };
 
 /** Settings -> Saved statement passwords (statement refresh, step 4). Names the statements that have

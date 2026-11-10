@@ -202,6 +202,94 @@ class InflowKindServiceIT extends AbstractIntegrationTest {
                 .satisfies(r -> assertThat(r.getInflowKindId()).isEqualTo(family));
     }
 
+    // Saying what a payment was is the review of that payment. The flag used to stay set, so an
+    // answered credit kept its "Needs Review" badge -- and Quick sort, which leaves such credits to
+    // this question, never cleared it either.
+    @Test
+    void aRowChoiceClearsThatPaymentsReviewFlag() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        Transaction row = waiting(credit(userId, account, "vpa:row-" + UUID.randomUUID()));
+        Transaction other = waiting(credit(userId, account, "vpa:other-" + UUID.randomUUID()));
+
+        service.setChoice(userId, row.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+
+        assertThat(transactions.findById(row.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+        assertThat(transactions.findById(other.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+    }
+
+    @Test
+    void aSenderChoiceClearsTheReviewFlagOnThatSendersCreditsOnly() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:sender-" + UUID.randomUUID();
+        Transaction first = waiting(credit(userId, account, key));
+        Transaction second = waiting(credit(userId, account, key));
+        Transaction paidToThem = credit(userId, account, key);
+        paidToThem.setTxnType(Transaction.Type.EXPENSE);
+        paidToThem = waiting(paidToThem);
+        Transaction someoneElse = waiting(credit(userId, account, "vpa:else-" + UUID.randomUUID()));
+        UUID otherUser = newUser();
+        Transaction otherUsersRow = waiting(credit(otherUser, newAccount(otherUser), key));
+
+        service.setChoice(userId, first.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "FAMILY_SUPPORT"),
+                com.finora.service.InflowChoices.Scope.SENDER));
+
+        assertThat(transactions.findById(first.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+        assertThat(transactions.findById(second.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+        assertThat(transactions.findById(paidToThem.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+        assertThat(transactions.findById(someoneElse.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+        assertThat(transactions.findById(otherUsersRow.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+    }
+
+    // Undo puts the payment back as it was: not counted, and waiting for review again.
+    @Test
+    void undoingARowChoicePutsThePaymentBackForReview() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        Transaction row = waiting(credit(userId, account, "vpa:undo-row-" + UUID.randomUUID()));
+        service.setChoice(userId, row.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "INCOME"),
+                com.finora.service.InflowChoices.Scope.ROW));
+
+        service.clearChoice(userId, row.getId(), com.finora.service.InflowChoices.Scope.ROW);
+
+        assertThat(transactions.findById(row.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+    }
+
+    @Test
+    void undoingASenderChoicePutsThatSendersCreditsBackForReviewButNotACategoryTheUserChose() {
+        UUID userId = newUser();
+        UUID account = newAccount(userId);
+        String key = "vpa:undo-sender-" + UUID.randomUUID();
+        Transaction first = waiting(credit(userId, account, key));
+        Transaction second = waiting(credit(userId, account, key));
+        Transaction chosenByHand = credit(userId, account, key);
+        chosenByHand.setCategoryManuallySet(true);
+        chosenByHand.setSource(Transaction.Source.CSV_IMPORT);
+        chosenByHand = transactions.save(chosenByHand);
+        service.setChoice(userId, first.getId(), new InflowDtos.SetChoiceRequest(builtIn(userId, "FAMILY_SUPPORT"),
+                com.finora.service.InflowChoices.Scope.SENDER));
+
+        service.clearChoice(userId, first.getId(), com.finora.service.InflowChoices.Scope.SENDER);
+
+        assertThat(transactions.findById(first.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+        assertThat(transactions.findById(second.getId()).orElseThrow().isNeedsCategoryReview()).isTrue();
+        assertThat(transactions.findById(chosenByHand.getId()).orElseThrow().isNeedsCategoryReview()).isFalse();
+    }
+
+    /** Imported and waiting for review, as a statement's credits arrive. The default source, MANUAL,
+     *  is a hand-entered row, which counts as income on the user's word and is never "not counted". */
+    private Transaction waiting(Transaction t) {
+        t.setSource(Transaction.Source.CSV_IMPORT);
+        t.setNeedsCategoryReview(true);
+        return transactions.save(t);
+    }
+
+    private UUID builtIn(UUID userId, String name) {
+        return service.list(userId).stream().filter(k -> name.equals(k.builtIn())).findFirst().orElseThrow().id();
+    }
+
     @Test
     void aSecondSenderChoiceReplacesTheFirst() {
         UUID userId = newUser();

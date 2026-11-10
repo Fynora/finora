@@ -65,7 +65,18 @@ public class OversizedImportUploadAdvice {
             // No authenticated user, or the write failed: evidence lost, answer unchanged.
             log.warn("Could not record an oversized statement upload as refused", e);
         }
+        if (isSupportUpload(request.getRequestURI())) {
+            // The shared message is about splitting a bank statement, which makes no sense on the
+            // support form. Same status and code, so the apps handle it exactly as before.
+            return ResponseEntity.status(org.springframework.http.HttpStatus.PAYLOAD_TOO_LARGE)
+                    .body(ApiResponse.error("That's too large to send. Attachments can be up to 5 MB, "
+                            + "and the description up to 10,000 characters.", REFUSAL_CODE));
+        }
         return delegate.handleUploadTooLarge(ex);
+    }
+
+    private static boolean isSupportUpload(String path) {
+        return path != null && path.contains("/api/v1/support/");
     }
 
     private static boolean isStatementUpload(String path) {

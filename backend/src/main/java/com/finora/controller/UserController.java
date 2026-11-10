@@ -27,11 +27,11 @@ import com.finora.service.PhoneChangeService;
 import com.finora.service.TermsConsentService;
 import com.finora.service.UserAccountLifecycleService;
 import com.finora.service.UserSettingsService;
+import com.finora.util.DownloadHeaders;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -276,7 +276,7 @@ public class UserController {
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("application/zip"))
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(fileName).build().toString())
+                .header(HttpHeaders.CONTENT_DISPOSITION, DownloadHeaders.attachment(fileName))
                 .body(body);
     }
 }

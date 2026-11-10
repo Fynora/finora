@@ -9503,7 +9503,7 @@
                     {
                         "name": "startDate",
                         "in": "query",
-                        "required": true,
+                        "required": false,
                         "schema": {
                             "type": "string",
                             "format": "date"
@@ -9512,10 +9512,19 @@
                     {
                         "name": "endDate",
                         "in": "query",
-                        "required": true,
+                        "required": false,
                         "schema": {
                             "type": "string",
                             "format": "date"
+                        }
+                    },
+                    {
+                        "name": "statementImportId",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
                         }
                     }
                 ],
@@ -14703,9 +14712,14 @@
                 "properties": {
                     "autoApplyConfidenceThreshold": {
                         "type": "integer",
-                        "format": "int32"
+                        "format": "int32",
+                        "maximum": 100,
+                        "minimum": 0
                     }
-                }
+                },
+                "required": [
+                    "autoApplyConfidenceThreshold"
+                ]
             },
             "ApiResponseWorkspaceSettingsDto": {
                 "type": "object",
@@ -20666,6 +20680,7 @@
                     },
                     "message": {
                         "type": "string",
+                        "maxLength": 5000,
                         "minLength": 1
                     }
                 },
@@ -28265,6 +28280,14 @@
                     "cardsWithUnknownAmountOwed": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "figuresThrough": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "figuresFrom": {
+                        "type": "string",
+                        "format": "date"
                     }
                 }
             },

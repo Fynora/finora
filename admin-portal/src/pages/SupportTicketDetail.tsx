@@ -288,6 +288,7 @@ function SupportTicketDetailContent({ id }: { id: string }) {
           <textarea
             value={noteDraft}
             onChange={(e) => setNoteDraft(e.target.value)}
+            maxLength={10000}
             rows={2}
             placeholder="Add a note visible to other admins…"
             className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink"

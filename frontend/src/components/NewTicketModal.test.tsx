@@ -110,4 +110,12 @@ describe('NewTicketModal', () => {
     await user.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  // The server refuses more (support break-test, 2026-11-10); the form stops typing there instead.
+  it('limits the subject to 120 characters and the description to 10,000', () => {
+    render(<NewTicketModal onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    expect(screen.getByLabelText(/subject/i)).toHaveAttribute('maxLength', '120');
+    expect(screen.getByLabelText(/description/i)).toHaveAttribute('maxLength', '10000');
+  });
 });

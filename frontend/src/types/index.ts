@@ -192,6 +192,11 @@ export interface DashboardSummary {
   // Cards left out of totalLiabilities and netWorth because their amount owed is not known
   // (lib/amountOwed.ts). Optional: an older server does not send it.
   cardsWithUnknownAmountOwed?: number;
+  // Newest day with a row in reportingMonth (YYYY-MM-DD): the cards say "1-8 Nov". Optional: an
+  // older server does not send it, and then the cards keep "This Month".
+  figuresThrough?: string | null;
+  // First covered day of reportingMonth: the 1st unless statements start later ("20–30 Nov").
+  figuresFrom?: string | null;
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;
@@ -327,7 +332,7 @@ export interface DashboardSummary {
   incomePrior: number | null;
   /**
    * This reporting month's credits Fynora cannot yet call income -- money from a person, an
-   * unexplained credit-card credit. Never part of monthlyIncome; shown in the banner beside it.
+   * unexplained credit-card credit. Never part of monthlyIncome; shown on the Income card as "not counted yet".
    * unresolvedTopReason is the backend FlowReason carrying most of the value ('PERSON_INFLOW',
    * 'CARD_UNEXPLAINED_CREDIT', ...), null when nothing is unresolved. A string, not a union: a
    * reason added later must degrade to "no reason line", not a type error.

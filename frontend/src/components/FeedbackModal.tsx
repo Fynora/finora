@@ -90,6 +90,7 @@ export function FeedbackModal({ onClose }: { onClose: () => void }) {
                     id="feedback-message"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
+                    maxLength={5000}
                     rows={4}
                     placeholder="What's on your mind?"
                     className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full resize-none"

@@ -7,6 +7,7 @@ import com.finora.entity.User;
 import com.finora.repository.FeedbackEntryRepository;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -27,8 +28,12 @@ public final class FeedbackDto {
     public record CreateRequest(
             @NotNull(message = "type is required") FeedbackEntry.Type type,
             @NotNull(message = "context is required") FeedbackEntry.Context context,
-            @NotBlank(message = "message is required") String message
+            // Room for a detailed report, not a pasted document: a 2 MB message used to be stored.
+            @NotBlank(message = "message is required")
+            @Size(min = 1, max = MAX_MESSAGE_LENGTH, message = "Keep your feedback under 5,000 characters.") String message
     ) {}
+
+    public static final int MAX_MESSAGE_LENGTH = 5_000;
 
     @Schema(name = "FeedbackSummary")
     public record Summary(

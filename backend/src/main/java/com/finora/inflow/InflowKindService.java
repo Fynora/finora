@@ -165,8 +165,19 @@ public class InflowKindService {
                 t.setInflowKindId(null);
                 transactions.save(t);
             }
+            // Saying what a sender's money was reviews every credit from them still waiting.
+            // Quick sort leaves unanswered credits to this question, so nothing else would clear
+            // the flag, and the "Needs Review" badge would stay on payments the user answered.
+            // Only the payments the choice can decide: the same test the choice itself passed.
+            for (Transaction waiting : transactions.findByUserIdAndCounterpartyKeyAndNeedsCategoryReviewTrue(userId, key)) {
+                if (notChoosableReason(waiting) != null) continue;
+                waiting.setNeedsCategoryReview(false);
+                transactions.save(waiting);
+            }
         } else {
             t.setInflowKindId(kind.getId());
+            // Saying what this payment was is its review (see the sender branch above).
+            t.setNeedsCategoryReview(false);
             transactions.save(t);
         }
         return countsAs(userId, txnId);
@@ -175,12 +186,27 @@ public class InflowKindService {
     @Transactional
     public InflowDtos.CountsAsDto clearChoice(UUID userId, UUID txnId, InflowChoices.Scope scope) {
         Transaction t = ownedTransaction(userId, txnId);
+        List<Transaction> touched;
         if (scope == InflowChoices.Scope.SENDER) {
             String key = t.getCounterpartyKey();
             if (key != null && !key.isBlank()) rules.findByUserIdAndCounterpartyKey(userId, key).ifPresent(rules::delete);
-        } else if (t.getInflowKindId() != null) {
-            t.setInflowKindId(null);
-            transactions.save(t);
+            touched = key == null || key.isBlank() ? List.of(t) : transactions.findByUserIdAndCounterpartyKey(userId, key);
+        } else {
+            if (t.getInflowKindId() != null) {
+                t.setInflowKindId(null);
+                transactions.save(t);
+            }
+            touched = List.of(t);
+        }
+        // Undo puts each payment back as it was: answering cleared its review flag (setChoice), so a
+        // payment that is not counted again waits for review again. A category the user chose by
+        // hand is theirs and stays reviewed.
+        FlowTotals.Context ctx = inflowChoices.contextFor(userId, accounts.findByUserId(userId), categories.findByUserId(userId));
+        for (Transaction row : touched) {
+            if (row.isNeedsCategoryReview() || row.isCategoryManuallySet() || notChoosableReason(row) != null) continue;
+            if (!FlowTotals.isUnresolvedInflow(row, ctx)) continue;
+            row.setNeedsCategoryReview(true);
+            transactions.save(row);
         }
         return countsAs(userId, txnId);
     }

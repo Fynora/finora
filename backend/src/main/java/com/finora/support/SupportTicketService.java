@@ -104,6 +104,11 @@ public class SupportTicketService {
     private static final Logger log = LoggerFactory.getLogger(SupportTicketService.class);
 
     private static final int MAX_SUBJECT_LENGTH = 120;
+    /** Room for a long explanation (a suspension appeal is at most 4,000 characters plus a short
+     *  preamble), not for a pasted document: before this, a 1 MB description was stored. */
+    static final int MAX_DESCRIPTION_LENGTH = 10_000;
+    /** Staff notes on a ticket, same bound as the description they are written about. */
+    static final int MAX_NOTE_LENGTH = 10_000;
     static final int MAX_ACKNOWLEDGEMENTS_PER_DAY = 3;
     private static final Duration ACKNOWLEDGEMENT_WINDOW = Duration.ofHours(24);
 
@@ -171,9 +176,15 @@ public class SupportTicketService {
     private SupportTicketDto.Detail createTicket(UUID userId, SupportTicket.Category category, String subject,
                                                  String description, MultipartFile file) {
         String trimmedSubject = requireBounded(subject, "Subject", MAX_SUBJECT_LENGTH);
-        String trimmedDescription = requireNonBlank(description, "Description");
+        String trimmedDescription = requireBounded(description, "Description", MAX_DESCRIPTION_LENGTH);
         SupportAttachmentUpload.Validated validated =
                 (file != null && !file.isEmpty()) ? SupportAttachmentUpload.validate(file) : null;
+        // One ticket at a time per customer: the daily ceiling and the acknowledgement cap below
+        // both count this customer's saved tickets, and without the lock tickets sent at once all
+        // counted before any was saved -- 10 at once queued 8 acknowledgement emails against a cap
+        // of 3, and 30 at once saved 11 against a ceiling of 10. Held to commit, so the next
+        // request counts this ticket. The suspension path already holds this lock (re-entrant).
+        SubmissionLock.acquire(userRepository, userId);
         // After validation, so a malformed request still answers 400 and never reads as "limit
         // reached"; before the ticket number is drawn, so a refused request uses none up.
         submissionLimiter.requireTicketAllowance(userId);
@@ -362,7 +373,7 @@ public class SupportTicketService {
         SupportTicketInternalNote entity = new SupportTicketInternalNote();
         entity.setTicketId(ticketId);
         entity.setAdminId(actingAdminId);
-        entity.setNote(requireNonBlank(note, "Note"));
+        entity.setNote(requireBounded(note, "Note", MAX_NOTE_LENGTH));
         SupportTicketInternalNote saved = noteRepository.save(entity);
         auditService.record(ticket.getUserId(), "SUPPORT_TICKET_NOTE_ADDED", "SupportTicket", ticketId,
                 Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber()));

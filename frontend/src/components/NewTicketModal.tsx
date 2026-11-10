@@ -104,6 +104,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
                 id="new-ticket-subject"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
+                maxLength={120}
                 placeholder="A short summary of the issue"
                 className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full"
               />
@@ -114,6 +115,7 @@ export function NewTicketModal({ onClose, onCreated }: { onClose: () => void; on
                 id="new-ticket-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                maxLength={10000}
                 rows={5}
                 placeholder="What happened, and what did you expect instead?"
                 className="bg-card text-ink border border-border rounded-lg px-3 py-2 text-sm w-full resize-none"

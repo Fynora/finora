@@ -21,6 +21,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u WHERE u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") UUID id);
 
+    /** support.SubmissionLock: a wait limit for the rest of the current
+     *  transaction -- {@code SET LOCAL lock_timeout} -- so a row lock taken after it gives up instead
+     *  of waiting as long as another transaction holds the row. Returns the value set. */
+    @Query(value = "SELECT set_config('lock_timeout', :timeout, true)", nativeQuery = true)
+    String setLocalLockTimeout(@Param("timeout") String timeout);
+
     /** The user's row, locked for the rest of the transaction. AccountService.create takes it before
      *  counting accounts against the free plan's cap: a count-then-insert let six creations at once
      *  each see room and make six accounts on a plan allowed two. Creations by one user take turns

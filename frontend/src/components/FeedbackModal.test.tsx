@@ -68,4 +68,11 @@ describe('FeedbackModal', () => {
     expect(await screen.findByText('Could not save')).toBeInTheDocument();
     expect(screen.queryByText(/thanks for the feedback/i)).not.toBeInTheDocument();
   });
+
+  // The server refuses more (support break-test, 2026-11-10); the form stops typing there instead.
+  it('limits feedback to 5,000 characters', () => {
+    renderModal();
+
+    expect(screen.getByLabelText(/your feedback/i)).toHaveAttribute('maxLength', '5000');
+  });
 });

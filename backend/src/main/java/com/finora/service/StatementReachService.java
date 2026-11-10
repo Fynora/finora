@@ -72,4 +72,40 @@ public class StatementReachService {
         return Optional.of(new StatementBehindDto(names.getOrDefault(worst, "An account"),
                 latestStatementEnds.get(worst), behind.size()));
     }
+
+    /**
+     * The first day of {@code month} its figures cover, for the dashboard's "20–30 Nov": the month
+     * start unless every account with rows that month has printed statements that begin later.
+     * {@code earliestRowByAccount} is each such account's earliest counted row in the month.
+     */
+    @Transactional(readOnly = true)
+    public LocalDate firstCoveredDay(UUID userId, YearMonth month, Map<UUID, LocalDate> earliestRowByAccount) {
+        if (earliestRowByAccount.isEmpty()) return null;
+        return firstCoveredDay(month, earliestRowByAccount,
+                accountCoverageService.earliestPrintedStartsOverlapping(userId, earliestRowByAccount.keySet(), month));
+    }
+
+    /**
+     * The rule behind {@link #firstCoveredDay(UUID, YearMonth, Map)}. Conservative on purpose: a label
+     * that claims fewer days than the figures hold is as wrong as one that claims more, so
+     * <ul>
+     *   <li>an account with no printed period (a CSV, entered by hand, linked) keeps the whole month:
+     *       nothing says where its coverage starts;</li>
+     *   <li>otherwise the earliest printed start across the accounts, clipped to the month;</li>
+     *   <li>and never after a counted row -- a row dated before its statement's printed start is
+     *       still in the figures.</li>
+     * </ul>
+     * Null when the month has no rows.
+     */
+    static LocalDate firstCoveredDay(YearMonth month, Map<UUID, LocalDate> earliestRowByAccount,
+                                     Map<UUID, LocalDate> earliestPrintedStartByAccount) {
+        if (earliestRowByAccount.isEmpty()) return null;
+        LocalDate monthStart = month.atDay(1);
+        if (!earliestPrintedStartByAccount.keySet().containsAll(earliestRowByAccount.keySet())) return monthStart;
+        LocalDate printed = earliestRowByAccount.keySet().stream().map(earliestPrintedStartByAccount::get)
+                .min(Comparator.naturalOrder()).orElse(monthStart);
+        LocalDate covered = printed.isBefore(monthStart) ? monthStart : printed;
+        LocalDate earliestRow = earliestRowByAccount.values().stream().min(Comparator.naturalOrder()).orElseThrow();
+        return earliestRow.isBefore(covered) ? earliestRow : covered;
+    }
 }

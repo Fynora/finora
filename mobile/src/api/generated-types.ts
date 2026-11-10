@@ -6570,7 +6570,7 @@ export interface components {
     schemas: {
         WorkspaceSettingsUpdateRequest: {
             /** Format: int32 */
-            autoApplyConfidenceThreshold?: number;
+            autoApplyConfidenceThreshold: number;
         };
         ApiResponseWorkspaceSettingsDto: {
             success?: boolean;
@@ -11622,6 +11622,10 @@ export interface components {
             statementBehind?: components["schemas"]["StatementBehindDto"];
             /** Format: int32 */
             cardsWithUnknownAmountOwed?: number;
+            /** Format: date */
+            figuresThrough?: string;
+            /** Format: date */
+            figuresFrom?: string;
         };
         DetectedDuplicate: {
             /** Format: uuid */
@@ -21493,9 +21497,10 @@ export interface operations {
     };
     listUnresolvedInflows: {
         parameters: {
-            query: {
-                startDate: string;
-                endDate: string;
+            query?: {
+                startDate?: string;
+                endDate?: string;
+                statementImportId?: string;
             };
             header?: never;
             path?: never;

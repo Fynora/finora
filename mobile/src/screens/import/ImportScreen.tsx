@@ -20,7 +20,7 @@ import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
 import { StagedRowCard } from './StagedRowCard';
 import {
-  accountsApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi,
+  accountsApi, categoriesApi, importApi, importJobsApi, inflowApi, sendCodesApi, statementImportsApi,
   type ActivationMoment, type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import {
@@ -309,13 +309,39 @@ export function ImportScreen() {
   // The store-rating ask after a successful import waits a moment, so the person sees what landed
   // before the rating sheet covers it. Cleared if the screen goes away first.
   const storeReviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The ask still pending, if any. The check below awaits a request, so the timer alone cannot tell
+  // whether the person moved on meanwhile; cancelling clears this and a stale check then stops.
+  const storeReviewAsk = useRef<object | null>(null);
   function cancelStoreReviewAsk() {
     if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
     storeReviewTimer.current = null;
+    storeReviewAsk.current = null;
   }
   useEffect(() => () => {
     if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
+    storeReviewAsk.current = null;
   }, []);
+  /**
+   * Whether this import's done step asks what some payments were (ImportMoneyInCard). The rating
+   * sheet is held then, so it never covers that question; the next import with nothing to ask can
+   * ask instead. Same query key and request as the card, so this reuses its answer rather than
+   * making a second call. When the list cannot be read it answers yes: missing one rating ask costs
+   * less than covering the question. This depends only on what the import contains, never on how
+   * the person feels about the app, so it is not review gating (see lib/storeReview.ts).
+   */
+  async function importAsksAboutMoneyIn(statementImportId: string | null | undefined): Promise<boolean> {
+    if (!statementImportId) return false;
+    try {
+      const senders = await queryClient.fetchQuery({
+        queryKey: ['unresolved-inflows-import', statementImportId],
+        queryFn: () => inflowApi.unresolvedForImport(statementImportId),
+        staleTime: 60_000,
+      });
+      return senders.length > 0;
+    } catch {
+      return true;
+    }
+  }
   // Phase 4 (Medium-Tier Parity). Whether the user has already clicked past a holder-name mismatch
   // warning for the CURRENT confirm attempt. A ref, not state, for the same reason web's Import.tsx
   // needs its own explicit "acknowledged now" override on confirmImport: the Alert.alert callback
@@ -1140,13 +1166,21 @@ export function ImportScreen() {
       // A good moment to ask for a store rating: a new statement just landed with transactions in
       // it. Not on a re-import (it replaces a statement already there), not when nothing was added,
       // and not when the summary has warnings to read (a missing statement period, rows left out):
-      // the rating sheet would cover them. How often anyone is asked is decided inside
-      // maybeAskForStoreReview.
+      // the rating sheet would cover them. Nor when the done step asks what some payments were
+      // (importAsksAboutMoneyIn). How often anyone is asked is decided inside maybeAskForStoreReview.
       if (!reimport && result.imported > 0 && !result.warnings?.length) {
         cancelStoreReviewAsk();
+        const ask = {};
+        storeReviewAsk.current = ask;
         storeReviewTimer.current = setTimeout(() => {
           storeReviewTimer.current = null;
-          void maybeAskForStoreReview();
+          void (async () => {
+            const asksAboutMoneyIn = await importAsksAboutMoneyIn(result.statementImportId);
+            // "Import another" pressed, or the screen gone, while the check was in flight.
+            if (asksAboutMoneyIn || storeReviewAsk.current !== ask) return;
+            storeReviewAsk.current = null;
+            await maybeAskForStoreReview();
+          })();
         }, STORE_REVIEW_DELAY_AFTER_IMPORT_MS);
       }
     } catch (e) {

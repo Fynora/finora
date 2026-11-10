@@ -3679,4 +3679,61 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
     await waitPastDelay();
     expect(askForReview).not.toHaveBeenCalled();
   });
+
+  describe('when the done step asks what some payments were', () => {
+    const { inflowApi: inflow } = jest.requireMock('../../api/endpoints');
+    const neha = {
+      sampleTransactionId: 't1', label: 'NEHA RAO', senderKnown: true, count: 1, senderPaymentCount: 1, total: 6000,
+      latestDate: '2026-09-06', accountName: 'Sample Bank Savings',
+      rows: [{ id: 't1', date: '2026-09-06', amount: 6000, description: 'UPI-NEHA RAO', accountName: 'Sample Bank Savings' }],
+    };
+    beforeEach(() => inflow.unresolvedForImport.mockReset());
+    afterEach(() => inflow.unresolvedForImport.mockReset().mockResolvedValue([]));
+
+    it('holds the rating, so the sheet never covers the question, and reuses the card\'s request', async () => {
+      inflow.unresolvedForImport.mockResolvedValue([neha]);
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-9' } as never);
+      await importFreshStatement();
+      expect(await screen.findByText("1 payment you received isn't counted as income")).toBeOnTheScreen();
+
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+      expect(inflow.unresolvedForImport).toHaveBeenCalledTimes(1);
+      expect(inflow.unresolvedForImport).toHaveBeenCalledWith('stmt-9');
+    });
+
+    it('still asks when the import has nothing to ask about', async () => {
+      inflow.unresolvedForImport.mockResolvedValue([]);
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-9' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitFor(() => expect(askForReview).toHaveBeenCalledTimes(1), { timeout: 4000 });
+      expect(inflow.unresolvedForImport).toHaveBeenCalledWith('stmt-9');
+    });
+
+    it('does not ask when "Import another" is pressed while the check is still waiting', async () => {
+      let answer: (senders: unknown[]) => void = () => {};
+      inflow.unresolvedForImport.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-9' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitPastDelay();
+      fireEvent.press(screen.getByText('Import another'));
+      await act(async () => { answer([]); });
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+    });
+
+    it('holds the rating when the list cannot be read', async () => {
+      inflow.unresolvedForImport.mockRejectedValue(new Error('down'));
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-9' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+    });
+  });
 });

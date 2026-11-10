@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { KeyboardAvoidingView, Platform } from 'react-native';
+import { AppState, KeyboardAvoidingView, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FynScreen } from './FynScreen';
 import { fynChatApi, entitlementsApi, type EntitlementsDto } from '../api/endpoints';
@@ -20,6 +20,9 @@ jest.mock('../lib/fynScreenshot', () => {
   return { ScreenshotTooLargeError, pickFynScreenshot: jest.fn() };
 });
 jest.mock('expo-store-review', () => ({ hasAction: jest.fn(), requestReview: jest.fn() }));
+// The store-review helper only asks while the app is in the foreground. AppState.currentState is unset
+// in this environment, so it is pinned to 'active' here, as on a phone with the chat open.
+Object.defineProperty(AppState, 'currentState', { configurable: true, get: () => 'active' });
 
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();

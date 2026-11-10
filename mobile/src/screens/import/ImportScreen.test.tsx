@@ -3628,6 +3628,28 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
     expect(askForReview).not.toHaveBeenCalled();
   });
 
+  it('does not ask when the summary has warnings to read, so the sheet never covers them', async () => {
+    api.import.confirm.mockResolvedValue({
+      ...summary(3, 'fresh'),
+      warnings: ['Missing statement detected: 2026-08-01 to 2026-08-31 (31 days).'],
+    } as never);
+    await importFreshStatement();
+    expect(await screen.findByText(/Missing statement detected/)).toBeTruthy();
+
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
+  });
+
+  it('does not ask when "Import another" is pressed before the delay is up', async () => {
+    api.import.confirm.mockResolvedValue(summary(3, 'fresh') as never);
+    await importFreshStatement();
+    await screen.findByText(/^Imported \d+ transaction/);
+
+    fireEvent.press(screen.getByText('Import another'));
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
+  });
+
   it('does not ask if the screen goes away before the delay is up', async () => {
     api.import.confirm.mockResolvedValue(summary(3, 'fresh') as never);
     const view = await importFreshStatement();

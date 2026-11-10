@@ -308,6 +308,10 @@ export function ImportScreen() {
   // The store-rating ask after a successful import waits a moment, so the person sees what landed
   // before the rating sheet covers it. Cleared if the screen goes away first.
   const storeReviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function cancelStoreReviewAsk() {
+    if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
+    storeReviewTimer.current = null;
+  }
   useEffect(() => () => {
     if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
   }, []);
@@ -563,6 +567,9 @@ export function ImportScreen() {
   }, [sharedFileParam, sharedFileErrorParam]);
 
   function resetToUpload() {
+    // "Import another" pressed before the rating ask fired: the person has moved on (and may be
+    // about to open the file picker), so the ask is dropped rather than landing on top of that.
+    cancelStoreReviewAsk();
     setStep('upload');
     // The next import's done step asks Quick sort again.
     setQuickSortCount(null);
@@ -1130,10 +1137,12 @@ export function ImportScreen() {
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
       // A good moment to ask for a store rating: a new statement just landed with transactions in
-      // it. Not on a re-import (it replaces a statement already there) and not when nothing was
-      // added. How often anyone is asked is decided inside maybeAskForStoreReview.
-      if (!reimport && result.imported > 0) {
-        if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
+      // it. Not on a re-import (it replaces a statement already there), not when nothing was added,
+      // and not when the summary has warnings to read (a missing statement period, rows left out):
+      // the rating sheet would cover them. How often anyone is asked is decided inside
+      // maybeAskForStoreReview.
+      if (!reimport && result.imported > 0 && !result.warnings?.length) {
+        cancelStoreReviewAsk();
         storeReviewTimer.current = setTimeout(() => {
           storeReviewTimer.current = null;
           void maybeAskForStoreReview();

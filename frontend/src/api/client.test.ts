@@ -257,6 +257,25 @@ describe('api response interceptor', () => {
     expect(getAccessToken()).toBeNull();
   });
 
+  // Privacy workstream 10: the access token had already expired when the account was suspended, so
+  // what the backend refuses first is the refresh, with AUTH_018. Its own message says "contact
+  // support"; the reason handed to the sign-in page says to sign in instead.
+  it('says why when the refresh is refused because the account is suspended', async () => {
+    setAccessToken('an-expired-access-token-of-a-suspended-account');
+    refreshMock.mockRejectedValue({
+      response: { status: 403, data: { message: 'This account has been suspended. Contact support for assistance.', errorCode: 'AUTH_018' } },
+    });
+
+    await rejectedHandler()({
+      response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },
+      config: { url: '/accounts', _retried: false, headers: {} },
+    }).catch(() => { /* expected -- the original 401 is still rejected to the caller */ });
+
+    expect(localStorage.getItem('finora_session_ended_reason'))
+      .toBe('This account has been suspended. Sign in to see why and what you can do.');
+    expect(getAccessToken()).toBeNull();
+  });
+
   // The suspended screen's own calls carry their token per request, with no session in the tab:
   // their refusals are theirs to show, not a reason to navigate away.
   it('leaves a suspended refusal alone when the tab has no session of its own', async () => {

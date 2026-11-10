@@ -79,6 +79,10 @@ interface AuthState {
   // dismissReferralPrompt() (the code was added, or the user skipped).
   referralPromptPending: boolean;
   dismissReferralPrompt: () => void;
+  // Why the server ended the last session, for the sign-in screen to show once (today only "this
+  // account has been suspended"). Memory only. LoginScreen reads it on mount and then clears it.
+  signedOutMessage: string | null;
+  clearSignedOutMessage: () => void;
 }
 
 const TOKEN_KEY = 'finora_token';
@@ -109,6 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // "true" guess. See frontend/src/context/AuthContext.tsx's own onboardingCompleted comment.
   const [onboardingCompleted, setOnboardingCompletedState] = useState(false);
   const [referralPromptPending, setReferralPromptPending] = useState(false);
+  const [signedOutMessage, setSignedOutMessage] = useState<string | null>(null);
+  const clearSignedOutMessage = useCallback(() => setSignedOutMessage(null), []);
 
   // Restore a persisted session on cold start. Reads run in parallel -- they're independent keys,
   // and on Android each SecureStore read is a separate bridge round-trip.
@@ -257,7 +263,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // verified flag lands on VerifyPhone -- no imperative navigation call needed.
   useEffect(() => {
     setSessionCallbacks({
-      onSessionExpired: ({ endedDeliberately }) => {
+      onSessionExpired: ({ endedDeliberately, message }) => {
+        // Set in the same batch as the token clear, so the Login screen that clearing mounts reads it
+        // on its first render.
+        setSignedOutMessage(message ?? null);
         clearLocalState();
         // Signed out on purpose from elsewhere (a lost phone removed from the device list, say):
         // stop its notifications too, as a sign-out here would. A session that merely timed out
@@ -643,7 +652,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         bootstrapping, token, email, fullName, phoneVerified, onboardingCompleted,
         login, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
         reactivate, register, loginWithGoogle, loginWithApple, setPhoneVerified, setOnboardingCompleted, logout,
-        referralPromptPending, dismissReferralPrompt,
+        referralPromptPending, dismissReferralPrompt, signedOutMessage, clearSignedOutMessage,
       }}
     >
       {children}

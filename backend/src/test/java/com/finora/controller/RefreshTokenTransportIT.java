@@ -689,7 +689,10 @@ class RefreshTokenTransportIT extends AbstractIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(rawToken)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                // Privacy workstream 10: the code lets a client say why it signed the user out.
+                .andExpect(jsonPath("$.errorCode").value("AUTH_018"))
+                .andExpect(jsonPath("$.message").value("This account has been suspended. Contact support for assistance."));
 
         user.setStatus(User.STATUS_ACTIVE);
         userRepository.save(user);

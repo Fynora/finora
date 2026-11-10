@@ -254,6 +254,8 @@ describe('describeRefreshFailure', () => {
     expect(reasonFor('AUTH_005')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'idle-timeout' });
     expect(reasonFor('AUTH_006')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'max-age' });
     expect(reasonFor('AUTH_007')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'account-deactivated' });
+    expect(describeRefreshFailure({ response: { status: 403, data: { errorCode: 'AUTH_018' } } }))
+      .toEqual({ refreshHttpStatus: 403, refreshFailureReason: 'account-suspended' });
   });
 
   it('never sends the raw backend code, or a field named like one', () => {

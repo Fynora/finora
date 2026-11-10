@@ -38,7 +38,7 @@ const AUTH_RESPONSE = {
  *  this codebase use when there's no dedicated page already wired up to the flow being tested. */
 function Harness() {
   const {
-    token, email, fullName, phoneVerified, onboardingCompleted,
+    token, bootstrapping, email, fullName, phoneVerified, onboardingCompleted,
     login, register, loginWithGoogle, loginWithApple, logout, setOnboardingCompleted,
     loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
     referralPromptPending, dismissReferralPrompt,
@@ -46,6 +46,7 @@ function Harness() {
   return (
     <div>
       <p data-testid="token">{token ?? 'none'}</p>
+      <p data-testid="bootstrapping">{String(bootstrapping)}</p>
       <p data-testid="email">{email ?? 'none'}</p>
       <p data-testid="fullName">{fullName ?? 'none'}</p>
       <p data-testid="phoneVerified">{String(phoneVerified)}</p>
@@ -133,6 +134,35 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('fullName')).toHaveTextContent('Jane Doe');
     expect(screen.getByTestId('onboardingCompleted')).toHaveTextContent('true');
     expect(getAccessToken()).toBe('access-token-1');
+  });
+
+  // Privacy workstream 10: the account was suspended since this browser last had the page open, so
+  // the silent refresh on load is refused with AUTH_018. Still signed out, but the sign-in page is
+  // told why. An ordinary refusal leaves no reason behind.
+  it('leaves the sign-in page a reason when the refresh on load is refused because the account is suspended', async () => {
+    vi.mocked(authApi.refresh).mockReset().mockRejectedValue({
+      response: { status: 403, data: { message: 'This account has been suspended. Contact support for assistance.', errorCode: 'AUTH_018' } },
+    });
+
+    renderHarness();
+
+    await waitFor(() => expect(screen.getByTestId('bootstrapping')).toHaveTextContent('false'));
+    expect(localStorage.getItem('finora_session_ended_reason'))
+      .toBe('This account has been suspended. Sign in to see why and what you can do.');
+    expect(screen.getByTestId('token')).toHaveTextContent('none');
+  });
+
+  it('leaves no reason when the refresh on load fails for an ordinary reason', async () => {
+    vi.mocked(authApi.refresh).mockReset().mockRejectedValue({
+      response: { status: 401, data: { message: 'Refresh token expired', errorCode: 'AUTH_002' } },
+    });
+
+    renderHarness();
+
+    // bootstrapping turns false in the same effect's `finally`, after its `catch` has run.
+    await waitFor(() => expect(screen.getByTestId('bootstrapping')).toHaveTextContent('false'));
+    expect(authApi.refresh).toHaveBeenCalled();
+    expect(localStorage.getItem('finora_session_ended_reason')).toBeNull();
   });
 
   it('treats an explicitly stored false as unverified', () => {

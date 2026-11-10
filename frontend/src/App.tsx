@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { OnboardingUIProvider } from './onboarding/OnboardingUIContext';
+import { IdleSignOut } from './components/IdleSignOut';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageLoading } from './components/PageLoading';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -123,6 +124,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
     <ThemeProvider>
     <AuthProvider>
+    <IdleSignOut>
     <OnboardingUIProvider>
       {/* No `future` prop since the v7 upgrade: v7_startTransition and v7_relativeSplatPath were
           opt-in flags for exactly this migration and are now the only behaviour, so v7 removed the
@@ -248,6 +250,7 @@ export default function App() {
         </ErrorBoundary>
       </BrowserRouter>
     </OnboardingUIProvider>
+    </IdleSignOut>
     </AuthProvider>
     </ThemeProvider>
     </QueryClientProvider>

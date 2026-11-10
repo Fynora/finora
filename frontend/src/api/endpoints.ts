@@ -1,4 +1,5 @@
 import { api, rawApi, type ApiEnvelope } from './client';
+import { markActivity } from '../lib/idleSignOut';
 import type { SignupAttribution } from '../lib/signupAttribution';
 import { downloadBlob } from '../lib/download';
 import type { ConvertedStatement } from '../pages/converter/statementSheets';
@@ -579,14 +580,15 @@ interface PdfStagingSessionResult {
 // callers should treat 100% as "upload done, processing," not "fully complete."
 type ProgressCallback = (percent: number) => void;
 
-function toUploadProgressConfig(onProgress?: ProgressCallback) {
-  return onProgress
-    ? {
-        onUploadProgress: (e: { loaded: number; total?: number }) => {
-          if (e.total) onProgress(Math.round((e.loaded / e.total) * 100));
-        },
-      }
-    : {};
+// Every progress event also counts as activity for the idle sign-out (lib/idleSignOut.ts): a long
+// upload is the user waiting on Fynora, not the user gone, and must not end in a sign-out.
+export function toUploadProgressConfig(onProgress?: ProgressCallback) {
+  return {
+    onUploadProgress: (e: { loaded: number; total?: number }) => {
+      markActivity();
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
+    },
+  };
 }
 
 // heldForReviewJobId (both stage endpoints): set when the server's accuracy check held this statement

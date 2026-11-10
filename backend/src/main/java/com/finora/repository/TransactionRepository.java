@@ -950,6 +950,10 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             + "AND t.account_id IN (SELECT a.id FROM accounts a WHERE a.deleted_at IS NULL)", nativeQuery = true)
     long countLiveCreditsBySender(@Param("userId") UUID userId, @Param("key") String key);
 
+    /** A sender's credits still waiting for review: a sender-wide "what was it" answer reviews them. */
+    List<Transaction> findByUserIdAndCounterpartyKeyAndTxnTypeAndNeedsCategoryReviewTrue(
+            UUID userId, String counterpartyKey, Transaction.Type txnType);
+
     Optional<Transaction> findFirstByUserIdAndCounterpartyKeyOrderByTxnDateDesc(UUID userId, String counterpartyKey);
 
     /** One of a statement's transactions as a statement refresh sees it -- see findStatementRowsIncludingDeleted. */

@@ -197,11 +197,14 @@ public class QuickSortService {
                 g.rows.size(), g.total, anchor.getTxnDate(), largeOneOff, current, offered, samples);
     }
 
-    /** A credit the "what was it?" question owns: not counted as income yet, or already answered there. */
+    /**
+     * A credit the "what was it?" question owns: not counted as income until the user says what it
+     * was. Answering it there clears its review flag (InflowKindService.setChoice), so it never comes
+     * back here; a later payment from a sender already answered for is counted, and is asked its
+     * category here once, as any other waiting row.
+     */
     static boolean askedAsMoneyIn(Transaction t, com.finora.service.FlowTotals.Context flow) {
-        return t.getTxnType() == Transaction.Type.INCOME
-                && (com.finora.service.FlowTotals.isUnresolvedInflow(t, flow)
-                    || com.finora.service.FlowTotals.chosen(t, flow) != null);
+        return t.getTxnType() == Transaction.Type.INCOME && com.finora.service.FlowTotals.isUnresolvedInflow(t, flow);
     }
 
     static QuickSortDto.Kind kindOf(Transaction anchor) {

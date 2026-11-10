@@ -165,8 +165,18 @@ public class InflowKindService {
                 t.setInflowKindId(null);
                 transactions.save(t);
             }
+            // Saying what a sender's money was reviews every credit from them still waiting.
+            // Quick sort leaves unanswered credits to this question, so nothing else would clear
+            // the flag, and the "Needs Review" badge would stay on payments the user answered.
+            for (Transaction waiting : transactions.findByUserIdAndCounterpartyKeyAndTxnTypeAndNeedsCategoryReviewTrue(
+                    userId, key, Transaction.Type.INCOME)) {
+                waiting.setNeedsCategoryReview(false);
+                transactions.save(waiting);
+            }
         } else {
             t.setInflowKindId(kind.getId());
+            // Saying what this payment was is its review (see the sender branch above).
+            t.setNeedsCategoryReview(false);
             transactions.save(t);
         }
         return countsAs(userId, txnId);

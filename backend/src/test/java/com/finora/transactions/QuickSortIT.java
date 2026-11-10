@@ -386,6 +386,23 @@ class QuickSortIT extends AbstractIntegrationTest {
         assertThat(questionIds(batch(0))).containsExactly("vpa:samplea|EXPENSE");
     }
 
+    // The sender is remembered, so this later payment is already counted: nothing else asks about
+    // it, and leaving it out here too left its "Needs Review" badge on for good.
+    @Test
+    void theBatchAsksOnceAboutALaterPaymentFromASenderAlreadyAnsweredFor() throws Exception {
+        UUID first = moneyIn(user.getId(), "vpa:friend", 6000, CounterpartyType.PERSON);
+        JsonNode kinds = data(send(HttpMethod.GET, "/api/v1/inflow-kinds", null, user));
+        String family = null;
+        for (JsonNode k : kinds) if ("FAMILY_SUPPORT".equals(k.path("builtIn").asText())) family = k.get("id").asText();
+        assertThat(send(HttpMethod.PUT, "/api/v1/transactions/" + first + "/inflow-kind",
+                "{\"kindId\":\"" + family + "\",\"scope\":\"SENDER\"}", user).getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(questionIds(batch(0))).isEmpty();
+
+        moneyIn(user.getId(), "vpa:friend", 4000, CounterpartyType.PERSON);
+
+        assertThat(questionIds(batch(0))).containsExactly("vpa:friend|INCOME");
+    }
+
     @Test
     void theBatchStillAsksAboutMoneyInThatAlreadyCountsAsIncome() throws Exception {
         moneyIn(user.getId(), "vpa:sampleemployer", 50000, CounterpartyType.BUSINESS);

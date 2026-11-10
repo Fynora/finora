@@ -179,25 +179,14 @@ ACCEPTED = [
         "and delete this entry. Re-check at once if app code, or a runtime part of a package the "
         "app bundles, starts importing minimatch: repeat the sourcemap search above.",
     ),
-    Accepted(
-        "GHSA-gcqx-w48m-w2h4",
-        {"mobile"},
-        "deepmerge: mergeObject() allows prototype poisoning of returned objects",
-        "Reached only as @sentry/react-native -> @expo/config -> deepmerge (Expo's project-config "
-        "reader, a build-time tool) and, for tests, jest -> @jest/core -> jest-config -> deepmerge "
-        "(`npm ls deepmerge` lists exactly those two paths). The attack needs the attacker to "
-        "supply the objects being merged; here they are the developer's own configuration. "
-        "Measured 2026-10-30: `npx expo export --platform android` on this lockfile, then a search "
-        "of the Hermes bytecode for deepmerge's own names (isMergeableObject, "
-        "cloneUnlessOtherwiseSpecified, arrayMerge, customMerge) found none, while a string known "
-        "to be in the app (the sign-in heading) was found, so the search does see the bundle's "
-        "strings. No patched version exists (affected: >= 4.2.0, <= 4.3.1, the latest). The "
-        "remediation npm offers, expo@51, is a downgrade across five major versions and is not a "
-        "fix.",
-        "When deepmerge publishes a release after 4.3.1 that fixes this, update the lockfile and "
-        "delete this entry. Re-check at once if app code, or a runtime part of a package the app "
-        "bundles, starts importing deepmerge or @expo/config: repeat the bundle search above.",
-    ),
+    # GHSA-gcqx-w48m-w2h4 (deepmerge: mergeObject() prototype poisoning) was accepted here for mobile
+    # from 2026-10-30 and removed on 2026-11-10: the npm-minor-and-patch group bump (#2498) dropped
+    # the @sentry/react-native -> @expo/config -> deepmerge path, so deepmerge 4.3.1 is now marked
+    # `dev` in mobile/package-lock.json and its only dependent there is jest-config (test tooling).
+    # `npm audit` still reports the advisory -- nothing was fixed (it has no patched version and
+    # 4.3.1 is the latest) -- but it no longer reaches shipped code, which is all this check lists,
+    # and main's CI failed with "STALE ALLOWLIST ENTRY" on the merge commit until this was removed.
+    # If a shipped path to deepmerge comes back, this check fails again and the entry belongs here.
     # GHSA-vfj7-8cjw-p6xm (braces: stack-exhaustion denial of service) was accepted here for mobile
     # from 2026-10-03 and removed on 2026-10-23: GitHub WITHDREW the advisory at 12:53 UTC that day
     # (its title now begins "Withdrawn Advisory"), `npm audit` stopped reporting it, and this check

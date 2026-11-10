@@ -32,11 +32,34 @@ public class InflowReviewService {
     @Transactional(readOnly = true)
     public List<InflowDtos.UnresolvedSenderDto> groups(UUID userId, LocalDate from, LocalDate to) {
         ReportService.UnresolvedRows unresolved = reportService.unresolvedInflows(userId, from, to);
+        return group(userId, unresolved.rows(), unresolved.accounts());
+    }
+
+    /**
+     * The money not counted as income among the rows one statement import added -- what the import
+     * Done step asks about. By import, not by dates: a CSV statement prints no period, and a date
+     * range would also list credits other statements added on the same days. Another user's import
+     * id lists nothing.
+     */
+    @Transactional(readOnly = true)
+    public List<InflowDtos.UnresolvedSenderDto> groupsForImport(UUID userId, UUID statementImportId) {
+        List<Transaction> importRows = transactions.findByStatementImportId(statementImportId).stream()
+                .filter(t -> userId.equals(t.getUserId())).toList();
+        if (importRows.isEmpty()) return List.of();
+        LocalDate from = importRows.stream().map(Transaction::getTxnDate).min(Comparator.naturalOrder()).orElseThrow();
+        LocalDate to = importRows.stream().map(Transaction::getTxnDate).max(Comparator.naturalOrder()).orElseThrow();
+        ReportService.UnresolvedRows unresolved = reportService.unresolvedInflows(userId, from, to);
+        List<Transaction> fromThisImport = unresolved.rows().stream()
+                .filter(t -> statementImportId.equals(t.getStatementImportId())).toList();
+        return group(userId, fromThisImport, unresolved.accounts());
+    }
+
+    private List<InflowDtos.UnresolvedSenderDto> group(UUID userId, List<Transaction> unresolvedRows, List<Account> accounts) {
         Map<UUID, String> accountNames = new HashMap<>();
-        for (Account a : unresolved.accounts()) accountNames.put(a.getId(), a.getName());
+        for (Account a : accounts) accountNames.put(a.getId(), a.getName());
 
         Map<String, List<Transaction>> bySender = new LinkedHashMap<>();
-        for (Transaction t : unresolved.rows()) {
+        for (Transaction t : unresolvedRows) {
             String key = t.getCounterpartyKey();
             // A row whose key names no one sender -- none at all, or a masked, cut or gateway id
             // shared by different senders -- cannot share a rule, so it is its own group.

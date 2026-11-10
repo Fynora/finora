@@ -248,7 +248,22 @@ public record DashboardSummaryDto(
          * summed from zero off statements with no closing balance. A client says so under the
          * totals. Zero when none.
          */
-        int cardsWithUnknownAmountOwed
+        int cardsWithUnknownAmountOwed,
+
+        /*
+         * The newest day with a transaction in reportingMonth, across the user's live accounts:
+         * the cards name the days they cover ("1-8 Nov") instead of only "This Month". Null when
+         * there is no reporting month or it has no rows.
+         */
+        LocalDate figuresThrough,
+
+        /*
+         * The first day of reportingMonth the figures cover: the 1st, unless every account with rows
+         * that month has printed statements that start later (a first statement from the 20th reads
+         * "20–30 Nov"). Never after a counted row. See StatementReachService.firstCoveredDay. Null
+         * with figuresThrough.
+         */
+        LocalDate figuresFrom
 ) {
     @Schema(name = "DashboardSummaryCategoryMover")
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}

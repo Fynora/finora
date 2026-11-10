@@ -2,12 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { inflowApi, type ChoiceScope, type InflowKind, type UnresolvedSender } from '../api/endpoints';
 import { Button, FinoraCard } from '../design-system';
-import { InflowKindPicker } from '../components/inflow/InflowKindPicker';
+import { UnresolvedSenderRow } from '../components/inflow/UnresolvedSenderRow';
 import { useInvalidateMoneyFigures } from '../lib/invalidateMoneyFigures';
-
-function fmt(n: number) {
-  return (n < 0 ? '-₹' : '₹') + Math.round(Math.abs(n)).toLocaleString('en-IN');
-}
 
 /** First and last day of the current calendar month, as YYYY-MM-DD -- used when the page is opened
  *  without a period (a bookmark, or the Reports link of an older build). */
@@ -29,8 +25,6 @@ export default function MoneyReview() {
   const [senders, setSenders] = useState<UnresolvedSender[] | null>(null);
   const [kinds, setKinds] = useState<InflowKind[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [picked, setPicked] = useState<InflowKind | null>(null);
-  const [oneRow, setOneRow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ transactionId: string; scope: ChoiceScope; label: string } | null>(null);
@@ -45,22 +39,13 @@ export default function MoneyReview() {
     inflowApi.kinds().then(setKinds).catch(() => setError("Couldn't load your kinds."));
   }, [load]);
 
-  function toggle(s: UnresolvedSender) {
-    setOpenId(openId === s.sampleTransactionId ? null : s.sampleTransactionId);
-    setPicked(null);
-    setOneRow(false);
-  }
-
-  async function apply(transactionId: string, scope: ChoiceScope, label: string) {
-    if (!picked) return;
+  async function apply(transactionId: string, kindId: string, scope: ChoiceScope, label: string) {
     setBusy(true);
     setError(null);
     try {
-      await inflowApi.setChoice(transactionId, picked.id, scope);
+      await inflowApi.setChoice(transactionId, kindId, scope);
       setUndo({ transactionId, scope, label });
       setOpenId(null);
-      setPicked(null);
-      setOneRow(false);
       load();
       invalidateMoneyFigures();
     } catch (e: unknown) {
@@ -101,58 +86,20 @@ export default function MoneyReview() {
         <FinoraCard><p className="text-ink text-sm text-center py-6">Everything's sorted</p></FinoraCard>
       )}
       {senders?.map((s) => (
-        <FinoraCard key={s.sampleTransactionId}>
-          <button type="button" className="w-full text-left" aria-expanded={openId === s.sampleTransactionId} onClick={() => toggle(s)}>
-            <div className="flex justify-between gap-2">
-              <span className="text-ink text-sm font-medium truncate">{s.label}</span>
-              <span className="text-ink text-sm">{fmt(s.total)}</span>
-            </div>
-            <p className="text-xs text-muted">
-              {s.count} {s.count === 1 ? 'payment' : 'payments'} · latest {s.latestDate}{s.accountName ? ` · ${s.accountName}` : ''}
-            </p>
-          </button>
-          {openId === s.sampleTransactionId && (
-            <div className="mt-3 space-y-3">
-              <InflowKindPicker
-                kinds={kinds}
-                selectedId={picked?.id ?? null}
-                onPick={setPicked}
-                busy={busy}
-                onCreate={async (name, countsAsIncome) => {
-                  const created = await inflowApi.createKind(name, countsAsIncome);
-                  setKinds([...kinds, created]);
-                  setPicked(created);
-                }}
-              />
-              {picked && !oneRow && (
-                <div className="flex flex-wrap gap-2">
-                  {s.senderKnown && (
-                    <Button size="sm" loading={busy} onClick={() => apply(s.sampleTransactionId, 'SENDER', s.label)}>
-                      {`Every payment from ${s.label} (${s.senderPaymentCount})`}
-                    </Button>
-                  )}
-                  <Button size="sm" variant={s.senderKnown ? 'secondary' : 'primary'} disabled={busy}
-                    onClick={() => (s.rows.length === 1 ? apply(s.rows[0].id, 'ROW', s.label) : setOneRow(true))}>
-                    Just this one
-                  </Button>
-                </div>
-              )}
-              {picked && oneRow && (
-                <ul className="space-y-1">
-                  {s.rows.map((r) => (
-                    <li key={r.id}>
-                      <button type="button" disabled={busy}
-                        className="w-full flex justify-between text-sm text-ink hover:bg-bg rounded px-2 py-1"
-                        onClick={() => apply(r.id, 'ROW', s.label)}>
-                        <span>{r.date}</span><span>{fmt(r.amount)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </FinoraCard>
+        <UnresolvedSenderRow
+          key={s.sampleTransactionId}
+          sender={s}
+          kinds={kinds}
+          open={openId === s.sampleTransactionId}
+          onToggle={() => setOpenId(openId === s.sampleTransactionId ? null : s.sampleTransactionId)}
+          busy={busy}
+          onApply={apply}
+          onCreateKind={async (name, countsAsIncome) => {
+            const created = await inflowApi.createKind(name, countsAsIncome);
+            setKinds((k) => [...k, created]);
+            return created;
+          }}
+        />
       ))}
     </div>
   );

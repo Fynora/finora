@@ -60,8 +60,16 @@ class QuickSortServiceTest {
                 "Shopping", "Transport", "Health", "Salary", "Gifts & Donations", "Transfer", "Rent")) {
             category(name);
         }
+        // A real flow context with no "what was it" answers: the rows here are expenses, which the
+        // money-in filter never touches (QuickSortIT covers the credits it leaves out).
+        // Built before the stub: it reads the mocked account, and reading a mock inside when(...)
+        // leaves Mockito with an unfinished stubbing.
+        com.finora.service.FlowTotals.Context flow = com.finora.service.FlowTotals.context(
+                List.of(account), categories, new com.finora.service.InflowChoices(Map.of(), Map.of()));
+        com.finora.service.InflowChoiceService inflowChoices = mock(com.finora.service.InflowChoiceService.class);
+        when(inflowChoices.contextFor(eq(userId), any(), any())).thenReturn(flow);
         service = new QuickSortService(transactionRepository, accountRepository, categoryRepository,
-                mock(TransactionService.class), mock(com.finora.observability.QuickSortMetrics.class));
+                mock(TransactionService.class), mock(com.finora.observability.QuickSortMetrics.class), inflowChoices);
         ReflectionTestUtils.setField(service, "coverageTarget", new BigDecimal("0.80"));
         ReflectionTestUtils.setField(service, "maxQuestions", 10);
     }

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { AnimatedNumber } from '../AnimatedNumber';
 import { DashboardCard } from './DashboardCard';
@@ -15,6 +16,9 @@ export interface KpiItem {
   invert: boolean;
   caption: string | null;
   isPercent: boolean;
+  /** Extra content at the bottom of the tile, outside its grouped accessibility label so a link in
+   *  it stays its own control -- the Dashboard's Income tile puts the money not counted here. */
+  footer?: ReactNode;
 }
 
 // A half-width tile on a 360 point phone has about 122 points for its number; ten characters of
@@ -88,6 +92,7 @@ export function LedgerSnapshotCard({
                   <Text style={[typography.caption, { color: c.mutedInk }]}>{k.caption}</Text>
                 ) : null}
               </View>
+              {k.footer ?? null}
             </DashboardCard>
           );
         })}

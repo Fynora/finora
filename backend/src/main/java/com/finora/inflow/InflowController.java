@@ -1,10 +1,13 @@
 package com.finora.inflow;
 
 import com.finora.dto.ApiResponse;
+import com.finora.exception.ApiException;
+import com.finora.exception.ErrorCode;
 import com.finora.security.CurrentUser;
 import com.finora.service.InflowChoices;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -75,10 +78,20 @@ public class InflowController {
         return ApiResponse.ok(null);
     }
 
+    /** Either one statement import's money not counted as income (the import Done step), or a date
+     *  range's (Money Review). Exactly one of the two must be given. */
     @GetMapping("/transactions/unresolved-inflows")
     public ApiResponse<List<InflowDtos.UnresolvedSenderDto>> listUnresolvedInflows(
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
-        return ApiResponse.ok(review.groups(currentUser.id(), startDate, endDate));
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) UUID statementImportId) {
+        if (statementImportId != null && startDate == null && endDate == null) {
+            return ApiResponse.ok(review.groupsForImport(currentUser.id(), statementImportId));
+        }
+        if (statementImportId == null && startDate != null && endDate != null) {
+            return ApiResponse.ok(review.groups(currentUser.id(), startDate, endDate));
+        }
+        throw new ApiException(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR,
+                "Give either statementImportId, or both startDate and endDate");
     }
 }

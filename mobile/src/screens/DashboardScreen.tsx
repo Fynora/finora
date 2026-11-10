@@ -415,6 +415,34 @@ export function DashboardScreen() {
   // step with those two.
   const chartWidth = width - spacing.ml * 2 - spacing.ml * 2;
 
+  // Money that came in this reporting month but is not counted in Income -- a transfer from a
+  // person, an unexplained credit on a card (FlowClassifier). It sits on the Income tile itself:
+  // as a separate card under the figures, a user comparing Income with their statement missed it.
+  // The link opens the review screen (Plan 2); mirrors frontend/src/pages/Dashboard.tsx.
+  const incomeNotCounted = summary && summary.unresolvedInflowCount > 0 ? (
+    <View style={[styles.notCounted, { borderTopColor: c.border }]} testID="income-not-counted">
+      <Text style={[typography.labelS, { color: c.warningInk }]}>
+        + {fmtCurrency(summary.unresolvedInflow)} not counted yet
+      </Text>
+      {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
+        <Text style={[typography.caption, { color: c.mutedInk }]}>
+          {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
+        </Text>
+      ) : null}
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="Tell us what it is"
+        hitSlop={8}
+        onPress={() => {
+          trackNavigation('money-review', 'contextual');
+          navigation.navigate('More', { screen: 'MoneyReview', params: monthParams(summary.reportingMonth) });
+        }}
+      >
+        <Text style={[typography.labelS, { color: c.primary }]}>Tell us what it is</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
   return (
     <>
     {/* GlassScreen wraps the ScrollView rather than living inside it: the mesh backdrop must stay
@@ -599,38 +627,13 @@ export function DashboardScreen() {
 
       <View style={styles.section}>
         {summary ? (
-          <LedgerSnapshotCard kpis={snapshotKpis} title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} note={soFarNote} />
+          <LedgerSnapshotCard
+            kpis={snapshotKpis.map((k) => (k.label === 'Income' && incomeNotCounted ? { ...k, footer: incomeNotCounted } : k))}
+            title={periodTitle} deltaLabel={deltaLabel} deltaSpokenLabel={deltaSpokenLabel} note={soFarNote}
+          />
         ) : (
           <SkeletonGroup><SkeletonKpiGrid /></SkeletonGroup>
         )}
-        {/* Money that came in this reporting month but is not counted in Income -- a transfer from
-            a person, an unexplained credit on a card (see FlowClassifier on the backend). Without
-            it, income that drops because a parent's transfer stopped counting drops with no
-            explanation. Pressing it opens the review screen (Plan 2); mirrors frontend/src/pages/Dashboard.tsx. */}
-        {summary && summary.unresolvedInflowCount > 0 ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Review money not counted yet"
-            onPress={() => {
-              trackNavigation('money-review', 'contextual');
-              navigation.navigate('More', { screen: 'MoneyReview', params: monthParams(summary.reportingMonth) });
-            }}
-          >
-            <Card style={styles.unresolvedBanner} testID="unresolved-inflow-banner">
-              <Text style={[typography.labelM, { color: c.ink }]}>
-                {summary.unresolvedInflowCount}{' '}
-                {summary.unresolvedInflowCount === 1 ? 'transaction needs' : 'transactions need'} classification
-                {' · '}{fmtCurrency(summary.unresolvedInflow)} not counted as income
-              </Text>
-              {summary.unresolvedTopReason && UNRESOLVED_REASON_LINE[summary.unresolvedTopReason] ? (
-                <Text style={[typography.bodyS, { color: c.mutedInk }]}>
-                  {UNRESOLVED_REASON_LINE[summary.unresolvedTopReason]}
-                </Text>
-              ) : null}
-              <Text style={[typography.labelS, { color: c.primary }]}>Review these payments</Text>
-            </Card>
-          </Pressable>
-        ) : null}
       </View>
 
       {/* Renders nothing at all without monthly data: CashFlowMiniCard returns null then, and a
@@ -1244,7 +1247,7 @@ const styles = StyleSheet.create({
   coverageBanner: { marginBottom: spacing.md, borderRadius: radius.xxl, gap: 2 },
   // Phase 4.
   limitedHistoryBanner: { marginBottom: spacing.md, borderRadius: radius.xxl, gap: 2 },
-  unresolvedBanner: { marginTop: spacing.md, borderRadius: radius.xxl, gap: 2 },
+  notCounted: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: 2 },
 });
 
 // The unresolved-inflow banner's second line, keyed by the backend's FlowReason name. Any other

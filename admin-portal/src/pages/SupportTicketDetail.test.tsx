@@ -176,6 +176,14 @@ describe('SupportTicketDetail', () => {
     expect(await screen.findByText('Reproduced on Android 1.3.7')).toBeInTheDocument();
   });
 
+  // The server refuses a longer note (support break-test, 2026-11-10); the box stops typing there.
+  it('limits an internal note to 10,000 characters', async () => {
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    expect(screen.getByPlaceholderText(/add a note/i)).toHaveAttribute('maxLength', '10000');
+  });
+
   it('downloads an attachment by filename, not by re-deriving it from the id', async () => {
     const user = userEvent.setup();
     vi.mocked(adminSupportTicketApi.get).mockResolvedValue({

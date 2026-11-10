@@ -28278,6 +28278,10 @@
                     "figuresThrough": {
                         "type": "string",
                         "format": "date"
+                    },
+                    "figuresFrom": {
+                        "type": "string",
+                        "format": "date"
                     }
                 }
             },

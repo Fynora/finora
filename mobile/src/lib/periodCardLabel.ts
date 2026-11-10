@@ -12,19 +12,23 @@ function parts(date: string): [number, number, number] {
 }
 
 /**
- * "1–8 Nov" while the month is partly covered, "1 Nov" for its first day only, "November" once the
- * data reaches the month's last day. `withYear` adds the year ("1–20 Aug 2025", "August 2025") for a
- * month that is not the current one, which the old "Aug 25" label also named. `fallback` when there
- * is no month, no date, or the date is not in that month (an older server, or an empty account).
+ * "1–8 Nov" while the month is partly covered, "20–30 Nov" when statements only start on the 20th,
+ * "8 Nov" for a single day, "November" for the whole month. `withYear` adds the year ("1–20 Aug
+ * 2025", "August 2025") for a month that is not the current one, which the old "Aug 25" label also
+ * named. `figuresFrom` is the first covered day (the 1st when missing or outside the month).
+ * `fallback` when there is no month, no end date, or the end date is not in that month (an older
+ * server, or an empty account).
  */
 export function monthCardLabel(reportingMonth: string | null | undefined,
-  figuresThrough: string | null | undefined, fallback: string, withYear = false): string {
+  figuresThrough: string | null | undefined, fallback: string, withYear = false,
+  figuresFrom?: string | null): string {
   if (!reportingMonth || !figuresThrough || !figuresThrough.startsWith(`${reportingMonth}-`)) return fallback;
   const [y, m, d] = parts(figuresThrough);
+  const from = figuresFrom && figuresFrom.startsWith(`${reportingMonth}-`) ? Math.min(parts(figuresFrom)[2], d) : 1;
   const year = withYear ? ` ${y}` : '';
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  if (d >= daysInMonth) return `${LONG[m - 1]}${year}`;
-  return d === 1 ? `1 ${SHORT[m - 1]}${year}` : `1–${d} ${SHORT[m - 1]}${year}`;
+  if (from === 1 && d >= daysInMonth) return `${LONG[m - 1]}${year}`;
+  return from === d ? `${d} ${SHORT[m - 1]}${year}` : `${from}–${d} ${SHORT[m - 1]}${year}`;
 }
 
 /** "Jun–Nov 2026", "Dec 2025–Feb 2026", or "Nov 2026" for a range inside one month. */

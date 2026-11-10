@@ -11624,6 +11624,8 @@ export interface components {
             cardsWithUnknownAmountOwed?: number;
             /** Format: date */
             figuresThrough?: string;
+            /** Format: date */
+            figuresFrom?: string;
         };
         DetectedDuplicate: {
             /** Format: uuid */

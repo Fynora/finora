@@ -2125,6 +2125,15 @@ describe('Dashboard — cards name their days and show money not counted', () =>
     expect(await screen.findByText('Income · 1–20 Aug 2025')).toBeInTheDocument();
   });
 
+  it('starts the cards on the day the statements start when that is mid-month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2026-11', reportingMonthIsCurrent: true, figuresFrom: '2026-11-20', figuresThrough: '2026-11-30',
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('Income · 20–30 Nov')).toBeInTheDocument();
+  });
+
   it('labels a preset range with its months', async () => {
     await renderOnRange('LAST_6_MONTHS');
 

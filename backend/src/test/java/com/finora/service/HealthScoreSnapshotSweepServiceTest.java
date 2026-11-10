@@ -64,6 +64,7 @@ class HealthScoreSnapshotSweepServiceTest {
                 null,
                 null,
                 0,
+                null,
                 null
         );
     }

@@ -24,6 +24,17 @@ describe('monthCardLabel', () => {
     expect(monthCardLabel('2025-08', '2025-08-31', 'Aug 25', true)).toBe('August 2025');
     expect(monthCardLabel('2025-08', '2025-08-01', 'Aug 25', true)).toBe('1 Aug 2025');
   });
+  it('starts on the first covered day when statements start mid-month', () => {
+    expect(monthCardLabel('2026-11', '2026-11-30', 'This Month', false, '2026-11-20')).toBe('20–30 Nov');
+    expect(monthCardLabel('2026-11', '2026-11-25', 'This Month', false, '2026-11-20')).toBe('20–25 Nov');
+    expect(monthCardLabel('2026-11', '2026-11-20', 'This Month', false, '2026-11-20')).toBe('20 Nov');
+    expect(monthCardLabel('2025-08', '2025-08-31', 'Aug 25', true, '2025-08-12')).toBe('12–31 Aug 2025');
+  });
+  it('treats a missing or out-of-month start as the 1st', () => {
+    expect(monthCardLabel('2026-11', '2026-11-30', 'This Month', false, null)).toBe('November');
+    expect(monthCardLabel('2026-11', '2026-11-30', 'This Month', false, '2026-11-01')).toBe('November');
+    expect(monthCardLabel('2026-11', '2026-11-08', 'This Month', false, '2026-10-20')).toBe('1–8 Nov');
+  });
   it('falls back when the date is outside the month', () => {
     expect(monthCardLabel('2026-11', '2026-10-31', 'This Month')).toBe('This Month');
   });

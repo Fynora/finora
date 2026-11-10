@@ -23,6 +23,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -586,6 +587,29 @@ class DashboardServiceTest {
 
         assertThat(summary.reportingMonth()).isEqualTo("2026-11");
         assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 11, 8));
+    }
+
+    @Test
+    @DisplayName("figuresFrom: the first covered day, asked with each account's earliest row that month")
+    void figuresFromIsTheFirstCoveredDayOfTheReportingMonth() {
+        UUID accountA = UUID.randomUUID();
+        Transaction a1 = txn(new BigDecimal("50.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 22), Transaction.ReconciliationStatus.OK);
+        Transaction a2 = txn(new BigDecimal("60.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 21), Transaction.ReconciliationStatus.OK);
+        Transaction september = txn(new BigDecimal("70.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 9, 2), Transaction.ReconciliationStatus.OK);
+        a1.setAccountId(accountA);
+        a2.setAccountId(accountA);
+        september.setAccountId(accountA);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(a1, a2, september));
+        when(statementReach.firstCoveredDay(userId, java.time.YearMonth.of(2026, 10),
+                Map.of(accountA, LocalDate.of(2026, 10, 21)))).thenReturn(LocalDate.of(2026, 10, 20));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        org.mockito.ArgumentCaptor<Map<UUID, LocalDate>> asked = org.mockito.ArgumentCaptor.captor();
+        org.mockito.Mockito.verify(statementReach).firstCoveredDay(eq(userId), any(), asked.capture());
+        assertThat(asked.getValue()).isEqualTo(Map.of(accountA, LocalDate.of(2026, 10, 21)));
+        assertThat(summary.figuresFrom()).isEqualTo(LocalDate.of(2026, 10, 20));
+        assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 10, 22));
     }
 
     @Test

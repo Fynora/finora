@@ -195,6 +195,8 @@ export interface DashboardSummary {
   // Newest day with a row in reportingMonth (YYYY-MM-DD): the cards say "1-8 Nov". Optional: an
   // older server does not send it, and then the cards keep "This Month".
   figuresThrough?: string | null;
+  // First covered day of reportingMonth: the 1st unless statements start later ("20–30 Nov").
+  figuresFrom?: string | null;
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;

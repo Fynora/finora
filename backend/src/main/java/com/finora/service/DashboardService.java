@@ -396,7 +396,12 @@ public class DashboardService {
                 // the statements cover.
                 currentMonth == null ? null : active.stream().map(Transaction::getTxnDate)
                         .filter(d -> YearMonth.from(d).toString().equals(currentMonth))
-                        .max(Comparator.naturalOrder()).orElse(null)
+                        .max(Comparator.naturalOrder()).orElse(null),
+                currentMonth == null ? null : statementReach.firstCoveredDay(userId, YearMonth.parse(currentMonth),
+                        active.stream().filter(t -> t.getAccountId() != null
+                                        && YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
+                                .collect(java.util.stream.Collectors.toMap(Transaction::getAccountId, Transaction::getTxnDate,
+                                        (x, y) -> x.isBefore(y) ? x : y)))
         );
     }
 

@@ -23,7 +23,7 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     // Names the days the figures cover ("1–8 Nov") when the server says how far they reach, so a
     // month whose statements stop on the 8th is not read as the whole month.
     const periodTitle = monthCardLabel(summary?.reportingMonth, summary?.figuresThrough,
-      periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!), !periodIsCurrent);
+      periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!), !periodIsCurrent, summary?.figuresFrom);
     const deltaLabel = periodIsCurrent
       ? 'vs last month'
       : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;

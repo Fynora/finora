@@ -34,3 +34,12 @@ export function clientPlatform(): 'MOBILE_IOS' | 'MOBILE_ANDROID' | 'WEB' {
 
 export const PLATFORM_HEADER = 'X-Client-Platform';
 export const VERSION_HEADER = 'X-App-Version';
+
+/**
+ * Tells the server this build requires a PIN to open the app, so a sign-in from it gets a phone
+ * session (90 days unused) instead of the 24-hour web limit. The server reads it only at sign-in
+ * and copies the result on every refresh -- see the backend's ClientIdentity and
+ * RefreshTokenService. Older builds never send it and keep the 24-hour rule.
+ */
+export const APP_LOCK_HEADER = 'X-App-Lock';
+export const APP_LOCK_PIN = 'pin';

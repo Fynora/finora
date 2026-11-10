@@ -342,3 +342,111 @@ describe('a failed session refresh is recorded before signing out', () => {
     now.mockRestore();
   });
 });
+
+/**
+ * verifySession: one refresh before the app asks for the PIN or Face ID on a cold start, so a
+ * session the server has already ended goes straight to the sign-in screen instead of being
+ * unlocked first (design 2026-11-10, section 4). Only a definite answer from the server ends the
+ * session here; no answer at all, or a server error, keeps it, because the app also works offline.
+ */
+describe('verifySession', () => {
+  type Adapter = (config: { url?: string }) => Promise<unknown>;
+  let client: typeof import('./client');
+  let secureStore: { __store: Map<string, string> };
+  let expired: jest.Mock;
+
+  function respondWith(adapter: Adapter) {
+    client.rawApi.defaults.adapter = adapter as never;
+  }
+
+  function httpError(status: number, errorCode: string) {
+    return (config: unknown) =>
+      Promise.reject(Object.assign(new Error(`HTTP ${status}`), {
+        config,
+        response: { status, data: { message: 'x', errorCode } },
+      }));
+  }
+
+  beforeEach(() => {
+    jest.resetModules();
+    client = require('./client');
+    secureStore = require('expo-secure-store');
+    secureStore.__store.clear();
+    secureStore.__store.set('finora_token', 'old-access');
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'old-refresh');
+    expired = jest.fn();
+    client.setSessionCallbacks({ onSessionExpired: expired });
+  });
+
+  it('returns alive and stores the rotated pair', async () => {
+    respondWith((config) => Promise.resolve({
+      config, status: 200, statusText: 'OK', headers: {},
+      data: { success: true, data: { token: 'new-access', refreshToken: 'new-refresh' } },
+    }));
+
+    await expect(client.verifySession()).resolves.toBe('alive');
+
+    expect(secureStore.__store.get('finora_token')).toBe('new-access');
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('new-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('returns ended and clears the session when the server refuses the refresh', async () => {
+    respondWith(httpError(401, 'AUTH_005'));
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(secureStore.__store.has('finora_token')).toBe(false);
+    expect(secureStore.__store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns ended when there is no stored refresh token', async () => {
+    secureStore.__store.delete(REFRESH_TOKEN_KEY);
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns offline and keeps the tokens on a network error', async () => {
+    respondWith((config) => Promise.reject(Object.assign(new Error('Network Error'), { config })));
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('old-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it('returns offline on a timeout', async () => {
+    respondWith((config) => Promise.reject(Object.assign(new Error('timeout of 30000ms exceeded'), {
+      config, code: 'ECONNABORTED',
+    })));
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+    expect(expired).not.toHaveBeenCalled();
+  });
+
+  it.each([500, 502, 503, 429])('returns offline and keeps the session on HTTP %s', async (status) => {
+    respondWith(httpError(status, 'SERVER'));
+
+    await expect(client.verifySession()).resolves.toBe('offline');
+
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('old-refresh');
+    expect(expired).not.toHaveBeenCalled();
+  });
+});
+
+describe('X-App-Lock header', () => {
+  it('is sent as "pin" on every request, so a sign-in from this build gets a phone session', async () => {
+    jest.resetModules();
+    const { api } = require('./client') as typeof import('./client');
+    const handler = (api.interceptors.request as unknown as {
+      handlers: { fulfilled: (c: unknown) => Promise<{ headers: Record<string, string> }> }[];
+    }).handlers[0].fulfilled;
+
+    const config = await handler({ url: '/auth/login', headers: {} });
+
+    expect(config.headers['X-App-Lock']).toBe('pin');
+  });
+});

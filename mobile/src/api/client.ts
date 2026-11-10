@@ -2,7 +2,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { safeStorage } from '../lib/safeStorage';
 import { reportHandledEvent } from '../lib/monitoring';
-import { APP_VERSION, PLATFORM_HEADER, VERSION_HEADER, clientPlatform } from '../lib/clientIdentity';
+import { APP_LOCK_HEADER, APP_LOCK_PIN, APP_VERSION, PLATFORM_HEADER, VERSION_HEADER, clientPlatform } from '../lib/clientIdentity';
 
 // Same fixup as the web app's client.ts: whatever EXPO_PUBLIC_API_BASE_URL is set to always
 // resolves to exactly one /api/v1 suffix, whether or not the value already includes it.
@@ -100,6 +100,7 @@ async function attachClientHeaders(config: any) {
   // that drifts -- the same shape the web client uses. See lib/clientIdentity.ts.
   config.headers[PLATFORM_HEADER] = clientPlatform();
   config.headers[VERSION_HEADER] = APP_VERSION;
+  config.headers[APP_LOCK_HEADER] = APP_LOCK_PIN;
   return config;
 }
 
@@ -361,6 +362,33 @@ function refreshAccessToken(): Promise<RefreshedPair> {
       .catch(() => {});
   }
   return refreshInFlight;
+}
+
+/**
+ * One refresh, to learn whether the saved session is still alive before the app asks for the PIN
+ * or Face ID on a cold start. The bootstrap restores a saved session without asking the server, so
+ * without this a session the server had already ended was unlocked first and only then sent to the
+ * sign-in screen (design 2026-11-10, section 4).
+ *
+ * - 'alive': the server rotated the pair (stored, exactly as any refresh does).
+ * - 'ended': the server answered and refused it, or there was nothing to present. The session is
+ *   cleared the same way a failed refresh after a 401 clears it.
+ * - 'offline': no answer, a timeout, rate limiting or a server error. Nothing is cleared -- the app
+ *   works on cached data offline, and a session that really has ended is caught by the next 401.
+ */
+export async function verifySession(): Promise<'alive' | 'ended' | 'offline'> {
+  try {
+    await refreshAccessToken();
+    return 'alive';
+  } catch (err) {
+    if (err instanceof SessionEndedError) return 'ended';
+    const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
+    const noToken = err instanceof Error && err.message === NO_REFRESH_TOKEN_MESSAGE;
+    const refused = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429;
+    if (!noToken && !refused) return 'offline';
+    await clearSessionAndRedirect(endedDeliberately(err));
+    return 'ended';
+  }
 }
 
 async function removeIfStill(key: string, value: string) {

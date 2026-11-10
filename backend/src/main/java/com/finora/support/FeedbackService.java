@@ -48,6 +48,9 @@ public class FeedbackService {
 
     @Transactional
     public FeedbackDto.Summary submit(UUID userId, FeedbackEntry.Type type, FeedbackEntry.Context context, String message) {
+        // One at a time per account, so the daily ceiling counts every earlier entry -- see
+        // SupportTicketService.createTicket for the same lock and why.
+        SubmissionLock.acquire(userRepository, userId);
         submissionLimiter.requireFeedbackAllowance(userId);
         FeedbackEntry entry = new FeedbackEntry();
         entry.setUserId(userId);

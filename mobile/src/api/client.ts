@@ -179,8 +179,13 @@ export function describeRefreshFailure(err: unknown): { refreshHttpStatus: numbe
  * product decision, 2026-10-05.
  */
 function endedDeliberately(err: unknown): boolean {
-  const code = (err as { response?: { data?: { errorCode?: unknown } } } | null)?.response?.data?.errorCode;
+  const code = refreshErrorCode(err);
   return code === 'AUTH_004' || code === 'AUTH_007';
+}
+
+/** The backend's error code on a rejected refresh, or undefined. */
+function refreshErrorCode(err: unknown): unknown {
+  return (err as { response?: { data?: { errorCode?: unknown } } } | null)?.response?.data?.errorCode;
 }
 
 // The backend's refresh rejections, as plain words. The first production report of a refresh
@@ -194,6 +199,7 @@ const REFRESH_REASON_LABELS: Record<string, string> = {
   AUTH_005: 'idle-timeout',
   AUTH_006: 'max-age',
   AUTH_007: 'account-deactivated',
+  AUTH_018: 'account-suspended',
 };
 
 function refreshReasonLabel(errorCode: unknown): string {
@@ -416,6 +422,10 @@ api.interceptors.response.use(
         // The session this request belonged to ended while the refresh ran. Nothing to report and
         // nothing to clear: storage may already hold the next session.
         if (refreshErr instanceof SessionEndedError) return Promise.reject(error);
+        // Every request waiting on the same refused refresh lands here. The first one ends the
+        // session (markSessionEnded runs synchronously inside clearSessionAndRedirect); the rest
+        // belong to a session that has already ended, so they sign nothing out a second time.
+        if ((originalRequest._sessionEpoch ?? sessionEpoch) !== sessionEpoch) return Promise.reject(error);
         // An info event, not an error: an idle or expired session ending is routine. It exists so the
         // reason is on record the next time someone is signed out unexpectedly.
         const now = Date.now();
@@ -423,7 +433,11 @@ api.interceptors.response.use(
           lastRefreshFailureReportedAt = now;
           reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
         }
-        await clearSessionAndRedirect(endedDeliberately(refreshErr));
+        // The refresh was refused because the account is now suspended (its access token had already
+        // expired when that happened, so no request got the 403 AUTH_018 handled further down).
+        // Same sign-out, with the same reason, so the user knows to sign in and see why.
+        const suspended = refreshErrorCode(refreshErr) === AUTH_ACCOUNT_SUSPENDED;
+        await clearSessionAndRedirect(endedDeliberately(refreshErr), suspended ? SUSPENDED_SIGN_OUT_MESSAGE : undefined);
         return Promise.reject(error);
       }
     }

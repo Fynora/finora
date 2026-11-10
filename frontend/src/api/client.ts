@@ -207,6 +207,21 @@ telemetryApi.interceptors.request.use(attachClientHeaders);
  */
 export const SESSION_ENDED_REASON_KEY = 'finora_session_ended_reason';
 
+/** Privacy workstream 10: why the session ended when the account was suspended while signed in. */
+export const SUSPENDED_SIGN_OUT_MESSAGE = 'This account has been suspended. Sign in to see why and what you can do.';
+
+/**
+ * The sign-out reason for a refused refresh. A suspended account's refresh is refused with
+ * AUTH_018 (its access token had already expired when the suspension happened, so no request got
+ * the 403 handled in the interceptor below); that refusal's own message says "contact support",
+ * which is the wrong advice now that signing in opens the suspended screen. Anything else keeps the
+ * backend's own message, as before.
+ */
+export function refreshEndedReason(refreshError: any): string | undefined {
+  if (refreshError?.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED) return SUSPENDED_SIGN_OUT_MESSAGE;
+  return refreshError?.response?.data?.message;
+}
+
 /**
  * Exported (not just used internally by the interceptor below) specifically so any flow that needs
  * to end the session and explain why -- outside of a 401 -- can call the one real implementation
@@ -357,7 +372,7 @@ api.interceptors.response.use(
           // that one just says "your access token is stale", which is routine and expected here.
           // The refresh response is where the backend distinguishes an ordinary expiry from a
           // reused (suspected stolen) token that revoked every session.
-          clearSessionAndRedirect(refreshError?.response?.data?.message);
+          clearSessionAndRedirect(refreshEndedReason(refreshError));
           return Promise.reject(error);
         }
       } else if (originalRequest.headers?.Authorization) {
@@ -393,7 +408,7 @@ api.interceptors.response.use(
     // app's own session (there is an access token): the suspended screen's own calls carry their
     // token per request, with no session in this tab, and handle their own errors.
     if (error.response?.status === 403 && error.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED && getAccessToken()) {
-      clearSessionAndRedirect('This account has been suspended. Sign in to see why and what you can do.');
+      clearSessionAndRedirect(SUSPENDED_SIGN_OUT_MESSAGE);
       return Promise.reject(error);
     }
 

@@ -1139,9 +1139,13 @@ public class AuthService {
         // A suspension that happens mid-session must actually take effect, not just block future
         // logins -- without this check, a suspended user with an unexpired refresh token could
         // keep minting new 15-minute access tokens indefinitely. See login()'s matching check.
+        //
+        // Privacy workstream 10: refused with the AUTH_018 code (same 403, same message), so a
+        // client whose access token had already expired when the account was suspended can tell
+        // this refusal from an ordinary session end and say why it signed the user out. No
+        // suspended-screen token here: this is a background call, not a sign-in.
         if (user.isSuspended()) {
-            throw new ApiException(HttpStatus.FORBIDDEN,
-                    "This account has been suspended. Contact support for assistance.");
+            throw new ApiException(ErrorCode.AUTH_ACCOUNT_SUSPENDED);
         }
         // UserAccountLifecycleService.deactivate() calls refreshTokenService.revokeAllForUser in
         // the same transaction as the status write, so this should be unreachable in practice --

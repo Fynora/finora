@@ -199,6 +199,51 @@ describe('suspended account on the API client', () => {
       expect(onSessionExpired).toHaveBeenCalledTimes(1);
     });
 
+    // The access token had already expired when the account was suspended, so the first thing the
+    // server refuses is the refresh, not a request: the backend refuses it with AUTH_018 too.
+    it('signs out with the reason when the refresh is refused because the account is suspended', async () => {
+      secureStore.__store.set(TOKEN_KEY, 'expired-session-token');
+      secureStore.__store.set(REFRESH_TOKEN_KEY, 'session-refresh');
+      replies.set('/accounts', { status: 401, data: { success: false, message: 'Token expired' } });
+      replies.set('/auth/refresh', { status: 403, data: envelope403('AUTH_018') });
+
+      await expect(client.api.get('/accounts')).rejects.toMatchObject({ response: { status: 401 } });
+
+      expect(sent.map((r) => r.url)).toEqual(['/accounts', '/auth/refresh']);
+      expect(onSessionExpired).toHaveBeenCalledTimes(1);
+      expect(onSessionExpired).toHaveBeenCalledWith({ endedDeliberately: false, message: SIGN_OUT_MESSAGE });
+      expect(secureStore.__store.has(TOKEN_KEY)).toBe(false);
+      expect(secureStore.__store.has(REFRESH_TOKEN_KEY)).toBe(false);
+    });
+
+    it('signs out once when a burst of requests all wait on that refused refresh', async () => {
+      secureStore.__store.set(TOKEN_KEY, 'expired-session-token');
+      secureStore.__store.set(REFRESH_TOKEN_KEY, 'session-refresh');
+      for (const url of ['/accounts', '/budgets', '/goals']) {
+        replies.set(url, { status: 401, data: { success: false, message: 'Token expired' } });
+      }
+      replies.set('/auth/refresh', { status: 403, data: envelope403('AUTH_018') });
+
+      await Promise.allSettled([client.api.get('/accounts'), client.api.get('/budgets'), client.api.get('/goals')]);
+
+      expect(sent.filter((r) => r.url === '/auth/refresh')).toHaveLength(1);
+      expect(onSessionExpired).toHaveBeenCalledTimes(1);
+      expect(onSessionExpired).toHaveBeenCalledWith({ endedDeliberately: false, message: SIGN_OUT_MESSAGE });
+    });
+
+    it('gives no reason for an ordinary refresh refusal', async () => {
+      secureStore.__store.set(TOKEN_KEY, 'expired-session-token');
+      secureStore.__store.set(REFRESH_TOKEN_KEY, 'session-refresh');
+      replies.set('/accounts', { status: 401, data: { success: false, message: 'Token expired' } });
+      replies.set('/auth/refresh', {
+        status: 401, data: { success: false, message: 'Session expired', errorCode: 'AUTH_005', details: null },
+      });
+
+      await expect(client.api.get('/accounts')).rejects.toBeDefined();
+
+      expect(onSessionExpired).toHaveBeenCalledWith({ endedDeliberately: false });
+    });
+
     it('leaves other 403s alone', async () => {
       secureStore.__store.set(TOKEN_KEY, 'session-token');
       replies.set('/accounts', { status: 403, data: envelope403('ENTITLEMENT_002') });

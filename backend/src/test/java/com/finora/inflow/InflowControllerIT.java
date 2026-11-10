@@ -104,6 +104,17 @@ class InflowControllerIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void unresolvedInflowsTakesOneImportInsteadOfDates() {
+        User user = createUser();
+        assertThat(get("/api/v1/transactions/unresolved-inflows", user).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/api/v1/transactions/unresolved-inflows?statementImportId=" + java.util.UUID.randomUUID(), user)
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(get("/api/v1/transactions/unresolved-inflows?statementImportId=not-a-uuid", user)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
     void requiresASession() {
         assertThat(restTemplate.getForEntity("/api/v1/inflow-kinds", String.class).getStatusCode())
                 .isIn(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN);

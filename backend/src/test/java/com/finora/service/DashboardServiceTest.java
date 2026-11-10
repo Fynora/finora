@@ -590,8 +590,8 @@ class DashboardServiceTest {
     }
 
     @Test
-    @DisplayName("figuresFrom: the first covered day, asked with each account's earliest row that month")
-    void figuresFromIsTheFirstCoveredDayOfTheReportingMonth() {
+    @DisplayName("figuresFrom/figuresThrough: the covered days, asked with each account's earliest and latest row that month")
+    void figuresFromAndThroughAreTheCoveredDaysOfTheReportingMonth() {
         UUID accountA = UUID.randomUUID();
         Transaction a1 = txn(new BigDecimal("50.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 22), Transaction.ReconciliationStatus.OK);
         Transaction a2 = txn(new BigDecimal("60.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 21), Transaction.ReconciliationStatus.OK);
@@ -600,16 +600,31 @@ class DashboardServiceTest {
         a2.setAccountId(accountA);
         september.setAccountId(accountA);
         when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(a1, a2, september));
-        when(statementReach.firstCoveredDay(userId, java.time.YearMonth.of(2026, 10),
-                Map.of(accountA, LocalDate.of(2026, 10, 21)))).thenReturn(LocalDate.of(2026, 10, 20));
+        when(statementReach.coveredDays(eq(userId), eq(java.time.YearMonth.of(2026, 10)),
+                eq(Map.of(accountA, LocalDate.of(2026, 10, 21))), eq(Map.of(accountA, LocalDate.of(2026, 10, 22))), any()))
+                .thenReturn(new StatementReachService.CoveredDays(LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 31)));
 
         DashboardSummaryDto summary = dashboardService.summarize(userId);
 
-        org.mockito.ArgumentCaptor<Map<UUID, LocalDate>> asked = org.mockito.ArgumentCaptor.captor();
-        org.mockito.Mockito.verify(statementReach).firstCoveredDay(eq(userId), any(), asked.capture());
-        assertThat(asked.getValue()).isEqualTo(Map.of(accountA, LocalDate.of(2026, 10, 21)));
         assertThat(summary.figuresFrom()).isEqualTo(LocalDate.of(2026, 10, 20));
-        assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 10, 22));
+        assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 10, 31));
+    }
+
+    @Test
+    @DisplayName("figuresThrough: never before a counted row that has no account")
+    void figuresThroughIsNeverBeforeARowWithNoAccount() {
+        UUID accountA = UUID.randomUUID();
+        Transaction onAccount = txn(new BigDecimal("50.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 12), Transaction.ReconciliationStatus.OK);
+        onAccount.setAccountId(accountA);
+        Transaction noAccount = txn(new BigDecimal("60.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 18), Transaction.ReconciliationStatus.OK);
+        noAccount.setAccountId(null);
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of(onAccount, noAccount));
+        when(statementReach.coveredDays(eq(userId), any(), any(), any(), any()))
+                .thenReturn(new StatementReachService.CoveredDays(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 12)));
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 10, 18));
     }
 
     @Test

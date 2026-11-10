@@ -73,20 +73,59 @@ public class StatementReachService {
                 latestStatementEnds.get(worst), behind.size()));
     }
 
+    /** The first and last day of a month its figures cover: the dashboard's "20–30 Nov". */
+    public record CoveredDays(LocalDate from, LocalDate through) {}
+
     /**
-     * The first day of {@code month} its figures cover, for the dashboard's "20–30 Nov": the month
-     * start unless every account with rows that month has printed statements that begin later.
-     * {@code earliestRowByAccount} is each such account's earliest counted row in the month.
+     * The days of {@code month} its figures cover, for the dashboard's "1–8 Nov". The two maps hold
+     * each account with rows that month, with its earliest and latest counted row in the month (the
+     * same accounts in both). {@code today} is the user's own date. Null when the month has no rows.
+     * See {@link #firstCoveredDay(YearMonth, Map, Map)} and {@link #lastCoveredDay}.
      */
     @Transactional(readOnly = true)
-    public LocalDate firstCoveredDay(UUID userId, YearMonth month, Map<UUID, LocalDate> earliestRowByAccount) {
+    public CoveredDays coveredDays(UUID userId, YearMonth month, Map<UUID, LocalDate> earliestRowByAccount,
+                                   Map<UUID, LocalDate> latestRowByAccount, LocalDate today) {
         if (earliestRowByAccount.isEmpty()) return null;
-        return firstCoveredDay(month, earliestRowByAccount,
-                accountCoverageService.earliestPrintedStartsOverlapping(userId, earliestRowByAccount.keySet(), month));
+        Map<UUID, AccountCoverageService.PrintedSpan> spans =
+                accountCoverageService.printedSpansOverlapping(userId, earliestRowByAccount.keySet(), month);
+        Map<UUID, LocalDate> starts = new java.util.HashMap<>();
+        Map<UUID, LocalDate> ends = new java.util.HashMap<>();
+        spans.forEach((id, span) -> {
+            starts.put(id, span.start());
+            ends.put(id, span.end());
+        });
+        return new CoveredDays(firstCoveredDay(month, earliestRowByAccount, starts),
+                lastCoveredDay(month, latestRowByAccount, ends, today));
     }
 
     /**
-     * The rule behind {@link #firstCoveredDay(UUID, YearMonth, Map)}. Conservative on purpose: a label
+     * The last day of {@code month} its figures cover. Each account reaches its latest counted row,
+     * or further to where its printed statements end (clipped to the month): a statement printed to
+     * the 31st whose last transaction is on the 29th still covers the 30th and 31st, and "1–29 Oct"
+     * would read as two days missing. The newest across the accounts, as the label has always taken
+     * (the "so far" note names an account that stops earlier). Not past what is known:
+     * <ul>
+     *   <li>an account with no printed period (a CSV, entered by hand, linked) reaches its latest row
+     *       only;</li>
+     *   <li>a printed end after {@code today} is not used -- a statement printed "to the 30th" and
+     *       downloaded on the 5th says nothing about the days after its rows.</li>
+     * </ul>
+     * Null when the month has no rows.
+     */
+    static LocalDate lastCoveredDay(YearMonth month, Map<UUID, LocalDate> latestRowByAccount,
+                                    Map<UUID, LocalDate> latestPrintedEndByAccount, LocalDate today) {
+        LocalDate monthEnd = month.atEndOfMonth();
+        return latestRowByAccount.entrySet().stream().map(e -> {
+            LocalDate row = e.getValue();
+            LocalDate printed = latestPrintedEndByAccount.get(e.getKey());
+            if (printed == null || printed.isAfter(today)) return row;
+            LocalDate covered = printed.isAfter(monthEnd) ? monthEnd : printed;
+            return covered.isAfter(row) ? covered : row;
+        }).max(Comparator.naturalOrder()).orElse(null);
+    }
+
+    /**
+     * The first day of {@code month} its figures cover. Conservative on purpose: a label
      * that claims fewer days than the figures hold is as wrong as one that claims more, so
      * <ul>
      *   <li>an account with no printed period (a CSV, entered by hand, linked) keeps the whole month:

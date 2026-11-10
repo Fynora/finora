@@ -431,18 +431,18 @@ class StatementImportRepositoryIT extends AbstractIntegrationTest {
         assertThat(result).isEmpty();
     }
 
-    // The dashboard's "20–30 Nov": where an account's printed coverage of a month begins.
+    // The dashboard's "20–30 Nov": where an account's printed coverage of a month begins and ends.
     @Test
     @Transactional
-    void findEarliestPeriodStartsOverlapping_isTheEarliestActiveStatementTouchingTheMonth() {
+    void findPrintedSpansOverlapping_isTheEarliestStartAndLatestEndOfActiveStatementsTouchingTheMonth() {
         Instant at = Instant.parse("2026-11-09T10:00:00Z");
         // Ends before the month: does not touch November.
         saveStatementWithPeriod(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 10, 19), null, at);
         // Touches November from the 20th, and a later one from December.
         saveStatementWithPeriod(LocalDate.of(2026, 11, 20), LocalDate.of(2026, 12, 19), null, at);
         saveStatementWithPeriod(LocalDate.of(2026, 12, 20), LocalDate.of(2027, 1, 19), null, at);
-        // Would start earlier, but was replaced: not counted.
-        StatementImport replaced = saveStatementWithPeriod(LocalDate.of(2026, 11, 5), LocalDate.of(2026, 12, 4), null, at);
+        // Would start earlier and end later, but was replaced: not counted.
+        StatementImport replaced = saveStatementWithPeriod(LocalDate.of(2026, 11, 5), LocalDate.of(2027, 2, 4), null, at);
         replaced.setSupersededBy(UUID.randomUUID());
         statementImportRepository.save(replaced);
         // No printed period at all (a CSV): not counted.
@@ -450,24 +450,43 @@ class StatementImportRepositoryIT extends AbstractIntegrationTest {
         entityManager.flush();
         entityManager.clear();
 
-        List<StatementImportRepository.EarliestPeriodStart> rows = statementImportRepository
-                .findEarliestPeriodStartsOverlapping(userId, List.of(accountId),
+        List<StatementImportRepository.PrintedSpan> rows = statementImportRepository
+                .findPrintedSpansOverlapping(userId, List.of(accountId),
                         LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30));
 
+        // The December statement does not touch November, so the end is the November one's.
         assertThat(rows).singleElement().satisfies(r -> {
             assertThat(r.getAccountId()).isEqualTo(accountId);
             assertThat(r.getEarliestStart()).isEqualTo(LocalDate.of(2026, 11, 20));
+            assertThat(r.getLatestEnd()).isEqualTo(LocalDate.of(2026, 12, 19));
         });
     }
 
     @Test
     @Transactional
-    void findEarliestPeriodStartsOverlapping_hasNoRowForAnAccountWithNoStatementInTheMonth() {
+    void findPrintedSpansOverlapping_endsWhereTheLatestOverlappingStatementEnds() {
+        Instant at = Instant.parse("2026-11-09T10:00:00Z");
+        saveStatementWithPeriod(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 15), null, at);
+        saveStatementWithPeriod(LocalDate.of(2026, 10, 16), LocalDate.of(2026, 10, 31), null, at);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(statementImportRepository.findPrintedSpansOverlapping(userId, List.of(accountId),
+                LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31)))
+                .singleElement().satisfies(r -> {
+                    assertThat(r.getEarliestStart()).isEqualTo(LocalDate.of(2026, 10, 1));
+                    assertThat(r.getLatestEnd()).isEqualTo(LocalDate.of(2026, 10, 31));
+                });
+    }
+
+    @Test
+    @Transactional
+    void findPrintedSpansOverlapping_hasNoRowForAnAccountWithNoStatementInTheMonth() {
         saveStatementWithPeriod(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 10, 19), null, Instant.parse("2026-11-09T10:00:00Z"));
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(statementImportRepository.findEarliestPeriodStartsOverlapping(userId, List.of(accountId),
+        assertThat(statementImportRepository.findPrintedSpansOverlapping(userId, List.of(accountId),
                 LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30))).isEmpty();
     }
 }

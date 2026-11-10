@@ -4,12 +4,17 @@ import { act, render, screen, fireEvent, waitFor, within } from '@testing-librar
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { Dimensions, Platform, StyleSheet } from 'react-native';
-import { ImportScreen } from './ImportScreen';
+import { ImportScreen, STORE_REVIEW_DELAY_AFTER_IMPORT_MS } from './ImportScreen';
 import { TabBarSpaceContext } from '../../navigation/useTabBarSpace';
 import { accountsApi, activationApi, categoriesApi, importApi, importJobsApi, sendCodesApi, statementImportsApi } from '../../api/endpoints';
 import type { Account, DetectedAccountInfo, ImportSummary, StagedRow } from '../../types';
 import { expectHaptics, resetHapticCalls } from '../../test/haptics';
 import { resetActivationAnsweredForTests } from '../../lib/activationQuestions';
+import { maybeAskForStoreReview } from '../../lib/storeReview';
+
+// The store-rating helper has its own tests (storeReview.test.ts); here only WHEN the screen calls
+// it matters.
+jest.mock('../../lib/storeReview', () => ({ maybeAskForStoreReview: jest.fn().mockResolvedValue(undefined) }));
 
 // "What stopped you?" remembers a same-day answer in module state; every test starts without one.
 beforeEach(() => resetActivationAnsweredForTests());
@@ -3522,5 +3527,114 @@ describe('ImportScreen — shared categories cache', () => {
     );
 
     await waitFor(() => expect(queryClient.getQueryData(['categories'])).toEqual(cats));
+  });
+});
+
+/**
+ * The store-rating ask after a successful import. Real timers, like the rest of this file (see the
+ * note in the upload-dwell test above): STORE_REVIEW_DELAY_AFTER_IMPORT_MS is waited out for real.
+ */
+describe('ImportScreen — store-rating ask after a successful import', () => {
+  const HDFC = { id: 'HDFC', officialName: 'HDFC Bank', shortName: 'HDFC' };
+  const askForReview = jest.mocked(maybeAskForStoreReview);
+
+  function summary(imported: number, source: 'fresh' | 'reimport') {
+    return {
+      imported, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [],
+      account: null, totalCredits: 0, totalDebits: 45, statementOpeningBalance: null,
+      statementClosingBalance: null, statementPeriodStart: null, statementPeriodEnd: null,
+      importDurationMs: 1, source,
+    };
+  }
+
+  /** Long enough past the delay that a scheduled ask would have fired. */
+  async function waitPastDelay() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, STORE_REVIEW_DELAY_AFTER_IMPORT_MS + 300));
+    });
+  }
+
+  beforeEach(() => {
+    mockRouteParams = undefined;
+    mockNavigate.mockClear();
+    api.accounts.list.mockReset().mockResolvedValue([]);
+    api.categories.list.mockReset().mockResolvedValue([]);
+    api.import.listSessions.mockReset().mockResolvedValue([]);
+    api.import.confirm.mockReset();
+    api.statements.confirmReimport.mockReset();
+    api.import.stageCsv.mockReset().mockResolvedValue({
+      sessionId: 'session-review',
+      multiAccount: false,
+      sections: null,
+      staging: {
+        rows: [stagedRow('Groceries')], totalParsed: 1, flaggedDuplicates: 0,
+        detectedAccount: { suggestedName: 'HDFC Bank', bank: HDFC, bankSource: 'FILE' } as unknown as DetectedAccountInfo,
+        unparseableRows: [],
+      },
+    } as never);
+    jest.mocked(DocumentPicker.getDocumentAsync).mockReset().mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///statement.csv', name: 'statement.csv' } as never],
+    } as never);
+  });
+
+  async function importFreshStatement() {
+    const view = render(tree());
+    await waitFor(() => expect(api.accounts.list).toHaveBeenCalled());
+    await settle();
+    fireEvent.press(await screen.findByText('Choose a file'));
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('upload-completed')).not.toBeOnTheScreen(), { timeout: 8000 });
+    await pressImport();
+    return view;
+  }
+
+  it('asks after a new statement lands with transactions, and only once the delay has passed', async () => {
+    api.import.confirm.mockResolvedValue(summary(3, 'fresh') as never);
+    await importFreshStatement();
+    await screen.findByText(/^Imported \d+ transaction/);
+
+    expect(askForReview).not.toHaveBeenCalled();
+    await waitFor(() => expect(askForReview).toHaveBeenCalledTimes(1), { timeout: 4000 });
+  });
+
+  it('does not ask when the import added no transactions', async () => {
+    api.import.confirm.mockResolvedValue(summary(0, 'fresh') as never);
+    await importFreshStatement();
+    await waitFor(() => expect(api.import.confirm).toHaveBeenCalledTimes(1));
+
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
+  });
+
+  it('does not ask when the import failed', async () => {
+    api.import.confirm.mockRejectedValue(new Error('network'));
+    await importFreshStatement();
+    expect(await screen.findByText(/could not complete the import/i)).toBeTruthy();
+
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
+  });
+
+  it('does not ask after a re-import', async () => {
+    api.statements.confirmReimport.mockResolvedValue(summary(5, 'reimport') as never);
+    mockRouteParams = reimportParams('stmt-1', 1);
+    render(tree());
+    await pressImport();
+    await screen.findByText(/^Imported \d+ transaction/);
+
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
+  });
+
+  it('does not ask if the screen goes away before the delay is up', async () => {
+    api.import.confirm.mockResolvedValue(summary(3, 'fresh') as never);
+    const view = await importFreshStatement();
+    await screen.findByText(/^Imported \d+ transaction/);
+
+    view.unmount();
+    await waitPastDelay();
+    expect(askForReview).not.toHaveBeenCalled();
   });
 });

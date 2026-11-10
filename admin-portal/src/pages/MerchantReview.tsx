@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BadgeCheck, GitMerge, Pencil, Trash2 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
@@ -231,6 +232,9 @@ function ReviewPanel({
   });
 
   const canDiscard = row.transactionCount === 0;
+  // Both act beyond the one row: discard deletes the merchant, approve-all clears every guess
+  // for this account. Each asks first.
+  const [confirming, setConfirming] = useState<'discard' | 'approveAll' | null>(null);
 
   return (
     <div className="bg-card border border-border rounded-xl2 p-6 space-y-5">
@@ -296,7 +300,7 @@ function ReviewPanel({
         <button
           className="rounded-lg border border-border px-3 py-2 text-sm text-ink disabled:opacity-50"
           disabled={busy}
-          onClick={onApproveAllForUser}
+          onClick={() => setConfirming('approveAll')}
         >
           <BadgeCheck className="inline h-4 w-4 mr-1" /> Approve all for this account
         </button>
@@ -309,7 +313,7 @@ function ReviewPanel({
           <button
             className="rounded-lg border border-danger text-danger px-3 py-2 text-sm disabled:opacity-50"
             disabled={busy}
-            onClick={onDiscard}
+            onClick={() => setConfirming('discard')}
           >
             <Trash2 className="inline h-4 w-4 mr-1" /> Discard
           </button>
@@ -321,6 +325,28 @@ function ReviewPanel({
           </p>
         )}
       </div>
+
+      {confirming === 'approveAll' && (
+        <ConfirmDialog
+          title="Approve every guess for this account?"
+          message={`Every merchant waiting for review for ${row.userEmail ?? 'this account'} is kept as it is, not only ${row.canonicalName}.`}
+          confirmLabel="Approve all"
+          busy={busy}
+          onConfirm={() => { setConfirming(null); onApproveAllForUser(); }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+      {confirming === 'discard' && (
+        <ConfirmDialog
+          title={`Discard ${row.canonicalName}?`}
+          message="The merchant is deleted. No transactions point at it, so no ledger row changes."
+          confirmLabel="Discard"
+          danger
+          busy={busy}
+          onConfirm={() => { setConfirming(null); onDiscard(); }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
     </div>
   );
 }

@@ -95,7 +95,7 @@ describe('Subscriptions', () => {
   });
 
   it('changes a plan and refetches the list on success', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(subscription()));
     vi.mocked(adminSubscriptionsApi.changePlan).mockResolvedValue({} as any);
 
@@ -105,9 +105,13 @@ describe('Subscriptions', () => {
     const select = screen.getByDisplayValue('FREE') as HTMLSelectElement;
     select.value = 'PLUS';
     select.dispatchEvent(new Event('change', { bubbles: true }));
+    // Audit 2026-11-10: choosing a value used to change the customer's plan on the spot.
+    expect(adminSubscriptionsApi.changePlan).not.toHaveBeenCalled();
+    await userEvent.type(await screen.findByLabelText(/Reason for the audit log/), 'Goodwill after outage');
+    await userEvent.click(screen.getByRole('button', { name: 'Change plan' }));
 
     await waitFor(() => expect(adminSubscriptionsApi.changePlan).toHaveBeenCalledWith(
-      'user-1', 'PLUS', 'Admin manual override'
+      'user-1', 'PLUS', 'Goodwill after outage'
     ));
     await waitFor(() => expect(adminSubscriptionsApi.list).toHaveBeenCalledTimes(2));
   });
@@ -131,7 +135,7 @@ describe('Subscriptions', () => {
   });
 
   it('shows a confirm dialog instead of changing the plan directly for a Razorpay-backed subscription', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(
       pageOf(subscription({ paymentProvider: 'RAZORPAY', planCode: 'PLUS', planName: 'Plus' }))
     );
@@ -152,7 +156,7 @@ describe('Subscriptions', () => {
     // cancelPaidSubscription uses the same findActiveOrTrial lookup as the user-facing cancel --
     // it 404s for a PAUSED subscription (excluded on purpose so entitlement checks deny access).
     // A clickable "Cancel paid subscription" link here would always error.
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(
       pageOf(subscription({ paymentProvider: 'RAZORPAY', planCode: 'PLUS', planName: 'Plus', status: 'PAUSED' }))
     );
@@ -164,13 +168,39 @@ describe('Subscriptions', () => {
   });
 
   it('still shows the plain dropdown for a non-Razorpay subscription', async () => {
-    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(subscription()));
     renderPage();
     await waitFor(() => expect(screen.getByText('Jane Doe')).toBeInTheDocument());
 
     expect(screen.getByRole('combobox')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel paid subscription/i })).not.toBeInTheDocument();
+  });
+
+  // Audit 2026-11-10: every change needs SUBSCRIPTION_MANAGEMENT_MANAGE on the backend, so a
+  // view-only admin got a refusal on every click.
+  it('shows plans as text, with no controls, to a view-only admin', async () => {
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
+    vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(
+      subscription(),
+      subscription({ subscriptionId: 'sub-2', userId: 'user-2', paymentProvider: 'RAZORPAY', planCode: 'PLUS' }),
+    ));
+    renderPage();
+    await waitFor(() => expect(screen.getAllByText('Jane Doe').length).toBe(2));
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel paid subscription/i })).not.toBeInTheDocument();
+    expect(screen.getByText('FREE')).toBeInTheDocument();
+  });
+
+  it('explains instead of offering a change that always fails for an Apple/Google subscription', async () => {
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
+    vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(subscription({ paymentProvider: 'REVENUECAT', planCode: 'PLUS' })));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeInTheDocument());
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByText(/Billed by Apple\/Google/)).toBeInTheDocument();
   });
 
   it('shows the Subscription Health stat cards', async () => {

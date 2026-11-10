@@ -9,6 +9,7 @@ import { Pagination } from '../components/Pagination';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { StatCard } from '../components/StatCard';
 import { useNotify } from '../context/NotificationContext';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminSubscriptionsApi } from '../api/endpoints';
 import type { SubscriptionSummaryDto } from '../types';
 
@@ -25,6 +26,13 @@ const PAGE_SIZE = 20;
 function SubscriptionsContent() {
   const [page, setPage] = useState(0);
   const [confirmingCancelFor, setConfirmingCancelFor] = useState<SubscriptionSummaryDto | null>(null);
+  // Picking from the dropdown used to change the customer's plan on the spot. It now asks first,
+  // and the admin can say why (the audit log used to get "Admin manual override" every time).
+  const [pendingPlan, setPendingPlan] = useState<{ row: SubscriptionSummaryDto; planCode: string } | null>(null);
+  const [planReason, setPlanReason] = useState('');
+  // Viewing is SUBSCRIPTION_MANAGEMENT_VIEW; changing anything is _MANAGE on the backend. A
+  // view-only admin used to see every control and get a refusal on each click.
+  const canManage = useAdminAuth().hasPermission('SUBSCRIPTION_MANAGEMENT_MANAGE');
   const queryClient = useQueryClient();
   const notify = useNotify();
   const { data, isLoading, error: loadError } = useQuery({
@@ -39,8 +47,9 @@ function SubscriptionsContent() {
   });
 
   const changePlanMutation = useMutation({
-    mutationFn: ({ userId, planCode }: { userId: string; planCode: string }) =>
-      adminSubscriptionsApi.changePlan(userId, planCode, 'Admin manual override'),
+    mutationFn: ({ userId, planCode, reason }: { userId: string; planCode: string; reason: string }) =>
+      adminSubscriptionsApi.changePlan(userId, planCode, reason),
+    onSettled: () => { setPendingPlan(null); setPlanReason(''); },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin-subscriptions'] });
       notify.success('Plan updated.');
@@ -81,14 +90,23 @@ function SubscriptionsContent() {
     },
     {
       header: 'Plan',
-      render: (s) =>
-        s.paymentProvider === 'RAZORPAY' ? (
+      render: (s) => {
+        if (!canManage) return <span className="text-xs text-ink">{s.planCode ?? '—'}</span>;
+        // Apple/Google own these mandates and offer no cancel to third parties, so the backend
+        // refuses every manual change; a dropdown here could only ever fail.
+        if (s.paymentProvider === 'REVENUECAT') {
+          return (
+            <div>
+              <span className="text-xs text-ink">{s.planCode}</span>
+              <p className="text-[11px] text-muted">Billed by Apple/Google. The user cancels in the store.</p>
+            </div>
+          );
+        }
+        return s.paymentProvider === 'RAZORPAY' ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-ink">{s.planCode}</span>
-            {/* Bug found in review: SubscriptionService.cancelPaidSubscription uses the same
-                findActiveOrTrial lookup as the user-facing cancel -- it 404s "no active
-                subscription" for a PAUSED row. Without this guard the link looked clickable and
-                always errored for a paused subscriber; the user must resume it first. */}
+            {/* cancelPaidSubscription 404s for a PAUSED row (same findActiveOrTrial lookup as the
+                user-facing cancel), so the user must resume it first. */}
             {s.status === 'PAUSED' ? (
               <span className="text-[11px] text-muted">Paused — resume to manage</span>
             ) : (
@@ -103,16 +121,18 @@ function SubscriptionsContent() {
           </div>
         ) : (
           <select
+            aria-label={`Plan for ${s.userEmail ?? s.userFullName ?? 'this user'}`}
             value={s.planCode ?? ''}
             disabled={changePlanMutation.isPending}
-            onChange={(e) => changePlanMutation.mutate({ userId: s.userId, planCode: e.target.value })}
+            onChange={(e) => { if (e.target.value !== s.planCode) setPendingPlan({ row: s, planCode: e.target.value }); }}
             className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card text-ink"
           >
             {PLAN_CODES.map((code) => (
               <option key={code} value={code}>{code}</option>
             ))}
           </select>
-        ),
+        );
+      },
     },
     { header: 'Status', render: (s) => s.status, cellClassName: 'text-muted' },
     { header: 'Start date', render: (s) => s.startDate, cellClassName: 'text-muted' },
@@ -150,6 +170,29 @@ function SubscriptionsContent() {
           pageSize={PAGE_SIZE}
           onPageChange={setPage}
         />
+      )}
+      {pendingPlan && (
+        <ConfirmDialog
+          title={`Change this plan to ${pendingPlan.planCode}?`}
+          message={`${pendingPlan.row.userEmail ?? 'This user'} moves from ${pendingPlan.row.planCode ?? 'no plan'} to ${pendingPlan.planCode} immediately.`}
+          confirmLabel="Change plan"
+          busy={changePlanMutation.isPending}
+          onConfirm={() => changePlanMutation.mutate({
+            userId: pendingPlan.row.userId,
+            planCode: pendingPlan.planCode,
+            reason: planReason.trim() || 'Admin manual override',
+          })}
+          onCancel={() => { setPendingPlan(null); setPlanReason(''); }}
+        >
+          <label htmlFor="plan-change-reason" className="text-xs font-medium text-muted mb-1 mt-3 block">Reason for the audit log (optional)</label>
+          <input
+            id="plan-change-reason"
+            value={planReason}
+            maxLength={200}
+            onChange={(e) => setPlanReason(e.target.value)}
+            className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm"
+          />
+        </ConfirmDialog>
       )}
       {confirmingCancelFor && (
         <ConfirmDialog

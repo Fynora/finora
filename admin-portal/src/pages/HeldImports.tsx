@@ -5,6 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { adminBlankedCopyApi, adminHeldImportApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
@@ -84,8 +85,11 @@ function HeldImportsContent() {
     onError: onActionError,
   });
 
+  // Re-runs every held customer statement at once, so it asks first.
+  const [confirmingReprocessAll, setConfirmingReprocessAll] = useState(false);
   const reprocessAll = useMutation({
     mutationFn: () => adminHeldImportApi.reprocessAll(),
+    onSettled: () => setConfirmingReprocessAll(false),
     onSuccess: () => {
       setActionError(null);
       invalidateQueue();
@@ -177,13 +181,24 @@ function HeldImportsContent() {
       {(counts?.held ?? 0) > 0 && (
         <button
           type="button"
-          onClick={() => reprocessAll.mutate()}
+          onClick={() => setConfirmingReprocessAll(true)}
           disabled={reprocessAll.isPending}
           className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
         >
           <PlayCircle className="h-3.5 w-3.5" />
           {reprocessAll.isPending ? 'Reprocessing…' : 'Reprocess all'}
         </button>
+      )}
+
+      {confirmingReprocessAll && (
+        <ConfirmDialog
+          title={`Reprocess all ${counts?.held ?? 0} held imports?`}
+          message="Each one runs through the parser again now. Ones that succeed reach the customer's ledger."
+          confirmLabel="Reprocess all"
+          busy={reprocessAll.isPending}
+          onConfirm={() => reprocessAll.mutate()}
+          onCancel={() => setConfirmingReprocessAll(false)}
+        />
       )}
 
       <DataTable

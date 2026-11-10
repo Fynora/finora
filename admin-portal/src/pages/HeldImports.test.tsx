@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -109,6 +109,20 @@ describe('HeldImports', () => {
 
     expect(screen.getByText(/don't have access to this section/i)).toBeInTheDocument();
     expect(adminHeldImportApi.list).not.toHaveBeenCalled();
+  });
+
+  // Audit 2026-11-10: one click used to re-run every held customer statement.
+  it('asks before reprocessing every held import', async () => {
+    mockAuth(['IMPORT_TRIAGE_MANAGE']);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reprocess all' }));
+    expect(adminHeldImportApi.reprocessAll).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Reprocess all 3 held imports?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reprocess all' }));
+
+    await waitFor(() => expect(adminHeldImportApi.reprocessAll).toHaveBeenCalledTimes(1));
   });
 
   it('lists held statements with the curated failure code', async () => {

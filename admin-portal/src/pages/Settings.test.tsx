@@ -146,9 +146,25 @@ describe('Settings', () => {
 
       const toggle = await screen.findByRole('switch', { name: /Toggle RECURRING_DETECTION_ENABLED/ });
       await user.click(toggle);
+      // Audit 2026-11-10: the switch alone changed production for every user; it now asks first.
+      expect(adminFeatureFlagsApi.update).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toHaveTextContent('Turn off RECURRING_DETECTION_ENABLED?');
+      await user.click(screen.getByRole('button', { name: 'Turn off' }));
 
       await waitFor(() => expect(adminFeatureFlagsApi.update).toHaveBeenCalledWith('flag-1', { enabled: false }));
       await waitFor(() => expect(notifySuccess).toHaveBeenCalledWith('RECURRING_DETECTION_ENABLED disabled.'));
+    });
+
+    it('changes nothing when the confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      mockAuth(['SYSTEM_SETTINGS']);
+      renderPage();
+
+      await user.click(await screen.findByRole('switch', { name: /Toggle RECURRING_DETECTION_ENABLED/ }));
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(adminFeatureFlagsApi.update).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('shows an error notification when toggling fails', async () => {
@@ -160,6 +176,7 @@ describe('Settings', () => {
 
       const toggle = await screen.findByRole('switch', { name: /Toggle RECURRING_DETECTION_ENABLED/ });
       await user.click(toggle);
+      await user.click(screen.getByRole('button', { name: 'Turn off' }));
 
       await waitFor(() => expect(notifyError).toHaveBeenCalledWith('Failed to update the flag. Please try again.'));
     });

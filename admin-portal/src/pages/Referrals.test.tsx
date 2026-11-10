@@ -77,10 +77,32 @@ describe('Referrals (admin portal)', () => {
     await screen.findByText('Alice');
     fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value: '250' } });
     fireEvent.click(screen.getByText('Credit'));
+    // Audit 2026-11-10: crediting paid out on one click.
+    expect(adminReferralsApi.creditReward).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveTextContent('Credit ₹250.00?');
+    fireEvent.click(screen.getByRole('button', { name: 'Credit reward' }));
 
     await waitFor(() =>
       expect(adminReferralsApi.creditReward).toHaveBeenCalledWith('referral-1', 250, 'Admin credited referral reward'));
     await waitFor(() => expect(notifySuccess).toHaveBeenCalled());
+  });
+
+  it('offers no credit form to an admin without REFERRAL_MANAGEMENT_MANAGE', async () => {
+    mockAuth(['REFERRAL_MANAGEMENT_VIEW']);
+    vi.mocked(adminReferralsApi.list).mockResolvedValue(pageOf(row()));
+    renderPage();
+
+    await screen.findByText('Alice');
+    expect(screen.queryByPlaceholderText('Amount')).not.toBeInTheDocument();
+  });
+
+  it('will not credit zero or a negative amount', async () => {
+    vi.mocked(adminReferralsApi.list).mockResolvedValue(pageOf(row()));
+    renderPage();
+
+    await screen.findByText('Alice');
+    fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value: '0' } });
+    expect(screen.getByText('Credit')).toBeDisabled();
   });
 
   it('shows a rupee amount for an already-REWARDED referral instead of the credit form', async () => {

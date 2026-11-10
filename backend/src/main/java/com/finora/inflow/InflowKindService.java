@@ -168,8 +168,9 @@ public class InflowKindService {
             // Saying what a sender's money was reviews every credit from them still waiting.
             // Quick sort leaves unanswered credits to this question, so nothing else would clear
             // the flag, and the "Needs Review" badge would stay on payments the user answered.
-            for (Transaction waiting : transactions.findByUserIdAndCounterpartyKeyAndTxnTypeAndNeedsCategoryReviewTrue(
-                    userId, key, Transaction.Type.INCOME)) {
+            // Only the payments the choice can decide: the same test the choice itself passed.
+            for (Transaction waiting : transactions.findByUserIdAndCounterpartyKeyAndNeedsCategoryReviewTrue(userId, key)) {
+                if (notChoosableReason(waiting) != null) continue;
                 waiting.setNeedsCategoryReview(false);
                 transactions.save(waiting);
             }

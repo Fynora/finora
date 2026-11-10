@@ -2116,6 +2116,15 @@ describe('Dashboard — cards name their days and show money not counted', () =>
     expect(screen.queryByTestId('income-not-counted')).not.toBeInTheDocument();
   });
 
+  it('keeps the year when the newest figures are from an earlier month', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2025-08', reportingMonthIsCurrent: false, figuresThrough: '2025-08-20',
+    }));
+    renderDashboard();
+
+    expect(await screen.findByText('Income · 1–20 Aug 2025')).toBeInTheDocument();
+  });
+
   it('labels a preset range with its months', async () => {
     await renderOnRange('LAST_6_MONTHS');
 

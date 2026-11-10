@@ -19,6 +19,11 @@ describe('monthCardLabel', () => {
     expect(monthCardLabel('2026-11', undefined, 'This Month')).toBe('This Month');
     expect(monthCardLabel(null, null, 'This Month')).toBe('This Month');
   });
+  it('keeps the year for a month that is not the current one', () => {
+    expect(monthCardLabel('2025-08', '2025-08-20', 'Aug 25', true)).toBe('1–20 Aug 2025');
+    expect(monthCardLabel('2025-08', '2025-08-31', 'Aug 25', true)).toBe('August 2025');
+    expect(monthCardLabel('2025-08', '2025-08-01', 'Aug 25', true)).toBe('1 Aug 2025');
+  });
   it('falls back when the date is outside the month', () => {
     expect(monthCardLabel('2026-11', '2026-10-31', 'This Month')).toBe('This Month');
   });

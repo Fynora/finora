@@ -570,7 +570,7 @@ export default function Dashboard() {
   // The days the figures cover ("1–8 Nov"), so a month whose statements stop on the 8th is not read
   // as the whole month. Falls back to the old label when the server sends no figuresThrough.
   const monthCardSuffix = monthCardLabel(summary.reportingMonth, summary.figuresThrough,
-    periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!));
+    periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!), !periodIsCurrent);
   const monthDeltaLabel = periodIsCurrent ? 'vs last month' : `vs the month before ${monthLabel(summary.reportingMonth!)}`;
   const monthGateReasonText = monthComparisonGateText(summary.comparisonGateReason, summary.comparisonGateMinTransactions);
   const monthKpis = [

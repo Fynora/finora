@@ -1936,6 +1936,16 @@ describe('month card heading', () => {
     expect(screen.queryByText('This Month')).not.toBeOnTheScreen();
   });
 
+  it('keeps the year when the figures are from an earlier month', async () => {
+    dashboard.summary.mockResolvedValue(emptySummary({
+      reportingMonth: '2025-08', reportingMonthIsCurrent: false, figuresThrough: '2025-08-31',
+    }));
+
+    renderScreen();
+
+    expect(await screen.findByText('August 2025')).toBeOnTheScreen();
+  });
+
   it('says This Month when the figures are from the current month', async () => {
     dashboard.summary.mockResolvedValue(emptySummary({ reportingMonth: '2026-10', reportingMonthIsCurrent: true }));
 

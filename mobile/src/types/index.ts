@@ -388,6 +388,9 @@ export interface DashboardSummary {
   unresolvedInflow: number;
   unresolvedInflowCount: number;
   unresolvedTopReason: string | null;
+  /** Newest day with a row in reportingMonth (YYYY-MM-DD): the dashboard says "1-8 Nov". Optional:
+   *  an older server does not send it, and then the title keeps "This Month". */
+  figuresThrough?: string | null;
 }
 
 export interface CategoryMover {

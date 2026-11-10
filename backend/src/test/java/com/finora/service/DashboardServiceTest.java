@@ -573,6 +573,30 @@ class DashboardServiceTest {
     }
 
     @Test
+    @DisplayName("figuresThrough: the newest day with a row in the reporting month")
+    void figuresThroughIsNewestRowInReportingMonth() {
+        List<Transaction> txns = List.of(
+                txn(new BigDecimal("50.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 10, 30), Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("120.00"), Transaction.Type.INCOME, LocalDate.of(2026, 11, 1), Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("30.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 11, 8), Transaction.ReconciliationStatus.OK),
+                txn(new BigDecimal("60.00"), Transaction.Type.EXPENSE, LocalDate.of(2026, 11, 6), Transaction.ReconciliationStatus.OK));
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(txns);
+
+        DashboardSummaryDto summary = dashboardService.summarize(userId);
+
+        assertThat(summary.reportingMonth()).isEqualTo("2026-11");
+        assertThat(summary.figuresThrough()).isEqualTo(LocalDate.of(2026, 11, 8));
+    }
+
+    @Test
+    @DisplayName("figuresThrough: no rows means no date")
+    void figuresThroughIsNullWithNoRows() {
+        when(transactionRepository.findByUserIdAndAccountIdIn(eq(userId), any())).thenReturn(List.of());
+
+        assertThat(dashboardService.summarize(userId).figuresThrough()).isNull();
+    }
+
+    @Test
     @DisplayName("so far: nothing behind means no note")
     void summarize_hasNoStatementBehindNote_whenNoAccountIsBehind() {
         List<Transaction> txns = new java.util.ArrayList<>();

@@ -248,7 +248,14 @@ public record DashboardSummaryDto(
          * summed from zero off statements with no closing balance. A client says so under the
          * totals. Zero when none.
          */
-        int cardsWithUnknownAmountOwed
+        int cardsWithUnknownAmountOwed,
+
+        /*
+         * The newest day with a transaction in reportingMonth, across the user's live accounts:
+         * the cards name the days they cover ("1-8 Nov") instead of only "This Month". Null when
+         * there is no reporting month or it has no rows.
+         */
+        LocalDate figuresThrough
 ) {
     @Schema(name = "DashboardSummaryCategoryMover")
     public record CategoryMover(String category, BigDecimal currentAmount, BigDecimal priorAmount, Double pctChange) {}

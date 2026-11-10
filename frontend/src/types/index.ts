@@ -192,6 +192,9 @@ export interface DashboardSummary {
   // Cards left out of totalLiabilities and netWorth because their amount owed is not known
   // (lib/amountOwed.ts). Optional: an older server does not send it.
   cardsWithUnknownAmountOwed?: number;
+  // Newest day with a row in reportingMonth (YYYY-MM-DD): the cards say "1-8 Nov". Optional: an
+  // older server does not send it, and then the cards keep "This Month".
+  figuresThrough?: string | null;
   monthlyIncome: number;
   monthlyExpense: number;
   netCashFlow: number;

@@ -12,7 +12,7 @@ import {
   Wallet, ArrowDownCircle, ArrowUpCircle, PieChart,
   ShoppingBag, Sparkles, Plus, PiggyBank, TrendingUp, TrendingDown, Target, ShieldCheck, Repeat,
   UploadCloud, Receipt, LineChart as LineChartIcon, Mail, AlertTriangle, ListChecks, Copy, BadgeCheck,
-  ChevronDown, X, Check, Info,
+  ChevronDown, X, Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BankLogo } from '../components/BankLogo';
@@ -41,6 +41,7 @@ import { trackNavigation } from '../lib/trackNavigation';
 import { StatementRefreshBanner } from '../components/statementRefresh/StatementRefreshBanner';
 import { withSep } from '../utils/date';
 import { rowTitle } from '../lib/rowTitle';
+import { monthCardLabel, rangeCardLabel } from '../lib/periodCardLabel';
 
 ChartJS.register(ArcElement, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -558,13 +559,18 @@ export default function Dashboard() {
   const rangeCardSuffix = rangeSummary
     ? rangeSummary.rangeType === 'CUSTOM'
       ? `${dayLabel(rangeSummary.startDate)} – ${dayLabel(rangeSummary.endDate)}`
-      : RANGE_TYPE_LABEL[rangeSummary.rangeType]
+      // A preset names its months ("Jun–Nov 2026"), not only "Last 6 Months": the cards say which
+      // stretch of time they add up.
+      : rangeCardLabel(rangeSummary.startDate, rangeSummary.endDate)
     : '';
 
   // THIS_MONTH's cards: the summary's own month, labelled the way mobile labels it
   // (useDashboardKpis) -- "This Month" only when that month is the current one, the month's name
   // otherwise. A Net worth delta has no month-over-month figure in the summary, so none is shown.
-  const monthCardSuffix = periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!);
+  // The days the figures cover ("1–8 Nov"), so a month whose statements stop on the 8th is not read
+  // as the whole month. Falls back to the old label when the server sends no figuresThrough.
+  const monthCardSuffix = monthCardLabel(summary.reportingMonth, summary.figuresThrough,
+    periodIsCurrent ? 'This Month' : monthLabel(summary.reportingMonth!));
   const monthDeltaLabel = periodIsCurrent ? 'vs last month' : `vs the month before ${monthLabel(summary.reportingMonth!)}`;
   const monthGateReasonText = monthComparisonGateText(summary.comparisonGateReason, summary.comparisonGateMinTransactions);
   const monthKpis = [
@@ -577,11 +583,11 @@ export default function Dashboard() {
       delta: null as number | null, deltaLabel: '',
       icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: null as string | null,
     },
-    { label: `Income (${monthCardSuffix})`, value: fmt(summary.monthlyIncome), delta: summary.incomeDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: monthGateReasonText },
-    { label: `Expenses (${monthCardSuffix})`, value: fmt(summary.monthlyExpense), delta: summary.expenseDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: monthGateReasonText },
-    { label: `Net Savings (${monthCardSuffix})`, value: fmt(summary.netCashFlow), delta: summary.netDeltaPct, deltaLabel: monthDeltaLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: monthGateReasonText },
+    { label: `Income · ${monthCardSuffix}`, value: fmt(summary.monthlyIncome), delta: summary.incomeDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: monthGateReasonText },
+    { label: `Expenses · ${monthCardSuffix}`, value: fmt(summary.monthlyExpense), delta: summary.expenseDeltaPct, deltaLabel: monthDeltaLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: monthGateReasonText },
+    { label: `Net Savings · ${monthCardSuffix}`, value: fmt(summary.netCashFlow), delta: summary.netDeltaPct, deltaLabel: monthDeltaLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: monthGateReasonText },
     {
-      label: `Savings Rate (${monthCardSuffix})`,
+      label: `Savings Rate · ${monthCardSuffix}`,
       // Math.round, as mobile's card does: toFixed(0) rounds a negative half the other way.
       value: summary.savingsRatePct !== null ? Math.round(summary.savingsRatePct) + '%' : '—',
       caption: summary.savingsRatePct === null ? savingsRateGateText(summary.savingsRateGateReason) : undefined,
@@ -600,6 +606,26 @@ export default function Dashboard() {
           bounds: [rangeSummary.startDate, rangeSummary.endDate] as [string, string],
         }
       : null;
+  // Money that came in over these days but is not counted as income -- a transfer from a person,
+  // an unexplained credit on a card (FlowClassifier). It sits on the Income card itself: as a line
+  // under the cards, a user comparing Income with their statement missed it and read the app as
+  // wrong. Links to the review page for the same days.
+  const incomeNotCounted = unresolved && unresolved.count > 0 ? (
+    <div className="mt-3 pt-2.5 border-t border-border" data-testid="income-not-counted">
+      <p className="text-xs font-semibold text-warning">+ {fmt(unresolved.amount)} not counted yet</p>
+      {unresolved.topReason && UNRESOLVED_REASON_LINE[unresolved.topReason] && (
+        <p className="text-2xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[unresolved.topReason]}</p>
+      )}
+      {unresolved.bounds && (
+        <Link
+          to={`/app/money-review?start=${unresolved.bounds[0]}&end=${unresolved.bounds[1]}`}
+          className="text-xs text-primary font-medium mt-1 inline-block"
+        >
+          Tell us what it is
+        </Link>
+      )}
+    </div>
+  ) : undefined;
 
   const rangeKpis = rangeSummary ? [
     // Bug fix: fmt() coerces null to 0 (Math.abs(null) === 0 in JS), which would silently
@@ -630,11 +656,11 @@ export default function Dashboard() {
       delta: rangeSummary.balanceDeltaPct, deltaLabel: 'vs previous period',
       icon: Wallet, iconBg: 'bg-accent-blue-bg', iconColor: 'text-accent-blue', gateReasonText: balanceGateReasonText,
     },
-    { label: `Income (${rangeCardSuffix})`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: rangeGateReasonText },
-    { label: `Expenses (${rangeCardSuffix})`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: rangeGateReasonText },
-    { label: `Net Savings (${rangeCardSuffix})`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
+    { label: `Income · ${rangeCardSuffix}`, value: fmt(rangeSummary.incomeTotal), delta: rangeSummary.incomeDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowDownCircle, iconBg: 'bg-success-bg', iconColor: 'text-success', gateReasonText: rangeGateReasonText },
+    { label: `Expenses · ${rangeCardSuffix}`, value: fmt(rangeSummary.expenseTotal), delta: rangeSummary.expenseDeltaPct, deltaLabel: rangeComparisonLabel, icon: ArrowUpCircle, iconBg: 'bg-danger-bg', iconColor: 'text-danger', invertDelta: true, gateReasonText: rangeGateReasonText },
+    { label: `Net Savings · ${rangeCardSuffix}`, value: fmt(rangeSummary.netSavingsTotal), delta: rangeSummary.netDeltaPct, deltaLabel: rangeComparisonLabel, icon: PiggyBank, iconBg: 'bg-primary-light', iconColor: 'text-primary', gateReasonText: rangeGateReasonText },
     {
-      label: `Savings Rate (${rangeCardSuffix})`,
+      label: `Savings Rate · ${rangeCardSuffix}`,
       value: rangeSummary.savingsRatePct !== null ? rangeSummary.savingsRatePct.toFixed(0) + '%' : '—',
       caption: rangeSummary.savingsRatePct === null ? savingsRateGateText(rangeSummary.savingsRateGateReason) : undefined,
       delta: null as number | null, deltaLabel: rangeComparisonLabel, icon: PieChart, iconBg: 'bg-accent-purple-bg', iconColor: 'text-accent-purple',
@@ -799,42 +825,13 @@ export default function Dashboard() {
               deltaLabel={k.deltaLabel}
               invertDelta={k.invertDelta}
               gateReasonText={k.gateReasonText}
+              footer={k.label.startsWith('Income ·') ? incomeNotCounted : undefined}
               variant="elevated"
             />
           ))}
         </div>
         {soFarNote && (
           <p className="text-xs text-muted -mt-3 mb-6" data-testid="so-far-note">{soFarNote}</p>
-        )}
-        {/* Money that came in over this range but is not counted in the Income card -- a transfer
-            from a person, an unexplained credit on a card (see FlowClassifier on the backend).
-            Without this line a user whose income drops because a parent's transfer stopped
-            counting sees the number fall with no explanation. Links to the review page (Plan 2). */}
-        {unresolved && unresolved.count > 0 && (
-          <div
-            className="bg-card border border-border rounded-xl2 px-5 py-3.5 flex items-start gap-2.5 mb-6"
-            data-testid="unresolved-inflow-banner"
-          >
-            <Info size={16} className="text-muted flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-ink">
-                {unresolved.count}{' '}
-                {unresolved.count === 1 ? 'transaction needs' : 'transactions need'} classification
-                {' · '}{fmt(unresolved.amount)} not counted as income
-              </p>
-              {unresolved.topReason && UNRESOLVED_REASON_LINE[unresolved.topReason] && (
-                <p className="text-xs text-muted mt-0.5">{UNRESOLVED_REASON_LINE[unresolved.topReason]}</p>
-              )}
-              {unresolved.bounds && (
-                <Link
-                  to={`/app/money-review?start=${unresolved.bounds[0]}&end=${unresolved.bounds[1]}`}
-                  className="text-xs text-primary font-medium mt-1 inline-block"
-                >
-                  Review these payments
-                </Link>
-              )}
-            </div>
-          </div>
         )}
         </>
       )}

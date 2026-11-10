@@ -1743,13 +1743,13 @@ describe('Dashboard — unified date-range picker', () => {
 
     expect(await screen.findByText('Net worth')).toBeInTheDocument();
     expect(screen.getByText('₹50,000')).toBeInTheDocument();
-    expect(screen.getByText('Income (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('Income · Mar–Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('₹80,000')).toBeInTheDocument();
-    expect(screen.getByText('Expenses (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('Expenses · Mar–Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('₹45,000')).toBeInTheDocument();
-    expect(screen.getByText('Net Savings (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('Net Savings · Mar–Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('₹35,000')).toBeInTheDocument();
-    expect(screen.getByText('Savings Rate (Last 6 Months)')).toBeInTheDocument();
+    expect(screen.getByText('Savings Rate · Mar–Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('44%')).toBeInTheDocument();
   });
 
@@ -1785,7 +1785,8 @@ describe('Dashboard — unified date-range picker', () => {
   it('re-fetches rangeSummary with the newly selected preset when the range picker changes', async () => {
     // Echoes back whichever rangeType was actually requested, so the re-fetch after switching
     // the picker is visible both in the call args AND in the label the response then drives.
-    vi.mocked(dashboardApi.rangeSummary).mockImplementation(async (rangeType) => rangeSummary({ rangeType }));
+    vi.mocked(dashboardApi.rangeSummary).mockImplementation(async (rangeType) => rangeSummary(
+      rangeType === 'LAST_12_MONTHS' ? { rangeType, startDate: '2025-09-01', endDate: '2026-08-31' } : { rangeType }));
     const user = userEvent.setup();
     await renderOnRange();
     await screen.findByText('Net worth');
@@ -1796,7 +1797,7 @@ describe('Dashboard — unified date-range picker', () => {
     await waitFor(() => {
       expect(dashboardApi.rangeSummary).toHaveBeenCalledWith('LAST_12_MONTHS', undefined, undefined);
     });
-    expect(await screen.findByText('Income (Last 12 Months)')).toBeInTheDocument();
+    expect(await screen.findByText('Income · Sep 2025–Aug 2026')).toBeInTheDocument();
   });
 
   it('selecting Custom reveals two date inputs and, once both are filled, fetches rangeSummary with them', async () => {
@@ -1877,7 +1878,7 @@ describe('Dashboard — unified date-range picker', () => {
     fireEvent.change(screen.getByLabelText('Custom range start date'), { target: { value: '2026-03-15' } });
     fireEvent.change(screen.getByLabelText('Custom range end date'), { target: { value: '2026-08-20' } });
 
-    expect(await screen.findByText('Income (Mar 15 – Aug 20)')).toBeInTheDocument();
+    expect(await screen.findByText('Income · Mar 15 – Aug 20')).toBeInTheDocument();
     expect(screen.queryByText(/\(Custom\)/)).not.toBeInTheDocument();
   });
 
@@ -1942,14 +1943,14 @@ describe('Dashboard — This Month default', () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ netWorth: 61000, savingsRatePct: 43.75 }));
     renderDashboard();
 
-    expect(await screen.findByText('Income (This Month)')).toBeInTheDocument();
+    expect(await screen.findByText('Income · This Month')).toBeInTheDocument();
     expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('This Month');
     expect(screen.getByText('₹80,000')).toBeInTheDocument();
-    expect(screen.getByText('Expenses (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('Expenses · This Month')).toBeInTheDocument();
     expect(screen.getByText('₹45,000')).toBeInTheDocument();
-    expect(screen.getByText('Net Savings (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('Net Savings · This Month')).toBeInTheDocument();
     expect(screen.getByText('₹35,000')).toBeInTheDocument();
-    expect(screen.getByText('Savings Rate (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('Savings Rate · This Month')).toBeInTheDocument();
     expect(screen.getByText('44%')).toBeInTheDocument();
     expect(screen.getByText('Net worth')).toBeInTheDocument();
     expect(screen.getByText('₹61,000')).toBeInTheDocument();
@@ -1964,7 +1965,7 @@ describe('Dashboard — This Month default', () => {
     }));
     renderDashboard();
 
-    await screen.findByText('Income (This Month)');
+    await screen.findByText('Income · This Month');
     expect(screen.getAllByText('vs last month')).toHaveLength(3);
   });
 
@@ -1974,7 +1975,7 @@ describe('Dashboard — This Month default', () => {
     }));
     renderDashboard();
 
-    expect(await screen.findByText('Income (Aug 26)')).toBeInTheDocument();
+    expect(await screen.findByText('Income · Aug 26')).toBeInTheDocument();
     expect(screen.getByLabelText('Dashboard period')).toHaveDisplayValue('Latest month (Aug 26)');
     expect(screen.getAllByText('vs the month before Aug 26')).toHaveLength(3);
     expect(screen.getByText('as of Aug 26')).toBeInTheDocument();
@@ -2007,7 +2008,7 @@ describe('Dashboard — This Month default', () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ savingsRatePct: null, savingsRateGateReason: 'NO_INCOME' }));
     renderDashboard();
 
-    await screen.findByText('Savings Rate (This Month)');
+    await screen.findByText('Savings Rate · This Month');
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
@@ -2017,7 +2018,7 @@ describe('Dashboard — This Month default', () => {
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ savingsRatePct: -12.5 }));
     renderDashboard();
 
-    await screen.findByText('Savings Rate (This Month)');
+    await screen.findByText('Savings Rate · This Month');
     expect(screen.getByText('-12%')).toBeInTheDocument();
   });
 
@@ -2044,22 +2045,81 @@ describe('Dashboard — This Month default', () => {
     }));
     renderDashboard();
 
-    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income')).toBeInTheDocument();
+    expect(await screen.findByText('+ ₹1,479 not counted yet')).toBeInTheDocument();
     expect(screen.getByText('Mostly money received from people')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Review these payments' }))
+    expect(screen.getByRole('link', { name: 'Tell us what it is' }))
       .toHaveAttribute('href', '/app/money-review?start=2026-02-01&end=2026-02-28');
   });
 
   it('switching to Last 6 Months moves the cards to the range figures', async () => {
     const user = userEvent.setup();
     renderDashboard();
-    await screen.findByText('Income (This Month)');
+    await screen.findByText('Income · This Month');
 
     await user.selectOptions(screen.getByLabelText('Dashboard period'), 'LAST_6_MONTHS');
 
-    expect(await screen.findByText('Income (Last 6 Months)')).toBeInTheDocument();
+    expect(await screen.findByText('Income · Mar–Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('₹4,80,000')).toBeInTheDocument();
-    expect(screen.queryByText('Income (This Month)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Income · This Month')).not.toBeInTheDocument();
+  });
+});
+
+describe('Dashboard — cards name their days and show money not counted', () => {
+  beforeEach(() => {
+    vi.mocked(dashboardApi.summary).mockReset().mockResolvedValue(summary({
+      reportingMonth: '2026-11', reportingMonthIsCurrent: true, figuresThrough: '2026-11-08',
+      monthlyIncome: 120, unresolvedInflow: 15000, unresolvedInflowCount: 2, unresolvedTopReason: 'PERSON_INFLOW',
+    }));
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(transactionsApi.search).mockReset().mockResolvedValue({
+      content: [], page: 0, size: 4, totalElements: 12, totalPages: 3,
+    });
+    vi.mocked(goalsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(insightsApi.get).mockReset().mockResolvedValue({ sentences: [], movers: [] });
+    vi.mocked(budgetsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(reportsApi.availableMonths).mockReset().mockResolvedValue([]);
+    vi.mocked(recurringApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
+      rangeType: 'LAST_6_MONTHS', startDate: '2026-06-01', endDate: '2026-11-30',
+    }));
+  });
+
+  it('labels every month card with the days the figures cover', async () => {
+    renderDashboard();
+
+    expect(await screen.findByText('Income · 1–8 Nov')).toBeInTheDocument();
+    expect(screen.getByText('Expenses · 1–8 Nov')).toBeInTheDocument();
+    expect(screen.getByText('Net Savings · 1–8 Nov')).toBeInTheDocument();
+    expect(screen.getByText('Savings Rate · 1–8 Nov')).toBeInTheDocument();
+  });
+
+  it('shows the money not counted on the Income card, with its reason and a link to sort it', async () => {
+    renderDashboard();
+
+    const line = await screen.findByTestId('income-not-counted');
+    expect(line).toHaveTextContent('+ ₹15,000 not counted yet');
+    expect(line).toHaveTextContent('Mostly money received from people');
+    expect(screen.getByRole('link', { name: 'Tell us what it is' }))
+      .toHaveAttribute('href', '/app/money-review?start=2026-11-01&end=2026-11-30');
+    expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeInTheDocument();
+  });
+
+  it('has no not-counted line when everything is counted', async () => {
+    vi.mocked(dashboardApi.summary).mockResolvedValue(summary({
+      reportingMonth: '2026-11', reportingMonthIsCurrent: true, figuresThrough: '2026-11-08',
+      unresolvedInflow: 0, unresolvedInflowCount: 0, unresolvedTopReason: null,
+    }));
+    renderDashboard();
+
+    await screen.findByText('Income · 1–8 Nov');
+    expect(screen.queryByTestId('income-not-counted')).not.toBeInTheDocument();
+  });
+
+  it('labels a preset range with its months', async () => {
+    await renderOnRange('LAST_6_MONTHS');
+
+    expect(await screen.findByText('Income · Jun–Nov 2026')).toBeInTheDocument();
   });
 });
 
@@ -2155,7 +2215,7 @@ describe('Dashboard — design review fixes', () => {
     // Not a bare /^Savings Rate/ -- the Financial Health Score section below also has a factor
     // literally labeled "Savings Rate" with no parenthetical, and getByText throws on the
     // resulting ambiguity. The KPI card's own label always carries a "(<range>)" suffix.
-    const savingsRateLabel = screen.getByText(/^Savings Rate \(/);
+    const savingsRateLabel = screen.getByText(/^Savings Rate · /);
     const savingsRateIconWrapper = savingsRateLabel.parentElement?.querySelector('[class*="rounded-xl"]');
     expect(savingsRateIconWrapper?.className).toContain('bg-accent-purple-bg');
     expect(savingsRateIconWrapper?.querySelector('svg')?.getAttribute('class')).toContain('text-accent-purple');
@@ -2279,14 +2339,15 @@ describe('Dashboard — unresolved inflow banner', () => {
     expect(await screen.findByText('No income counted yet')).toBeInTheDocument();
   });
 
-  it('says how many transactions and how much money are not counted as income', async () => {
+  it('says on the Income card how much money is not counted as income', async () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 84500, unresolvedInflowCount: 12, unresolvedTopReason: null,
     }));
     await renderOnRange();
 
-    expect(await screen.findByText('12 transactions need classification · ₹84,500 not counted as income'))
-      .toBeInTheDocument();
+    const line = await screen.findByTestId('income-not-counted');
+    expect(line).toHaveTextContent('+ ₹84,500 not counted yet');
+    expect(line.closest('div.rounded-xl2, [class*="rounded"]')).toHaveTextContent(/^Income · /);
   });
 
   it('links to the review page for the same period', async () => {
@@ -2295,18 +2356,17 @@ describe('Dashboard — unresolved inflow banner', () => {
     }));
     await renderOnRange();
 
-    expect(await screen.findByRole('link', { name: 'Review these payments' }))
+    expect(await screen.findByRole('link', { name: 'Tell us what it is' }))
       .toHaveAttribute('href', '/app/money-review?start=2026-03-01&end=2026-08-31');
   });
 
-  it('uses the singular for one transaction', async () => {
+  it('shows the line for a single payment too', async () => {
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({
       unresolvedInflow: 1479, unresolvedInflowCount: 1, unresolvedTopReason: null,
     }));
     await renderOnRange();
 
-    expect(await screen.findByText('1 transaction needs classification · ₹1,479 not counted as income'))
-      .toBeInTheDocument();
+    expect(await screen.findByText('+ ₹1,479 not counted yet')).toBeInTheDocument();
   });
 
   it('is absent when nothing is unresolved', async () => {
@@ -2315,7 +2375,8 @@ describe('Dashboard — unresolved inflow banner', () => {
     }));
     renderDashboard();
 
-    await screen.findByText(/^Income \(/); // wait for the KPI cards
+    await screen.findByText(/^Income · /); // wait for the KPI cards
+    expect(screen.queryByTestId('income-not-counted')).not.toBeInTheDocument();
     expect(screen.queryByTestId('unresolved-inflow-banner')).not.toBeInTheDocument();
   });
 
@@ -2340,8 +2401,8 @@ describe('Dashboard — unresolved inflow banner', () => {
     }));
     await renderOnRange();
 
-    const banner = await screen.findByTestId('unresolved-inflow-banner');
-    expect(banner.querySelectorAll('p')).toHaveLength(1);
+    const line = await screen.findByTestId('income-not-counted');
+    expect(line.querySelectorAll('p')).toHaveLength(1);
     expect(screen.queryByText('SOME_FUTURE_REASON')).not.toBeInTheDocument();
   });
 });
@@ -2379,7 +2440,7 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
     expect(await screen.findByTestId('so-far-note')).toHaveTextContent(
       "September is partial so far: HDFC Card's latest data ends Sep 11, so its last days aren't in yet.");
     // Labelled, not withheld: the expense card still shows the month's own number.
-    expect(screen.getByText('Expenses (This Month)')).toBeInTheDocument();
+    expect(screen.getByText('Expenses · This Month')).toBeInTheDocument();
     expect(screen.getByText('₹91,000')).toBeInTheDocument();
   });
 
@@ -2387,7 +2448,7 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary({ statementBehind: null }));
     renderDashboard();
 
-    await screen.findByText('Expenses (This Month)');
+    await screen.findByText('Expenses · This Month');
     expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
   });
 
@@ -2395,7 +2456,7 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
     vi.mocked(dashboardApi.summary).mockResolvedValue(summary());
     renderDashboard();
 
-    await screen.findByText('Expenses (This Month)');
+    await screen.findByText('Expenses · This Month');
     expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
   });
 
@@ -2417,7 +2478,7 @@ describe("Dashboard — a month that is 'so far' because a statement stops short
     vi.mocked(dashboardApi.rangeSummary).mockResolvedValue(rangeSummary({ statementBehind: null }));
     await renderOnRange();
 
-    await screen.findByText(/^Income \(/);
+    await screen.findByText(/^Income · /);
     expect(screen.queryByTestId('so-far-note')).not.toBeInTheDocument();
   });
 

@@ -49,8 +49,10 @@ export function IdleSignOut({ children }: { children: ReactNode }) {
   // what makes the session that follows start with a fresh clock.
   useEffect(() => {
     const onActivity = () => markActivity();
-    ACTIVITY_EVENTS.forEach((type) => window.addEventListener(type, onActivity, { passive: true }));
-    return () => ACTIVITY_EVENTS.forEach((type) => window.removeEventListener(type, onActivity));
+    // Capture, not bubble: a scroll inside a scrollable panel (a long transaction list) does not
+    // bubble to window, so only a capturing listener sees it.
+    ACTIVITY_EVENTS.forEach((type) => window.addEventListener(type, onActivity, { capture: true, passive: true }));
+    return () => ACTIVITY_EVENTS.forEach((type) => window.removeEventListener(type, onActivity, { capture: true }));
   }, []);
 
   useEffect(() => {

@@ -89,6 +89,22 @@ describe('IdleSignOut', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // A scroll event does not bubble: scrolling a list inside a scrollable panel never reaches window
+  // unless the listener captures it.
+  it('scrolling inside a panel counts as activity', () => {
+    renderIdle();
+    const panel = screen.getByText('protected content');
+    for (let i = 0; i < 3; i++) {
+      advance(10 * MINUTE);
+      act(() => {
+        panel.dispatchEvent(new Event('scroll', { bubbles: false }));
+      });
+    }
+    advance(10 * MINUTE);
+
+    expect(auth.logout).not.toHaveBeenCalled();
+  });
+
   it('activity in another tab resets the timer', () => {
     renderIdle();
     advance(14 * MINUTE + 5_000);

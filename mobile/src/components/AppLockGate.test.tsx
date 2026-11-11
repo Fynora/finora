@@ -374,6 +374,38 @@ describe('AppLockGate', () => {
       await waitFor(() => expect(screen.queryByText(LOCK_TEXT)).toBeNull());
     });
 
+    it('does not prompt for Face ID on the relock after it was turned off mid-session', async () => {
+      await signInWithPin({ biometrics: true });
+      mockedAuthenticateAsync.mockResolvedValueOnce({ success: true });
+      renderGate(<Counter />);
+      // Waits for the Face ID unlock itself: while the saved session is still loading, the app tree
+      // is briefly mounted signed-out, so finding its text alone proves nothing.
+      await waitFor(() => expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(appLock.isLocked()).toBe(false));
+      await screen.findByText('typed 0');
+      await SecureStore.deleteItemAsync('finora_app_lock_enabled');
+      // A real Keychain/Keystore read takes longer than one tick; the fake answers at once, which
+      // would hide the window where the lock still believes Face ID is on.
+      const real = (SecureStore.getItemAsync as jest.Mock).getMockImplementation()!;
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (k: string) => {
+        if (k === 'finora_app_lock_enabled') await new Promise((r) => setTimeout(r, 10));
+        return real(k);
+      });
+
+      try {
+        await awayFor(61_000);
+        await screen.findByText(LOCK_TEXT);
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        });
+
+        expect(mockedAuthenticateAsync).toHaveBeenCalledTimes(1);
+        expect(screen.queryByLabelText('Unlock with Face ID or fingerprint')).toBeNull();
+      } finally {
+        (SecureStore.getItemAsync as jest.Mock).mockImplementation(real);
+      }
+    });
+
     it('does not lock while a share sheet is open, however long it stays open', async () => {
       await openApp();
       let finishShare: (() => void) | undefined;
@@ -433,6 +465,28 @@ describe('AppLockGate', () => {
       expect(await SecureStore.getItemAsync('finora_token')).toBeNull();
       await waitFor(async () => expect(await pinLock.hasPin()).toBe(false));
       expect(await appLock.isEnabled()).toBe(false);
+    });
+
+    it('stays locked and says so when the PIN cannot be checked', async () => {
+      await signInWithPin();
+      renderGate();
+      await screen.findByText(LOCK_TEXT);
+      const real = (SecureStore.getItemAsync as jest.Mock).getMockImplementation()!;
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (k: string) => {
+        if (k === 'finora_pin_hash') throw new Error('keystore busy');
+        return real(k);
+      });
+
+      try {
+        await typePin(PIN);
+
+        expect(await screen.findByText("Couldn't check your PIN. Try again.")).toBeTruthy();
+        expect(screen.getByText(LOCK_TEXT)).toBeTruthy();
+      } finally {
+        (SecureStore.getItemAsync as jest.Mock).mockImplementation(real);
+      }
+      await typePin(PIN);
+      expect(await screen.findByText('protected content')).toBeTruthy();
     });
 
     it('Forgot PIN signs out after a confirm', async () => {

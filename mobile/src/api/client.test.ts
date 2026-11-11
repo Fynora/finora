@@ -510,6 +510,56 @@ describe('verifySession', () => {
     expect(expired).toHaveBeenCalledTimes(1);
   });
 
+  // The server honours a just-rotated token again only within 30 s of rotating it. A first attempt
+  // that ran for most of its 30 s timeout may have been rotated early on; a retry after it would land
+  // outside that window, read as theft, and sign out every device. No retry then: this phone signs out.
+  it('does not retry when the first attempt took too long for a retry to land inside the reuse window', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const attempts = refreshAnswers((config) => {
+      now += 29_000;
+      return timeout(config);
+    });
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(attempts()).toBe(1);
+    expect(expired).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('still retries a quick failure', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const attempts = refreshAnswers((config) => {
+      now += 3_000;
+      return networkError(config);
+    }, ok);
+
+    await expect(client.verifySession()).resolves.toBe('alive');
+
+    expect(attempts()).toBe(2);
+    jest.restoreAllMocks();
+  });
+
+  // A renewal left over from a session that ended while it waited to retry must not act for (or
+  // sign out) the next session.
+  it('stops a pending retry when the session ends meanwhile', async () => {
+    client.__setRenewRetryDelayForTests(30);
+    const attempts = refreshAnswers(networkError, ok);
+    const pending = client.verifySession();
+    await new Promise((r) => setTimeout(r, 5));
+    void client.markSessionEnded();
+    client.sessionStorageCleared();
+    secureStore.__store.set(REFRESH_TOKEN_KEY, 'next-session-refresh');
+
+    await expect(pending).resolves.toBe('ended');
+
+    expect(attempts()).toBe(1);
+    expect(expired).not.toHaveBeenCalled();
+    expect(secureStore.__store.get(REFRESH_TOKEN_KEY)).toBe('next-session-refresh');
+  });
+
   it('keeps the session when the phone went offline before the retry', async () => {
     const attempts = refreshAnswers((config) => {
       phoneIs('offline');

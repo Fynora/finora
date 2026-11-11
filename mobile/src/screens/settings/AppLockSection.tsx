@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { AppModal } from '../../components/AppModal';
+import { CHECK_FAILED_MESSAGE } from '../../components/AppLockGate';
 import { AppSwitch } from '../../components/AppSwitch';
 import { Button } from '../../components/Button';
 import { PinPad } from '../../components/PinPad';
@@ -197,6 +198,8 @@ function ChangePinSheet({ onClose, onChanged }: { onClose: () => void; onChanged
       setError(result.triesLeft > 2
         ? 'Wrong PIN. Try again.'
         : `Wrong PIN. ${result.triesLeft} ${result.triesLeft === 1 ? 'try' : 'tries'} left.`);
+    } catch {
+      setError(CHECK_FAILED_MESSAGE);
     } finally {
       setBusy(false);
     }

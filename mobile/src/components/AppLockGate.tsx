@@ -49,6 +49,8 @@ const REGROUND_GRACE_MS = 1500;
 type Phase = 'setup' | 'locked' | 'open';
 type Verify = 'pending' | 'alive' | 'offline';
 
+export const CHECK_FAILED_MESSAGE = "Couldn't check your PIN. Try again.";
+
 function wrongPinMessage(triesLeft: number): string {
   if (triesLeft > 2) return 'Wrong PIN. Try again.';
   return `Wrong PIN. ${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} left.`;
@@ -193,11 +195,21 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     && verifyResult !== 'pending';
   useEffect(() => {
     if (!promptReady || promptRequest === handledPromptRef.current) return;
+    let cancelled = false;
     const timer = setTimeout(() => {
       handledPromptRef.current = promptRequest;
-      void tryBiometric();
+      // Read fresh, not from `biometricOn`: that is updated asynchronously after a lock, so right
+      // after Face ID is turned off in Settings it can still say on. Cancelled if anything changes
+      // while it reads -- the PIN typed in, the session ended -- so Face ID never pops up over an
+      // app that is already open, or over the sign-in screen.
+      void appLock.isEnabled().then((on) => {
+        if (on && !cancelled) void tryBiometric();
+      });
     }, 0);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [promptReady, promptRequest, tryBiometric]);
 
   // Locks again after more than RELOCK_AFTER_MS in the background. A trip caused by the app's own
@@ -252,6 +264,10 @@ export function AppLockGate({ children }: { children: ReactNode }) {
         return;
       }
       setError(wrongPinMessage(result.triesLeft));
+    } catch {
+      // The PIN or the try count could not be read or saved (pinLock.checkPin): nothing opens and
+      // nothing was counted. Say so, rather than calling a possibly right PIN wrong.
+      if (tokenRef.current === forToken) setError(CHECK_FAILED_MESSAGE);
     } finally {
       setBusy(false);
     }

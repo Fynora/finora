@@ -422,6 +422,13 @@ async function phoneHasNoInternet(): Promise<boolean> {
 // within the window and is answered with a fresh pair for the same session.
 let renewRetryDelayMs = 2000;
 
+// The latest a retry may be sent, measured from when the first attempt was SENT: the server's reuse
+// window (30 s) runs from when it rotated the token, which is no earlier than the send, so a retry
+// sent within this many milliseconds of the first send is inside the window with a 5 s margin for
+// its own trip. A first attempt that ran longer (most of a 30 s timeout, a slow proxy's 504) gets no
+// retry: its retry could arrive after the window and read as theft, signing out every device.
+const RETRY_DEADLINE_MS = 25_000;
+
 /** Test-only: the retry delay, so tests do not wait two real seconds. */
 export function __setRenewRetryDelayForTests(ms: number): void {
   renewRetryDelayMs = ms;
@@ -450,8 +457,10 @@ let renewInFlight: Promise<RenewOutcome> | null = null;
  */
 function renewSession(): Promise<RenewOutcome> {
   if (renewInFlight) return renewInFlight;
+  const epoch = sessionEpoch;
   const attempt = (async (): Promise<RenewOutcome> => {
     for (let tries = 1; ; tries++) {
+      const sentAt = Date.now();
       try {
         return { kind: 'renewed', pair: await refreshAccessToken() };
       } catch (err) {
@@ -459,8 +468,12 @@ function renewSession(): Promise<RenewOutcome> {
         if (failure === 'ended') return { kind: 'ended' };
         if (failure === 'refused') return { kind: 'signed-out', error: err };
         if (failure === 'not-sent' || (await phoneHasNoInternet())) return { kind: 'kept', error: err };
-        if (tries >= 2) return { kind: 'signed-out', error: err };
+        const retryInTime = Date.now() - sentAt + renewRetryDelayMs <= RETRY_DEADLINE_MS;
+        if (tries >= 2 || !retryInTime) return { kind: 'signed-out', error: err };
         await new Promise((resolve) => setTimeout(resolve, renewRetryDelayMs));
+        // The session ended while this waited (signed out, or ended from elsewhere): the retry is
+        // not this renewal's to make any more, and must not touch or end the next session.
+        if (epoch !== sessionEpoch) return { kind: 'ended' };
       }
     }
   })();

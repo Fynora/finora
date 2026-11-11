@@ -35,16 +35,28 @@ function hashPin(salt: string, pin: string): Promise<string> {
   });
 }
 
+/** The wrong-try count. Read straight from SecureStore, not through safeStorage: safeStorage turns
+ *  a failed read into "nothing stored", which here would hand back a fresh budget. A failed read
+ *  throws instead, so the caller checks nothing rather than allowing an uncounted guess. */
 async function readFailures(): Promise<number> {
-  const raw = await safeStorage.getItem(FAILURES_KEY);
+  const raw = await SecureStore.getItemAsync(FAILURES_KEY);
   const n = raw === null ? 0 : Number.parseInt(raw, 10);
-  // An unreadable count is treated as the budget spent, not as a fresh one: failing open here
-  // would let a tampered value buy unlimited tries.
+  // A stored value that is not a count is treated as the budget spent, not as a fresh one: failing
+  // open here would let a tampered value buy unlimited tries.
   return Number.isFinite(n) && n >= 0 ? n : MAX_PIN_TRIES;
 }
 
+/**
+ * Whether this phone has a PIN. A failed read answers yes: answering no would send the user to PIN
+ * setup, which sets a new PIN without the old one -- a storage glitch would then skip the lock.
+ * The lock screen that shows instead reports a failed check and lets them try again.
+ */
 export async function hasPin(): Promise<boolean> {
-  return (await safeStorage.getItem(HASH_KEY)) !== null;
+  try {
+    return (await SecureStore.getItemAsync(HASH_KEY)) !== null;
+  } catch {
+    return true;
+  }
 }
 
 /** Sets a new PIN (exactly 4 digits) and starts a fresh try budget. */
@@ -59,24 +71,34 @@ export async function setPin(pin: string): Promise<void> {
   await SecureStore.setItemAsync(FAILURES_KEY, '0');
 }
 
+// One check at a time. Two checks running together would both read the same count and both write
+// count + 1, letting two guesses cost one try.
+let checkQueue: Promise<unknown> = Promise.resolve();
+
 /**
  * Checks a PIN against the stored one. A wrong PIN is counted (and saved) before this returns.
  * Once the budget is spent every check fails, even the right PIN: the caller signs out at
- * `triesLeft === 0`.
+ * `triesLeft === 0`. Throws when the PIN or the count cannot be read or the count cannot be saved:
+ * the caller says the PIN could not be checked, and nothing is opened or left uncounted.
  */
 export function checkPin(pin: string): Promise<PinCheck> {
-  return withAuthenticating(async () => {
+  const previous = checkQueue;
+  // Counted as authenticating from the moment it is asked for, including any wait in the queue.
+  const run = withAuthenticating(() => previous.then(async (): Promise<PinCheck> => {
     const failures = await readFailures();
     if (failures >= MAX_PIN_TRIES) return { ok: false, triesLeft: 0 };
-    const [salt, stored] = await Promise.all([safeStorage.getItem(SALT_KEY), safeStorage.getItem(HASH_KEY)]);
+    const salt = await SecureStore.getItemAsync(SALT_KEY);
+    const stored = await SecureStore.getItemAsync(HASH_KEY);
     if (salt !== null && stored !== null && (await hashPin(salt, pin)) === stored) {
-      await safeStorage.setItem(FAILURES_KEY, '0');
+      await SecureStore.setItemAsync(FAILURES_KEY, '0');
       return { ok: true };
     }
     const next = failures + 1;
     await SecureStore.setItemAsync(FAILURES_KEY, String(next));
     return { ok: false, triesLeft: Math.max(0, MAX_PIN_TRIES - next) };
-  });
+  }));
+  checkQueue = run.catch(() => undefined);
+  return run;
 }
 
 /** A biometric unlock proves the owner as well as the PIN does: full budget again. */

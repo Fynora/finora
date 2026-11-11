@@ -130,5 +130,49 @@ describe('pinLock', () => {
     await pending;
     expect(appLock.isAuthenticating()).toBe(false);
   });
-});
 
+  // A storage read that fails must never open the app or give a free guess.
+  it('treats an unreadable PIN as set, so a storage glitch cannot skip to setting a new one', async () => {
+    const pinLock = load();
+    await pinLock.setPin('4821');
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keystore busy'));
+
+    expect(await pinLock.hasPin()).toBe(true);
+  });
+
+  it('does not check a PIN when the try count cannot be read, and counts nothing', async () => {
+    const pinLock = load();
+    await pinLock.setPin('4821');
+    store.set('finora_pin_failures', '3');
+    (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(new Error('keystore busy'));
+
+    await expect(pinLock.checkPin('4821')).rejects.toThrow();
+    expect(store.get('finora_pin_failures')).toBe('3');
+  });
+
+  it('does not check a PIN when the stored PIN cannot be read', async () => {
+    const pinLock = load();
+    await pinLock.setPin('4821');
+    const real = (SecureStore.getItemAsync as jest.Mock).getMockImplementation()!;
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (k: string) => {
+      if (k === 'finora_pin_hash') throw new Error('keystore busy');
+      return real(k);
+    });
+
+    try {
+      await expect(pinLock.checkPin('0000')).rejects.toThrow();
+    } finally {
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(real);
+    }
+    expect(store.get('finora_pin_failures')).toBe('0');
+  });
+
+  it('counts every guess when several are checked at once', async () => {
+    const pinLock = load();
+    await pinLock.setPin('4821');
+
+    await Promise.all([pinLock.checkPin('1111'), pinLock.checkPin('2222'), pinLock.checkPin('3333')]);
+
+    expect(store.get('finora_pin_failures')).toBe('3');
+  });
+});

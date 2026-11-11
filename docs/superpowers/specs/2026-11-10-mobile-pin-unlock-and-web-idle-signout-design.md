@@ -140,6 +140,10 @@ Fix:
 - Server-side web rules stay 24 hours idle and 30 days as a backstop.
 - A long upload or import in progress counts as activity while it runs. (My call: being signed out
   mid-upload would lose work.)
+- The admin portal gets the same rule (Sid, 2026-11-11), with its own activity clock
+  (`finora_admin_last_activity`, a separate origin anyway). It waits for the portal's page-load
+  permission check before signing an expired session out, since the token is set before that check
+  answers.
 
 ### 6. Copy that changes
 

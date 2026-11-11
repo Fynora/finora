@@ -256,17 +256,23 @@ class GlobalAuditLogIT extends AbstractIntegrationTest {
         assertThat(row.get("redactedAt").asText()).isEqualTo("2026-10-01T00:00:00Z");
     }
 
-    /** 00:30 IST on 15 Jan is 19:00 UTC on 14 Jan. With UTC day bounds, filtering on 15 Jan missed
-     *  it and filtering on 14 Jan showed it -- the opposite of the day the page's own heading puts
-     *  it under. */
+    /** 00:30 IST yesterday is 19:00 UTC the day before. With UTC day bounds, filtering on
+     *  yesterday missed it and filtering on the day before showed it -- the opposite of the day the
+     *  page's own heading puts it under. Dated yesterday, not at a fixed past date: these tests share
+     *  one database, and an old row is swept up by AuditServiceRedactionIT's 100-day retention run,
+     *  which then counts one row too many. */
     @Test
     void dateFilter_usesIndianDays_notUtcDays() throws Exception {
         User admin = createNamedUser("ADMIN", "Acting Admin");
         String action = "ZTEST_ISTDAY_" + UUID.randomUUID();
-        saveAuditEntry(admin.getId(), action, java.time.Instant.parse("2026-01-14T19:00:00Z"));
+        java.time.ZoneId ist = java.time.ZoneId.of("Asia/Kolkata");
+        LocalDate yesterday = LocalDate.now(ist).minusDays(1);
+        java.time.Instant halfPastMidnight = yesterday.atTime(0, 30).atZone(ist).toInstant();
+        saveAuditEntry(admin.getId(), action, halfPastMidnight);
 
-        assertThat(feed(admin, "action=" + action + "&dateFrom=2026-01-15&dateTo=2026-01-15")).hasSize(1);
-        assertThat(feed(admin, "action=" + action + "&dateFrom=2026-01-14&dateTo=2026-01-14")).isEmpty();
+        assertThat(feed(admin, "action=" + action + "&dateFrom=" + yesterday + "&dateTo=" + yesterday)).hasSize(1);
+        LocalDate dayBefore = yesterday.minusDays(1);
+        assertThat(feed(admin, "action=" + action + "&dateFrom=" + dayBefore + "&dateTo=" + dayBefore)).isEmpty();
     }
 
     /** AdminUserService records the acting admin as suspendedBy, reactivatedBy, recordedBy, ...

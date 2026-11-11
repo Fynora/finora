@@ -160,16 +160,11 @@ export async function isSupported(): Promise<boolean> {
 }
 
 /**
- * D1 (docs/project-management/plans/mobile-correctness-trust-roadmap.md, Track D). Deliberately
- * NOT routed through {@link safeStorage}: that module's contract collapses a genuinely-absent key
- * and a THROWN read into the identical `null` -- fine for most call sites, wrong here, because the
- * two facts mean opposite things for this specific flag. "Absent" means the user never turned the
- * lock on (fine to open). "Threw" means SecureStore itself is unreadable (a keychain/keystore
- * fault) and whether the lock is on cannot actually be determined -- collapsing that to "open"
- * would silently skip the lock screen the one time it's most likely something is genuinely wrong.
- * `authenticate()` above already fails closed on its own errors; this makes the enabled-check do
- * the same, rather than reusing a contract designed for lower-stakes reads. `true` here is safe,
- * not a lockout risk: AppLockGate's lock screen always keeps its own "Sign Out" escape hatch.
+ * Whether Face ID / fingerprint may open the app. Read straight from SecureStore so a failed read
+ * can be told apart from "never turned on" -- and since the PIN (design 2026-11-10) a failed read
+ * answers OFF. This setting used to be the whole lock, and failed closed to on; now the PIN always
+ * guards the app and this only adds a faster way past it, so "on" by mistake would offer a
+ * fingerprint unlock the user never chose. Off by mistake costs one PIN entry.
  */
 export async function isEnabled(): Promise<boolean> {
   const version = cacheVersion;
@@ -178,20 +173,16 @@ export async function isEnabled(): Promise<boolean> {
     if (version === cacheVersion) knownEnabled = enabled;
     return enabled;
   } catch {
-    // Whether the lock is on could not be determined -- forget any earlier answer too, so
-    // isKnownDisabled() keeps failing closed instead of trusting a stale one.
+    // Could not be determined -- forget any earlier answer too, so isKnownDisabled() does not
+    // trust a stale one.
     if (version === cacheVersion) knownEnabled = undefined;
-    return true;
+    return false;
   }
 }
 
 /**
- * Bug found in review (Track D/D1/D6): AppLockSection's own useEffect used to call isEnabled()
- * directly and paint its result straight onto the Settings switch. isEnabled()'s fail-closed
- * `true` is the right default for AppLockGate (there's a lock screen behind it, with its own
- * escape hatch), but painted onto a Settings toggle it lies -- a transient SecureStore read
- * failure would show App Lock as ON to a user who never turned it on, with no error and no way to
- * tell the difference from having actually enabled it.
+ * For the Settings switch: isEnabled() folds "could not read" into one answer, which painted onto a
+ * switch would claim a state the user never chose. This keeps "couldn't confirm" separate.
  *
  * This has no failure-closed default of its own because nothing here decides whether to challenge
  * for auth; it exists purely so a UI can tell "confirmed off" apart from "couldn't confirm" and

@@ -55,14 +55,15 @@ describe('isEnabled / setEnabled', () => {
     expect(await SecureStore.getItemAsync('finora_app_lock_enabled')).toBeNull();
   });
 
-  // D1 (Track D). "Absent" and "threw" must not collapse to the same false -- a genuinely absent
-  // key means the user never turned the lock on (fine to open), but a thrown read means whether
-  // the lock is on cannot actually be determined, which has to fail closed instead.
-  it('fails closed to true (not the generic false-on-error safeStorage would give) when the read throws', async () => {
+  // Since the PIN (design 2026-11-10) this setting no longer decides WHETHER the app locks -- the
+  // PIN always does -- only whether Face ID or a fingerprint may open it. Unreadable must therefore
+  // mean no: answering yes would offer a fingerprint unlock the user never turned on.
+  it('answers off when the read throws, so Face ID is never offered unless confirmed on', async () => {
+    await appLock.setEnabled(false);
     const mockedGetItemAsync = SecureStore.getItemAsync as jest.MockedFunction<typeof SecureStore.getItemAsync>;
     mockedGetItemAsync.mockRejectedValueOnce(new Error('keychain unavailable'));
 
-    expect(await appLock.isEnabled()).toBe(true);
+    expect(await appLock.isEnabled()).toBe(false);
   });
 });
 

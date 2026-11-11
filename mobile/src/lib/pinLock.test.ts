@@ -167,6 +167,25 @@ describe('pinLock', () => {
     expect(store.get('finora_pin_failures')).toBe('0');
   });
 
+  // A PIN change that fails partway must leave the old PIN working, never a mix of the two that
+  // matches neither (which would end in five "wrong" tries and a sign-out).
+  it('keeps the old PIN working when saving a new one fails partway', async () => {
+    const pinLock = load();
+    await pinLock.setPin('4821');
+    const real = (SecureStore.setItemAsync as jest.Mock).getMockImplementation()!;
+    (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (k: string, v: string) => {
+      if (k === 'finora_pin_hash') throw new Error('keystore busy');
+      return real(k, v);
+    });
+
+    try {
+      await expect(pinLock.setPin('7350')).rejects.toThrow();
+    } finally {
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(real);
+    }
+    expect(await pinLock.checkPin('4821')).toEqual({ ok: true });
+  });
+
   it('counts every guess when several are checked at once', async () => {
     const pinLock = load();
     await pinLock.setPin('4821');

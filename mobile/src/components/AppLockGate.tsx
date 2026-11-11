@@ -18,8 +18,8 @@ import { spacing, useTheme } from '../theme';
  * its session for up to 90 days unused, so opening the app always needs the Fynora PIN, or Face ID
  * / fingerprint if the user turned that on.
  *
- * - Signed in, no PIN yet (just signed in, or first open after updating): PinSetup, before anything
- *   else is mounted. No skip.
+ * - Just signed in, or a saved session with no PIN yet (first open after updating): PinSetup, before
+ *   anything else is mounted. No skip.
  * - Cold start with a saved session: locked. One refresh (verifySession) asks the server whether the
  *   session is still alive. Ended: straight to the sign-in screen, no prompt -- the bug this
  *   replaced asked for Face ID on a session that was already over, then showed sign-in. Offline:
@@ -177,7 +177,9 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     void pinLock.hasPin().then((hasPin) => {
       if (cancelled) return;
       if (!restored) setVerify({ token, result: 'alive' });
-      if (!hasPin) {
+      // A sign-in in this run always sets its own PIN. Sign-out clears the PIN, but without waiting,
+      // so one that failed to clear is the previous session's -- maybe another account's.
+      if (!restored || !hasPin) {
         setGate({ token, phase: 'setup' });
         return;
       }

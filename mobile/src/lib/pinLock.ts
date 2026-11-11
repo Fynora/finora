@@ -7,7 +7,8 @@ import { safeStorage } from './safeStorage';
  * The app PIN: 4 digits, required to open the app on a signed-in phone (design 2026-11-10).
  *
  * The PIN never leaves the phone and is never stored as itself: only SHA-256 of a random salt plus
- * the PIN, in SecureStore (Keychain / Keystore). Stated limit: 4 digits are 10,000 choices, so
+ * the PIN, in SecureStore (Keychain / Keystore). Salt and hash are one stored value, so a save that
+ * fails partway can never pair a new salt with the old hash and leave no PIN that works. Stated limit: 4 digits are 10,000 choices, so
  * anyone able to read SecureStore could try them all against the hash. Reading SecureStore takes a
  * compromised phone, and on such a phone the refresh token in the same store is already exposed, so
  * a slower hash would not change the outcome.
@@ -16,8 +17,8 @@ import { safeStorage } from './safeStorage';
  * does not reset it. Nothing here is kept in module state.
  */
 
+// "<salt hex>:<sha-256 hex>"
 const HASH_KEY = 'finora_pin_hash';
-const SALT_KEY = 'finora_pin_salt';
 const FAILURES_KEY = 'finora_pin_failures';
 
 /** Wrong PINs in a row before the phone is signed out. */
@@ -66,9 +67,10 @@ export async function setPin(pin: string): Promise<void> {
   const hash = await hashPin(salt, pin);
   // Written with SecureStore directly, not safeStorage: a PIN that silently failed to save would
   // leave the user unable to open the app. Let the caller see the error.
-  await SecureStore.setItemAsync(SALT_KEY, salt);
-  await SecureStore.setItemAsync(HASH_KEY, hash);
+  // The fresh budget first: if the PIN write after it fails, the old PIN still works and its count
+  // is unchanged in practice (setPin follows a correct PIN or a sign-in, both of which reset it).
   await SecureStore.setItemAsync(FAILURES_KEY, '0');
+  await SecureStore.setItemAsync(HASH_KEY, `${salt}:${hash}`);
 }
 
 // One check at a time. Two checks running together would both read the same count and both write
@@ -87,9 +89,9 @@ export function checkPin(pin: string): Promise<PinCheck> {
   const run = withAuthenticating(() => previous.then(async (): Promise<PinCheck> => {
     const failures = await readFailures();
     if (failures >= MAX_PIN_TRIES) return { ok: false, triesLeft: 0 };
-    const salt = await SecureStore.getItemAsync(SALT_KEY);
     const stored = await SecureStore.getItemAsync(HASH_KEY);
-    if (salt !== null && stored !== null && (await hashPin(salt, pin)) === stored) {
+    const [salt, hash] = stored?.split(':') ?? [];
+    if (salt && hash && (await hashPin(salt, pin)) === hash) {
       await SecureStore.setItemAsync(FAILURES_KEY, '0');
       return { ok: true };
     }
@@ -110,7 +112,6 @@ export async function resetFailures(): Promise<void> {
 export async function clearPin(): Promise<void> {
   await Promise.all([
     safeStorage.removeItem(HASH_KEY),
-    safeStorage.removeItem(SALT_KEY),
     safeStorage.removeItem(FAILURES_KEY),
   ]);
 }

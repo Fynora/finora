@@ -104,13 +104,34 @@ async function awayFor(ms: number) {
 }
 
 let signOutFromOutside: (() => void) | undefined;
-/** Sits beside the gate inside AuthProvider, the way a failed refresh reaches logout from outside. */
+let signInFromLogin: ((identifier: string, password: string) => Promise<boolean>) | undefined;
+/** Sits beside the gate inside AuthProvider, the way a failed refresh reaches logout from outside,
+ *  and the way the Login screen signs in. */
 function LogoutHandle() {
-  const { logout } = useAuth();
+  const { logout, login } = useAuth();
   useEffect(() => {
     signOutFromOutside = logout;
-  }, [logout]);
+    signInFromLogin = login;
+  }, [logout, login]);
   return null;
+}
+
+/** A password sign-in in this run of the app, answered by a fake server. */
+async function signInNow() {
+  const { api } = require('../api/client') as typeof import('../api/client');
+  api.defaults.adapter = ((config: unknown) => Promise.resolve({
+    config, status: 200, statusText: 'OK', headers: {},
+    data: {
+      success: true,
+      data: {
+        token: 'fresh-token', refreshToken: 'fresh-refresh', email: 'someone@example.com',
+        fullName: 'Someone', phoneVerified: true, id: 'user-1', onboardingCompleted: true,
+      },
+    },
+  })) as never;
+  await act(async () => {
+    await signInFromLogin!('someone@example.com', 'password');
+  });
 }
 
 function renderGate(children = <Text>protected content</Text>, { launching = false } = {}) {
@@ -191,6 +212,24 @@ describe('AppLockGate', () => {
 
     expect(await screen.findByText('protected content')).toBeTruthy();
     expect(appLock.isLocked()).toBe(false);
+    expect(await pinLock.checkPin(PIN)).toEqual({ ok: true });
+  });
+
+  // Signing out clears the PIN, but fire-and-forget: if that clear failed, the PIN left behind is
+  // the previous session's -- maybe another account's. A sign-in always sets its own.
+  it('asks a fresh sign-in to set a PIN even when an old one was left behind', async () => {
+    await pinLock.setPin('1111');
+    renderGate();
+    expect(await screen.findByText('protected content')).toBeTruthy();
+
+    await signInNow();
+
+    expect(await screen.findByText('Set a 4-digit PIN')).toBeTruthy();
+    expect(screen.queryByText(LOCK_TEXT)).toBeNull();
+    await typePin(PIN);
+    await screen.findByText('Enter it again');
+    await typePin(PIN);
+    expect(await screen.findByText('protected content')).toBeTruthy();
     expect(await pinLock.checkPin(PIN)).toEqual({ ok: true });
   });
 

@@ -80,7 +80,7 @@
 - Modify: `mobile/src/lib/appLock.ts` (`authenticate` passes `disableDeviceFallback: true`, `fallbackLabel: 'Use PIN'`; the biometric preference stays under the existing `finora_app_lock_enabled` key, now meaning "unlock with biometrics")
 
 **Interfaces:**
-- Produces (all async, SecureStore-backed, keys `finora_pin_hash`, `finora_pin_salt`, `finora_pin_failures`):
+- Produces (all async, SecureStore-backed, keys `finora_pin_hash` (salt and hash in one value), `finora_pin_failures`):
   - `hasPin(): Promise<boolean>`
   - `setPin(pin: string): Promise<void>` — rejects unless `/^\d{4}$/`; new random salt (`expo-crypto` `getRandomBytesAsync(16)`), stores SHA-256 hex of `salt + pin`, resets failures.
   - `checkPin(pin: string): Promise<{ ok: true } | { ok: false; triesLeft: number }>` — constant 5-try budget, increments and persists failures before returning; ok resets to 0.

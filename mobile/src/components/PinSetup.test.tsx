@@ -41,6 +41,19 @@ describe('PinSetup', () => {
     expect(await pinLock.checkPin('4821')).toEqual({ ok: true });
   });
 
+  // The PIN is saved by then; a failed Face ID check must not leave the user on the confirm pad.
+  it('finishes when checking for Face ID or fingerprint fails after the PIN is saved', async () => {
+    mocked.hasHardwareAsync.mockRejectedValueOnce(new Error('biometric service busy'));
+    const { onDone } = renderSetup();
+
+    await type('4821');
+    await screen.findByText('Enter it again');
+    await type('4821');
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(await pinLock.checkPin('4821')).toEqual({ ok: true });
+  });
+
   it('starts over when the two PINs differ, and saves nothing', async () => {
     const { onDone } = renderSetup();
 

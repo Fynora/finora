@@ -39,7 +39,13 @@ export function PinSetup({ onDone, offerBiometrics = true }: { onDone: () => voi
       onDone();
       return;
     }
-    const [supported, alreadyOn] = await Promise.all([appLock.isSupported(), appLock.isEnabled()]);
+    // The PIN is saved: a failed check here only skips the offer (Settings has the switch).
+    const [supported, alreadyOn] = await Promise.all([appLock.isSupported(), appLock.isEnabled()]).catch(
+      (error: unknown) => {
+        reportHandledError(error, 'pin-setup-biometric-check');
+        return [false, false];
+      }
+    );
     if (supported && !alreadyOn) {
       setStep({ kind: 'offer' });
       return;

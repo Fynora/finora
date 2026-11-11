@@ -192,7 +192,7 @@ function FeedbackContent() {
 
   return (
     <div className="space-y-6">
-      <LoadError error={breakdown.error} />
+      <LoadError error={breakdown.error} what="the feedback counts" />
       {/* Without the breakdown there is nothing to count: panels saying "No feedback yet" next to the
           error would read as a real zero. */}
       {breakdown.data && (

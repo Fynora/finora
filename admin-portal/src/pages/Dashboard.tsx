@@ -249,7 +249,7 @@ function InactiveUsersCard({ count }: { count: number }) {
       <UserMinus size={18} className="text-muted flex-shrink-0" />
       <div className="min-w-0">
         <p className="text-xs text-muted uppercase tracking-wide">Inactive 7+ days</p>
-        <p className="text-sm font-mono font-semibold text-ink">{count.toLocaleString()} users</p>
+        <p className="text-sm font-mono font-semibold text-ink">{count.toLocaleString()} {count === 1 ? 'user' : 'users'}</p>
       </div>
     </div>
   );

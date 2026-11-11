@@ -303,6 +303,14 @@ describe('Dashboard — Platform Activity chart + Insights row', () => {
     expect(await screen.findByText('17 users')).toBeInTheDocument();
     expect(screen.getByText('Inactive 7+ days')).toBeInTheDocument();
   });
+
+  it('says "1 user", not "1 users"', async () => {
+    vi.mocked(adminDashboardApi.overview).mockResolvedValue(overview({ inactiveUsersLast7Days: 1 }));
+
+    renderPage();
+
+    expect(await screen.findByText('1 user')).toBeInTheDocument();
+  });
 });
 
 describe('Dashboard — needs attention: open holds', () => {

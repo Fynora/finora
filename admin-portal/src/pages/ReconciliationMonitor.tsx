@@ -35,7 +35,7 @@ function ReconciliationMonitorContent() {
     return (
       <div className="space-y-6">
         {intro}
-        <p role="alert" className="text-sm text-danger">{loadErrorMessage(error)}</p>
+        <p role="alert" className="text-sm text-danger">{loadErrorMessage(error, 'these numbers')}</p>
       </div>
     );
   }

@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { LoadError } from '../components/LoadError';
 import { Sparkles, CheckCircle2, RotateCcw, TrendingUp } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { StatCard } from '../components/StatCard';
@@ -36,7 +35,6 @@ function LearningEngineContent() {
         look like if it's working.
       </p>
 
-      <LoadError error={loadError} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? '—'} />
         <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? '—'} />

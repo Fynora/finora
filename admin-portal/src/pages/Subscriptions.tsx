@@ -151,7 +151,7 @@ function SubscriptionsContent() {
 
   return (
     <div className="space-y-4">
-      <LoadError error={healthError} />
+      <LoadError error={healthError} what="the subscription counts" />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard icon={CheckCircle2} label="Active" value={healthLoading ? '…' : health?.activeCount ?? '—'} tone="success" />
         <StatCard icon={Clock} label="Past due" value={healthLoading ? '…' : health?.pastDueCount ?? '—'} tone="warning" />

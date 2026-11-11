@@ -78,7 +78,7 @@ describe('Play links on the search pages', () => {
 
   it('a bank page puts the top badge right after the answer, before the download steps', () => {
     renderAt(BANK_PATH, <BankPageView page={BANK} />);
-    const top = screen.getAllByRole('complementary', { name: 'Get Fynora on Android' })[0];
+    const top = screen.getAllByRole('group', { name: 'Get Fynora on Android' })[0];
     const steps = screen.getByRole('heading', { name: new RegExp(`^How to download your ${BANK.bankName}`) });
     expect(top.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText(BANK.answer).compareDocumentPosition(top) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -87,7 +87,7 @@ describe('Play links on the search pages', () => {
   it('a Help answer and a statement code put the badge right after the answer', () => {
     const article = HELP_ARTICLES[0];
     const help = renderAt(helpArticlePath(article), <HelpArticleView article={article} />);
-    const helpBlock = within(help.container).getByRole('complementary', { name: 'Get Fynora on Android' });
+    const helpBlock = within(help.container).getByRole('group', { name: 'Get Fynora on Android' });
     expect(within(helpBlock).getByRole('link', { name: PLAY_BADGE_ALT })).toHaveAttribute(
       'href', playStoreLink(helpArticlePath(article), 'badge_top'));
     expect(help.container.querySelector('article')!.nextElementSibling).toBe(helpBlock);
@@ -96,7 +96,7 @@ describe('Play links on the search pages', () => {
     const code = STATEMENT_CODES[0];
     const glossary = renderAt(statementCodePath(code), <StatementCodeView code={code} />);
     const answer = within(glossary.container).getByText(code.answer);
-    const codeBlock = within(glossary.container).getByRole('complementary', { name: 'Get Fynora on Android' });
+    const codeBlock = within(glossary.container).getByRole('group', { name: 'Get Fynora on Android' });
     expect(answer.nextElementSibling).toBe(codeBlock);
     expect(within(codeBlock).getByRole('link', { name: PLAY_BADGE_ALT })).toHaveAttribute(
       'href', playStoreLink(statementCodePath(code), 'badge_top'));

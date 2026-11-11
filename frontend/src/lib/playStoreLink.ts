@@ -53,10 +53,17 @@ const SECTIONS: { prefix: string; hub: string; page: string }[] = [
   { prefix: '/bank-statement-codes', hub: 'statement_codes_hub', page: 'statement_code' },
 ];
 
-/** Lower case, anything outside [a-z0-9-] becomes a hyphen, at most 60 characters. */
+/**
+ * The slug as it is, when it has the shape every real page's slug has (lower-case words of letters
+ * and digits joined by single hyphens, starting with a letter, at most 60 characters), or "other".
+ * Never a cleaned-up version of something else: the referrer goes to Google, and an address that is
+ * not one of this site's pages (a mistyped link, or one with an email address or a number in it)
+ * must not be passed along. The Android bar shows on not-found pages under /banks, /help and
+ * /bank-statement-codes, so those addresses do reach this.
+ */
+const SLUG_SHAPE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 function cleanSlug(raw: string): string {
-  const slug = raw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
-  return slug || 'unknown';
+  return raw.length <= 60 && SLUG_SHAPE.test(raw) ? raw : 'other';
 }
 
 /** The page type and slug for an address on this site. A trailing slash is ignored. */

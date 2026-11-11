@@ -69,6 +69,9 @@ export function PlayQr({ size = 128, className = 'hidden md:block' }: { size?: n
  *  - `sidebar`: the QR code over the badge, for the bank pages' desktop sidebar.
  *
  * Every Play link carries the page's install referrer, with `placement` as utm_term.
+ *
+ * A labelled group, not an <aside>: a bank page shows two of these at any width, and two
+ * complementary landmarks with the same name inside <main> fail axe's landmark-unique rule.
  */
 export function GetTheApp({
   variant,
@@ -84,19 +87,20 @@ export function GetTheApp({
 }) {
   if (variant === 'sidebar') {
     return (
-      <aside aria-label={GET_THE_APP_TITLE} className={`bg-card border border-border rounded-xl p-4 ${className}`}>
+      <div role="group" aria-label={GET_THE_APP_TITLE} className={`bg-card border border-border rounded-xl p-4 ${className}`}>
         <p className="text-sm font-semibold text-ink mb-1">{GET_THE_APP_TITLE}</p>
         <p className="text-xs text-muted mb-3">Scan with your phone&apos;s camera.</p>
         <PlayQr size={136} />
         <PlayBadge placement={placement} className="mt-1 -ml-2" />
         <p className="text-[11px] text-muted leading-snug mt-2">{PLAY_LEGAL}</p>
-      </aside>
+      </div>
     );
   }
 
   if (variant === 'compact') {
     return (
-      <aside
+      <div
+        role="group"
         aria-label={GET_THE_APP_TITLE}
         className={`bg-card border border-border rounded-xl px-4 py-2 flex flex-wrap items-center justify-between gap-x-4 ${className}`}
       >
@@ -105,12 +109,12 @@ export function GetTheApp({
           <span><span className="font-semibold">Fynora is on Android.</span> Import statements from your phone.</span>
         </p>
         <PlayBadge placement={placement} className="-mx-2" />
-      </aside>
+      </div>
     );
   }
 
   return (
-    <aside aria-label={GET_THE_APP_TITLE} className={`bg-card border border-border rounded-xl p-6 ${className}`}>
+    <div role="group" aria-label={GET_THE_APP_TITLE} className={`bg-card border border-border rounded-xl p-6 ${className}`}>
       <div className="flex flex-wrap items-center gap-6">
         <PlayQr className={qrClassName} />
         <div className="flex-1 min-w-[220px]">
@@ -120,6 +124,6 @@ export function GetTheApp({
           <p className="text-[11px] text-muted leading-snug mt-1">{PLAY_LEGAL}</p>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

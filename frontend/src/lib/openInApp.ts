@@ -71,6 +71,28 @@ export function isAndroidBrowser(userAgent: string): boolean {
 export const NO_PROMPT_PATHS = ['/reset-password', '/verify-email', '/email-change-verify', '/verify-phone'];
 
 /**
+ * The only pages the Android "get the app" bar appears on: the homepage, where shared links land,
+ * and the pages built for search (bank statement pages, Help answers, the statement code glossary,
+ * the converter), each with its hub. A list of what is allowed, not of what is not, because:
+ *
+ *  - The mobile app opens /privacy, /terms, /trust and /your-data in the phone's browser
+ *    (mobile/src/lib/webUrl.ts openWebUrl). On those, the bar would tell someone already using the
+ *    app to "get the app".
+ *  - The sign-in pages, and the one-time-token pages (NO_PROMPT_PATHS), are mid-task: a bar over
+ *    a sign-in form gets in the way of finishing it.
+ *  - Under /app the person is signed in to the web app.
+ *  - A page added later stays without the bar until it is put here on purpose.
+ */
+const APP_PROMPT_SECTIONS = ['/banks', '/help', '/bank-statement-codes'];
+
+/** Whether the Android bar may show on `pathname` (trailing slashes ignored). */
+export function isAppPromptPage(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  if (path === '/' || path === '/bank-statement-to-excel') return true;
+  return APP_PROMPT_SECTIONS.some((section) => path === section || path.startsWith(section + '/'));
+}
+
+/**
  * The Chrome intent link the banner's button follows: opens {@link ANDROID_PACKAGE} through its
  * {@link APP_SCHEME}, or, when the app is not installed, `fallbackUrl` (the Play Store listing,
  * with the page's install referrer when the banner passes one: lib/playStoreLink.ts). Naming the

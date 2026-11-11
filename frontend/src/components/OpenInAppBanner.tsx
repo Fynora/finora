@@ -3,10 +3,10 @@ import { useLocation } from 'react-router-dom';
 import { X } from 'lucide-react';
 import {
   DISMISSED_KEY,
-  NO_PROMPT_PATHS,
   androidOpenAppUrl,
   androidOpenInAppEnabled,
   isAndroidBrowser,
+  isAppPromptPage,
 } from '../lib/openInApp';
 import { playStoreLink } from '../lib/playStoreLink';
 import { safeStorage } from '../lib/safeStorage';
@@ -17,8 +17,9 @@ const FIXED_BAR_PADDING = '4.5rem';
 /**
  * "Get the Fynora app" bar for a visitor on an Android phone browser. On unless
  * VITE_OPEN_IN_APP_ANDROID is "false" (see lib/openInApp.ts, which also covers the iPhone side).
- * Never on a computer, an iPhone, Firefox or an app's WebView (isAndroidBrowser), never under
- * /app, and never on a page an emailed link opens with a one-time token (NO_PROMPT_PATHS).
+ * Never on a computer, an iPhone, Firefox or an app's WebView (isAndroidBrowser). Only on the
+ * homepage and the pages built for search (isAppPromptPage): not under /app, not on the sign-in or
+ * one-time-token pages, and not on the policy pages the mobile app itself opens in the browser.
  * Closing it is remembered on this device (safeStorage, which never throws).
  *
  * Its button is a Chrome intent link: the installed app opens; without it, Chrome goes to the Play
@@ -41,9 +42,7 @@ export function OpenInAppBanner() {
   const shown =
     !dismissed &&
     androidOpenInAppEnabled() &&
-    path !== '/app' &&
-    !path.startsWith('/app/') &&
-    !NO_PROMPT_PATHS.includes(path) &&
+    isAppPromptPage(path) &&
     typeof navigator !== 'undefined' &&
     isAndroidBrowser(navigator.userAgent);
   const fixed = shown && path !== '/';

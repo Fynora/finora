@@ -32,11 +32,23 @@ describe('pageAttribution', () => {
     expect(pageAttribution('/helpful')).toEqual({ pageType: 'page', slug: 'helpful' });
   });
 
-  it('keeps a slug to lower-case letters, digits and hyphens, at most 60 characters', () => {
-    expect(pageAttribution('/help/Odd Slug_with%20stuff').slug).toBe('odd-slug-with-20stuff');
-    expect(pageAttribution('/help/a/b').slug).toBe('a-b');
-    expect(pageAttribution('/help/' + 'x'.repeat(80)).slug).toHaveLength(60);
-    expect(pageAttribution('/help/%%%').slug).toBe('unknown');
+  it('passes a slug to Google only when it has the shape of a real page slug, otherwise "other"', () => {
+    // The bar shows on not-found pages under the sections, so a mistyped or crafted address reaches
+    // this. Nothing typed into an address that is not one of this site's slugs goes to Google.
+    for (const path of [
+      '/help/Odd Slug_with%20stuff', '/help/a/b', '/help/' + 'x'.repeat(61), '/help/%%%',
+      '/banks/someone@example.com', '/banks/100000000001', '/banks/-lead', '/banks/trail-', '/banks/two--hyphens',
+      '/banks/HDFC-bank-statement', '/foo/bar',
+    ]) {
+      expect(pageAttribution(path).slug, path).toBe('other');
+    }
+    expect(pageAttribution('/help/' + 'x'.repeat(60)).slug).toBe('x'.repeat(60));
+  });
+
+  it('keeps every real page slug exactly as it is', () => {
+    for (const page of BANK_PAGES) expect(pageAttribution(bankPagePath(page)).slug).toBe(page.slug);
+    for (const article of HELP_ARTICLES) expect(pageAttribution(helpArticlePath(article)).slug).toBe(article.slug);
+    for (const code of STATEMENT_CODES) expect(pageAttribution(statementCodePath(code)).slug).toBe(code.slug);
   });
 });
 

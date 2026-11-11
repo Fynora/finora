@@ -81,8 +81,24 @@ describe('OpenInAppBanner', () => {
     useUserAgent(ANDROID_CHROME);
     expect(renderAt('/app').container).toBeEmptyDOMElement();
     expect(renderAt('/app/dashboard').container).toBeEmptyDOMElement();
-    // A public page whose path merely starts with "app" is still public.
-    expect(renderAt('/applications').container).not.toBeEmptyDOMElement();
+  });
+
+  it('shows only on the homepage and the search pages, never where the app sends its own users', () => {
+    useUserAgent(ANDROID_CHROME);
+    for (const path of ['/', '/banks', '/banks/hdfc-bank-statement', '/help', '/help/add-account-manually/',
+      '/bank-statement-codes', '/bank-statement-codes/nach', '/bank-statement-to-excel']) {
+      const { container, unmount } = renderAt(path);
+      expect(container, path).not.toBeEmptyDOMElement();
+      unmount();
+    }
+    // The mobile app opens these four in the phone's browser (mobile/src/lib/webUrl.ts), the sign-in
+    // pages are mid-task, and a look-alike prefix is not one of the sections.
+    for (const path of ['/privacy', '/terms', '/trust', '/your-data', '/cookie-policy', '/about', '/contact',
+      '/auth', '/login', '/forgot-password', '/send', '/applications', '/banksy', '/helpful']) {
+      const { container, unmount } = renderAt(path);
+      expect(container, path).toBeEmptyDOMElement();
+      unmount();
+    }
   });
 
   it('shows nothing on a page an emailed link opens with a one-time token', () => {
@@ -92,7 +108,6 @@ describe('OpenInAppBanner', () => {
       expect(container, path).toBeEmptyDOMElement();
       unmount();
     }
-    expect(renderAt('/auth').container).not.toBeEmptyDOMElement();
   });
 
   it('stays closed on this device once closed', () => {
@@ -103,7 +118,7 @@ describe('OpenInAppBanner', () => {
     expect(localStorage.getItem(DISMISSED_KEY)).toBe('1');
 
     first.unmount();
-    expect(renderAt('/terms').container).toBeEmptyDOMElement();
+    expect(renderAt('/banks').container).toBeEmptyDOMElement();
   });
 });
 

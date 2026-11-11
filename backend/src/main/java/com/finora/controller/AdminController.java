@@ -3,13 +3,11 @@ package com.finora.controller;
 import com.finora.dto.PagedResponse;
 import com.finora.dto.ApiResponse;
 import com.finora.activation.ReportingDay;
-import com.finora.dto.AdminAuditLogRowDto;
 import com.finora.dto.AuditLogDto;
-import com.finora.entity.AuditLog;
-import com.finora.entity.User;
 import com.finora.security.CurrentUser;
-import com.finora.repository.UserRepository;
 import com.finora.repository.AuditLogRepository;
+import com.finora.service.AdminAuditLogService;
+import com.finora.dto.AdminAuditLogRowDto;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -24,13 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import com.finora.util.LikePatterns;
 
 /**
@@ -53,14 +46,14 @@ import com.finora.util.LikePatterns;
 public class AdminController {
 
     private final AuditLogRepository auditLogRepository;
-    private final UserRepository userRepository;
+    private final AdminAuditLogService auditLogService;
     private final CurrentUser currentUser;
     private final ReportingDay reportingDay;
 
-    public AdminController(AuditLogRepository auditLogRepository, UserRepository userRepository,
+    public AdminController(AuditLogRepository auditLogRepository, AdminAuditLogService auditLogService,
                            CurrentUser currentUser, ReportingDay reportingDay) {
         this.auditLogRepository = auditLogRepository;
-        this.userRepository = userRepository;
+        this.auditLogService = auditLogService;
         this.currentUser = currentUser;
         this.reportingDay = reportingDay;
     }
@@ -114,71 +107,8 @@ public class AdminController {
         Instant from = dateFrom != null ? dateFrom.atStartOfDay(zone).toInstant() : null;
         Instant to = dateTo != null ? dateTo.plusDays(1).atStartOfDay(zone).toInstant() : null;
 
-        var pageResult = auditLogRepository.search(trimmedQ, from, to, userId,
-                actorId != null ? actorId.toString() : null, blankToNull(action), blankToNull(requestId), pageable);
-        Map<UUID, User> people = peopleNamedIn(pageResult.getContent());
-        boolean mayNameCustomers = currentUser.hasAuthority("USER_VIEW");
-        return ApiResponse.ok(PagedResponse.of(pageResult.map(l -> toRow(l, people, mayNameCustomers))));
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    /** Every account a page of entries mentions, as subject or as actor, in one query. */
-    private Map<UUID, User> peopleNamedIn(List<AuditLog> logs) {
-        Set<UUID> ids = new HashSet<>();
-        for (AuditLog l : logs) {
-            if (l.getUserId() != null) ids.add(l.getUserId());
-            UUID actor = actorOf(l);
-            if (actor != null) ids.add(actor);
-        }
-        if (ids.isEmpty()) return Map.of();
-        return userRepository.findAllById(ids).stream().collect(Collectors.toMap(User::getId, Function.identity()));
-    }
-
-    /** The admin recorded as having acted, or null. Most admin-side writes record it as actorId;
-     *  AdminUserService and AuthService use a key per action instead (AuditLogRepository
-     *  .ADMIN_ACTOR_KEYS), and old rows keep whichever they were written with, so every key is
-     *  read. Unparseable values are treated as none rather than failing the page: metadata is
-     *  free-form and may have been redacted. */
-    private static UUID actorOf(AuditLog l) {
-        if (l.getMetadata() == null) return null;
-        for (String key : AuditLogRepository.ADMIN_ACTOR_KEYS) {
-            Object raw = l.getMetadata().get(key);
-            if (raw == null) continue;
-            try {
-                return UUID.fromString(raw.toString());
-            } catch (IllegalArgumentException e) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    /** A background job's name, recorded as metadata.actor (e.g. a sweep, or "claude-fix"), so the
-     *  page can say an entry was automatic rather than leave "Done by" blank. */
-    private static String systemActorOf(AuditLog l) {
-        Object raw = l.getMetadata() != null ? l.getMetadata().get("actor") : null;
-        return raw instanceof String s && !s.isBlank() ? s : null;
-    }
-
-    private AdminAuditLogRowDto toRow(AuditLog l, Map<UUID, User> people, boolean mayNameCustomers) {
-        User subject = nameable(people.get(l.getUserId()), mayNameCustomers);
-        UUID actorId = actorOf(l);
-        User actor = nameable(people.get(actorId), mayNameCustomers);
-        return new AdminAuditLogRowDto(l.getId(), l.getUserId(),
-                subject != null ? subject.getFullName() : null, subject != null ? subject.getEmail() : null,
-                actorId, actor != null ? actor.getFullName() : null, actor != null ? actor.getEmail() : null,
-                systemActorOf(l), l.getAction(), l.getEntityType(), l.getEntityId(), l.getMetadata(), l.getRequestId(),
-                l.getCreatedAt(), l.getRedactedAt());
-    }
-
-    /** Staff accounts are always named. A customer only for a caller who could already look them up
-     *  under Users (USER_VIEW); AUDIT_VIEW alone never revealed who a customer is. */
-    private static User nameable(User user, boolean mayNameCustomers) {
-        if (user == null) return null;
-        return User.SCOPE_ADMIN.equals(user.getAccountScope()) || mayNameCustomers ? user : null;
+        return ApiResponse.ok(auditLogService.globalFeed(trimmedQ, from, to, userId, actorId,
+                action, requestId, pageable, currentUser.hasAuthority("USER_VIEW")));
     }
 
     private AuditLogDto toDto(com.finora.entity.AuditLog l) {

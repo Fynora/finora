@@ -14103,6 +14103,40 @@
                             "type": "string",
                             "default": "desc"
                         }
+                    },
+                    {
+                        "name": "userId",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "actorId",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "action",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "requestId",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
                     }
                 ],
                 "responses": {
@@ -14111,7 +14145,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseAuditLogDto"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseAdminAuditLogRowDto"
                                 }
                             }
                         }
@@ -34966,7 +35000,64 @@
                     }
                 }
             },
-            "ApiResponsePagedResponseAuditLogDto": {
+            "AdminAuditLogRowDto": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "userName": {
+                        "type": "string"
+                    },
+                    "userEmail": {
+                        "type": "string"
+                    },
+                    "actorId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "actorName": {
+                        "type": "string"
+                    },
+                    "actorEmail": {
+                        "type": "string"
+                    },
+                    "systemActor": {
+                        "type": "string"
+                    },
+                    "action": {
+                        "type": "string"
+                    },
+                    "entityType": {
+                        "type": "string"
+                    },
+                    "entityId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "redactedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseAdminAuditLogRowDto": {
                 "type": "object",
                 "properties": {
                     "success": {
@@ -34976,7 +35067,7 @@
                         "type": "string"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/PagedResponseAuditLogDto"
+                        "$ref": "#/components/schemas/PagedResponseAdminAuditLogRowDto"
                     },
                     "timestamp": {
                         "type": "string",
@@ -34994,13 +35085,13 @@
                     }
                 }
             },
-            "PagedResponseAuditLogDto": {
+            "PagedResponseAdminAuditLogRowDto": {
                 "type": "object",
                 "properties": {
                     "content": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/AuditLogDto"
+                            "$ref": "#/components/schemas/AdminAuditLogRowDto"
                         }
                     },
                     "page": {

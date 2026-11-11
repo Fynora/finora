@@ -294,6 +294,29 @@ export interface RoleDto {
   permissions: PermissionDto[];
 }
 
+/** Mirrors AdminAuditLogRowDto -- one Audit Log row with the people involved named. userId is the
+ *  account the entry is about; actorId the admin who acted on it (null when the account acted for
+ *  itself or none was recorded), read from whichever metadata key the writing service used. Names/emails are null for a deleted account, and the customer's
+ *  also for a caller without USER_VIEW. redactedAt is set once retention removed the metadata. */
+export interface AdminAuditLogRow {
+  id: string;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  actorId: string | null;
+  actorName: string | null;
+  actorEmail: string | null;
+  /** A background job that acted (metadata.actor), e.g. a sweep. */
+  systemActor: string | null;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, unknown> | null;
+  requestId: string | null;
+  createdAt: string;
+  redactedAt: string | null;
+}
+
 export interface AuditLogDto {
   id: string;
   userId: string;

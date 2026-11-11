@@ -13,6 +13,13 @@ import java.util.UUID;
 
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
 
+    /** Every metadata key an admin-side audit write records the acting admin's id under. Most use
+     *  actorId; AdminUserService (suspend, reactivate, suspension reason, profile edit, internal
+     *  flag, phone reset) and AuthService (admin-created user) each name theirs after the action.
+     *  The Audit Log reads all of them, so its "done by" and admin filter cover old rows too. */
+    List<String> ADMIN_ACTOR_KEYS = List.of(
+            "actorId", "suspendedBy", "reactivatedBy", "recordedBy", "updatedBy", "setBy", "createdBy", "changedBy");
+
     /** Every event recorded against one entity, oldest first -- e.g. proving in an integration
      *  test that a real audit row landed with the expected action and metadata, not just that a
      *  mock was called. */
@@ -72,6 +79,12 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * is fixed there with the same {@code CAST}; see TransactionSearchDateFilterIT. The lesson is
      * that a null-only test cannot clear a query of this shape -- the non-null value is the case
      * that fails.
+     *
+     * <p>userId/actorId/action/requestId (Audit Log drill-down, 2026-11-11) are exact matches, so
+     * an admin can follow one account, one admin, one kind of event or one request. The acting
+     * admin lives in {@code metadata} under one of {@link #ADMIN_ACTOR_KEYS}, read with
+     * jsonb_extract_path_text; it is not indexed, which is acceptable for an admin-only page. Keep
+     * the key list in this query and the constant in step.
      */
     @Query("""
         SELECT a FROM AuditLog a
@@ -80,9 +93,23 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                OR LOWER(a.entityType) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')
           AND (CAST(:dateFrom AS timestamp) IS NULL OR a.createdAt >= :dateFrom)
           AND (CAST(:dateTo AS timestamp) IS NULL OR a.createdAt < :dateTo)
+          AND (CAST(:userId AS uuid) IS NULL OR a.userId = :userId)
+          AND (CAST(:actorId AS string) IS NULL
+               OR function('jsonb_extract_path_text', a.metadata, 'actorId') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'suspendedBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'reactivatedBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'recordedBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'updatedBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'setBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'createdBy') = CAST(:actorId AS string)
+               OR function('jsonb_extract_path_text', a.metadata, 'changedBy') = CAST(:actorId AS string))
+          AND (CAST(:action AS string) IS NULL OR a.action = :action)
+          AND (CAST(:requestId AS string) IS NULL OR a.requestId = :requestId)
         """)
     Page<AuditLog> search(@Param("q") String q, @Param("dateFrom") Instant dateFrom,
-                           @Param("dateTo") Instant dateTo, Pageable pageable);
+                           @Param("dateTo") Instant dateTo, @Param("userId") UUID userId,
+                           @Param("actorId") String actorId, @Param("action") String action,
+                           @Param("requestId") String requestId, Pageable pageable);
     // Full history, unpaged -- backs the self-service Activity Timeline page (ActivityController)
     // and the existing admin-gated per-user audit view (AdminController). Same tradeoff both
     // already accept: audit_logs grows unbounded over a user's lifetime, but this is a review

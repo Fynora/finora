@@ -57,7 +57,12 @@ async function signInWithPin({ biometrics = false } = {}) {
  * -- clearing the session through AuthProvider's callback -- runs as it would on a phone.
  */
 function serverSays(answer: 'alive' | 'ended' | 'offline') {
-  const { rawApi } = require('../api/client') as typeof import('../api/client');
+  const { rawApi, __setRenewRetryDelayForTests } = require('../api/client') as typeof import('../api/client');
+  __setRenewRetryDelayForTests(0);
+  // 'offline' is the phone having no internet (NetInfo), so the refresh is known not to have reached
+  // the server and the session is kept -- see renewSession in api/client.ts.
+  const netInfo = require('@react-native-community/netinfo').default as { fetch?: () => Promise<unknown> };
+  netInfo.fetch = async () => ({ isConnected: answer !== 'offline', isInternetReachable: answer !== 'offline' });
   rawApi.defaults.adapter = ((config: unknown) => {
     if (answer === 'alive') {
       return Promise.resolve({

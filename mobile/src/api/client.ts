@@ -1,4 +1,5 @@
 import axios from 'axios';
+import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 import { safeStorage } from '../lib/safeStorage';
 import { reportHandledEvent } from '../lib/monitoring';
@@ -259,6 +260,8 @@ class SessionEndedError extends Error {
 export function markSessionEnded(): Promise<RefreshedPair | null> {
   sessionEpoch += 1;
   refreshBlocked = true;
+  // The next session must not join a renewal (and its retry) that belonged to this one.
+  renewInFlight = null;
   const inFlight = refreshInFlight;
   refreshInFlight = null;
   if (!inFlight) return Promise.resolve(null);
@@ -378,33 +381,122 @@ function refreshAccessToken(): Promise<RefreshedPair> {
 }
 
 /**
+ * What a failed refresh means for the session.
+ * - 'ended': the session this refresh belonged to ended while it ran (SessionEndedError).
+ * - 'refused': the server answered no (expired, revoked, suspended...), or there was no stored
+ *   token to present. The session is over.
+ * - 'not-sent': the request cannot have changed anything on the server: the phone has no internet,
+ *   or the rate limiter (a filter, ahead of the token code) answered 429. The stored token is still
+ *   the current one, so the session is kept.
+ * - 'unknown': no clear answer while online -- a timeout, a dropped connection, a 408 or a 5xx.
+ *   The server may have rotated the token before the answer was lost.
+ */
+type RefreshFailure = 'ended' | 'refused' | 'not-sent' | 'unknown';
+
+function classifyRefreshFailure(err: unknown): RefreshFailure {
+  if (err instanceof SessionEndedError) return 'ended';
+  if (err instanceof Error && err.message === NO_REFRESH_TOKEN_MESSAGE) return 'refused';
+  // Only a failure of the HTTP call itself can be a lost answer. Anything else -- a SecureStore
+  // write failing after the server already rotated the pair -- ends the session as it always did:
+  // retrying would present the rotated-away token again, which the server reads as theft.
+  const fromHttp = axios.isAxiosError(err) || (typeof err === 'object' && err !== null && 'config' in err);
+  if (!fromHttp) return 'refused';
+  const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
+  if (status === 429) return 'not-sent';
+  if (typeof status === 'number' && status >= 400 && status < 500 && status !== 408) return 'refused';
+  return 'unknown';
+}
+
+/** NetInfo's view: no connection, or a connection with no internet behind it (a captive portal). */
+async function phoneHasNoInternet(): Promise<boolean> {
+  try {
+    const state = await NetInfo.fetch();
+    return state.isConnected === false || state.isInternetReachable === false;
+  } catch {
+    return false;
+  }
+}
+
+// Well inside the server's 30-second refresh-reuse window (app.jwt.refresh-reuse-grace-ms): if the
+// first attempt did rotate the token and only its answer was lost, the retry presents the same token
+// within the window and is answered with a fresh pair for the same session.
+let renewRetryDelayMs = 2000;
+
+/** Test-only: the retry delay, so tests do not wait two real seconds. */
+export function __setRenewRetryDelayForTests(ms: number): void {
+  renewRetryDelayMs = ms;
+}
+
+type RenewOutcome =
+  | { kind: 'renewed'; pair: RefreshedPair }
+  | { kind: 'ended' }
+  | { kind: 'kept'; error: unknown }
+  | { kind: 'signed-out'; error: unknown };
+
+let renewInFlight: Promise<RenewOutcome> | null = null;
+
+/**
+ * A refresh that does not sign anyone out over a bad network. It used to: every refresh failure,
+ * including no signal at all, ended the session -- one source of phones landing on the sign-in
+ * screen early. Now:
+ * - refused by the server: signed out, as before;
+ * - never reached the server: kept;
+ * - no clear answer while online: one retry after a short pause. A clear answer settles it. Still
+ *   nothing: signed out on this phone, as before -- keeping a token the server may already have
+ *   rotated would replay it after the reuse window, which reads as theft and signs out EVERY device.
+ *
+ * Shared by every caller waiting at the same moment, like refreshAccessToken itself. The caller
+ * clears the session for 'signed-out'; this only decides.
+ */
+function renewSession(): Promise<RenewOutcome> {
+  if (renewInFlight) return renewInFlight;
+  const attempt = (async (): Promise<RenewOutcome> => {
+    for (let tries = 1; ; tries++) {
+      try {
+        return { kind: 'renewed', pair: await refreshAccessToken() };
+      } catch (err) {
+        const failure = classifyRefreshFailure(err);
+        if (failure === 'ended') return { kind: 'ended' };
+        if (failure === 'refused') return { kind: 'signed-out', error: err };
+        if (failure === 'not-sent' || (await phoneHasNoInternet())) return { kind: 'kept', error: err };
+        if (tries >= 2) return { kind: 'signed-out', error: err };
+        await new Promise((resolve) => setTimeout(resolve, renewRetryDelayMs));
+      }
+    }
+  })();
+  renewInFlight = attempt;
+  void attempt.finally(() => {
+    if (renewInFlight === attempt) renewInFlight = null;
+  });
+  return attempt;
+}
+
+/** Ends the session after a refresh that settled on 'signed-out', with the suspended reason when
+ *  that is why (#2513). */
+function signOutAfterRefusedRefresh(err: unknown): Promise<void> {
+  const suspended = refreshErrorCode(err) === AUTH_ACCOUNT_SUSPENDED;
+  return clearSessionAndRedirect(endedDeliberately(err), suspended ? SUSPENDED_SIGN_OUT_MESSAGE : undefined);
+}
+
+/**
  * One refresh, to learn whether the saved session is still alive before the app asks for the PIN
  * or Face ID on a cold start. The bootstrap restores a saved session without asking the server, so
  * without this a session the server had already ended was unlocked first and only then sent to the
  * sign-in screen (design 2026-11-10, section 4).
  *
  * - 'alive': the server rotated the pair (stored, exactly as any refresh does).
- * - 'ended': the server answered and refused it, or there was nothing to present. The session is
- *   cleared the same way a failed refresh after a 401 clears it.
- * - 'offline': no answer, a timeout, rate limiting or a server error. Nothing is cleared -- the app
- *   works on cached data offline, and a session that really has ended is caught by the next 401.
+ * - 'ended': the server refused it (the session is cleared), or there was nothing to present.
+ * - 'offline': the phone could not reach the server. Nothing is cleared -- the app works on cached
+ *   data offline, and a session that really has ended is caught by the next refresh.
+ * See renewSession for how an unclear answer is settled.
  */
 export async function verifySession(): Promise<'alive' | 'ended' | 'offline'> {
-  try {
-    await refreshAccessToken();
-    return 'alive';
-  } catch (err) {
-    if (err instanceof SessionEndedError) return 'ended';
-    const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
-    const noToken = err instanceof Error && err.message === NO_REFRESH_TOKEN_MESSAGE;
-    const refused = typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 429;
-    if (!noToken && !refused) return 'offline';
-    // Same reason the 401 path gives when the refresh is refused for a suspended account, so the
-    // sign-in screen can say why.
-    const suspended = refreshErrorCode(err) === AUTH_ACCOUNT_SUSPENDED;
-    await clearSessionAndRedirect(endedDeliberately(err), suspended ? SUSPENDED_SIGN_OUT_MESSAGE : undefined);
-    return 'ended';
-  }
+  const outcome = await renewSession();
+  if (outcome.kind === 'renewed') return 'alive';
+  if (outcome.kind === 'ended') return 'ended';
+  if (outcome.kind === 'kept') return 'offline';
+  await signOutAfterRefusedRefresh(outcome.error);
+  return 'ended';
 }
 
 async function removeIfStill(key: string, value: string) {
@@ -445,32 +537,33 @@ api.interceptors.response.use(
       // refreshAccessToken so they cannot be interleaved -- see its comment for the session-wide
       // sign-out that splitting them caused. A missing token throws there too, so "no session" and
       // "refresh rejected" land on the same branch, which is what they both mean here.
-      try {
-        const refreshed = await refreshAccessToken();
-        originalRequest.headers.Authorization = `Bearer ${refreshed.token}`;
+      const outcome = await renewSession();
+      if (outcome.kind === 'renewed') {
+        originalRequest.headers.Authorization = `Bearer ${outcome.pair.token}`;
         return api(originalRequest);
-      } catch (refreshErr) {
-        // The session this request belonged to ended while the refresh ran. Nothing to report and
-        // nothing to clear: storage may already hold the next session.
-        if (refreshErr instanceof SessionEndedError) return Promise.reject(error);
-        // Every request waiting on the same refused refresh lands here. The first one ends the
-        // session (markSessionEnded runs synchronously inside clearSessionAndRedirect); the rest
-        // belong to a session that has already ended, so they sign nothing out a second time.
-        if ((originalRequest._sessionEpoch ?? sessionEpoch) !== sessionEpoch) return Promise.reject(error);
-        // An info event, not an error: an idle or expired session ending is routine. It exists so the
-        // reason is on record the next time someone is signed out unexpectedly.
-        const now = Date.now();
-        if (now - lastRefreshFailureReportedAt >= REFRESH_FAILURE_REPORT_INTERVAL_MS) {
-          lastRefreshFailureReportedAt = now;
-          reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
-        }
-        // The refresh was refused because the account is now suspended (its access token had already
-        // expired when that happened, so no request got the 403 AUTH_018 handled further down).
-        // Same sign-out, with the same reason, so the user knows to sign in and see why.
-        const suspended = refreshErrorCode(refreshErr) === AUTH_ACCOUNT_SUSPENDED;
-        await clearSessionAndRedirect(endedDeliberately(refreshErr), suspended ? SUSPENDED_SIGN_OUT_MESSAGE : undefined);
-        return Promise.reject(error);
       }
+      // The session this request belonged to ended while the refresh ran. Nothing to report and
+      // nothing to clear: storage may already hold the next session.
+      if (outcome.kind === 'ended') return Promise.reject(error);
+      // The refresh never reached the server (no internet, or rate limited): the session is fine.
+      // Only this request fails, the way any request fails offline; the next one refreshes again.
+      if (outcome.kind === 'kept') return Promise.reject(error);
+      const refreshErr = outcome.error;
+      // Every request waiting on the same refused refresh lands here. The first one ends the
+      // session (markSessionEnded runs synchronously inside clearSessionAndRedirect); the rest
+      // belong to a session that has already ended, so they sign nothing out a second time.
+      if ((originalRequest._sessionEpoch ?? sessionEpoch) !== sessionEpoch) return Promise.reject(error);
+      // An info event, not an error: an idle or expired session ending is routine. It exists so the
+      // reason is on record the next time someone is signed out unexpectedly.
+      const now = Date.now();
+      if (now - lastRefreshFailureReportedAt >= REFRESH_FAILURE_REPORT_INTERVAL_MS) {
+        lastRefreshFailureReportedAt = now;
+        reportHandledEvent('Session refresh failed; signing out', 'session-refresh-failed', describeRefreshFailure(refreshErr));
+      }
+      // A refresh refused because the account is now suspended carries that reason to the sign-in
+      // screen (its access token had already expired, so no request got the 403 AUTH_018 below).
+      await signOutAfterRefusedRefresh(refreshErr);
+      return Promise.reject(error);
     }
 
     // Backend is the source of truth on phone verification (PhoneVerificationFilter) -- a valid

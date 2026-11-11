@@ -186,12 +186,13 @@ export default function Landing() {
       <SiteFooter />
 
       {/* Sticky mobile action bar. Phone-only: at md+ the hero CTAs and the nav button are both
-          still in reach, so a permanent bar would only cover content. */}
-      <div className="m-mobile-cta md:hidden">
+          still in reach, so a permanent bar would only cover content. An <aside>, not a <div>: it
+          sits outside <main>, and a plain div there is content no landmark holds (axe `region`). */}
+      <aside aria-label="Get started" className="m-mobile-cta md:hidden">
         <MagneticLink to="/auth" className="m-btn m-btn-primary w-full">
           Import your first statement <ArrowRight size={16} />
         </MagneticLink>
-      </div>
+      </aside>
       {/* Reserves the space the fixed bar covers so the footer's last line stays reachable. */}
       <div className="h-20 md:hidden" aria-hidden="true" />
     </div>

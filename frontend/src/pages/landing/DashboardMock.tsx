@@ -12,6 +12,11 @@ import { CountUp, useStagedReveal } from './primitives';
  * The figures are illustrative, and they are internally consistent on purpose: income minus
  * expenses equals the savings figure, and the category percentages total 100. Numbers that don't
  * add up are the first thing a finance-literate visitor notices.
+ *
+ * Text is slate-500 or darker, and the green and red deltas are #15803D and #DC2626, so every label
+ * clears the 4.5:1 contrast minimum at these 9-10px sizes (slate-400 measured 2.45-2.56:1, axe
+ * `color-contrast`). The chart strokes and swatches keep the brighter #16A34A and #EF4444: they are
+ * not text.
  */
 const CATEGORIES = [
   { label: 'Food & Dining', pct: 28, amount: '₹21,400', color: '#2563EB' },
@@ -25,7 +30,7 @@ const NAV = ['Overview', 'Transactions', 'Accounts', 'Budgets', 'Goals', 'Insigh
 
 const TRANSACTIONS = [
   { name: 'Swiggy', meta: 'Food & Dining · 12 Apr', amount: '−₹480', tone: 'text-slate-900' },
-  { name: 'Salary Credit', meta: 'Income · 01 Apr', amount: '+₹1,24,500', tone: 'text-[#16A34A]' },
+  { name: 'Salary Credit', meta: 'Income · 01 Apr', amount: '+₹1,24,500', tone: 'text-[#15803D]' },
   { name: 'Electricity Bill', meta: 'Bills & Utilities · 08 Apr', amount: '−₹2,310', tone: 'text-slate-900' },
   { name: 'Amazon', meta: 'Shopping · 06 Apr', amount: '−₹3,650', tone: 'text-slate-900' },
 ];
@@ -55,7 +60,7 @@ function Donut() {
         return el;
       })}
       <text x="70" y="66" textAnchor="middle" className="fill-slate-900" style={{ fontSize: 15, fontWeight: 700 }}>₹76,430</text>
-      <text x="70" y="82" textAnchor="middle" className="fill-slate-400" style={{ fontSize: 9 }}>Total spent</text>
+      <text x="70" y="82" textAnchor="middle" className="fill-slate-500" style={{ fontSize: 9 }}>Total spent</text>
     </svg>
   );
 }
@@ -143,7 +148,7 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
         <span className="w-2.5 h-2.5 rounded-full bg-[#F87171]" />
         <span className="w-2.5 h-2.5 rounded-full bg-[#FBBF24]" />
         <span className="w-2.5 h-2.5 rounded-full bg-[#34D399]" />
-        <span className="ml-3 text-[10px] text-slate-400 truncate">app.fynora.net/dashboard</span>
+        <span className="ml-3 text-[10px] text-slate-500 truncate">app.fynora.net/dashboard</span>
       </div>
 
       <div className="flex">
@@ -164,18 +169,18 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
         <div className="flex-1 min-w-0 p-4 sm:p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-bold text-slate-900">Overview</p>
-            <span className="text-[10px] text-slate-400 border border-[#E6EAF2] rounded-md px-2 py-1">Apr 2026</span>
+            <span className="text-[10px] text-slate-500 border border-[#E6EAF2] rounded-md px-2 py-1">Apr 2026</span>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-4" style={at(1)}>
             {[
-              { label: 'Total Income', value: 124500, delta: '+12% vs Mar', tone: 'text-[#16A34A]' },
-              { label: 'Total Expenses', value: 76430, delta: '+4% vs Mar', tone: 'text-[#EF4444]' },
-              { label: 'Net Savings', value: 48070, delta: '+26% vs Mar', tone: 'text-[#16A34A]' },
-              { label: 'Net Cash Flow', value: 48070, delta: '+26% vs Mar', tone: 'text-[#16A34A]' },
+              { label: 'Total Income', value: 124500, delta: '+12% vs Mar', tone: 'text-[#15803D]' },
+              { label: 'Total Expenses', value: 76430, delta: '+4% vs Mar', tone: 'text-[#DC2626]' },
+              { label: 'Net Savings', value: 48070, delta: '+26% vs Mar', tone: 'text-[#15803D]' },
+              { label: 'Net Cash Flow', value: 48070, delta: '+26% vs Mar', tone: 'text-[#15803D]' },
             ].map((k) => (
               <div key={k.label} className="rounded-xl border border-[#E6EAF2] px-3 py-2.5">
-                <p className="text-[9px] uppercase tracking-wide text-slate-400">{k.label}</p>
+                <p className="text-[9px] uppercase tracking-wide text-slate-500">{k.label}</p>
                 <p className="text-[15px] font-bold text-slate-900 mt-1">
                   <CountUp value={k.value} prefix="₹" />
                 </p>
@@ -187,7 +192,7 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
           <div className={`grid gap-2.5 mb-2.5 ${showSpending ? 'lg:grid-cols-2' : ''}`}>
             {showSpending ? (
             <div className="rounded-xl border border-[#E6EAF2] p-3.5" style={at(2)}>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-2.5">Spending Overview</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-2.5">Spending Overview</p>
               <div className="flex items-center gap-4">
                 <Donut />
                 <div className="flex-1 min-w-0 space-y-1.5">
@@ -195,7 +200,7 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
                     <div key={c.label} className="flex items-center gap-2 text-[10px]">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: c.color }} />
                       <span className="text-slate-600 truncate flex-1">{c.label}</span>
-                      <span className="text-slate-400">{c.pct}%</span>
+                      <span className="text-slate-500">{c.pct}%</span>
                     </div>
                   ))}
                 </div>
@@ -204,7 +209,7 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
             ) : null}
 
             <div className="rounded-xl border border-[#E6EAF2] p-3.5" style={at(3)}>
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-2">Monthly Trend</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-2">Monthly Trend</p>
               <TrendChart />
               <div className="flex gap-3 mt-1.5">
                 {[['Income', '#16A34A'], ['Expenses', '#EF4444'], ['Savings', '#2563EB']].map(([label, color]) => (
@@ -220,13 +225,13 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
           {showLedger ? (
           <div className="grid lg:grid-cols-2 gap-2.5" style={at(4)}>
             <div className="rounded-xl border border-[#E6EAF2] p-3.5">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-2">Recent Transactions</p>
+              <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-2">Recent Transactions</p>
               <div className="space-y-1.5">
                 {TRANSACTIONS.map((t) => (
                   <div key={t.name} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium text-slate-800 truncate">{t.name}</p>
-                      <p className="text-[9px] text-slate-400 truncate">{t.meta}</p>
+                      <p className="text-[9px] text-slate-500 truncate">{t.meta}</p>
                     </div>
                     <p className={`text-[11px] font-semibold shrink-0 ${t.tone}`}>{t.amount}</p>
                   </div>
@@ -236,7 +241,7 @@ export function DashboardMock({ level = 'complete', withSidebar = false, progres
 
             <div className="space-y-2.5">
               <div className="rounded-xl border border-[#E6EAF2] p-3.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-2">Budget Progress</p>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-2">Budget Progress</p>
                 {[
                   { label: 'Food & Dining', pct: 78, color: '#16A34A' },
                   { label: 'Shopping', pct: 94, color: '#F59E0B' },

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 
 // Trust & Security (issue #1453). Deliberately short and narrow: Privacy.tsx already covers
 // encryption, the full infrastructure/vendor list, data retention, and administrative access in
@@ -40,7 +40,7 @@ export default function TrustSecurity() {
           call to the AI is separately logged for cost and safety monitoring — that monitoring
           log never contains your raw conversation text, only what tool was used and how it
           performed. Access to Fyn can be disabled instantly if something needs investigating. See{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for
           exactly what's sent to Anthropic's Claude API to generate a response.
         </p>
       </PublicSection>
@@ -50,9 +50,9 @@ export default function TrustSecurity() {
           Encryption, our full list of infrastructure and service providers, how long your data is
           kept, who at Fynora can access it and when, and what happens if you delete your account
           are all covered in detail in our{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link>. Account
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link>. Account
           terms and acceptable use are in our{' '}
-          <Link to="/terms" className="text-primary hover:underline">Terms of Service</Link>.
+          <Link to="/terms" className={INLINE_LINK}>Terms of Service</Link>.
         </p>
       </PublicSection>
     </PublicLayout>

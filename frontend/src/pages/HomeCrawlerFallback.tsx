@@ -100,11 +100,11 @@ export function HomeCrawlerFallback() {
 
       {/* Landing's sticky mobile action bar and the spacer that keeps the footer clear of it, so
           the phone's first frame has the bar the real page will have. */}
-      <div className="m-mobile-cta md:hidden">
+      <aside aria-label="Get started" className="m-mobile-cta md:hidden">
         <MagneticLink to="/auth" className="m-btn m-btn-primary w-full">
           {hero.primaryCta} <ArrowRight size={16} />
         </MagneticLink>
-      </div>
+      </aside>
       <div className="h-20 md:hidden" aria-hidden="true" />
     </div>
   );

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 import { SUPPORT_EMAIL, SUPPORT_MAILTO, GRIEVANCE_EMAIL, GRIEVANCE_MAILTO, GRIEVANCE_OFFICER_NAME, LEGAL_NAME, REGISTERED_OFFICE_TEXT } from '../lib/contact';
 
 export default function Privacy() {
@@ -328,7 +328,7 @@ export default function Privacy() {
         <p>
           Fynora uses essential, session-related storage (such as your authentication token) to keep you
           signed in. We do not currently use third-party advertising or tracking cookies. See our{' '}
-          <Link to="/cookie-policy" className="text-primary hover:underline">Cookie Policy</Link> for the
+          <Link to="/cookie-policy" className={INLINE_LINK}>Cookie Policy</Link> for the
           full breakdown of exactly what's stored and why.
         </p>
       </PublicSection>
@@ -438,7 +438,7 @@ export default function Privacy() {
           <li><strong className="text-ink">RevenueCat</strong> — manages subscriptions bought through the App Store or Google Play, identified by your Fynora account ID. Apple or Google processes the payment itself.</li>
           <li><strong className="text-ink">Setu</strong> — Account Aggregator connectivity, used only if you choose to link a bank account through India's Account Aggregator framework, and only with the consent you give in that flow.</li>
           <li><strong className="text-ink">Logo.dev</strong> — bank and merchant logos on the website, and merchant logos in the mobile app. To show a logo, your browser or the app asks Logo.dev for it directly by web address: the bank's, or a well-known merchant's from a fixed list Fynora keeps, along with your IP address and browser or device details. Names and other text from your transactions are not part of the request. Earlier versions of the mobile app sent the merchant name shown instead.</li>
-          <li><strong className="text-ink">Google Fonts</strong>, <strong className="text-ink">Google Sign-In</strong> and <strong className="text-ink">Sign in with Apple</strong> — the website loads its typefaces from Google's servers, and the Google and Apple sign-in buttons load those companies' scripts, so they receive your IP address and browser details when those load. See the <Link to="/cookie-policy" className="text-primary hover:underline">Cookie Policy</Link> for when each one loads.</li>
+          <li><strong className="text-ink">Google Fonts</strong>, <strong className="text-ink">Google Sign-In</strong> and <strong className="text-ink">Sign in with Apple</strong> — the website loads its typefaces from Google's servers, and the Google and Apple sign-in buttons load those companies' scripts, so they receive your IP address and browser details when those load. See the <Link to="/cookie-policy" className={INLINE_LINK}>Cookie Policy</Link> for when each one loads.</li>
         </ul>
         <p>
           Some of these providers operate outside India — see Cross-Border Data Transfer below for how that's
@@ -529,7 +529,7 @@ export default function Privacy() {
           <li>
             <strong className="text-ink">Correct or update</strong> inaccurate or incomplete personal
             data — directly in the app (Settings, Accounts, Transactions) for most fields, or by contacting{' '}
-            <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
+            <a href={SUPPORT_MAILTO} className={INLINE_LINK}>{SUPPORT_EMAIL}</a>.
           </li>
           <li>
             <strong className="text-ink">Erase</strong> personal data that is no longer needed for the
@@ -544,7 +544,7 @@ export default function Privacy() {
           <li>
             <strong className="text-ink">Nominate</strong> another individual to exercise these rights on
             your behalf in the event of your death or incapacity, by contacting{' '}
-            <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
+            <a href={SUPPORT_MAILTO} className={INLINE_LINK}>{SUPPORT_EMAIL}</a>.
           </li>
           <li>
             <strong className="text-ink">Grievance redressal</strong> — see below — and, if unresolved,
@@ -557,7 +557,7 @@ export default function Privacy() {
         <p>
           If you have a complaint about how Fynora handles your personal data, contact our Grievance Officer,
           {' '}{GRIEVANCE_OFFICER_NAME}, at{' '}
-          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>{' '}
+          <a href={GRIEVANCE_MAILTO} className={INLINE_LINK}>{GRIEVANCE_EMAIL}</a>{' '}
           with the details of your concern. We aim to acknowledge and resolve grievances within 30 days. If
           you're not satisfied with the outcome, you may escalate the complaint to the Data Protection Board
           of India.
@@ -617,7 +617,7 @@ export default function Privacy() {
           subscription bought through an app store. A copy of your data may also briefly
           persist in an encrypted backup until that backup cycles out, as described under Data Retention. If
           you'd rather not go through the in-app flow, you can also request deletion by contacting{' '}
-          <a href={SUPPORT_MAILTO} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>.
+          <a href={SUPPORT_MAILTO} className={INLINE_LINK}>{SUPPORT_EMAIL}</a>.
         </p>
       </PublicSection>
 
@@ -647,7 +647,7 @@ export default function Privacy() {
           agree to the Terms of Service, you confirm that you are 18 or older. We do not knowingly collect
           personal data from anyone under 18. If you believe a child has provided us
           personal data, contact our Grievance Officer at{' '}
-          <a href={GRIEVANCE_MAILTO} className="text-primary hover:underline">{GRIEVANCE_EMAIL}</a>{' '}
+          <a href={GRIEVANCE_MAILTO} className={INLINE_LINK}>{GRIEVANCE_EMAIL}</a>{' '}
           and we will delete it.
         </p>
       </PublicSection>

@@ -26,7 +26,7 @@ import axe from 'axe-core';
 // run starting while the old one is still live risks the two interleaving and silently corrupting
 // each other's results. Waiting is exactly what axe-core's own error message asks for; if the
 // wait itself runs long, the test's own timeout fails it honestly instead of with this assertion.
-async function waitForAxeIdle(): Promise<void> {
+export async function waitForAxeIdle(): Promise<void> {
   while ((axe as unknown as { _running?: boolean })._running) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }

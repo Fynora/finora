@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Download, FileSpreadsheet, Lock, ShieldCheck } from 'lucide-react';
-import { PublicLayout } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
 import { converterApi } from '../api/endpoints';
 import { downloadBlob } from '../lib/download';
 import { XLSX_MIME } from '../lib/xlsx';
@@ -271,7 +271,7 @@ export function ConverterTool() {
       <div className="text-sm text-muted bg-bg border border-border rounded-lg px-3 py-3 flex gap-2">
         <ShieldCheck size={18} className="text-primary shrink-0 mt-0.5" />
         <p><strong className="text-ink">What happens to your file:</strong> {FILE_NOTICE}{' '}
-          <Link to="/privacy#converter" className="text-primary hover:underline">Privacy policy</Link>
+          <Link to="/privacy#converter" className={INLINE_LINK}>Privacy policy</Link>
         </p>
       </div>
 

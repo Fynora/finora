@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { PublicLayout, PublicSection } from '../components/PublicLayout';
+import { INLINE_LINK, PublicLayout, PublicSection } from '../components/PublicLayout';
 
 // Public Data Portability Promise (issue #1454). Checked against the actual code before writing
 // a word of this, not assumed: UserController.exportData / DataExportService.buildBundle carry no
@@ -48,7 +48,7 @@ export default function DataPromise() {
           original format — along with a manifest listing exactly what's included, and what's
           deliberately excluded and why. It requires you to re-confirm your password (or your
           Google/Apple sign-in) first, the same safeguard deactivating your account uses. See{' '}
-          <Link to="/privacy" className="text-primary hover:underline">Privacy Policy</Link> for
+          <Link to="/privacy" className={INLINE_LINK}>Privacy Policy</Link> for
           the full mechanics.
         </p>
       </PublicSection>

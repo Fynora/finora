@@ -1,9 +1,11 @@
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PublicLayout, PublicSection } from './PublicLayout';
 import Terms from '../pages/Terms';
 import RefundPolicy from '../pages/RefundPolicy';
+import axe from 'axe-core';
+import { waitForAxeIdle } from '../test/a11y.measure';
 
 const APP_TITLE = 'Bank statement analyzer for Indian banks and cards — Fynora';
 
@@ -108,5 +110,41 @@ describe('PublicLayout section links', () => {
     render(page('/privacy#%E0%A4%A'));
 
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('PublicLayout landmarks', () => {
+  // Every public page is built on this layout, so content it puts outside a landmark is missing from
+  // landmark navigation on all of them at once. The title band (the page's <h1> and its subtitle)
+  // once sat between <header> and <main>, and axe reported `region` on every prerendered page.
+  const page = () => (
+    <MemoryRouter initialEntries={['/privacy']}>
+      <PublicLayout title="Privacy Policy" subtitle="Last updated: November 2026. How Fynora handles your data." description="What Fynora collects and why.">
+        <PublicSection title="First">
+          <p>Body text.</p>
+        </PublicSection>
+      </PublicLayout>
+    </MemoryRouter>
+  );
+
+  it('puts every piece of the page inside a landmark', async () => {
+    const { container } = render(page());
+
+    const root = container.firstElementChild!;
+    expect([...root.children].map((el) => el.tagName.toLowerCase())).toEqual(['header', 'main', 'footer']);
+
+    // The same check axe runs on the built site, as a second measure of the structure above.
+    await waitForAxeIdle();
+    const results = await axe.run(document.body, { runOnly: ['region'], resultTypes: ['violations'] });
+    expect(results.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' ')))).toEqual([]);
+  });
+
+  it('keeps the <h1>, its subtitle and the description attribute inside <main>', () => {
+    render(page());
+
+    const main = screen.getByRole('main');
+    expect(main).toContainElement(screen.getByRole('heading', { level: 1, name: 'Privacy Policy' }));
+    expect(main.querySelector('[data-seo="description"]')?.textContent).toMatch(/^Last updated/);
+    expect(main.querySelector('[data-seo-description]')?.getAttribute('data-seo-description')).toBe('What Fynora collects and why.');
   });
 });

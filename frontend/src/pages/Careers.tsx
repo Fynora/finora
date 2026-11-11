@@ -16,7 +16,7 @@ export default function Careers() {
         ].map((item) => (
           <div key={item.title} className="bg-card border border-border rounded-xl p-5">
             <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-3">{item.icon}</div>
-            <h3 className="font-semibold text-ink text-sm mb-1.5">{item.title}</h3>
+            <h2 className="font-semibold text-ink text-sm mb-1.5">{item.title}</h2>
             <p className="text-xs text-muted leading-relaxed">{item.body}</p>
           </div>
         ))}

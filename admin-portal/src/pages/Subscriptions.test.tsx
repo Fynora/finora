@@ -203,6 +203,16 @@ describe('Subscriptions', () => {
     expect(screen.getByText(/Billed by Apple\/Google/)).toBeInTheDocument();
   });
 
+  it('offers no plan change on a subscription that is not active', async () => {
+    mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE']);
+    vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf(subscription({ status: 'EXPIRED' })));
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Jane Doe')).toBeInTheDocument());
+
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByText(/no plan to change/)).toBeInTheDocument();
+  });
+
   it('shows the Subscription Health stat cards', async () => {
     mockAuth(['SUBSCRIPTION_MANAGEMENT_VIEW']);
     vi.mocked(adminSubscriptionsApi.list).mockResolvedValue(pageOf());

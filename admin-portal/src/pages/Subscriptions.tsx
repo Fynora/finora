@@ -94,6 +94,16 @@ function SubscriptionsContent() {
         if (!canManage) return <span className="text-xs text-ink">{s.planCode ?? '—'}</span>;
         // Apple/Google own these mandates and offer no cancel to third parties, so the backend
         // refuses every manual change; a dropdown here could only ever fail.
+        // The server changes only the user's ACTIVE or TRIAL subscription (findActiveOrTrial) and
+        // answers "no active subscription" for any other status, so offer no control there.
+        if (s.paymentProvider !== 'RAZORPAY' && s.status !== 'ACTIVE' && s.status !== 'TRIAL') {
+          return (
+            <div>
+              <span className="text-xs text-ink">{s.planCode ?? '—'}</span>
+              <p className="text-[11px] text-muted">Not active, so there is no plan to change.</p>
+            </div>
+          );
+        }
         if (s.paymentProvider === 'REVENUECAT') {
           return (
             <div>
@@ -143,12 +153,12 @@ function SubscriptionsContent() {
     <div className="space-y-4">
       <LoadError error={healthError} />
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <StatCard icon={CheckCircle2} label="Active" value={healthLoading ? '…' : health?.activeCount ?? 0} tone="success" />
-        <StatCard icon={Clock} label="Past due" value={healthLoading ? '…' : health?.pastDueCount ?? 0} tone="warning" />
-        <StatCard icon={XCircle} label="Payment failed" value={healthLoading ? '…' : health?.paymentFailedCount ?? 0} tone="warning" />
-        <StatCard icon={Ban} label="Cancelled" value={healthLoading ? '…' : health?.cancelledCount ?? 0} />
-        <StatCard icon={Hourglass} label="Pending orders" value={healthLoading ? '…' : health?.pendingOrderCount ?? 0} tone="warning" />
-        <StatCard icon={PauseCircle} label="Paused" value={healthLoading ? '…' : health?.pausedCount ?? 0} tone="warning" />
+        <StatCard icon={CheckCircle2} label="Active" value={healthLoading ? '…' : health?.activeCount ?? '—'} tone="success" />
+        <StatCard icon={Clock} label="Past due" value={healthLoading ? '…' : health?.pastDueCount ?? '—'} tone="warning" />
+        <StatCard icon={XCircle} label="Payment failed" value={healthLoading ? '…' : health?.paymentFailedCount ?? '—'} tone="warning" />
+        <StatCard icon={Ban} label="Cancelled" value={healthLoading ? '…' : health?.cancelledCount ?? '—'} />
+        <StatCard icon={Hourglass} label="Pending orders" value={healthLoading ? '…' : health?.pendingOrderCount ?? '—'} tone="warning" />
+        <StatCard icon={PauseCircle} label="Paused" value={healthLoading ? '…' : health?.pausedCount ?? '—'} tone="warning" />
       </div>
       <p className="text-sm text-muted max-w-xl">
         Every user's current plan. A Razorpay-backed subscription must be cancelled here before its

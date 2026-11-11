@@ -383,5 +383,8 @@ describe('Dashboard — overview request fails', () => {
 
     expect(await screen.findByText(/Couldn't check system status/)).toBeInTheDocument();
     expect(screen.queryByText('A monitored system is down')).not.toBeInTheDocument();
+    // Review 2026-11-11: the tiles read "0" users, transactions and imports, as if that were real.
+    expect(screen.getByText('Total users').closest('div')?.parentElement).toHaveTextContent('—');
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(5);
   });
 });

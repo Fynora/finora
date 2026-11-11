@@ -382,29 +382,29 @@ function DashboardContent() {
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-          <StatCard icon={Users} label="Total users" value={isLoading ? '…' : data?.totalUsers ?? 0} />
+          <StatCard icon={Users} label="Total users" value={isLoading ? '…' : data?.totalUsers ?? '—'} />
           <StatCard
             icon={UserCheck}
             label="Active today"
-            value={isLoading ? '…' : data?.activeUsersToday ?? 0}
+            value={isLoading ? '…' : data?.activeUsersToday ?? '—'}
             delta={data && computeDelta(data.activeUsersToday, data.previousDay.activeUsers, 'up')}
           />
           <StatCard
             icon={ArrowLeftRight}
             label="Transactions today"
-            value={isLoading ? '…' : data?.transactionsToday ?? 0}
+            value={isLoading ? '…' : data?.transactionsToday ?? '—'}
             delta={data && computeDelta(data.transactionsToday, data.previousDay.transactions, 'up')}
           />
           <StatCard
             icon={FileStack}
             label="Imports today"
-            value={isLoading ? '…' : data?.importsToday ?? 0}
+            value={isLoading ? '…' : data?.importsToday ?? '—'}
             delta={data && computeDelta(data.importsToday, data.previousDay.imports, 'up')}
           />
           <StatCard
             icon={AlertTriangle}
             label="Imports w/ skipped rows"
-            value={isLoading ? '…' : data?.importsWithSkippedRowsToday ?? 0}
+            value={isLoading ? '…' : data?.importsWithSkippedRowsToday ?? '—'}
             tone={(data?.importsWithSkippedRowsToday ?? 0) > 0 ? 'warning' : 'default'}
             delta={data && computeDelta(data.importsWithSkippedRowsToday, data.previousDay.importsWithSkippedRows, 'down')}
           />

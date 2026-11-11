@@ -137,7 +137,7 @@ function HeldImportsContent() {
     {
       header: '',
       render: (row) => (
-        <button className="text-xs text-primary hover:underline" onClick={() => setSelectedId(row.id)}>
+        <button className="text-xs text-primary hover:underline" onClick={() => { setSelectedId(row.id); setActionError(null); }}>
           Details
         </button>
       ),
@@ -233,7 +233,7 @@ function HeldImportsContent() {
           busy={reprocess.isPending || resolve.isPending}
           onReprocess={() => reprocess.mutate(selectedId)}
           onResolve={(message) => resolve.mutate({ jobId: selectedId, message })}
-          onClose={() => setSelectedId(null)}
+          onClose={() => { setSelectedId(null); setActionError(null); }}
         />
       )}
     </div>

@@ -302,6 +302,24 @@ describe('UserDetail — failures are visible', () => {
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
   });
 
+  // Review 2026-11-11: a failed background refresh (e.g. right after an action) must not replace a
+  // profile that is already on screen with an error.
+  it('keeps the loaded profile on screen when a later refresh fails', async () => {
+    vi.mocked(adminUsersApi.get)
+      .mockReset()
+      .mockResolvedValueOnce({ ...USER, status: 'SUSPENDED' })
+      .mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+    vi.mocked(adminUsersApi.reactivate).mockResolvedValue({ ...USER } as never);
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+
+    await screen.findByText('Target User');
+    fireEvent.click(screen.getByRole('button', { name: /reactivate account/i }));
+    await waitFor(() => expect(adminUsersApi.get).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByText('Target User')).toBeInTheDocument();
+    expect(screen.queryByText('Service unavailable')).not.toBeInTheDocument();
+  });
+
   it('reports a refused suspension', async () => {
     vi.mocked(adminUsersApi.suspend).mockRejectedValue({ response: { data: { message: 'You cannot suspend this account' } } });
     renderWith(['USER_VIEW', 'USER_DELETE']);

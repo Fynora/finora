@@ -38,10 +38,10 @@ function LearningEngineContent() {
 
       <LoadError error={loadError} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? 0} />
-        <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? 0} />
-        <StatCard icon={TrendingUp} label="Corrections" value={isLoading ? '…' : stats?.correctedCount ?? 0} />
-        <StatCard icon={RotateCcw} label="Resets" value={isLoading ? '…' : stats?.resetCount ?? 0} />
+        <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? '—'} />
+        <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? '—'} />
+        <StatCard icon={TrendingUp} label="Corrections" value={isLoading ? '…' : stats?.correctedCount ?? '—'} />
+        <StatCard icon={RotateCcw} label="Resets" value={isLoading ? '…' : stats?.resetCount ?? '—'} />
       </div>
 
       <div>

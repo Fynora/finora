@@ -133,6 +133,8 @@ function MerchantReviewContent() {
             className="text-xs text-primary hover:underline"
             onClick={() => {
               setSelected(row);
+              // An error from another merchant must not show above this one.
+              setActionError(null);
               setRenaming(row.canonicalName);
             }}
           >
@@ -183,7 +185,7 @@ function MerchantReviewContent() {
           renaming={renaming}
           setRenaming={setRenaming}
           busy={rename.isPending || discard.isPending || merge.isPending || approveAll.isPending}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setActionError(null); }}
           onRename={() => rename.mutate({ row: selected, name: renaming })}
           onDiscard={() => discard.mutate(selected)}
           onMerge={(into) => merge.mutate({ row: selected, into })}

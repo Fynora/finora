@@ -105,7 +105,9 @@ function UserDetailContent({ id }: { id: string }) {
     return <p className="text-muted text-sm">Loading…</p>;
   }
   // A missing or deleted id used to sit on "Loading…" forever, since only isLoading was checked.
-  if (loadError || !user) {
+  // Keyed on having no data, not on the error: a failed background refresh keeps its error while
+  // the profile already loaded stays valid and on screen.
+  if (!user) {
     return (
       <div className="space-y-4">
         <Link to="/users" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">

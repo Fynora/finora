@@ -19,6 +19,15 @@ function formatReward(amount: number) {
   return '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** A rupee amount the server accepts: at least 0.01 (its @DecimalMin) with at most two decimals,
+ *  so the confirmation shows exactly what will be credited, never a rounded figure. */
+function creditableAmount(raw: string | undefined): number | null {
+  const text = (raw ?? '').trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const amount = Number(text);
+  return amount >= 0.01 ? amount : null;
+}
+
 function errorMessage(err: any, fallback: string) {
   return err?.response?.data?.message ?? fallback;
 }
@@ -108,8 +117,11 @@ function ReferralsContent() {
             />
             <button
               type="button"
-              disabled={creditMutation.isPending || !(Number(amounts[r.referralId]) > 0)}
-              onClick={() => setConfirmingCredit({ row: r, amount: Number(amounts[r.referralId]) })}
+              disabled={creditMutation.isPending || creditableAmount(amounts[r.referralId]) === null}
+              onClick={() => {
+                const amount = creditableAmount(amounts[r.referralId]);
+                if (amount !== null) setConfirmingCredit({ row: r, amount });
+              }}
               className="text-xs font-semibold bg-primary hover:bg-primary-dark text-on-primary rounded-lg px-2.5 py-1.5 disabled:opacity-40"
             >
               Credit

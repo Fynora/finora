@@ -268,6 +268,23 @@ describe('HeldImports', () => {
     expect(await screen.findByText(/only a held import can be resolved/i)).toBeInTheDocument();
   });
 
+  // Review 2026-11-11: the refusal stayed on screen after the panel closed and another opened.
+  it('clears a refusal when the panel is closed and a held import is opened again', async () => {
+    vi.mocked(adminHeldImportApi.resolve).mockRejectedValue({
+      response: { data: { message: 'Only a held import can be resolved; this one is FAILED.' } },
+    });
+    await openDetail();
+    await userEvent.type(screen.getByLabelText(/message to the user/i), 'Something');
+    await userEvent.click(screen.getByRole('button', { name: /resolve and notify user/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /send and resolve/i }));
+    await screen.findByText(/only a held import can be resolved/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /details/i }));
+
+    expect(screen.queryByText(/only a held import can be resolved/i)).not.toBeInTheDocument();
+  });
+
   it('describes the queue as failures on our side, not damaged or wrong files', async () => {
     mockAuth(['IMPORT_TRIAGE_MANAGE']);
     renderPage();

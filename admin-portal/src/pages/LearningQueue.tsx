@@ -142,7 +142,7 @@ function LearningQueueContent() {
         <div className="flex gap-2">
           <button
             className="text-xs text-primary hover:underline"
-            onClick={() => setSelected(row)}
+            onClick={() => { setSelected(row); setActionError(null); }}
           >
             Details
           </button>
@@ -250,7 +250,7 @@ function LearningQueueContent() {
       {selected && (
         <EventDetail
           event={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setActionError(null); }}
           onRetry={() => retry.mutate(selected.id)}
           onResolve={() => resolve.mutate(selected.id)}
           busy={retry.isPending || resolve.isPending}

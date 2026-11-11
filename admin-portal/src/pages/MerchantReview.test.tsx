@@ -158,6 +158,20 @@ describe('MerchantReview', () => {
       .toHaveBeenCalledWith(guessWithNoHistory.userId, guessWithNoHistory.id));
   });
 
+  it('does not carry an old refusal over to the next merchant opened', async () => {
+    mockAuth(['MERCHANT_REVIEW']);
+    vi.mocked(adminMerchantReviewApi.queue).mockResolvedValue(queueOf(guessWithNoHistory));
+    vi.mocked(adminMerchantReviewApi.approve).mockRejectedValue({ response: { data: { message: 'Merchant already reviewed' } } });
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('SWIGGYORDR9182')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await screen.findByRole('alert');
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('approves a guess against its owning user', async () => {
     mockAuth(['MERCHANT_REVIEW']);
     vi.mocked(adminMerchantReviewApi.queue).mockResolvedValue(queueOf(guessWithNoHistory));

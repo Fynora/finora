@@ -101,8 +101,12 @@ describe('Referrals (admin portal)', () => {
     renderPage();
 
     await screen.findByText('Alice');
-    fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value: '0' } });
-    expect(screen.getByText('Credit')).toBeDisabled();
+    for (const value of ['0', '0.001', '-5', '12.345']) {
+      fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value } });
+      expect(screen.getByText('Credit')).toBeDisabled();
+    }
+    fireEvent.change(screen.getByPlaceholderText('Amount'), { target: { value: '0.01' } });
+    expect(screen.getByText('Credit')).toBeEnabled();
   });
 
   it('shows a rupee amount for an already-REWARDED referral instead of the credit form', async () => {

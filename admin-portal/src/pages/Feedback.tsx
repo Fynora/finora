@@ -193,11 +193,15 @@ function FeedbackContent() {
   return (
     <div className="space-y-6">
       <LoadError error={breakdown.error} />
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <BreakdownPanel title={`By Type (${breakdown.data?.total ?? 0} total)`} counts={breakdown.data?.byType ?? []} />
-        <BreakdownPanel title="By Context" counts={breakdown.data?.byContext ?? []} />
-        <BreakdownPanel title="By Source" counts={breakdown.data?.bySource ?? []} />
-      </div>
+      {/* Without the breakdown there is nothing to count: panels saying "No feedback yet" next to the
+          error would read as a real zero. */}
+      {breakdown.data && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <BreakdownPanel title={`By Type (${breakdown.data.total} total)`} counts={breakdown.data.byType} />
+          <BreakdownPanel title="By Context" counts={breakdown.data.byContext} />
+          <BreakdownPanel title="By Source" counts={breakdown.data.bySource} />
+        </div>
+      )}
 
       <FilterBar
         fields={[

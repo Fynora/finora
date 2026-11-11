@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IdleSignOut } from './IdleSignOut';
-import { IDLE_LIMIT_MS, LAST_ACTIVITY_KEY, WARNING_MS, markActivity } from '../lib/idleSignOut';
+import { IDLE_LIMIT_MS, LAST_ACTIVITY_KEY, WARNING_MS, __resetIdleClockForTests, markActivity } from '../lib/idleSignOut';
 import { SESSION_ENDED_REASON_KEY } from '../api/client';
 
 const auth = { token: 'access-token' as string | null, logout: vi.fn() };
@@ -29,6 +29,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(START);
   localStorage.clear();
+  __resetIdleClockForTests();
   auth.token = 'access-token';
   auth.logout = vi.fn(() => {
     auth.token = null;
@@ -174,6 +175,31 @@ describe('IdleSignOut', () => {
     expect(auth.logout).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByText('protected content')).toBeTruthy();
+  });
+
+  // Some browsers and privacy extensions block localStorage. The tabs then cannot share a clock, but
+  // this tab must still sign out: blocked storage must not switch the rule off.
+  it('still signs out when the browser blocks storage', () => {
+    const blocked = () => {
+      throw new DOMException('blocked', 'SecurityError');
+    };
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(blocked);
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(blocked);
+    try {
+      renderIdle();
+      advance(10 * MINUTE);
+      act(() => {
+        window.dispatchEvent(new Event('keydown'));
+      });
+      advance(14 * MINUTE);
+      expect(auth.logout).not.toHaveBeenCalled();
+
+      advance(1 * MINUTE + 5_000);
+      expect(auth.logout).toHaveBeenCalledTimes(1);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 
   it('markActivity writes at most once every 5 seconds', () => {

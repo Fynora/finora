@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { SESSION_ENDED_REASON_KEY } from '../api/client';
 import { Button, useDialogA11y } from '../design-system';
 import { safeStorage } from '../lib/safeStorage';
-import { IDLE_LIMIT_MS, LAST_ACTIVITY_KEY, WARNING_MS, markActivity, msSinceActivity } from '../lib/idleSignOut';
+import { IDLE_LIMIT_MS, LAST_ACTIVITY_KEY, WARNING_MS, markActivity, msSinceActivity, recordActivityNow } from '../lib/idleSignOut';
 
 const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel'] as const;
 const CHECK_EVERY_MS = 5_000;
@@ -97,7 +97,7 @@ export function IdleSignOut({ children }: { children: ReactNode }) {
         <IdleWarning
           onStay={() => {
             // Explicit, not throttled: the click itself is the activity that must count.
-            safeStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+            recordActivityNow();
             setWarning(false);
           }}
         />

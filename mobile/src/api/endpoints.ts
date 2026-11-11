@@ -1651,6 +1651,45 @@ export const passwordChangeApi = {
     ).then((r) => r.data),
 };
 
+// Privacy workstream 10: the suspended screen. Mirrors the backend's SuspensionDtos and the web
+// app's identical types in frontend/src/api/endpoints.ts.
+export interface SuspensionRequest {
+  type: 'APPEAL' | 'DELETION';
+  ticketNumber: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+  createdAt: string;
+}
+
+export interface SuspensionStatus {
+  suspendedAt: string | null;
+  reason: 'TERMS_VIOLATION' | 'FRAUD' | 'SECURITY_RISK' | null;
+  reasonText: string;
+  message: string | null;
+  storePlatform: 'IOS' | 'ANDROID' | null;
+  signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
+  requests: SuspensionRequest[];
+}
+
+/**
+ * The suspended screen's token on one request. Never the app's session: it is not written to
+ * storage, and `_skipAuthRefresh` keeps a 401 (the token lasts 15 minutes) out of client.ts's
+ * refresh-and-sign-out path, so the screen can explain the expiry itself without losing an appeal
+ * mid-typing. The same opt-out sign-out's own clean-up uses (deviceTokensApi.revoke).
+ */
+function suspendedRequestConfig(token: string) {
+  return { headers: { Authorization: `Bearer ${token}` }, _skipAuthRefresh: true };
+}
+
+export const suspensionApi = {
+  status: (token: string) =>
+    api.get<SuspensionStatus>('/users/me/suspension', suspendedRequestConfig(token) as object).then((r) => r.data),
+  raiseRequest: (token: string, type: 'APPEAL' | 'DELETION', text?: string) =>
+    api.post<SuspensionStatus>('/users/me/suspension/requests', text ? { type, text } : { type },
+      suspendedRequestConfig(token) as object).then((r) => r.data),
+  exportData: (token: string, currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) =>
+    accountLifecycleApi.exportData(currentPassword, googleIdToken, appleIdToken, token),
+};
+
 // The self-service account lifecycle -- see UserAccountLifecycleService on the backend and
 // frontend/src/api/endpoints.ts's identical accountLifecycleApi. deactivate()/deleteAccount() are
 // unchanged from web's shape; exportData() differs because mobile has no Blob/<a> download
@@ -1691,14 +1730,24 @@ export const accountLifecycleApi = {
   // one in-memory buffer before any of it reaches disk); doing that would need the backend to
   // support a streamable GET download instead of this POST-with-password-in-body shape.
   // Exactly one of the three credentials, as for deactivate above.
-  exportData: async (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => {
+  //
+  // `suspendedAccessToken`: the suspended screen's own token (privacy workstream 10), sent on this
+  // request only and kept out of the 401 refresh -- see suspensionApi below. Omitted, the request
+  // goes out under the app's own session as before.
+  exportData: async (
+    currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null,
+    suspendedAccessToken?: string
+  ) => {
     if (!(await Sharing.isAvailableAsync())) {
       throw new Error('Sharing is not available on this device.');
     }
     let res;
     try {
       res = await api.post<ArrayBuffer>(
-        '/users/me/data-export', { currentPassword, googleIdToken, appleIdToken }, { responseType: 'arraybuffer' }
+        '/users/me/data-export', { currentPassword, googleIdToken, appleIdToken },
+        suspendedAccessToken
+          ? ({ responseType: 'arraybuffer', ...suspendedRequestConfig(suspendedAccessToken) } as object)
+          : { responseType: 'arraybuffer' }
       );
     } catch (err) {
       throw await withArrayBufferErrorMessage(err);

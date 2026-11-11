@@ -97,7 +97,8 @@ describe('IdleSignOut', () => {
     // Another tab writes the shared timestamp; this tab hears it as a storage event.
     act(() => {
       localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-      window.dispatchEvent(new StorageEvent('storage', { key: LAST_ACTIVITY_KEY }));
+      // A 'storage' event carrying the key another tab wrote, built without the init-dict constructor.
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: LAST_ACTIVITY_KEY }));
     });
 
     expect(screen.queryByRole('dialog')).toBeNull();

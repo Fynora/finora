@@ -254,6 +254,8 @@ describe('describeRefreshFailure', () => {
     expect(reasonFor('AUTH_005')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'idle-timeout' });
     expect(reasonFor('AUTH_006')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'max-age' });
     expect(reasonFor('AUTH_007')).toEqual({ refreshHttpStatus: 401, refreshFailureReason: 'account-deactivated' });
+    expect(describeRefreshFailure({ response: { status: 403, data: { errorCode: 'AUTH_018' } } }))
+      .toEqual({ refreshHttpStatus: 403, refreshFailureReason: 'account-suspended' });
   });
 
   it('never sends the raw backend code, or a field named like one', () => {
@@ -399,6 +401,19 @@ describe('verifySession', () => {
     expect(secureStore.__store.has('finora_token')).toBe(false);
     expect(secureStore.__store.has(REFRESH_TOKEN_KEY)).toBe(false);
     expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  // #2513: a refresh refused because the account was suspended signs out WITH the reason, so the
+  // sign-in screen can say so. The cold-start check must carry it the same way the 401 path does.
+  it('returns ended and passes the suspended reason when the account was suspended', async () => {
+    respondWith(httpError(403, 'AUTH_018'));
+
+    await expect(client.verifySession()).resolves.toBe('ended');
+
+    expect(expired).toHaveBeenCalledWith({
+      endedDeliberately: false,
+      message: 'This account has been suspended. Sign in to see why and what you can do.',
+    });
   });
 
   it('returns ended when there is no stored refresh token', async () => {

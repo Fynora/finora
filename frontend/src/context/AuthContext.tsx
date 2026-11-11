@@ -4,7 +4,10 @@ import { AUTH_CHANGED_EVENT } from './ThemeContext';
 import { safeStorage } from '../lib/safeStorage';
 import { forgetActivationAnswered } from '../lib/activationQuestions';
 import { readSignupAttribution } from '../lib/signupAttribution';
-import { getAccessToken, setAccessToken, refreshAccessToken } from '../api/client';
+import {
+  getAccessToken, setAccessToken, refreshAccessToken, SESSION_ENDED_REASON_KEY, SUSPENDED_SIGN_OUT_MESSAGE,
+} from '../api/client';
+import { AUTH_ACCOUNT_SUSPENDED } from '../api/errorCodes';
 
 interface AuthState {
   token: string | null;
@@ -306,8 +309,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         safeStorage.setItem('finora_phone_verified', String(profile.phoneVerified));
         safeStorage.setItem('finora_onboarding_completed', String(profile.onboardingCompleted));
         window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
-      } catch {
+      } catch (err: any) {
         // No valid session to recover -- leave every field at its logged-out default.
+        //
+        // Except for one reason worth saying (privacy workstream 10): the account was suspended
+        // since this browser last had the page open, and the refresh was refused with AUTH_018.
+        // Stashed the same way a forced sign-out stashes its reason, so the sign-in page says why
+        // and that signing in shows what to do.
+        if (err?.response?.data?.errorCode === AUTH_ACCOUNT_SUSPENDED) {
+          safeStorage.setItem(SESSION_ENDED_REASON_KEY, SUSPENDED_SIGN_OUT_MESSAGE);
+        }
       } finally {
         if (!cancelled) setBootstrapping(false);
       }

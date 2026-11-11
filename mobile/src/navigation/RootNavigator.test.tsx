@@ -159,6 +159,7 @@ jest.mock('../onboarding/TourTargetRegistry', () => ({
 // branch RootNavigator selects, not any individual screen's own rendering.
 jest.mock('../screens/AuthEntryScreen', () => ({ AuthEntryScreen: () => null }));
 jest.mock('../screens/LoginScreen', () => ({ LoginScreen: () => null }));
+jest.mock('../screens/SuspendedAccountScreen', () => ({ SuspendedAccountScreen: () => null }));
 jest.mock('../screens/RegisterScreen', () => ({ RegisterScreen: () => null }));
 jest.mock('../screens/ForgotPasswordScreen', () => ({ ForgotPasswordScreen: () => null }));
 jest.mock('../screens/ResetPasswordScreen', () => ({

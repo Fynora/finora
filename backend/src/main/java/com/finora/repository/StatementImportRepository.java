@@ -220,6 +220,34 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     List<LatestPeriodEnd> findLatestPeriodEndsByAccount(@Param("userId") UUID userId,
                                                          @Param("accountIds") java.util.Collection<UUID> accountIds);
 
+    /** One row per account: where its earliest active statement overlapping a month starts. */
+    interface EarliestPeriodStart {
+        UUID getAccountId();
+        LocalDate getEarliestStart();
+    }
+
+    /**
+     * Where each of these accounts' printed coverage of [monthStart, monthEnd] begins: the earliest
+     * period start among its active (not superseded) statements that state a period and overlap the
+     * month. An account with no such statement has no row. Backs the dashboard's "20–30 Nov".
+     */
+    @Query("""
+           SELECT si.accountId AS accountId, MIN(si.statementPeriodStart) AS earliestStart
+             FROM StatementImport si
+            WHERE si.userId = :userId
+              AND si.accountId IN :accountIds
+              AND si.supersededBy IS NULL
+              AND si.statementPeriodStart IS NOT NULL
+              AND si.statementPeriodEnd IS NOT NULL
+              AND si.statementPeriodStart <= :monthEnd
+              AND si.statementPeriodEnd >= :monthStart
+            GROUP BY si.accountId
+           """)
+    List<EarliestPeriodStart> findEarliestPeriodStartsOverlapping(@Param("userId") UUID userId,
+                                                                   @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                                                   @Param("monthStart") LocalDate monthStart,
+                                                                   @Param("monthEnd") LocalDate monthEnd);
+
     /**
      * The latest statement period end already on file for this account, ignoring one row.
      *

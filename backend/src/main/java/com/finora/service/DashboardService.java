@@ -391,7 +391,17 @@ public class DashboardService {
                 currentMonth == null || months.isEmpty() ? null
                         : statementReach.behindFor(userId, YearMonth.parse(currentMonth),
                                 YearMonth.parse(months.get(months.size() - 1))).orElse(null),
-                unknownAmountOwed.size()
+                unknownAmountOwed.size(),
+                // `active`, not `activeForTotals`: a day that holds only a transfer is still a day
+                // the statements cover.
+                currentMonth == null ? null : active.stream().map(Transaction::getTxnDate)
+                        .filter(d -> YearMonth.from(d).toString().equals(currentMonth))
+                        .max(Comparator.naturalOrder()).orElse(null),
+                currentMonth == null ? null : statementReach.firstCoveredDay(userId, YearMonth.parse(currentMonth),
+                        active.stream().filter(t -> t.getAccountId() != null
+                                        && YearMonth.from(t.getTxnDate()).toString().equals(currentMonth))
+                                .collect(java.util.stream.Collectors.toMap(Transaction::getAccountId, Transaction::getTxnDate,
+                                        (x, y) -> x.isBefore(y) ? x : y)))
         );
     }
 

@@ -31,6 +31,11 @@ export type AuthStackParamList = {
   // lives in these params and nowhere else -- AuthStack is not navigation-persisted, so it is never
   // written to disk.
   ResetPassword: { token: string };
+  // Privacy workstream 10. Opened by any sign-in that the backend refuses because the account is
+  // suspended (AUTH_018); `token` is the 15-minute token that refusal carried (lib/suspension.ts).
+  // Same rule as ResetPassword's token: it lives in these params and nowhere else, and AuthStack is
+  // not navigation-persisted, so it is never written to disk.
+  SuspendedAccount: { token: string };
 };
 
 /**

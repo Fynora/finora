@@ -44,7 +44,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, type ImportJobProgress } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, inflowApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
@@ -55,6 +55,12 @@ import type { DetectedAccountInfo } from '../types';
 // unsupported-file-type guard) -- everything else Import.tsx touches (categories/accounts lists,
 // the review step's account form, confirm/summary) is exercised by hand during review, not here.
 vi.mock('../api/endpoints', () => ({
+  // ImportMoneyInCard on the summary screens lists money not counted as income; nothing by default.
+  inflowApi: {
+    unresolvedForImport: vi.fn().mockResolvedValue([]),
+    kinds: vi.fn().mockResolvedValue([]),
+    setChoice: vi.fn(), clearChoice: vi.fn(), createKind: vi.fn(),
+  },
   // QuickSortCta on the summary screens counts waiting questions; nothing here is waiting.
   transactionsApi: {
     quickSort: vi.fn().mockResolvedValue({ questions: [], waitingTotal: 0, rest: { questions: 0, payments: 0, amount: 0, transactionIds: [] } }),
@@ -2562,6 +2568,29 @@ describe('Import — multi-account summary screen warnings', () => {
     const cardCard = screen.getByTestId('summary-account-1');
     expect(within(savingsCard).queryByText(/gap before it/i)).not.toBeInTheDocument();
     expect(within(cardCard).getByText(/gap before it/i)).toBeInTheDocument();
+  });
+
+  it('asks on the Done screen about money not counted as income, across every account just imported', async () => {
+    vi.mocked(inflowApi.unresolvedForImport).mockImplementation(async (id) => (id === 'stmt-Savings' ? [{
+      sampleTransactionId: 't1', label: 'NEHA RAO', senderKnown: true, count: 1, senderPaymentCount: 1, total: 6000,
+      latestDate: '2026-07-10', accountName: 'Savings',
+      rows: [{ id: 't1', date: '2026-07-10', amount: 6000, description: 'UPI-NEHA RAO', accountName: 'Savings' }],
+    }] : []));
+    vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
+      perAccount: [summaryFor('Savings'), summaryFor('Credit Card')],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    stageSections([section('Savings'), section('Credit Card')]);
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+    await user.click(confirmAll());
+
+    expect(await screen.findByText("1 payment you received isn't counted as income")).toBeInTheDocument();
+    expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-Savings');
+    expect(inflowApi.unresolvedForImport).toHaveBeenCalledWith('stmt-Credit Card');
+    vi.mocked(inflowApi.unresolvedForImport).mockResolvedValue([]);
   });
 
   /** The action only appears for the account whose own period actually duplicated one on file. */

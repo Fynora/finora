@@ -93,4 +93,62 @@ class InflowReviewServiceTest {
             assertThat(g.senderPaymentCount()).isEqualTo(1L);
         });
     }
+
+    private static Transaction imported(Account on, UUID owner, UUID statementImportId, String amount, LocalDate date, String key) {
+        Transaction t = credit(on, amount, date, "UPI-NEHA RAO-neha@okbank-HDFC0XXXXXX-222222222222-UPI", key);
+        t.setUserId(owner);
+        t.setStatementImportId(statementImportId);
+        return t;
+    }
+
+    @Test
+    void groupsForImportListsOnlyThatImportsUnresolvedRows() {
+        Account savings = new Account();
+        ReflectionTestUtils.setField(savings, "id", UUID.randomUUID());
+        UUID thisImport = UUID.randomUUID(), otherImport = UUID.randomUUID();
+        Transaction mine = imported(savings, userId, thisImport, "6000.00", LocalDate.of(2026, 11, 6), "vpa:neha");
+        Transaction mineToo = imported(savings, userId, thisImport, "9000.00", LocalDate.of(2026, 11, 7), "vpa:ravi");
+        // Same days, another statement: the asked-about import must not list it.
+        Transaction fromOther = imported(savings, userId, otherImport, "500.00", LocalDate.of(2026, 11, 6), "vpa:kiran");
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        when(transactions.findByStatementImportId(thisImport)).thenReturn(List.of(mine, mineToo));
+        ReportService reports = mock(ReportService.class);
+        when(reports.unresolvedInflows(userId, LocalDate.of(2026, 11, 6), LocalDate.of(2026, 11, 7)))
+                .thenReturn(new ReportService.UnresolvedRows(List.of(mine, fromOther, mineToo), List.of(savings)));
+
+        List<InflowDtos.UnresolvedSenderDto> groups = new InflowReviewService(reports, transactions).groupsForImport(userId, thisImport);
+
+        assertThat(groups).extracting(InflowDtos.UnresolvedSenderDto::total)
+                .usingElementComparator(BigDecimal::compareTo)
+                .containsExactly(new BigDecimal("9000.00"), new BigDecimal("6000.00"));
+    }
+
+    @Test
+    void groupsForImportIsEmptyForAnotherUsersImport() {
+        Account theirs = new Account();
+        ReflectionTestUtils.setField(theirs, "id", UUID.randomUUID());
+        UUID theirImport = UUID.randomUUID();
+        Transaction theirRow = imported(theirs, UUID.randomUUID(), theirImport, "6000.00", LocalDate.of(2026, 11, 6), "vpa:neha");
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        when(transactions.findByStatementImportId(theirImport)).thenReturn(List.of(theirRow));
+        ReportService reports = mock(ReportService.class);
+
+        assertThat(new InflowReviewService(reports, transactions).groupsForImport(userId, theirImport)).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(reports);
+    }
+
+    @Test
+    void groupsForImportIsEmptyWhenNothingUnresolved() {
+        Account savings = new Account();
+        ReflectionTestUtils.setField(savings, "id", UUID.randomUUID());
+        UUID thisImport = UUID.randomUUID();
+        Transaction row = imported(savings, userId, thisImport, "75.00", LocalDate.of(2026, 11, 1), "");
+        TransactionRepository transactions = mock(TransactionRepository.class);
+        when(transactions.findByStatementImportId(thisImport)).thenReturn(List.of(row));
+        ReportService reports = mock(ReportService.class);
+        when(reports.unresolvedInflows(userId, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 1)))
+                .thenReturn(new ReportService.UnresolvedRows(List.of(), List.of(savings)));
+
+        assertThat(new InflowReviewService(reports, transactions).groupsForImport(userId, thisImport)).isEmpty();
+    }
 }

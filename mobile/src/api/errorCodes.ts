@@ -71,6 +71,12 @@ export const AUTH_EMAIL_ALREADY_REGISTERED = 'AUTH_012';
 // words that case itself instead of showing "code invalid or expired".
 export const AUTH_OTP_INVALID_OR_EXPIRED = 'AUTH_013';
 
+// Privacy workstream 10. A suspended customer's sign-in is refused with this code, and the refusal's
+// `details.suspendedAccessToken` opens the suspended screen (see lib/suspension.ts). A session that
+// was already signed in when the account was suspended gets it on every other request, which
+// client.ts answers by signing out. Same wire code as the web copy.
+export const AUTH_ACCOUNT_SUSPENDED = 'AUTH_018';
+
 // Gate 2a: two import codes that are not the statement being refused. BUSY means the file was never
 // judged (try again shortly); HELD means it went to the team for a look. "What will you do now?"
 // is asked about neither -- see isStatementRefusal in importFailureMessages.ts.

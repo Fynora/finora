@@ -160,4 +160,66 @@ class StatementReachServiceTest {
 
         verify(coverage, never()).latestCoverageEnds(any());
     }
+
+    // ---- the first day a month's figures cover (the dashboard's "20–30 Nov") ----
+
+    private static final YearMonth NOV = YearMonth.of(2026, 11);
+
+    private static LocalDate nov(int day) {
+        return NOV.atDay(day);
+    }
+
+    @Test
+    void firstCoveredDay_isTheFirstWhenAStatementAlreadyCoveredTheMonthStart() {
+        // The printed period started in October: clipped to the month.
+        assertThat(StatementReachService.firstCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(3)), Map.of(hdfc.getId(), LocalDate.of(2026, 10, 8))))
+                .isEqualTo(nov(1));
+    }
+
+    @Test
+    void firstCoveredDay_isWhereTheFirstStatementStartsWhenItStartsMidMonth() {
+        assertThat(StatementReachService.firstCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(21)), Map.of(hdfc.getId(), nov(20))))
+                .isEqualTo(nov(20));
+    }
+
+    @Test
+    void firstCoveredDay_isTheEarliestAcrossAccounts() {
+        assertThat(StatementReachService.firstCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(21), axis.getId(), nov(14)),
+                Map.of(hdfc.getId(), nov(20), axis.getId(), nov(12))))
+                .isEqualTo(nov(12));
+    }
+
+    @Test
+    void firstCoveredDay_neverStartsAfterACountedRow() {
+        // A row before the statement's printed start is still in the figures, so the label must
+        // include its day.
+        assertThat(StatementReachService.firstCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(5)), Map.of(hdfc.getId(), nov(20))))
+                .isEqualTo(nov(5));
+    }
+
+    @Test
+    void firstCoveredDay_isTheFirstWhenAnAccountHasNoPrintedPeriod() {
+        // A CSV, a hand-entered or a linked account: nothing says where its coverage starts, so the
+        // month is not narrowed.
+        assertThat(StatementReachService.firstCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(21), axis.getId(), nov(25)), Map.of(hdfc.getId(), nov(20))))
+                .isEqualTo(nov(1));
+    }
+
+    @Test
+    void firstCoveredDay_isNullWithNoRowsInTheMonth() {
+        assertThat(StatementReachService.firstCoveredDay(NOV, Map.of(), Map.of())).isNull();
+    }
+
+    @Test
+    void firstCoveredDay_asksCoverageOnlyForTheAccountsWithRowsThatMonth() {
+        when(coverage.earliestPrintedStartsOverlapping(userId, java.util.Set.of(hdfc.getId()), NOV))
+                .thenReturn(Map.of(hdfc.getId(), nov(20)));
+
+        assertThat(service.firstCoveredDay(userId, NOV, Map.of(hdfc.getId(), nov(22)))).isEqualTo(nov(20));
+    }
 }

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { KpiItem } from '../components/dashboard/LedgerSnapshotCard';
 import { monthLabel, monthLabelLong } from './format';
 import { longMonthName, statementBehindNote } from './statementBehind';
+import { monthCardLabel } from './periodCardLabel';
 import type { DashboardSummary } from '../types';
 
 // Bug 05, mobile side. These KPIs are the newest month the account has DATA for, which for a
@@ -19,7 +20,10 @@ export function useDashboardKpis(summary: DashboardSummary | undefined) {
     // The heading over the month's figures (Dashboard's snapshot card, Ledger's month card). It
     // used to be a hardcoded "This Month" in both, so figures from an earlier month were titled as
     // the current one while web named the month.
-    const periodTitle = periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!);
+    // Names the days the figures cover ("1–8 Nov") when the server says how far they reach, so a
+    // month whose statements stop on the 8th is not read as the whole month.
+    const periodTitle = monthCardLabel(summary?.reportingMonth, summary?.figuresThrough,
+      periodIsCurrent ? 'This Month' : monthLabel(summary!.reportingMonth!), !periodIsCurrent, summary?.figuresFrom);
     const deltaLabel = periodIsCurrent
       ? 'vs last month'
       : `vs the month before ${monthLabel(summary!.reportingMonth!)}`;

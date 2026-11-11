@@ -67,15 +67,17 @@ public class QuickSortService {
     private final CategoryRepository categoryRepository;
     private final TransactionService transactionService;
     private final QuickSortMetrics metrics;
+    private final com.finora.service.InflowChoiceService inflowChoices;
 
     public QuickSortService(TransactionRepository transactionRepository, AccountRepository accountRepository,
                             CategoryRepository categoryRepository, TransactionService transactionService,
-                            QuickSortMetrics metrics) {
+                            QuickSortMetrics metrics, com.finora.service.InflowChoiceService inflowChoices) {
         this.transactionRepository = transactionRepository;
         this.accountRepository = accountRepository;
         this.categoryRepository = categoryRepository;
         this.transactionService = transactionService;
         this.metrics = metrics;
+        this.inflowChoices = inflowChoices;
     }
 
     /**
@@ -124,10 +126,18 @@ public class QuickSortService {
     /** One batch of questions, starting after the first {@code skip} groups (ones the user skipped). */
     @Transactional(readOnly = true)
     public QuickSortDto.Batch batch(UUID userId, int skip) {
-        List<UUID> liveAccountIds = accountRepository.findByUserId(userId).stream().map(Account::getId).toList();
+        List<Account> accounts = accountRepository.findByUserId(userId);
+        List<UUID> liveAccountIds = accounts.stream().map(Account::getId).toList();
         if (liveAccountIds.isEmpty()) return empty();
+        // Money in that is not counted as income until the user says what it was -- or that they
+        // already said -- belongs to the "what was it?" question (import Done step, Money Review).
+        // Quick sort asking for its category too asked twice, and most category answers left the
+        // money still not counted.
+        com.finora.service.FlowTotals.Context flow =
+                inflowChoices.contextFor(userId, accounts, categoryRepository.findByUserId(userId));
         List<Group> groups = groups(transactionRepository
-                .findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(userId, liveAccountIds));
+                .findByUserIdAndNeedsCategoryReviewTrueAndAccountIdInOrderByTxnDateDesc(userId, liveAccountIds)
+                .stream().filter(t -> !askedAsMoneyIn(t, flow)).toList());
         if (groups.isEmpty()) return empty();
 
         BigDecimal waitingTotal = sum(groups, 0, groups.size());
@@ -185,6 +195,16 @@ public class QuickSortService {
         boolean largeOneOff = g.rows.size() == 1 && anchor.getAmount().abs().compareTo(LARGE_ONE_OFF) >= 0;
         return new QuickSortDto.Question(g.id, anchor.getId(), kind, PayeeLabel.of(anchor, "Unknown payee"),
                 g.rows.size(), g.total, anchor.getTxnDate(), largeOneOff, current, offered, samples);
+    }
+
+    /**
+     * A credit the "what was it?" question owns: not counted as income until the user says what it
+     * was. Answering it there clears its review flag (InflowKindService.setChoice), so it never comes
+     * back here; a later payment from a sender already answered for is counted, and is asked its
+     * category here once, as any other waiting row.
+     */
+    static boolean askedAsMoneyIn(Transaction t, com.finora.service.FlowTotals.Context flow) {
+        return t.getTxnType() == Transaction.Type.INCOME && com.finora.service.FlowTotals.isUnresolvedInflow(t, flow);
     }
 
     static QuickSortDto.Kind kindOf(Transaction anchor) {

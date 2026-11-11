@@ -15,6 +15,7 @@ import { apiErrorCode, apiErrorDetails, toUserMessage } from '../lib/apiError';
 import { reportTransportFailure, requestStartedAt } from '../lib/monitoring';
 import { AUTH_ACCOUNT_DEACTIVATED, AUTH_OTP_INVALID_OR_EXPIRED } from '../api/errorCodes';
 import { looksLikeValidIdentifier, EMAIL_PATTERN, sanitizeOtp } from '../lib/validation';
+import { suspendedTokenFrom } from '../lib/suspension';
 import { sendPhoneVerificationCode, confirmPhoneVerificationCode } from '../lib/phoneAuth';
 import { spacing, useTheme } from '../theme';
 import type { AuthStackParamList } from '../navigation/types';
@@ -28,7 +29,10 @@ const OTP_RESEND_COOLDOWN_SECONDS = 30;
 
 export function LoginScreen({ navigation, route }: Props) {
   const c = useTheme();
-  const { login, reactivate, loginWithGoogle, loginWithApple, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp } = useAuth();
+  const {
+    login, reactivate, loginWithGoogle, loginWithApple, loginWithEmailOtpRequest, loginWithEmailOtpVerify, loginWithPhoneOtp,
+    signedOutMessage, clearSignedOutMessage,
+  } = useAuth();
   // Phase 3B: AuthEntryScreen already resolved this identifier to an existing account via
   // POST /auth/identify -- prefill it here instead of asking the user to retype it. route.params
   // is stable for this screen instance (nothing here calls navigation.setParams), so it can be
@@ -42,8 +46,13 @@ export function LoginScreen({ navigation, route }: Props) {
   // field and Google/Apple buttons are always shown together now, matching a direct visit here.
   const [identifier, setIdentifier] = useState(route.params?.identifier ?? '');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // Starts with the reason the last session was ended, when the server gave one (the account was
+  // suspended mid-session -- see client.ts). Shown once: the effect below clears it from AuthContext.
+  const [error, setError] = useState<string | null>(() => signedOutMessage);
   const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (signedOutMessage) clearSignedOutMessage();
+  }, [signedOutMessage, clearSignedOutMessage]);
 
   // Set once login() reports AUTH_ACCOUNT_DEACTIVATED -- the password already checked out (see
   // AuthService.login()'s deactivated branch), so the rest of the form is replaced by a single
@@ -99,6 +108,13 @@ export function LoginScreen({ navigation, route }: Props) {
   // the reactivation view (see its own state comment) can't leak a stale plain-login failure into
   // a fresh reactivation prompt either.
   function handleAuthError(err: unknown, fallback: string) {
+    // Privacy workstream 10: a suspended account's refusal opens the suspended screen with the
+    // token it carried, instead of a dead-end error. Every sign-in method on this screen lands here.
+    const suspendedToken = suspendedTokenFrom(err);
+    if (suspendedToken) {
+      navigation.navigate('SuspendedAccount', { token: suspendedToken });
+      return;
+    }
     const details = apiErrorDetails<{ reactivationToken?: string }>(err);
     const token = apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED ? details?.reactivationToken : null;
     if (token) {
@@ -204,7 +220,8 @@ export function LoginScreen({ navigation, route }: Props) {
       // A correct code still hits enforceAccountIsSignable -- a deactivated account needs the
       // same reactivation escape hatch handleAuthError already gives the password path, not a
       // dead-end "invalid or expired" message with no way forward.
-      if (apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED) {
+      // A suspended account's correct code is refused the same way, and goes to the suspended screen.
+      if (apiErrorCode(err) === AUTH_ACCOUNT_DEACTIVATED || suspendedTokenFrom(err)) {
         handleAuthError(err, 'Login failed. Check your credentials.');
       } else {
         setOtpError(toUserMessage(err, 'That code is invalid or has expired.'));

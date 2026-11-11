@@ -27,9 +27,12 @@ import { AccountActionSheet, sheetStyles } from './AccountActionSheet';
  * Google or Apple credential instead (GoogleReauthPrompt / AppleReauthPrompt, the same step-up
  * ChangePasswordSheet uses); the backend's GoogleReauthVerifier accepts either for export.
  */
-export function ExportDataSheet({ onClose, signInMethod }: {
+export function ExportDataSheet({ onClose, signInMethod, exportData = accountLifecycleApi.exportData }: {
   onClose: () => void;
   signInMethod: 'PASSWORD' | 'GOOGLE' | 'APPLE';
+  /** The download itself. The suspended screen passes one that sends its own token (privacy
+   *  workstream 10); everywhere else the app's session does. Exactly one credential is non-null. */
+  exportData?: (currentPassword: string | null, googleIdToken: string | null, appleIdToken: string | null) => Promise<void>;
 }) {
   const c = useTheme();
   const singleFlight = useSingleFlight();
@@ -47,7 +50,7 @@ export function ExportDataSheet({ onClose, signInMethod }: {
       setSubmitting(true);
       const startedAt = requestStartedAt();
       try {
-        await accountLifecycleApi.exportData(currentPasswordArg, googleIdToken, appleIdToken);
+        await exportData(currentPasswordArg, googleIdToken, appleIdToken);
         hapticSuccess();
         onClose();
       } catch (e) {

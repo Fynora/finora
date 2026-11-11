@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { FinoraCard } from './FinoraCard';
 
@@ -28,7 +28,7 @@ import { FinoraCard } from './FinoraCard';
  */
 export function MetricCard({
   label, value, icon: Icon, iconBg, iconColor, valueColor, caption,
-  delta, deltaLabel, invertDelta, gateReasonText, moverLines, variant = 'default',
+  delta, deltaLabel, invertDelta, gateReasonText, moverLines, footer, variant = 'default',
 }: {
   label: string; value: string; icon: LucideIcon; iconBg: string; iconColor: string; valueColor?: string;
   // A small note under the value with no delta semantics of its own -- e.g. Balance's "as of Aug
@@ -38,6 +38,9 @@ export function MetricCard({
   caption?: string;
   delta?: number | null; deltaLabel?: string; invertDelta?: boolean; gateReasonText?: string | null;
   moverLines?: string[]; variant?: 'default' | 'elevated';
+  // Extra content at the bottom of an elevated card -- the Dashboard's Income card puts the money
+  // not counted as income here. Ignored by the default variant.
+  footer?: ReactNode;
 }) {
   const [showReason, setShowReason] = useState(false);
   const hasDelta = delta !== null && delta !== undefined;
@@ -101,6 +104,7 @@ export function MetricCard({
             </div>
           )
         )}
+        {footer}
       </FinoraCard>
     );
   }

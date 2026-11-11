@@ -2216,7 +2216,7 @@ public class PdfTableLocator {
                 continue;
             } else if (currentRows.isEmpty() && pendingLeading == null && rowIndex == lastHeaderLineIndex + 1
                     && gapFromPreviousRow != null && gapFromPreviousRow <= HEADER_WRAP_MAX_GAP
-                    && carriesNoDataValue(row) && liesWithinHeaderLabels(row, headerAnchors, headerEnds)) {
+                    && carriesNoDataValue(row) && liesWithinHeaderLabels(row, headerNames, headerAnchors, headerEnds)) {
                 // HEADER_LABEL_WRAP_SUPPRESSED. The same role as HEADER_ANNOTATION, found by position
                 // instead of brackets: the second line of a column heading, printed directly under
                 // its own label. A real Axis Bank savings statement heads its last column "Init." over
@@ -2226,7 +2226,9 @@ public class PdfTableLocator {
                 // table's opening line: the first transaction's narration was glued onto it. Only
                 // the line right under the header, before any row exists, every run of it inside a
                 // header label's own width, and no date or number in it -- narration starts at its
-                // column's left edge and runs past a heading, so it never lies inside one.
+                // column's left edge and runs past a heading, so it never lies inside one. Never under
+                // a description column's label: a short first narration line under a left-aligned
+                // "Description" would fit inside it.
                 pendingAuxiliary.add(rowLine);
                 if (ctx != null) ctx.record("HEADER_LABEL_WRAP_SUPPRESSED");
                 continue;
@@ -4523,11 +4525,15 @@ public class PdfTableLocator {
                 || STATEMENT_CLOSING_MARKER.matcher(line).find();
     }
 
-    /** True when every non-blank run of {@code row} lies inside one header label's printed width
-     *  (1pt either side) -- see HEADER_LABEL_WRAP_SUPPRESSED. False without measured label widths. */
-    private static boolean liesWithinHeaderLabels(List<PositionedText> row, List<Float> headerAnchors,
-                                                  List<Float> headerEnds) {
-        if (headerAnchors == null || headerEnds == null || headerAnchors.size() != headerEnds.size()) return false;
+    /** True when every non-blank run of {@code row} lies inside the printed width (1pt either side) of
+     *  a header label that does not name a description column -- see HEADER_LABEL_WRAP_SUPPRESSED.
+     *  False without measured label widths. */
+    private boolean liesWithinHeaderLabels(List<PositionedText> row, List<String> headerNames,
+                                           List<Float> headerAnchors, List<Float> headerEnds) {
+        if (headerNames == null || headerAnchors == null || headerEnds == null
+                || headerAnchors.size() != headerEnds.size() || headerNames.size() != headerAnchors.size()) {
+            return false;
+        }
         boolean any = false;
         for (PositionedText t : row) {
             if (t.text().isBlank()) continue;
@@ -4536,7 +4542,11 @@ public class PdfTableLocator {
             for (int i = 0; i < headerAnchors.size(); i++) {
                 float left = headerAnchors.get(i);
                 float right = headerEnds.get(i);
-                if (right > left && t.x() >= left - 1f && t.endX() <= right + 1f) { inside = true; break; }
+                if (right > left && t.x() >= left - 1f && t.endX() <= right + 1f) {
+                    if (matchesAnyHint(headerNames.get(i), DESCRIPTION_COLUMN_HINTS)) return false;
+                    inside = true;
+                    break;
+                }
             }
             if (!inside) return false;
             any = true;
@@ -6145,7 +6155,12 @@ public class PdfTableLocator {
         }
 
         float[][] labelExtents = textLabelExtents(textHeaderIndices, headerAnchors, headerEnds);
-        List<List<Float>> coveredLeftEdges = leftEdgesOfCellsCoveringALaterLabel(textRows, textHeaderIndices, labelExtents);
+        boolean[] skippable = new boolean[textHeaderIndices.size()];
+        for (int i = 0; i < skippable.length; i++) {
+            skippable[i] = !matchesAnyHint(headerNames.get(textHeaderIndices.get(i)), DESCRIPTION_COLUMN_HINTS);
+        }
+        List<List<Float>> coveredLeftEdges =
+                leftEdgesOfCellsCoveringALaterLabel(textRows, textHeaderIndices, labelExtents, skippable);
         for (List<PositionedText> textCells : textRows) {
 
             // Guard 5 counts CONTRIBUTING ROWS, not contributing cells -- the overflow branch below
@@ -6165,7 +6180,7 @@ public class PdfTableLocator {
                 for (int i = 0; i < textCells.size(); i++) {
                     int lastAllowed = textHeaderIndices.size() - (textCells.size() - i);
                     int position = laterTextColumnFor(textCells.get(i), next, lastAllowed, labelExtents,
-                            coveredLeftEdges);
+                            skippable, coveredLeftEdges);
                     int headerIndex = textHeaderIndices.get(position);
                     accumulateColumnSpanSample(headerIndex, textCells.get(i), minLeft, maxRight);
                     touchedThisRow[headerIndex] = true;
@@ -6226,18 +6241,19 @@ public class PdfTableLocator {
      * No's data, Particulars was never measured, and every description staged into Chq No, leaving
      * Particulars, and so the transaction's description, empty.
      *
-     * <p>A cell skips to a later column only when it starts past the END of every label it skips
-     * (so it cannot be that column's data printed under its heading), and either its own extent
-     * overlaps the later column's label, or it starts where a cell that did overlap that label
-     * starts (a short narration, left-aligned with the long ones). Without label widths (traces
-     * recorded before widths existed), nothing ever skips.
+     * <p>A cell skips to a later column only when every column it skips is {@code skippable} (never a
+     * description column: narration that runs into the next heading stays narration), it starts past
+     * the END of every label it skips (so it cannot be that column's data printed under its heading),
+     * and either its own extent overlaps the later column's label, or it starts where a cell that did
+     * overlap that label starts (a short narration, left-aligned with the long ones). Without label
+     * widths (traces recorded before widths existed), nothing ever skips.
      */
     private static int laterTextColumnFor(PositionedText cell, int from, int lastAllowed, float[][] labelExtents,
-                                          List<List<Float>> coveredLeftEdges) {
+                                          boolean[] skippable, List<List<Float>> coveredLeftEdges) {
         if (labelExtents == null || cell.width() <= 0) return from;
         for (int k = from + 1; k <= lastAllowed; k++) {
             float[] skipped = labelExtents[k - 1];
-            if (skipped == null || cell.x() <= skipped[1]) return from;
+            if (!skippable[k - 1] || skipped == null || cell.x() <= skipped[1]) return from;
             float[] label = labelExtents[k];
             if (label == null) continue;
             boolean overlapsLabel = cell.x() < label[1] && cell.endX() > label[0];
@@ -6269,7 +6285,8 @@ public class PdfTableLocator {
      *  label -- the evidence {@link #laterTextColumnFor} lets a short cell sharing that edge follow. */
     private static List<List<Float>> leftEdgesOfCellsCoveringALaterLabel(List<List<PositionedText>> textRows,
                                                                          List<Integer> textHeaderIndices,
-                                                                         float[][] labelExtents) {
+                                                                         float[][] labelExtents,
+                                                                         boolean[] skippable) {
         List<List<Float>> edges = new ArrayList<>();
         for (int i = 0; i < textHeaderIndices.size(); i++) edges.add(new ArrayList<>());
         if (labelExtents == null) return edges;
@@ -6278,7 +6295,7 @@ public class PdfTableLocator {
             int next = 0;
             for (int i = 0; i < textCells.size(); i++) {
                 int lastAllowed = textHeaderIndices.size() - (textCells.size() - i);
-                int position = laterTextColumnFor(textCells.get(i), next, lastAllowed, labelExtents, null);
+                int position = laterTextColumnFor(textCells.get(i), next, lastAllowed, labelExtents, skippable, null);
                 if (position != next) edges.get(position).add(textCells.get(i).x());
                 next = position + 1;
             }

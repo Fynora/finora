@@ -189,6 +189,52 @@ class BlankLeadingTextColumnPdfTableLocatorTest {
         });
     }
 
+    /** A left-aligned "Description" heading with a short first narration line printed right under it:
+     *  narration, not a wrapped heading word, however neatly it fits inside the label. */
+    @Test
+    void aShortFirstNarrationLineUnderADescriptionHeadingIsKept() {
+        List<PositionedText> runs = List.of(
+                run("Date", 40f, 100f, 20f), run("Description", 100f, 100f, 50f),
+                run("Debit", 339f, 100f, 21f), run("Credit", 400f, 100f, 25f), run("Balance", 473f, 100f, 30f),
+
+                run("UPI", 100f, 109f, 15f),
+                run("01-04-2025", 38f, 118f, 42f), run("PAYMENT TO SAMPLE SHOP", 100f, 118f, 110f),
+                amount("244.00", DEBIT_RIGHT, 118f), amount("9756.00", BALANCE_RIGHT, 118f),
+
+                run("02-04-2025", 38f, 131f, 42f), run("SALARY SAMPLE EMPLOYER", 100f, 131f, 110f),
+                amount("300.00", CREDIT_RIGHT, 131f), amount("10056.00", BALANCE_RIGHT, 131f));
+        DocumentContext ctx = new DocumentContext("PDF", "BlankLeadingTextColumnTest");
+
+        List<Map<String, String>> rows = new PdfTableLocator().locateAll(runs, ctx).sections().get(0).rows();
+
+        assertThat(rows.get(0).get("Description")).isEqualTo("UPI PAYMENT TO SAMPLE SHOP");
+        assertThat(ctx.capabilities()).extracting("capability").doesNotContain("HEADER_LABEL_WRAP_SUPPRESSED");
+    }
+
+    /** A narration column first and a reference column after it, the narration printed right of its
+     *  own short heading and long enough to run into the reference heading. A narration is never
+     *  moved out of its description column, so it is not measured as the reference column's data. */
+    @Test
+    void aNarrationRunningIntoTheNextHeadingStaysInItsDescriptionColumn() {
+        List<PositionedText> runs = new ArrayList<>(List.of(
+                run("Date", 40f, 100f, 20f), run("Narration", 100f, 100f, 40f), run("Ref No", 300f, 100f, 28f),
+                run("Debit", 360f, 100f, 21f), run("Credit", 410f, 100f, 25f), run("Balance", 473f, 100f, 30f)));
+        for (int i = 0; i < 4; i++) {
+            float y = 120f + 13f * i;
+            runs.add(run("0" + (i + 1) + "-04-2025", 38f, y, 42f));
+            runs.add(run("PAYMENT TO A SAMPLE SHOP WITH A LONG NAME", 145f, y, 175f));
+            if (i == 3) runs.add(run("REF000004", 330f, y, 40f)); // only the last row prints a reference
+            runs.add(amount("10.00", 395f, y));
+            runs.add(amount((1000 - 10 * (i + 1)) + ".00", BALANCE_RIGHT, y));
+        }
+
+        List<Map<String, String>> rows = new PdfTableLocator().locateAll(runs, null).sections().get(0).rows();
+
+        assertThat(rows).hasSize(4).allSatisfy(r ->
+                assertThat(r.get("Narration")).isEqualTo("PAYMENT TO A SAMPLE SHOP WITH A LONG NAME"));
+        assertThat(rows).extracting(r -> r.get("Ref No")).containsExactly(null, null, null, "REF000004");
+    }
+
     private static PdfPreviewGenerator generator() {
         CategorizationService categorizationService = mock(CategorizationService.class);
         CategorizationService.Suggestion none =

@@ -259,12 +259,15 @@ app:
     # a token stolen and replayed inside this window is NOT detected, then or later. The thief's
     # pair and the owner's pair rotate as two independent chains from then on and never collide,
     # so nothing surfaces it automatically; what does is the session appearing twice in the
-    # owner's device list, the idle and absolute caps ending it on schedule, and "sign out
-    # everywhere". A thief who replays after the window, or whose stolen token the owner has not
-    # rotated, is caught exactly as before. Sized for the races it covers, which land within
-    # seconds (two app instances refreshing at once, a duplicated delivery of one request) --
-    # none of the clients retries a refresh that timed out (mobile times out at 30 s, the web
-    # apps never) -- with margin for a slow network. 0 restores the strict behaviour.
+    # owner's device list once both copies are in use (an unused retry leftover is hidden there,
+    # see RefreshTokenService#listActiveSessions), the idle and absolute caps ending it on
+    # schedule (a phone session has no absolute cap), and "sign out everywhere". A thief who
+    # replays after the window, or whose stolen token the owner has not rotated, is caught exactly
+    # as before. Sized for the races it covers, which land within seconds (two app instances
+    # refreshing at once, a duplicated delivery of one request, and the phone app's single retry
+    # of a refresh with no clear answer, sent only while it can still land inside this window --
+    # see mobile/src/api/client.ts) -- with margin for a slow network. The web apps never retry a
+    # refresh. 0 restores the strict behaviour.
     refresh-reuse-grace-ms: ${JWT_REFRESH_REUSE_GRACE_MS:30000}    # 30 seconds
   auth:
     google-login:

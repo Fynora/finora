@@ -105,7 +105,15 @@ public class RefreshToken {
     @Column(nullable = false)
     private Long version = 0L;
 
+    /** The token this one replaced at rotation; null for a sign-in. Two rows with the same parent
+     *  mean a refresh was answered twice inside the reuse window -- see
+     *  {@code RefreshTokenService#listActiveSessions} for how the device list reads that. */
+    @Column(name = "parent_token_id", updatable = false)
+    private UUID parentTokenId;
+
     public UUID getId() { return id; }
+    public UUID getParentTokenId() { return parentTokenId; }
+    public void setParentTokenId(UUID parentTokenId) { this.parentTokenId = parentTokenId; }
     public SessionKind getSessionKind() { return sessionKind; }
     public void setSessionKind(SessionKind sessionKind) { this.sessionKind = sessionKind; }
     public UUID getUserId() { return userId; }

@@ -44,12 +44,13 @@ import java.util.function.IntSupplier;
  * presented again within {@code app.jwt.refresh-reuse-grace-ms}, while its session is still
  * live, is answered with another token pair for that session instead. That is what a retried
  * request or a second app instance produces, and before the window it was indistinguishable from
- * theft. A consequence worth knowing: a session that took the grace path holds two live rows
- * until the orphaned one ages out, so it appears twice in the device list; "sign out this device"
- * on either ends both, because it ends the session rather than the row. The security cost is
- * stated in {@code application.yml}: a thief who replays inside the window is not detected then
- * or later, because the two chains never collide again; the device list, the caps and "sign out
- * everywhere" are what bound that session.
+ * theft. A consequence worth knowing: a session that took the grace path holds two live rows,
+ * children of the same parent token, until the orphaned one ages out. The device list hides the
+ * orphan while it goes unused and lists the session twice once both copies are in use (see
+ * {@link #listActiveSessions}); "sign out this device" on any row ends them all, because it ends
+ * the session rather than the row. The security cost is stated in {@code application.yml}: a thief
+ * who replays inside the window is not detected then or later, because the two chains never
+ * collide again; the device list, the caps and "sign out everywhere" are what bound that session.
  *
  * <p>A second exception: a token ended REMOTELY ({@link RefreshToken#getRevokedRemotelyAt()} --
  * "sign out this device" from another device, "sign out other devices", or an account-wide
@@ -154,6 +155,11 @@ public class RefreshTokenService {
      *        absolute cap -- resetting it here would restore the perpetual sliding session.
      */
     public IssuedToken issue(UUID userId, Instant sessionStartedAt, UUID sessionId, SessionKind kind) {
+        return issue(userId, sessionStartedAt, sessionId, kind, null);
+    }
+
+    /** @param parentTokenId the token being rotated, or null for a sign-in. */
+    private IssuedToken issue(UUID userId, Instant sessionStartedAt, UUID sessionId, SessionKind kind, UUID parentTokenId) {
         byte[] randomBytes = new byte[32];
         secureRandom.nextBytes(randomBytes);
         String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
@@ -164,6 +170,7 @@ public class RefreshTokenService {
         rt.setSessionStartedAt(sessionStartedAt);
         rt.setSessionId(sessionId);
         rt.setSessionKind(kind);
+        rt.setParentTokenId(parentTokenId);
         // A phone token has to outlive its own idle limit, or the token's expiry would end a
         // 90-day session at 30 days.
         long lifetimeMs = kind == SessionKind.MOBILE
@@ -252,7 +259,7 @@ public class RefreshTokenService {
                 // valid too -- revoking it would end the session for whichever instance already
                 // stored it, which is the outcome this branch exists to avoid. The orphaned one
                 // simply ages out. See app.jwt.refresh-reuse-grace-ms for the trade-off.
-                IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind());
+                IssuedToken replacement = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind(), rt.getId());
                 authMetrics.refreshReplayedWithinGrace();
                 return new RotationResult(rt.getUserId(), replacement);
             }
@@ -324,7 +331,7 @@ public class RefreshTokenService {
 
         // The ORIGINAL session start, not now. This single argument is the difference between a
         // 7-day cap and no cap at all.
-        IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind());
+        IssuedToken newToken = issue(rt.getUserId(), rt.getSessionStartedAt(), rt.getSessionId(), rt.getSessionKind(), rt.getId());
         authMetrics.refreshSucceeded();
         return new RotationResult(rt.getUserId(), newToken);
     }
@@ -439,12 +446,73 @@ public class RefreshTokenService {
         }
     }
 
-    /** Backs the device-management "your active sessions" list -- ordered most-recently-active
-     *  first, since that's the order a user actually scans when looking for "which one is my
-     *  phone right now" or "what's this session I don't recognize." */
+    /**
+     * Backs the device-management "your active sessions" list: the tokens that could still
+     * refresh, most recently active first -- the order a user scans when looking for "which one is
+     * my phone right now" or "what's this session I don't recognize."
+     *
+     * <p>Two things the stored rows alone get wrong, so both are applied here (break-test
+     * 2026-11-12):
+     * <ul>
+     *   <li>A row nobody revoked can still be dead. The idle limit and the absolute cap are
+     *       enforced only when the token is next presented ({@link #rotate}), so a web session
+     *       left unused for 24 hours stayed "active" in the list until its row expired, up to 30
+     *       days later. The same two checks as rotate() drop it here.</li>
+     *   <li>A retry leftover is hidden. A refresh retried inside the reuse window is answered with
+     *       a second token for the same session, so one parent token has two children; the client
+     *       keeps one and the other is never presented again, yet it showed as its own device for
+     *       up to 90 days on a phone. A live row is a leftover when it has a sibling (same
+     *       {@code parentTokenId}) and is not its session's most recently seen row.</li>
+     * </ul>
+     *
+     * <p>What is deliberately still shown twice: a session with two copies of its token both in
+     * use. That is how a token stolen and replayed inside the reuse window shows up (see the class
+     * comment) -- once either copy is presented, its successor has no sibling and is listed beside
+     * the other. Phone sessions have no absolute cap, so this entry is one of the few things that
+     * surfaces such a copy. "Sign out this device" on any row ends every row of the session
+     * ({@link #revokeSession}), hidden ones included.
+     */
     public List<RefreshToken> listActiveSessions(UUID userId) {
-        return refreshTokenRepository.findByUserIdAndRevokedAtIsNullAndExpiresAtAfterOrderByLastSeenAtDesc(
-                userId, Instant.now());
+        Instant now = Instant.now();
+        List<RefreshToken> usable = refreshTokenRepository
+                .findByUserIdAndRevokedAtIsNullAndExpiresAtAfterOrderByLastSeenAtDesc(userId, now).stream()
+                .filter(rt -> stillUsable(rt, now))
+                .toList();
+        java.util.Map<UUID, RefreshToken> newestPerSession = new java.util.HashMap<>();
+        for (RefreshToken rt : usable) {
+            newestPerSession.merge(rt.getSessionId(), rt, (kept, other) -> moreRecentlySeen(other, kept) ? other : kept);
+        }
+        return usable.stream()
+                .filter(rt -> newestPerSession.get(rt.getSessionId()) == rt || !isRetryLeftover(rt))
+                .sorted((a, b) -> moreRecentlySeen(a, b) ? -1 : moreRecentlySeen(b, a) ? 1 : 0)
+                .toList();
+    }
+
+    /** A token minted from the same parent as another: one of the two answers to a refresh
+     *  presented twice inside the reuse window. Rows from before parents were recorded (V314) have
+     *  none and are never treated as leftovers. */
+    private boolean isRetryLeftover(RefreshToken rt) {
+        return rt.getParentTokenId() != null
+                && refreshTokenRepository.existsByParentTokenIdAndIdNot(rt.getParentTokenId(), rt.getId());
+    }
+
+    /** Whether rotate() would still honour this unrevoked, unexpired row: the same idle and
+     *  absolute checks, without writing anything. */
+    private boolean stillUsable(RefreshToken rt, Instant now) {
+        long idleMs = idleTimeoutMsFor(rt.getSessionKind());
+        if (idleMs > 0 && rt.getCreatedAt().plusMillis(idleMs).isBefore(now)) return false;
+        long absoluteMs = absoluteSessionMsFor(rt.getSessionKind());
+        return absoluteMs <= 0 || !rt.getSessionStartedAt().plusMillis(absoluteMs).isBefore(now);
+    }
+
+    /** Later lastSeenAt first (a missing one counts as oldest), then the newer row. */
+    private static boolean moreRecentlySeen(RefreshToken a, RefreshToken b) {
+        Instant sa = a.getLastSeenAt();
+        Instant sb = b.getLastSeenAt();
+        if (sa != null && sb != null && !sa.equals(sb)) return sa.isAfter(sb);
+        if (sa != null && sb == null) return true;
+        if (sa == null && sb != null) return false;
+        return a.getCreatedAt().isAfter(b.getCreatedAt());
     }
 
     /**

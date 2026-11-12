@@ -346,14 +346,20 @@ export function ReviewQueuePanel() {
                         <CheckCircle2 size={14} /> Resolve
                       </button>
                     )}
+                    {/* PDF only, as the server makes them; a CSV layout is told so in place of a
+                        button that could only fail, as the held-imports page does. */}
                     {canCopy && entry.reviewAnalysisReference && (
-                      <div className="mt-2">
-                        <BlankedCopyPanel
-                          askReason
-                          fetchCopy={(reason) => adminBlankedCopyApi.flaggedLayoutUpload(
-                            entry.reviewAnalysisReference as string, reason ?? '')}
-                        />
-                      </div>
+                      entry.sourceFormat?.toUpperCase() === 'PDF' ? (
+                        <div className="mt-2">
+                          <BlankedCopyPanel
+                            askReason
+                            fetchCopy={(reason) => adminBlankedCopyApi.flaggedLayoutUpload(
+                              entry.reviewAnalysisReference as string, reason ?? '')}
+                          />
+                        </div>
+                      ) : entry.sourceFormat?.toUpperCase() === 'CSV' ? (
+                        <p className="mt-2 text-xs text-muted">Blanked copy not available for CSV yet.</p>
+                      ) : null
                     )}
                   </td>
                 </tr>

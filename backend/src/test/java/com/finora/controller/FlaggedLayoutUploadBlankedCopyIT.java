@@ -483,6 +483,31 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aCsvUploadIsRefusedBeforeItsFileIsReadOrTheAccessRecorded() {
+        User owner = createCustomer();
+        byte[] csv = "Date,Narration,Amount\n01/01/2026,SYNTHETIC SHOP,100.00\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ContentAddress address = storage.store(csv);
+        ImportJob job = new ImportJob(owner.getId(), "statement.csv", address.hash(), address.key(), "CSV");
+        job.markClaimed("worker", Instant.now());
+        UUID sessionId = UUID.randomUUID();
+        job.complete(sessionId, Instant.now());
+        importJobRepository.save(job);
+        String fingerprint = newFingerprint();
+        registerLayout(fingerprint, true);
+        String reference = newReference();
+        analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
+                StatementAnalysisSession.Source.CUSTOMER_IMPORT, "statement.csv", "CSV", (long) csv.length,
+                fingerprint, 1, 100L, 1, "{}", sessionId, "it-correlation"));
+
+        ResponseEntity<String> response = copy(reference, REASON, createUser("ADMIN"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("not available for CSV");
+        assertThat(actionsOn(job.getId())).isEmpty();
+        assertThat(openedNoticesFor(owner.getId())).isEmpty();
+    }
+
+    @Test
     void anUnknownReferenceIsNotFound() {
         assertThat(copy(newReference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }

@@ -144,6 +144,16 @@ describe('App routing — /login and /register redirect to /auth', () => {
     render(<App />);
     await waitFor(() => expect(window.location.pathname).toBe('/auth'));
   });
+
+  // A referral link is /register?ref=CODE (Refer & Earn, the invite card after an import). The
+  // redirect used to drop the query, so the code never reached AuthEntry and no referral was made.
+  it('keeps the referral code and campaign tags when /register redirects', async () => {
+    window.history.pushState({}, '', '/register?ref=AB12CD34&utm_source=friend_invite&utm_medium=referral#x');
+    render(<App />);
+    await waitFor(() => expect(window.location.pathname).toBe('/auth'));
+    expect(window.location.search).toBe('?ref=AB12CD34&utm_source=friend_invite&utm_medium=referral');
+    expect(window.location.hash).toBe('#x');
+  });
 });
 
 /**

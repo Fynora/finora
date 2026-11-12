@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
@@ -12,6 +12,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { OfferPopup, OfferPopupBoundary } from './components/OfferPopup';
 import { OpenInAppBanner } from './components/OpenInAppBanner';
+import { RedirectKeepingQuery } from './components/RedirectKeepingQuery';
 import { GMAIL_SYNC_UI_ENABLED } from './lib/features';
 import { useDocumentTitle } from './hooks/useDocumentTitle';
 // Landing stays eagerly imported: it is the first paint for an unauthenticated visitor, so making
@@ -176,9 +177,10 @@ export default function App() {
           <Route path="/auth" element={<AuthEntry />} />
           {/* /login and /register no longer have their own pages -- AuthEntry (D-26 unified
               entry) absorbed both. Kept as redirects, not removed, so old bookmarks/emails/links
-              still land somewhere real. */}
-          <Route path="/login" element={<Navigate to="/auth" replace />} />
-          <Route path="/register" element={<Navigate to="/auth" replace />} />
+              still land somewhere real. The query string goes with them: a referral link is
+              /register?ref=CODE, and AuthEntry reads `ref` from the address. */}
+          <Route path="/login" element={<RedirectKeepingQuery to="/auth" />} />
+          <Route path="/register" element={<RedirectKeepingQuery to="/auth" />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/send" element={<SendStatement />} />

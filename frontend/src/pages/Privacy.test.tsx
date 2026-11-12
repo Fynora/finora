@@ -269,6 +269,15 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/where adding a statement gets\s+difficult/i);
   });
 
+  // V312: the invite-a-friend card's record (InvitePromptService).
+  it('discloses the invite card record: dates only, nothing about who was shared with, deleted with the account', () => {
+    const t = policyText();
+    expect(t).toMatch(/Fynora may ask whether you'd like to invite a friend/i);
+    expect(t).toMatch(/the date you tapped Share or Not now/i);
+    expect(t).toMatch(/nothing about who you share with or whether\s+you sent anything/i);
+    expect(t).toMatch(/This record is linked to your account and is deleted if you delete your account/i);
+  });
+
   // Gate 2a spec §8: the deletion reason is kept unlinked, so the page says it outlives the account.
   it('discloses that a deletion reason is kept with the month only and no link to the person', () => {
     expect(policyText()).toMatch(

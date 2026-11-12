@@ -1,7 +1,6 @@
 package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
-import com.finora.config.JwtProperties;
 import com.finora.security.JwtAuthFilter;
 import com.finora.dto.DeviceSessionDto;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,13 +24,10 @@ public class DeviceController {
 
     private final RefreshTokenService refreshTokenService;
     private final CurrentUser currentUser;
-    private final JwtProperties jwtProperties;
 
-    public DeviceController(RefreshTokenService refreshTokenService, CurrentUser currentUser,
-                            JwtProperties jwtProperties) {
+    public DeviceController(RefreshTokenService refreshTokenService, CurrentUser currentUser) {
         this.refreshTokenService = refreshTokenService;
         this.currentUser = currentUser;
-        this.jwtProperties = jwtProperties;
     }
 
     @GetMapping
@@ -43,7 +39,7 @@ public class DeviceController {
         UUID callerSessionId = (UUID) request.getAttribute(JwtAuthFilter.SESSION_ID_ATTRIBUTE);
 
         List<DeviceSessionDto> sessions = refreshTokenService.listActiveSessions(currentUser.id()).stream()
-                .map(rt -> DeviceSessionDto.from(rt, jwtProperties.getAbsoluteSessionMs(), callerSessionId))
+                .map(rt -> DeviceSessionDto.from(rt, refreshTokenService.absoluteSessionMsFor(rt.getSessionKind()), callerSessionId))
                 .toList();
         return ApiResponse.ok(sessions);
     }

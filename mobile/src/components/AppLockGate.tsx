@@ -1,100 +1,117 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, type AppStateStatus, BackHandler, Keyboard, StyleSheet, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppAlertOverlay, useAlertShowing } from './AppAlertOverlay';
 import { AppBannerOverlay } from './AppBannerOverlay';
 import { AppCoveredProvider, useLaunchCovering } from './AppModal';
 import { Button } from './Button';
+import { PinPad } from './PinPad';
+import { PinSetup } from './PinSetup';
+import { verifySession } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ROOT_ALERT_CONTAINER } from '../lib/appAlert';
 import * as appLock from '../lib/appLock';
+import * as pinLock from '../lib/pinLock';
 import { spacing, useTheme } from '../theme';
 
 /**
- * SEC-09 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Re-locks on two
- * events: the first render of an authenticated session (cold start, or right after logging in
- * with the setting already on from a previous session), and every foreground transition
- * (AppState background/inactive -> active) -- the second is the case that actually matters day to
- * day: someone puts the phone down mid-session, or switches away to another app, and picking it
- * back up should not hand over the dashboard without a check.
+ * The app lock (SEC-09; PIN and biometrics since the 2026-11-10 design). A signed-in phone keeps
+ * its session for up to 90 days unused, so opening the app always needs the Fynora PIN, or Face ID
+ * / fingerprint if the user turned that on.
  *
- * Deliberately does nothing when there is no session (token === null) -- locking the LOGIN screen
- * behind a biometric prompt protects nothing (there's no data behind it yet) and would just be a
- * confusing extra step before someone can even sign in.
+ * - Just signed in, or a saved session with no PIN yet (first open after updating): PinSetup, before
+ *   anything else is mounted. No skip.
+ * - Cold start with a saved session: locked. One refresh (verifySession) asks the server whether the
+ *   session is still alive. Ended: straight to the sign-in screen, no prompt -- the bug this
+ *   replaced asked for Face ID on a session that was already over, then showed sign-in. Offline:
+ *   still locked and still unlockable, because the app works on cached data.
+ * - Back from the background after more than RELOCK_AFTER_MS: locked again, over the still-mounted
+ *   app, so an unlock returns to the same screen with its state. Shorter trips do not lock.
+ * - 5 wrong PINs, or "Forgot PIN?": signed out on this phone.
  *
- * Reads appLock.isEnabled() fresh at both check points to DECIDE whether to lock -- the setting is
- * toggled from a different component (AppLockSection, in Settings) with no shared state between
- * them, so a value cached in this component would go stale the moment someone flips it mid-session.
- * (appLock itself does remember the last confirmed value, but only to decide whether a foreground
- * return needs to be covered while that read is in flight -- see appLock.isKnownDisabled. It is
- * updated by the one function that writes the setting, so it cannot go stale, and it never decides
- * whether to lock.)
+ * The biometric prompt only ever fires while a session is present, and is held while the launch
+ * animation plays (the system sheet would draw over it).
  */
-// Sentinel initial value for `checkedForToken` below -- distinct from any real token AND from
-// `null` (the signed-out value), so the very first render never accidentally matches `token`.
+
+// Sentinel for `gate.token` -- distinct from any real token and from `null` (signed out), so the
+// very first render never matches `token`.
 const NEVER_CHECKED = Symbol('app-lock-never-checked');
 
-// How long after ANY authenticate() call resolves (appLock.justFinishedAuthenticating) to keep
-// ignoring foreground transitions -- see that function's own comment on why this has to be
-// module-level shared state, not something scoped to this component. On-device testing also
-// showed the native "app became active" notification for a dismissed Face ID sheet can arrive
-// AFTER authenticateAsync()'s own promise already resolved (two independent native notification
-// paths, not synchronized with each other) -- so a guard that only covers a call while it's still
-// in flight is not enough on its own; this is what actually closes that half of the loop. 1500ms
-// is generous on purpose: the failure mode of too-short (the loop this exists to fix) is far
-// worse than the failure mode of too-long (a genuine background-and-immediately-return within
-// 1.5s skips one re-lock check) -- picking up the phone that fast after actually putting it down
-// is the rare case, not the common one.
+/** How long the app may sit in the background before it locks again (design 2026-11-10). */
+export const RELOCK_AFTER_MS = 60_000;
+
+// How long after ANY authenticate() call, PIN check or share resolves to keep treating a
+// foreground transition as caused by it rather than by the user leaving. On-device testing showed
+// the native "app became active" notification for a dismissed Face ID sheet can arrive AFTER
+// authenticateAsync()'s own promise resolved, so guarding only while a call is in flight is not
+// enough. Generous on purpose: too short re-prompts in a loop; too long skips one relock check.
 const REGROUND_GRACE_MS = 1500;
+
+type Phase = 'setup' | 'locked' | 'open';
+type Verify = 'pending' | 'alive' | 'offline';
+
+export const CHECK_FAILED_MESSAGE = "Couldn't check your PIN. Try again.";
+
+function wrongPinMessage(triesLeft: number): string {
+  if (triesLeft > 2) return 'Wrong PIN. Try again.';
+  return `Wrong PIN. ${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} left.`;
+}
 
 export function AppLockGate({ children }: { children: ReactNode }) {
   const { bootstrapping, token, logout } = useAuth();
   const c = useTheme();
-  const [locked, setLocked] = useState(false);
-  const [authenticating, setAuthenticating] = useState(false);
-  const appState = useRef(AppState.currentState);
-  // Set the instant we observe the transition INTO background/inactive while an authenticate()
-  // or share call is already in flight -- i.e. the transition the prompt/share sheet itself
-  // causes, captured at its source rather than inferred later from a timestamp. REGROUND_GRACE_MS
-  // below still covers the ordinary case (a blip landing within a fixed window of the call
-  // resolving), but that window is a guess at how long a native sheet's dismissal notification
-  // can lag behind the promise it belongs to -- on-device, Face ID's own retry UI ("Move iPhone
-  // lower", a second attempt after a partial match) can push that past any fixed number. This
-  // flag needs no such guess: it's set at the moment the OUTGOING transition happens while
-  // isAuthenticating()/isSharing() is true, so it stays correct no matter how long the matching
-  // 'active' transition takes to arrive.
-  const selfInducedBackgroundRef = useRef(false);
-  // Which token the last completed appLock.isEnabled() check applies to -- compared against the
-  // current `token` below (`checked`) rather than a separate true/false flag, so there's no
-  // "reset to not-checked" to perform synchronously when a session ends: a stale value here simply
-  // stops matching `token` the moment a new one is set. Matters for a logout-then-different-login
-  // within the same app session, since this component never unmounts across that transition and a
-  // leftover match from the PRIOR session would skip the gate below exactly like the cold-start
-  // race it exists to close.
-  const [checkedToken, setCheckedToken] = useState<string | null | typeof NEVER_CHECKED>(
-    NEVER_CHECKED
-  );
-  const checked = checkedToken === token;
-  // True from the instant a genuine foreground transition starts its appLock.isEnabled() check
-  // until that check resolves -- closes the gap where `locked` still holds its pre-background
-  // value (false) and children would otherwise paint for one or more frames before lockAndPrompt()
-  // has a chance to flip it. Closes the equivalent gap the cold-start gate below
-  // (`if (!checked) return null`) closes for the FIRST check, on every check after the first --
-  // but by covering `children`, never unmounting them (see the final return for why).
-  const [reverifying, setReverifying] = useState(false);
-  // Which token's session has already had its app shown at least once. Until then a locked
-  // session gets ONLY the lock screen -- nothing protected is mounted before the first unlock. After
-  // that the lock screen goes ON TOP of the still-mounted app instead of replacing it, so an
-  // unlock returns to the same screen with its state (half-typed text, scroll position) intact.
-  // Adjusted during render, keyed by token, so a different account never inherits it.
+
+  // Which token the lock decision applies to, and what it is. A stale value simply stops matching
+  // `token` the moment a session ends or a new one starts, so nothing has to be reset by hand.
+  const [gate, setGate] = useState<{ token: string | null | typeof NEVER_CHECKED; phase: Phase }>({
+    token: NEVER_CHECKED,
+    phase: 'open',
+  });
+  const checked = token !== null && gate.token === token;
+  const phase: Phase = checked ? gate.phase : 'open';
+  const [verify, setVerify] = useState<{ token: string | null; result: Verify }>({ token: null, result: 'pending' });
+  const verifyResult: Verify = verify.token === token ? verify.result : 'pending';
+  const [biometricOn, setBiometricOn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmForgot, setConfirmForgot] = useState(false);
+  // Bumped each time a lock wants its biometric prompt; the prompt effect consumes it.
+  const [promptRequest, setPromptRequest] = useState(0);
+
+  // Which token's session has already had its app shown at least once. Until then a locked session
+  // gets ONLY the lock screen -- nothing protected is mounted before the first unlock. After that
+  // the lock screen goes ON TOP of the still-mounted app. Adjusted during render, keyed by token.
   const [openedToken, setOpenedToken] = useState<string | null | typeof NEVER_CHECKED>(NEVER_CHECKED);
-  const opened = openedToken === token;
-  if (token !== null && checked && !locked && !opened) setOpenedToken(token);
+  const opened = token !== null && openedToken === token;
+  if (token !== null && checked && phase === 'open' && !opened) setOpenedToken(token);
+
+  // The token bootstrap restored from storage, as opposed to one from a sign-in in this run of the
+  // app. Only a restored session needs asking the server about: a fresh sign-in just proved it.
+  const restoredTokenRef = useRef<string | null | undefined>(undefined);
+  const tokenRef = useRef(token);
+  const handledPromptRef = useRef(0);
+  const appState = useRef(AppState.currentState);
+  const backgroundAtRef = useRef<number | null>(null);
+  // Set when the app leaves the foreground while a prompt, PIN check or share is already in flight:
+  // that departure is what the sheet itself caused, so the matching return must not lock, however
+  // long the sheet takes to dismiss.
+  const selfInducedBackgroundRef = useRef(false);
+
+  const sessionActive = !bootstrapping && token !== null;
+  const locked = sessionActive && (!checked || phase !== 'open');
+
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
+
+  // Mirrors the lock into appLock's shared flag -- storeReview and AuthContext's push handling,
+  // outside this subtree, read it to stay out of the way while the lock or PIN setup is up.
+  useEffect(() => {
+    appLock.setLockedFlag(locked);
+  }, [locked]);
 
   // The app stays mounted under the lock screen, so its navigator is still listening for Android's
-  // back button: without this, pressing back on the lock screen would silently pop a screen the
-  // user cannot see. Back on a locked app just leaves it, as it did when nothing was mounted.
-  const lockedOver = locked && opened && token !== null && !bootstrapping;
+  // back button: without this, back on the lock screen would pop a screen the user cannot see.
+  const lockedOver = sessionActive && checked && phase === 'locked' && opened;
   useEffect(() => {
     if (!lockedOver) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -104,206 +121,217 @@ export function AppLockGate({ children }: { children: ReactNode }) {
     return () => subscription.remove();
   }, [lockedOver]);
 
-  // True while an alert is being drawn at the root (rather than inside an open AppModal).
   const alertUp = useAlertShowing(ROOT_ALERT_CONTAINER);
-
-  // Mirrors `locked` into appLock's own shared flag -- see setLockedFlag's doc comment for why
-  // AuthContext (outside this component's subtree entirely) needs to read it.
-  useEffect(() => {
-    appLock.setLockedFlag(locked);
-  }, [locked]);
-
   const launching = useLaunchCovering();
-  const launchingRef = useRef(launching);
-  const promptAfterLaunchRef = useRef(false);
 
-  const tryUnlock = useCallback(async () => {
-    setAuthenticating(true);
+  /** Locks `forToken`'s session and asks for the biometric prompt that goes with it. */
+  const lock = useCallback((forToken: string) => {
+    // The app underneath may stay mounted, so a focused input would otherwise keep the keyboard up
+    // and swallow typing into a screen no one can see.
+    Keyboard.dismiss();
+    setError(null);
+    setConfirmForgot(false);
+    setGate({ token: forToken, phase: 'locked' });
+    setPromptRequest((n) => n + 1);
+    // Read fresh each time: Settings can turn biometrics on or off mid-session.
+    void appLock.isEnabled().then((on) => {
+      if (tokenRef.current === forToken) setBiometricOn(on);
+    });
+  }, []);
+
+  const tryBiometric = useCallback(async () => {
+    const forToken = tokenRef.current;
+    // Never for a session that is not there: the bug this replaced asked for Face ID over the
+    // sign-in screen after the session had ended under the launch animation.
+    if (forToken === null) return;
+    setBusy(true);
     try {
-      const success = await appLock.authenticate('Unlock Fynora');
-      if (success) setLocked(false);
+      const ok = await appLock.authenticate('Unlock Fynora');
+      if (ok && tokenRef.current === forToken) {
+        await pinLock.resetFailures();
+        setError(null);
+        setGate({ token: forToken, phase: 'open' });
+      }
     } finally {
-      setAuthenticating(false);
+      setBusy(false);
     }
   }, []);
 
-  // Locks AND immediately prompts as one action, rather than setting `locked` and letting a
-  // separate effect react to it -- the auto-prompt-on-lock behavior is intrinsic to what "locking"
-  // means here (the button on the screen below exists for the RETRY after a cancelled/failed
-  // attempt, not as the only way to trigger the first one), and folding it into one function
-  // avoids a setState-cascading-through-an-effect chain for behavior that isn't actually reacting
-  // to external state -- it's this component's own next step.
-  const lockAndPrompt = useCallback(() => {
-    // The app underneath stays mounted while locked (see `opened` below), so a focused input
-    // would otherwise keep the keyboard up and swallow typing into a screen no one can see.
-    Keyboard.dismiss();
-    setLocked(true);
-    // On a cold start the launch animation may still be playing: lock now (so nothing protected
-    // can paint when it lifts) but hold the biometric prompt until it has gone, rather than drawing
-    // the system's Face ID sheet over the animation. A ref, not state, so this callback keeps one
-    // identity -- the isEnabled() effect below depends on it and must not re-run.
-    if (launchingRef.current) {
-      promptAfterLaunchRef.current = true;
-      return;
-    }
-    void tryUnlock();
-  }, [tryUnlock]);
-
-  // Releases the prompt held above once the launch animation is gone -- only if the app is still
-  // locked by then (a sign-out in the meantime leaves nothing to unlock). From a timer rather than
-  // the effect body, which must not set state synchronously (tryUnlock does). The flag is cleared
-  // inside the timer, so a re-run that cancels it before it fires cannot drop the prompt.
+  // Records which token bootstrap restored. Declared before the check below so it runs first in
+  // the same commit.
   useEffect(() => {
-    launchingRef.current = launching;
-    if (launching || !promptAfterLaunchRef.current) return;
-    const timer = setTimeout(() => {
-      promptAfterLaunchRef.current = false;
-      if (locked) void tryUnlock();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [launching, locked, tryUnlock]);
+    if (!bootstrapping && restoredTokenRef.current === undefined) restoredTokenRef.current = token;
+  }, [bootstrapping, token]);
 
-  // Reads the per-device setting once auth has finished bootstrapping and there's a session to
-  // protect -- see appLock.ts's own comment on why this lives outside the account's server-side
-  // settings and has to be readable before anything is unlocked. Records which token this check
-  // resolved for regardless of the outcome, so the render gate above knows the decision is in and
-  // it's safe to show `children` when the setting turns out to be off.
+  // The lock decision for each new session.
   useEffect(() => {
     if (bootstrapping || token === null) return;
     let cancelled = false;
-    void appLock.isEnabled().then((enabled) => {
+    const restored = restoredTokenRef.current === token;
+    if (restored) {
+      void verifySession().then((result) => {
+        // 'ended' needs nothing here: the session is cleared and `token` goes to null.
+        if (!cancelled && result !== 'ended') setVerify({ token, result });
+      });
+    }
+    void pinLock.hasPin().then((hasPin) => {
       if (cancelled) return;
-      setCheckedToken(token);
-      // Explicit either way, not just "if (enabled) lockAndPrompt()" -- `locked` is state on this
-      // long-lived component, not per-session, so without an explicit false here a PRIOR session
-      // that ended while still locked (e.g. logging out from the lock screen's own Sign Out
-      // button) would leave a new sign-in that never enabled the setting stuck looking locked.
-      if (enabled) {
-        lockAndPrompt();
-      } else {
-        setLocked(false);
+      if (!restored) setVerify({ token, result: 'alive' });
+      // A sign-in in this run always sets its own PIN. Sign-out clears the PIN, but without waiting,
+      // so one that failed to clear is the previous session's -- maybe another account's.
+      if (!restored || !hasPin) {
+        setGate({ token, phase: 'setup' });
+        return;
       }
+      lock(token);
     });
     return () => {
       cancelled = true;
     };
-  }, [bootstrapping, token, lockAndPrompt]);
+  }, [bootstrapping, token, lock]);
 
-  // Reads appLock.isEnabled() fresh on every foreground transition rather than trusting a cached
-  // value from the mount effect above -- AppLockSection (Settings) writes the setting directly to
-  // SecureStore with no shared state or event bridge back to this component, so a value captured
-  // once at cold start would go stale the moment the user flips the toggle in the same session:
-  // turning it ON wouldn't engage until the app was fully killed and relaunched, and turning it
-  // OFF wouldn't stop the next foreground prompt from firing anyway.
+  // The biometric prompt that goes with a lock: only once the server has not said the session is
+  // over, never under the launch animation, and only while the session is still here. From a timer
+  // rather than the effect body, which must not set state synchronously (tryBiometric does).
+  const promptReady = sessionActive && checked && phase === 'locked' && biometricOn && !launching
+    && verifyResult !== 'pending';
+  useEffect(() => {
+    if (!promptReady || promptRequest === handledPromptRef.current) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      handledPromptRef.current = promptRequest;
+      // Read fresh, not from `biometricOn`: that is updated asynchronously after a lock, so right
+      // after Face ID is turned off in Settings it can still say on. Cancelled if anything changes
+      // while it reads -- the PIN typed in, the session ended -- so Face ID never pops up over an
+      // app that is already open, or over the sign-in screen.
+      void appLock.isEnabled().then((on) => {
+        if (on && !cancelled) void tryBiometric();
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [promptReady, promptRequest, tryBiometric]);
+
+  // Locks again after more than RELOCK_AFTER_MS in the background. A trip caused by the app's own
+  // Face ID sheet, PIN check or share sheet is not the user leaving and never locks.
+  const gateRef = useRef(gate);
+  useEffect(() => {
+    gateRef.current = gate;
+  }, [gate]);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next: AppStateStatus) => {
-      // AppState.currentState (this ref's initial value) is genuinely nullable per its own
-      // type -- unset until the native module responds -- so a stricter TS lib can correctly
-      // flag a bare `.match()` here even though `next` below is never null.
+      // AppState.currentState is nullable until the native module answers.
+      const wasActive = appState.current === 'active';
       const cameToForeground = !!appState.current?.match(/inactive|background/) && next === 'active';
-      // Captured at the OUTGOING transition, before it's overwritten below: if we're leaving
-      // active while a prompt or share is already in flight, that departure is what the sheet
-      // itself just caused, not the user leaving the app. Recording it here -- rather than only
-      // inferring it later from isAuthenticating()/justFinishedAuthenticating at the matching
-      // 'active' event -- means the eventual return is recognized as self-induced no matter how
-      // long the sheet takes to actually dismiss (see selfInducedBackgroundRef's own comment).
-      if (next.match(/inactive|background/) && (appLock.isAuthenticating() || appLock.isSharing())) {
-        selfInducedBackgroundRef.current = true;
+      if (next.match(/inactive|background/)) {
+        if (appLock.isAuthenticating() || appLock.isSharing()) selfInducedBackgroundRef.current = true;
+        // The first step out of the foreground starts the clock; iOS often fires 'inactive' then
+        // 'background', and the second must not restart it.
+        if (wasActive) backgroundAtRef.current = Date.now();
       }
       appState.current = next;
-      // Skips a foreground transition caused by ANY in-progress or just-finished authenticate()
-      // call -- AppLockGate's own re-lock prompt, or AppLockSection's "confirm to enable" prompt
-      // in Settings, checked through the shared appLock module rather than local state so BOTH
-      // sources are covered (see appLock.isAuthenticating's own comment on why local state here
-      // was blind to the Settings-triggered prompt specifically). Otherwise this is
-      // indistinguishable from the user actually backgrounding and returning, and re-locking here
-      // just re-prompts, which blips AppState again, forever.
-      //
-      // D5 (Track D security cleanup): the identical blip happens when the OS share sheet opens
-      // (statementImportsApi.downloadFile, supportApi.downloadAttachment, reportExport.ts's
-      // shareCsv/sharePdf, all wrapped in appLock.withShareSuppression) -- without this, returning
-      // from "Save to Files" or AirDrop re-locked the app mid-share or right after.
-      //
-      // selfInducedBackgroundRef takes priority over (and needs no help from) the two time-window
-      // checks: those exist for the case where the outgoing transition was somehow never observed
-      // (or observed in flight but the 'active' notification for it never explicitly marked
-      // itself), so they stay as a fallback rather than the sole signal.
-      //
-      // Only read (and consume) the ref on the transition that actually returns to foreground --
-      // iOS routinely fires 'inactive' then 'background' as two separate events on the way out,
-      // and clearing it on every 'change' event rather than just this one would wipe it out after
-      // the first of those, before the real 'active' event it was recorded for ever arrives.
-      const wasSelfInducedBackground = cameToForeground && selfInducedBackgroundRef.current;
-      if (cameToForeground) selfInducedBackgroundRef.current = false;
-      const skipAsSelfInduced =
-        wasSelfInducedBackground ||
-        appLock.isAuthenticating() || appLock.justFinishedAuthenticating(REGROUND_GRACE_MS) ||
-        appLock.isSharing() || appLock.justFinishedSharing(REGROUND_GRACE_MS);
-      if (cameToForeground && token !== null && !skipAsSelfInduced) {
-        // Covering exists to hide the app while this async read is in flight. When the setting is
-        // already CONFIRMED off (appLock keeps that current -- it is the only writer) there is
-        // nothing to hide, so a lock-off user sees no cover at all. Read still happens either way.
-        const needsCover = !appLock.isKnownDisabled();
-        if (needsCover) setReverifying(true);
-        void appLock.isEnabled().then((enabled) => {
-          if (needsCover) setReverifying(false);
-          if (enabled) lockAndPrompt();
-        });
-      }
+      if (!cameToForeground) return;
+      const selfInduced = selfInducedBackgroundRef.current;
+      selfInducedBackgroundRef.current = false;
+      const skip = selfInduced
+        || appLock.isAuthenticating() || appLock.justFinishedAuthenticating(REGROUND_GRACE_MS)
+        || appLock.isSharing() || appLock.justFinishedSharing(REGROUND_GRACE_MS);
+      const leftAt = backgroundAtRef.current;
+      backgroundAtRef.current = null;
+      const current = tokenRef.current;
+      const g = gateRef.current;
+      // Only an open session locks again; a lock or PIN setup already up stays as it is.
+      if (skip || current === null || leftAt === null || g.token !== current || g.phase !== 'open') return;
+      if (Date.now() - leftAt > RELOCK_AFTER_MS) lock(current);
     });
     return () => subscription.remove();
-  }, [token, lockAndPrompt]);
+  }, [lock]);
+
+  async function submitPin(pin: string) {
+    const forToken = tokenRef.current;
+    if (forToken === null) return;
+    setBusy(true);
+    try {
+      const result = await pinLock.checkPin(pin);
+      if (tokenRef.current !== forToken) return;
+      if (result.ok) {
+        setError(null);
+        setGate({ token: forToken, phase: 'open' });
+        return;
+      }
+      if (result.triesLeft === 0) {
+        logout();
+        return;
+      }
+      setError(wrongPinMessage(result.triesLeft));
+    } catch {
+      // The PIN or the try count could not be read or saved (pinLock.checkPin): nothing opens and
+      // nothing was counted. Say so, rather than calling a possibly right PIN wrong.
+      if (tokenRef.current === forToken) setError(CHECK_FAILED_MESSAGE);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishSetup() {
+    const forToken = tokenRef.current;
+    const on = await appLock.isEnabled();
+    if (forToken === null || tokenRef.current !== forToken) return;
+    setBiometricOn(on);
+    setGate({ token: forToken, phase: 'open' });
+  }
+
+  const forgotFooter = confirmForgot ? (
+    <View style={styles.forgot}>
+      <Text style={[styles.forgotText, { color: c.muted }]}>
+        You'll be signed out on this phone. Sign in again, then set a new PIN.
+      </Text>
+      <Button label="Sign out" onPress={logout} variant="secondary" />
+      <Button label="Cancel" onPress={() => setConfirmForgot(false)} variant="link" />
+    </View>
+  ) : (
+    <Button label="Forgot PIN?" onPress={() => setConfirmForgot(true)} variant="link" />
+  );
 
   // The lock UI appears in two shapes: alone (a cold-start lock: nothing protected is mounted yet)
   // or as an overlay over the already-mounted app (every later lock).
   const lockScreen = (overlay: boolean) => (
-    <View style={[styles.container, overlay ? styles.cover : null, { backgroundColor: c.bg } /* glass-exempt: lock screen must hide the app; never translucent */]}>
-      <Ionicons name="lock-closed" size={48} color={c.primary} />
-      <Text style={[styles.title, { color: c.ink }]}>Fynora is locked</Text>
-      <Text style={[styles.subtitle, { color: c.muted }]}>
-        Unlock with your fingerprint, face, or device passcode to continue.
-      </Text>
-      <View style={styles.actions}>
-        <Button
-          label={authenticating ? 'Unlocking…' : 'Unlock'}
-          onPress={() => void tryUnlock()}
-          loading={authenticating}
-        />
-        {/* Escape hatch, deliberately: if biometrics and the device passcode are ever both
-            unusable (a broken sensor, a forgotten passcode), signing out is still self-service --
-            there is no locked-out-of-the-app-with-no-way-back state this gate can create. */}
-        <Button label="Sign Out" onPress={logout} variant="link" />
-      </View>
+    <View style={[styles.fill, overlay ? styles.cover : null, { backgroundColor: c.bg } /* glass-exempt: lock screen must hide the app; never translucent */]}>
+      <PinPad
+        title="Enter your Fynora PIN"
+        error={error}
+        busy={busy}
+        onComplete={(pin) => void submitPin(pin)}
+        onBiometric={biometricOn ? () => void tryBiometric() : undefined}
+        footer={forgotFooter}
+      />
     </View>
   );
 
-  const sessionActive = !bootstrapping && token !== null;
   if (sessionActive) {
-    // Session present but the check for THIS token hasn't resolved yet -- render nothing rather
-    // than `children`, closing the cold-start race where RootNavigator would otherwise be paintable
-    // for one commit before a lock-enabled session gets locked (and the equivalent race on a fresh
-    // login right after a different session's logout, within the same app process).
-    if (!checked) {
-      return null;
+    // The decision for THIS session is not in yet: render nothing rather than `children`, so the
+    // app cannot paint for one commit before a lock or PIN setup replaces it.
+    if (!checked) return null;
+    if (phase === 'setup') {
+      return (
+        <View style={[styles.fill, { backgroundColor: c.bg } /* glass-exempt: PIN setup must hide the app; never translucent */]}>
+          <PinSetup onDone={() => void finishSetup()} />
+        </View>
+      );
     }
     // Locked before the app was ever shown this session: the lock screen alone, nothing mounted.
-    if (locked && !opened) {
-      return lockScreen(false);
-    }
+    if (phase === 'locked' && !opened) return lockScreen(false);
   }
 
-  const showLock = sessionActive && locked;
-  const showCover = reverifying && !showLock;
-  const covered = showLock || showCover;
-  // Hidden from touch and screen readers while an alert is up too: the alert is drawn in this tree
-  // (not by the OS, which used to trap focus for us), so without this a screen reader could wander
-  // onto the screen behind a destructive confirmation.
-  const appHidden = covered || alertUp;
+  const showLock = sessionActive && checked && phase === 'locked';
+  // Hidden from touch and screen readers while an alert is up too: the alert is drawn in this tree,
+  // so without this a screen reader could wander onto the screen behind it.
+  const appHidden = showLock || alertUp;
   // ONE stable shape for every state where children are shown (signed out, bootstrapping,
-  // unlocked, re-checking, locked over an opened app) -- a different wrapper per state would make
-  // React unmount and remount the whole app tree every time the state flips, discarding the
-  // navigator's position and every screen's state. A backgrounded (not killed) app has to come
-  // back exactly where it was.
+  // unlocked, locked over an opened app) -- a different wrapper per state would make React remount
+  // the whole app tree every time the state flips, discarding the navigator's position.
   return (
     <View style={styles.fill}>
       <View
@@ -314,19 +342,13 @@ export function AppLockGate({ children }: { children: ReactNode }) {
       >
         {/* Native Modals sit above this whole overlay, so they have to hide themselves -- see
             AppModal. */}
-        <AppCoveredProvider value={covered}>{children}</AppCoveredProvider>
+        <AppCoveredProvider value={showLock}>{children}</AppCoveredProvider>
       </View>
-      {/* Alerts are drawn by the app for the same reason (a native Alert.alert could not be hidden
-          once open): here, in-tree, or inside the topmost AppModal while one is open. While locked
-          it keeps waiting underneath the lock screen, unreachable -- see AppAlertOverlay. */}
-      <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
-      {/* A passing banner (an admin campaign push while the app is open): drawn here for the same
-          reason as the alert above, so it never shows over the lock screen. */}
-      <AppBannerOverlay containerId={ROOT_ALERT_CONTAINER} hidden={covered} />
-      {/* Covers rather than unmounts: `children` stay mounted underneath, so nothing is torn down
-          while the lock check is in flight, yet nothing protected can paint before its outcome is
-          known. */}
-      {showCover ? <View testID="app-lock-cover" style={[styles.cover, { backgroundColor: c.bg } /* glass-exempt: lock cover must hide the app; never translucent */]} /> : null}
+      {/* Alerts are drawn by the app (a native Alert.alert could not be hidden once open): while
+          locked one keeps waiting underneath the lock screen, unreachable -- see AppAlertOverlay. */}
+      <AppAlertOverlay containerId={ROOT_ALERT_CONTAINER} hidden={showLock} />
+      {/* A passing banner (an admin campaign push while the app is open): never over the lock. */}
+      <AppBannerOverlay containerId={ROOT_ALERT_CONTAINER} hidden={showLock} />
       {showLock ? lockScreen(true) : null}
     </View>
   );
@@ -335,14 +357,6 @@ export function AppLockGate({ children }: { children: ReactNode }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   cover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-    gap: spacing.sm,
-  },
-  title: { fontSize: 20, fontWeight: '700', marginTop: spacing.md },
-  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
-  actions: { width: '100%', gap: spacing.sm, marginTop: spacing.md },
+  forgot: { width: '100%', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+  forgotText: { fontSize: 14, textAlign: 'center' },
 });

@@ -1,35 +1,39 @@
 import { useEffect, useState } from 'react';
-import { Text, View, StyleSheet } from 'react-native';
+import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { AppModal } from '../../components/AppModal';
+import { CHECK_FAILED_MESSAGE } from '../../components/AppLockGate';
 import { AppSwitch } from '../../components/AppSwitch';
+import { Button } from '../../components/Button';
+import { PinPad } from '../../components/PinPad';
+import { PinSetup } from '../../components/PinSetup';
 import { SkeletonGroup, SkeletonSettingsRow } from '../../components/skeletons/Skeletons';
+import { useAuth } from '../../context/AuthContext';
 import * as appLock from '../../lib/appLock';
+import * as pinLock from '../../lib/pinLock';
 import { spacing, useTheme } from '../../theme';
 
 /**
- * SEC-09 (docs/quality/bug-reports/2026-08-19-security-review-findings.md). Self-contained,
- * mirroring DeviceSessionsSection's own shape -- its own data (device support + current setting)
- * and its own loading/error handling, dropped into SettingsScreen's existing Security section.
+ * Settings > Security: the app PIN and Face ID / fingerprint unlock (design 2026-11-10). The PIN
+ * itself is required and cannot be turned off here, only changed; biometrics are an optional,
+ * faster way past it.
  *
- * Turning ON requires a real successful authentication before the setting actually takes effect
- * -- see handleToggle. A bare switch flip would let someone enable app-lock and never discover
- * their fingerprint isn't enrolled, or that the device has no biometric hardware at all, until the
- * next time they reopen the app and are stuck looking at a lock screen that was never going to
- * succeed (the device passcode fallback in appLock.authenticate() covers "no biometrics enrolled"
- * on most devices, but not "no secure hardware/passcode set up at all" -- confirming here, once,
- * while the user is already looking at Settings, is cheaper than debugging that report later).
+ * Turning biometrics ON requires a real successful scan before the setting takes effect -- a bare
+ * switch flip would let someone turn it on and never discover their fingerprint is not enrolled
+ * until the next time the lock screen tries it.
  */
 export function AppLockSection() {
   const c = useTheme();
   const [loading, setLoading] = useState(true);
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabledState] = useState(false);
-  // Bug found in review (Track D/D1/D6): distinct from `supported` -- this tracks whether the
-  // CURRENT on/off state could actually be read, not whether the hardware exists at all. A
-  // transient SecureStore failure leaves this false, and the switch is not shown until it clears,
-  // rather than guessing an ON or OFF state the user never actually chose.
+  // Distinct from `supported`: whether the CURRENT on/off state could be read at all. A transient
+  // SecureStore failure leaves this false and the switch hidden, rather than guessing a state the
+  // user never chose.
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [changingPin, setChangingPin] = useState(false);
+  const [pinChanged, setPinChanged] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,8 +52,7 @@ export function AppLockSection() {
   async function handleToggle(next: boolean) {
     setError(null);
     if (!next) {
-      // Turning off never needs proof of anything -- the account's own session (already
-      // authenticated) is what's authorizing this change, same as every other Settings toggle.
+      // Turning off needs no proof: the PIN still guards the app.
       setBusy(true);
       await appLock.setEnabled(false);
       setEnabledState(false);
@@ -59,79 +62,170 @@ export function AppLockSection() {
     }
     setBusy(true);
     try {
-      const didAuthenticate = await appLock.authenticate('Confirm to enable App Lock');
+      const didAuthenticate = await appLock.authenticate('Confirm to unlock Fynora with Face ID or fingerprint');
       if (didAuthenticate) {
         await appLock.setEnabled(true);
         setEnabledState(true);
         setConfirmed(true);
       } else {
-        setError('Could not confirm — App Lock was not enabled.');
+        setError('Could not confirm — Face ID or fingerprint unlock was not turned on.');
       }
     } finally {
       setBusy(false);
     }
   }
 
+  const changePinRow = (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          setPinChanged(false);
+          setChangingPin(true);
+        }}
+        style={[styles.row, { borderBottomColor: c.border }]}
+      >
+        <View style={styles.rowMain}>
+          <Text style={[styles.rowTitle, { color: c.ink }]}>Change PIN</Text>
+          <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+            The 4-digit PIN you use to open Fynora on this phone.
+          </Text>
+        </View>
+      </Pressable>
+      {pinChanged ? <Text style={[styles.note, { color: c.mutedInk }]}>PIN changed.</Text> : null}
+      {changingPin ? (
+        <ChangePinSheet
+          onClose={() => setChangingPin(false)}
+          onChanged={() => {
+            setChangingPin(false);
+            setPinChanged(true);
+          }}
+        />
+      ) : null}
+    </View>
+  );
+
+  let biometricRow;
   if (loading) {
-    return (
+    biometricRow = (
       <SkeletonGroup>
-        {/* Both the real row's descriptions wrap to two lines on a phone. */}
+        {/* The real row's description wraps to two lines on a phone. */}
         <SkeletonSettingsRow trailing="switch" metaLines={2} />
       </SkeletonGroup>
     );
-  }
-
-  if (!supported) {
-    return (
+  } else if (!supported) {
+    biometricRow = (
       <View style={[styles.row, { borderBottomColor: c.border }]}>
         <View style={styles.rowMain}>
-          <Text style={[styles.rowTitle, { color: c.ink }]}>App Lock</Text>
+          <Text style={[styles.rowTitle, { color: c.ink }]}>Face ID or fingerprint</Text>
           <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-            Set up a fingerprint, face, or passcode on this device to use App Lock.
+            Set up Face ID or a fingerprint on this phone to unlock Fynora with it.
           </Text>
         </View>
       </View>
     );
-  }
-
-  if (!confirmed) {
-    return (
+  } else if (!confirmed) {
+    biometricRow = (
       <View style={[styles.row, { borderBottomColor: c.border }]}>
         <View style={styles.rowMain}>
-          <Text style={[styles.rowTitle, { color: c.ink }]}>App Lock</Text>
+          <Text style={[styles.rowTitle, { color: c.ink }]}>Face ID or fingerprint</Text>
           <Text style={[styles.rowMeta, { color: c.dangerInk }]}>
-            Couldn&apos;t check whether App Lock is on. Try reopening Settings.
+            Couldn&apos;t check whether Face ID or fingerprint unlock is on. Try reopening Settings.
           </Text>
         </View>
+      </View>
+    );
+  } else {
+    biometricRow = (
+      <View>
+        <View style={[styles.row, { borderBottomColor: c.border }]}>
+          <View style={styles.rowMain}>
+            <Text style={[styles.rowTitle, { color: c.ink }]}>Face ID or fingerprint</Text>
+            <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
+              Open Fynora with Face ID or your fingerprint instead of typing your PIN.
+            </Text>
+          </View>
+          <AppSwitch
+            value={enabled}
+            onValueChange={(next) => void handleToggle(next)}
+            disabled={busy}
+            trackColor={{ true: c.primary, false: c.border }}
+            // The native thumb is a plain white circle by default, which nearly disappears into dark
+            // mode's light "on" track -- onPrimary keeps it visible against either track colour.
+            thumbColor={enabled ? c.onPrimary : undefined}
+            accessibilityLabel="Unlock with Face ID or fingerprint"
+            accessibilityHint="Lets you open the app with Face ID or your fingerprint instead of your PIN"
+          />
+        </View>
+        {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
       </View>
     );
   }
 
   return (
     <View>
-      <View style={[styles.row, { borderBottomColor: c.border }]}>
-        <View style={styles.rowMain}>
-          <Text style={[styles.rowTitle, { color: c.ink }]}>App Lock</Text>
-          <Text style={[styles.rowMeta, { color: c.mutedInk }]}>
-            Require your fingerprint, face, or device passcode to open Fynora.
-          </Text>
-        </View>
-        <AppSwitch
-          value={enabled}
-          onValueChange={(next) => void handleToggle(next)}
-          disabled={busy}
-          trackColor={{ true: c.primary, false: c.border }}
-          // The native thumb defaults to a plain white circle regardless of track color. That
-          // was fine against a mid-to-dark blue "on" track in both themes, but dark mode's track
-          // is now light paper (c.primary), where a white thumb nearly disappears into it --
-          // explicit onPrimary keeps the thumb visible against whichever track color is active.
-          thumbColor={enabled ? c.onPrimary : undefined}
-          accessibilityLabel="App Lock"
-          accessibilityHint="Requires biometric or device passcode authentication to open the app"
-        />
-      </View>
-      {error ? <Text style={[styles.error, { color: c.dangerInk }]}>{error}</Text> : null}
+      {changePinRow}
+      {biometricRow}
     </View>
+  );
+}
+
+/**
+ * Current PIN first, then a new one (enter + confirm). A wrong current PIN counts toward the same
+ * 5-try limit as the lock screen, so this cannot be used to guess the PIN; the fifth signs out.
+ */
+function ChangePinSheet({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const c = useTheme();
+  const { logout } = useAuth();
+  const [step, setStep] = useState<'current' | 'new'>('current');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function checkCurrent(pin: string) {
+    setBusy(true);
+    try {
+      const result = await pinLock.checkPin(pin);
+      if (result.ok) {
+        setError(null);
+        setStep('new');
+        return;
+      }
+      if (result.triesLeft === 0) {
+        onClose();
+        logout();
+        return;
+      }
+      setError(result.triesLeft > 2
+        ? 'Wrong PIN. Try again.'
+        : `Wrong PIN. ${result.triesLeft} ${result.triesLeft === 1 ? 'try' : 'tries'} left.`);
+    } catch {
+      setError(CHECK_FAILED_MESSAGE);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const cancel = <Button label="Cancel" onPress={onClose} variant="link" />;
+
+  return (
+    <AppModal visible animationType="slide" onRequestClose={onClose}>
+      <View style={[styles.sheet, { backgroundColor: c.bg } /* glass-exempt: PIN entry must be opaque */]}>
+        {step === 'current' ? (
+          <PinPad
+            title="Enter your current PIN"
+            error={error}
+            busy={busy}
+            onComplete={(pin) => void checkCurrent(pin)}
+            footer={cancel}
+          />
+        ) : (
+          <>
+            <PinSetup offerBiometrics={false} onDone={onChanged} />
+            <View style={styles.sheetFooter}>{cancel}</View>
+          </>
+        )}
+      </View>
+    </AppModal>
   );
 }
 
@@ -146,5 +240,8 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, marginRight: spacing.sm },
   rowTitle: { fontSize: 14, fontWeight: '600' },
   rowMeta: { fontSize: 12, marginTop: 2 },
+  note: { fontSize: 12, marginTop: spacing.xs },
   error: { fontSize: 12, marginTop: spacing.xs, marginBottom: spacing.sm },
+  sheet: { flex: 1 },
+  sheetFooter: { alignItems: 'center', paddingBottom: spacing.xl },
 });

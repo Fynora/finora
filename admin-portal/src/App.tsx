@@ -6,6 +6,7 @@ import { NotificationProvider } from './context/NotificationContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { IdleSignOut } from './components/IdleSignOut';
 // Login stays eager: with no token it is the first paint for every visitor, so making it lazy
 // would add a round trip to the most common entry point.
 import Login from './pages/Login';
@@ -71,6 +72,8 @@ export default function App() {
       <ThemeProvider>
       <NotificationProvider>
         <AdminAuthProvider>
+          {/* 15 minutes without activity signs the admin out (same rule as the customer web app). */}
+          <IdleSignOut>
           {/* No `future` prop since the v7 upgrade: v7_startTransition and v7_relativeSplatPath
               were opt-in flags for exactly this migration and are now the only behaviour, so v7
               removed the prop entirely. */}
@@ -146,6 +149,7 @@ export default function App() {
             </Suspense>
             </ErrorBoundary>
           </BrowserRouter>
+          </IdleSignOut>
         </AdminAuthProvider>
       </NotificationProvider>
       </ThemeProvider>

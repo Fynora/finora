@@ -14,6 +14,7 @@ import { sweepFileCache } from '../lib/fileCacheSweep';
 import { purgeSharedContainers } from '../lib/sharedContainerSweep';
 import { signOutOfGoogle } from '../lib/googleSession';
 import * as appLock from '../lib/appLock';
+import * as pinLock from '../lib/pinLock';
 import {
   clearPendingDetach, detachDevice, registerDeviceToken, resumePendingDetach, subscribeToForegroundMessages,
 } from '../lib/pushRegistration';
@@ -255,6 +256,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // sign-out deletes them outright rather than waiting out an age margin. Fire-and-forget, never
     // rejects.
     void purgeSharedContainers();
+    // The app PIN and the Face ID / fingerprint choice belong to the session that set them: the
+    // next sign-in on this phone (maybe a different account) sets its own (design 2026-11-10).
+    void pinLock.clearPin();
+    void appLock.setEnabled(false);
   }, [queryClient]);
 
   // The API client can't import navigation or this context (it's imported BY both), so it calls

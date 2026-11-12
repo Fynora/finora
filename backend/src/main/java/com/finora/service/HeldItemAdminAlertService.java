@@ -124,7 +124,11 @@ public class HeldItemAdminAlertService {
                 + bankLine
                 + "<li><strong>Reason:</strong> " + escape(held.getTriggerSummary()) + "</li>"
                 + "<li><strong>Held at:</strong> " + escape(formatTimestamp(held.getCreatedAt())) + "</li>"
-                + answerByLine(holdClockStart(held))
+                // From the review record, not the job: this email is sent when the record commits,
+                // before the worker starts the job's own hold clock (ImportJobWorker sets finishedAt
+                // after createHold returns), so the job's clock is unset or a previous hold's here.
+                // The record is created in the same pass, seconds earlier. TrustHoldAlertDeadlineIT.
+                + answerByLine(held.getCreatedAt())
                 + "</ul>"
                 + "<p><a href=\"" + adminBaseUrl() + "/held-statements/" + escape(held.getHeldId())
                 + "\">Open this held statement</a></p>";
@@ -398,11 +402,6 @@ public class HeldItemAdminAlertService {
                 + escape(formatTimestamp(holdStart.plus(ImportJob.HOLD_PROMISE))) + "</li>";
     }
 
-    /** A trust hold's promise clock is its import job's ({@code finishedAt}, set on every entry into a hold). */
-    private Instant holdClockStart(HeldStatement held) {
-        if (held.getImportJobId() == null) return null;
-        return importJobRepository.findById(held.getImportJobId()).map(ImportJob::getFinishedAt).orElse(null);
-    }
 
     private void sendToRecipients(String permissionName, String subject, String html) {
         List<User> recipients =

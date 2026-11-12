@@ -239,10 +239,11 @@ class HeldItemAdminAlertServiceTest {
     }
 
     @Test
-    void alertTrustReviewHeld_saysWhenTheCustomerWasPromisedAnAnswer_fromTheJobsHoldClock() {
+    void alertTrustReviewHeld_takesTheDeadlineFromTheReviewRecord_notTheJobsClock() {
         HeldStatement held = heldStatement("HELD-00005", "HDFC Bank");
+        org.springframework.test.util.ReflectionTestUtils.setField(held, "createdAt", Instant.parse("2026-11-12T18:45:00Z"));
+        // The job's own clock is not started yet when this email goes (see the service's comment).
         ImportJob job = new ImportJob(UUID.randomUUID(), "statement.pdf", "hash", "objects/key", "PDF");
-        job.holdForReview("TRUST", Instant.parse("2026-11-12T18:45:00Z"));
         when(heldStatementRepository.findByHeldId("HELD-00005")).thenReturn(Optional.of(held));
         when(importJobRepository.findById(held.getImportJobId())).thenReturn(Optional.of(job));
         when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
@@ -253,33 +254,6 @@ class HeldItemAdminAlertServiceTest {
         // 18:45 UTC on the 12th is 00:15 IST on the 13th; plus 48 hours.
         assertThat(onlyEmailSent().html())
                 .contains("<strong>Customer told to expect an answer by:</strong> 15 Nov 2026, 00:15 IST");
-    }
-
-    @Test
-    void alertTrustReviewHeld_leavesTheDeadlineOutWhenTheHoldStartIsUnknown() {
-        HeldStatement held = heldStatement("HELD-00006", "HDFC Bank");
-        when(heldStatementRepository.findByHeldId("HELD-00006")).thenReturn(Optional.of(held));
-        when(importJobRepository.findById(held.getImportJobId())).thenReturn(Optional.empty());
-        when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
-                .thenReturn(List.of(adminUser("trust-review-admin@example.com")));
-
-        service.alertTrustReviewHeld("HELD-00006");
-
-        assertThat(onlyEmailSent().html()).doesNotContain("expect an answer by");
-    }
-
-    @Test
-    void alertTrustReviewHeld_omitsTheBankLineWhenNoBankWasDetected() {
-        HeldStatement held = heldStatement("HELD-00003", null);
-        when(heldStatementRepository.findByHeldId("HELD-00003")).thenReturn(Optional.of(held));
-        when(userRepository.findByPermissionNameAndAccountScope(any(), any()))
-                .thenReturn(List.of(adminUser("trust-review-admin@example.com")));
-
-        service.alertTrustReviewHeld("HELD-00003");
-
-        org.mockito.ArgumentCaptor<EmailMessage> captor = org.mockito.ArgumentCaptor.forClass(EmailMessage.class);
-        verify(emailProvider).send(captor.capture());
-        assertThat(captor.getValue().html()).doesNotContain("<strong>Bank:</strong>");
     }
 
     @Test

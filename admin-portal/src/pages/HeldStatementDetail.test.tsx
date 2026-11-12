@@ -357,7 +357,7 @@ describe('HeldStatementDetail', () => {
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('Approve HLD-2026-100001?');
-    expect(dialog).toHaveTextContent('told their statement is ready');
+    expect(dialog).toHaveTextContent('told their statement is ready, unless they have turned these notifications off');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -379,6 +379,21 @@ describe('HeldStatementDetail', () => {
 
     await waitFor(() => expect(adminHeldStatementApi.reject).toHaveBeenCalledWith('HLD-2026-100001', 'Wrong bank'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('shows a refused decision in the Resolve section, where the admin is', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    vi.mocked(adminHeldStatementApi.reject).mockRejectedValue({
+      response: { data: { message: 'This hold was already decided by another admin.' } },
+    });
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /^reject$/i }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reject' }));
+
+    const resolve = screen.getByTestId('resolve-section');
+    expect(await within(resolve).findByRole('alert')).toHaveTextContent('already decided by another admin');
   });
 
   it('puts the decision right after the evidence, before the engineering tools', async () => {

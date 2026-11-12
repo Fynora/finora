@@ -15,6 +15,16 @@ describe('safeReturnPath', () => {
     expect(safeReturnPath('held-statements')).toBeNull();
   });
 
+  it('refuses whitespace and control characters, which browsers strip into //host', () => {
+    expect(safeReturnPath('/\t/evil.example')).toBeNull();
+    expect(safeReturnPath('/\n/evil.example')).toBeNull();
+    expect(safeReturnPath('/\r/evil.example')).toBeNull();
+    expect(safeReturnPath('/ /evil.example')).toBeNull();
+    expect(safeReturnPath('/users\\evil')).toBeNull();
+    // What Login actually reads: URLSearchParams decodes %09 into a real tab.
+    expect(safeReturnPath(new URLSearchParams('next=%2F%09%2Fevil.example').get('next'))).toBeNull();
+  });
+
   it('refuses the sign-in screens and the dashboard, so nothing loops or carries a pointless next', () => {
     for (const path of ['/login', '/login?next=%2Fusers', '/setup', '/verify-phone', '/setup-mfa', '/reset-password', '/forgot-password', '/']) {
       expect(safeReturnPath(path)).toBeNull();
@@ -32,6 +42,11 @@ describe('safeReturnPath', () => {
 describe('loginPathFor', () => {
   it('carries the page in next, encoded', () => {
     expect(loginPathFor('/held-imports?job=abc')).toBe('/login?next=%2Fheld-imports%3Fjob%3Dabc');
+  });
+
+  it('keeps the return page when a session ends on the login screen itself', () => {
+    expect(loginPathFor('/login?next=%2Fheld-imports%3Fjob%3Dabc')).toBe('/login?next=%2Fheld-imports%3Fjob%3Dabc');
+    expect(loginPathFor('/login?next=%2F%2Fevil.example')).toBe('/login');
   });
 
   it('is plain /login when there is nothing worth returning to', () => {

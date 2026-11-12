@@ -10,16 +10,11 @@ import { safeStorage } from '../lib/safeStorage';
 import { safeReturnPath } from '../lib/returnTo';
 
 /**
- * The only two post-login destinations that exist today. Deliberately a plain function over a
- * string union rather than a richer AuthState/NextStep type -- there's no third *routable*
- * outcome yet to justify one (a failed login throws and is handled separately in handleSubmit's
- * catch; that's an error path, not a destination, so it doesn't belong in this function's
- * return type). Revisit this once a second verification factor (TOTP, etc.) actually exists --
- * see docs/adr/0001-administrator-verification-strategy.md -- at which point a real NextStep
- * union (dashboard | verify-phone | verify-totp | enroll-totp | ...) earns its keep.
+ * Where a successful sign-in goes: phone verification first when it is still pending (the backend
+ * refuses everything else until then), otherwise the page the admin set out to open (`?next=`,
+ * validated by lib/returnTo.ts), or the dashboard. An admin who must still verify their phone loses
+ * `next`: that is a first sign-in, not one that came from a link.
  */
-/** Phone verification first when it is pending; otherwise the page the admin set out to open
- *  (`?next=`, see lib/returnTo.ts), or the dashboard. */
 function nextRouteFor(phoneVerified: boolean, next: string | null): string {
   if (!phoneVerified) return '/verify-phone';
   return next ?? '/';
@@ -79,9 +74,8 @@ export default function Login() {
 
   if (setupRequired) return <Navigate to="/setup" replace />;
 
-  // Already signed in (e.g. hit /login directly with a valid session) -- bounce straight to the
-  // dashboard, UNLESS verification is still pending, in which case that's genuinely where this
-  // session needs to go next rather than a dashboard it can't actually load permissions for.
+  // Already signed in (e.g. hit /login directly with a valid session) -- go where a sign-in would
+  // (see nextRouteFor): verification if it is still pending, else ?next= or the dashboard.
   if (token) return <Navigate to={nextRouteFor(phoneVerified, next)} replace />;
 
   if (checkingSetup) {

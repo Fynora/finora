@@ -197,7 +197,9 @@ function HeldImportsContent() {
         </div>
       )}
 
-      {actionError && (
+      {/* With a hold open, its own action's error shows in its panel instead (below), where the
+          admin is: up here it is off screen on a phone. */}
+      {actionError && !selectedId && (
         <div className="rounded-lg bg-danger-bg p-3">
           <p className="text-sm text-danger">{actionError}</p>
         </div>
@@ -257,6 +259,7 @@ function HeldImportsContent() {
           detail={detail.data}
           loading={detail.isLoading}
           error={detail.error}
+          actionError={actionError}
           busy={reprocess.isPending || resolve.isPending}
           onReprocess={() => reprocess.mutate(selectedId)}
           onResolve={(message) => resolve.mutate({ jobId: selectedId, message })}
@@ -278,6 +281,7 @@ function HeldImportDetailPanel({
   detail,
   loading,
   error,
+  actionError,
   busy,
   onReprocess,
   onResolve,
@@ -287,6 +291,8 @@ function HeldImportDetailPanel({
   loading: boolean;
   /** A stale link (the hold was decided, or the id is wrong) says so instead of an empty panel. */
   error: unknown;
+  /** A refused Reprocess or Resolve, shown here, where the admin is working. */
+  actionError: string | null;
   busy: boolean;
   onReprocess: () => void;
   onResolve: (message: string) => void;
@@ -340,6 +346,11 @@ function HeldImportDetailPanel({
 
       {loading && <p className="text-muted text-sm">Loading…</p>}
       <LoadError error={error} what="this held import" />
+      {actionError && (
+        <div role="alert" className="rounded-lg bg-danger-bg p-3">
+          <p className="text-sm text-danger">{actionError}</p>
+        </div>
+      )}
 
       {detail && (
         <>

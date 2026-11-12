@@ -197,6 +197,9 @@ describe('HeldImports', () => {
     await userEvent.click(screen.getByRole('button', { name: /^reprocess$/i }));
 
     expect(await screen.findByText(/already re-uploaded the same statement/i)).toBeInTheDocument();
+    // In the open panel, where the admin is (above the list it would be off screen on a phone).
+    expect(within(screen.getByTestId('held-import-panel')).getByRole('alert'))
+      .toHaveTextContent(/already re-uploaded the same statement/i);
   });
 
   async function openDetail() {

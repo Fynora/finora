@@ -141,6 +141,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   // Approve and Reject both tell the customer at once and cannot be taken back, so each asks first:
   // on a phone a stray tap is easy.
   const [confirmingDecision, setConfirmingDecision] = useState<'approve' | 'reject' | null>(null);
+  // A refused Approve or Reject is shown in the Resolve section, where the admin is: the page-top
+  // error is off screen on a phone by then.
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   const [reopenReason, setReopenReason] = useState('');
   const [engineerIdInput, setEngineerIdInput] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
@@ -209,14 +212,16 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
     // reachable as `null`.
     mutationFn: () => adminHeldStatementApi.approve(
         heldId, approveNote || undefined, markFalsePositive || undefined),
+    onMutate: () => setDecisionError(null),
     onSuccess: () => { setActionError(null); invalidate(); },
-    onError,
+    onError: (error: unknown) => setDecisionError(onActionErrorMessage(error)),
     onSettled: () => setConfirmingDecision(null),
   });
   const reject = useMutation({
     mutationFn: () => adminHeldStatementApi.reject(heldId, rejectReason || undefined),
+    onMutate: () => setDecisionError(null),
     onSuccess: () => { setActionError(null); invalidate(); },
-    onError,
+    onError: (error: unknown) => setDecisionError(onActionErrorMessage(error)),
     onSettled: () => setConfirmingDecision(null),
   });
   const reopen = useMutation({
@@ -359,8 +364,10 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         <ConfirmDialog
           title={confirmingDecision === 'approve' ? `Approve ${summary.heldId}?` : `Reject ${summary.heldId}?`}
           message={confirmingDecision === 'approve'
-            ? 'The rows go to the customer\'s confirm step, and they are told their statement is ready.'
-            : 'The statement is not imported, and the customer is told so (not if they have uploaded it again).'}
+            ? 'The rows go to the customer\'s confirm step. They are told their statement is ready, unless '
+              + 'they have turned these notifications off.'
+            : 'The statement is not imported. The customer is told so, unless they have uploaded it again '
+              + 'or turned these notifications off.'}
           confirmLabel={confirmingDecision === 'approve' ? 'Approve' : 'Reject'}
           danger={confirmingDecision === 'reject'}
           busy={approve.isPending || reject.isPending}
@@ -409,6 +416,11 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           phone needs no scrolling past the engineering tools below. */}
       <section className="bg-card border border-border rounded-xl2 p-4 sm:p-6 space-y-4" data-testid="resolve-section">
         <h3 className="text-sm font-semibold text-ink">Resolve</h3>
+        {decisionError && (
+          <div role="alert" className="rounded-lg bg-danger-bg p-3">
+            <p className="text-sm text-danger">{decisionError}</p>
+          </div>
+        )}
         {resolved && (
           <p className="text-xs text-muted">
             This hold was already {summary.status.replace(/_/g, ' ')}; it cannot be resolved again.

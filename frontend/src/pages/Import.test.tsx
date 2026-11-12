@@ -44,7 +44,7 @@ vi.mock('framer-motion', async (importOriginal) => {
 
 import Import, { UPLOAD_COMPLETE_DWELL_MS, setUploadCompleteDwellForTests } from './Import';
 import { AuthProvider } from '../context/AuthContext';
-import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, inflowApi, type ImportJobProgress } from '../api/endpoints';
+import { importApi, importJobsApi, statementImportsApi, categoriesApi, accountsApi, activationApi, banksApi, inflowApi, invitePromptApi, type ImportJobProgress } from '../api/endpoints';
 import type { Account, StagedAccountSection, StagedRow } from '../types';
 import { PDF_PASSWORD_REQUIRED, PDF_PASSWORD_INVALID, NO_HEADER_DETECTED, NO_TRANSACTIONS_FOUND, NO_ACTIVITY_IN_PERIOD, SCANNED_OCR_REQUIRED, CORRUPT_PDF, PAYMENT_APP_HISTORY, IMPORT_SESSION_ALREADY_CONFIRMED, ACCOUNT_LIMIT_REACHED, STATEMENT_PERIOD_TOO_LONG } from '../api/errorCodes';
 import { IMPORT_FAILURE_MESSAGES, PDF_PASSWORD_HINT, SERVER_FAILURE_MESSAGE, UNSUPPORTED_FILE_MESSAGE } from '../api/importFailureMessages';
@@ -55,6 +55,12 @@ import type { DetectedAccountInfo } from '../types';
 // unsupported-file-type guard) -- everything else Import.tsx touches (categories/accounts lists,
 // the review step's account form, confirm/summary) is exercised by hand during review, not here.
 vi.mock('../api/endpoints', () => ({
+  // InviteFriendCard on the summary screens: not shown unless a test says so.
+  invitePromptApi: {
+    check: vi.fn().mockResolvedValue({ show: false, shownRecently: false }),
+    event: vi.fn().mockResolvedValue(undefined),
+  },
+  referralsApi: { myCode: vi.fn().mockResolvedValue({ code: 'AB12CD34' }) },
   // ImportMoneyInCard on the summary screens lists money not counted as income; nothing by default.
   inflowApi: {
     unresolvedForImport: vi.fn().mockResolvedValue([]),
@@ -2593,6 +2599,23 @@ describe('Import — multi-account summary screen warnings', () => {
     vi.mocked(inflowApi.unresolvedForImport).mockResolvedValue([]);
   });
 
+  it('asks the server about the invite card with every account just imported, and shows it when told to', async () => {
+    vi.mocked(invitePromptApi.check).mockResolvedValueOnce({ show: true, shownRecently: false });
+    vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
+      perAccount: [summaryFor('Savings'), summaryFor('Credit Card')],
+    } as never);
+    const user = userEvent.setup();
+    renderImport();
+
+    stageSections([section('Savings'), section('Credit Card')]);
+    await pickAndUploadPdf(user);
+    await screen.findByText(/this statement covers 2 accounts/i);
+    await user.click(confirmAll());
+
+    expect(await screen.findByText('Fynora sorted your statement.')).toBeInTheDocument();
+    expect(invitePromptApi.check).toHaveBeenCalledWith(['stmt-Savings', 'stmt-Credit Card']);
+  });
+
   /** The action only appears for the account whose own period actually duplicated one on file. */
   it('offers "Import this one as a replacement?" only for the account with a duplicateOfStatementId', async () => {
     vi.mocked(importApi.confirmMulti).mockReset().mockResolvedValue({
@@ -4788,5 +4811,55 @@ describe("Import — the new account's bank", () => {
       expect(sent[0].newAccount).toMatchObject({ bankId: 'HDFC', name: 'HDFC Bank' });
       expect(sent[1].newAccount).toMatchObject({ bankId: 'OTHER' });
     });
+  });
+});
+
+/** The invite-a-friend card on the single-account summary: asked about with the import's own id. */
+describe('Import — invite card after an import', () => {
+  beforeEach(() => {
+    vi.mocked(categoriesApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(accountsApi.list).mockReset().mockResolvedValue([]);
+    vi.mocked(importApi.stageCsv).mockReset().mockResolvedValue(stagingResultWith());
+    vi.mocked(importApi.confirm).mockReset().mockResolvedValue({
+      imported: 1, skipped: 0, duplicatesDetected: 0, transfersIdentified: 0, newMerchantsLearned: 0,
+      accountsCreated: [], productsCreated: {}, categoriesAssigned: {}, warnings: [], account: null,
+      totalCredits: 0, totalDebits: 0, statementOpeningBalance: null, statementClosingBalance: null,
+      statementPeriodStart: null, statementPeriodEnd: null, importDurationMs: 12, source: 'CSV',
+      statementImportId: 'stmt-first',
+    } as never);
+    vi.mocked(invitePromptApi.check).mockReset().mockResolvedValue({ show: true, shownRecently: false });
+  });
+  afterEach(() => {
+    vi.mocked(invitePromptApi.check).mockReset().mockResolvedValue({ show: false, shownRecently: false });
+  });
+
+  it('shows the card on the summary when the server says this is the first import, and not after Import another', async () => {
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+
+    expect(await screen.findByText('Fynora sorted your statement.')).toBeInTheDocument();
+    expect(invitePromptApi.check).toHaveBeenCalledWith(['stmt-first']);
+
+    await user.click(screen.getByRole('button', { name: /import another/i }));
+    await screen.findByTestId('statement-dropzone');
+    expect(screen.queryByText('Fynora sorted your statement.')).not.toBeInTheDocument();
+  });
+
+  it('shows no card when the server says no', async () => {
+    vi.mocked(invitePromptApi.check).mockResolvedValue({ show: false, shownRecently: true });
+    const user = userEvent.setup();
+    renderImport();
+
+    await user.upload(screen.getByTestId('statement-file-input'), csvFile());
+    await screen.findByText(/which account is this statement for/i);
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+
+    await screen.findByRole('button', { name: /import another/i });
+    await waitFor(() => expect(invitePromptApi.check).toHaveBeenCalledWith(['stmt-first']));
+    expect(screen.queryByText('Fynora sorted your statement.')).not.toBeInTheDocument();
   });
 });

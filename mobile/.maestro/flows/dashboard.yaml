@@ -24,6 +24,9 @@ env:
 - tapOn:
     id: "login-submit"
 
+# Every signed-in phone sets a PIN before anything else (PinSetup.tsx, #2514); see the subflow.
+- runFlow: ../subflows/set-pin.yaml
+
 - assertVisible: "Home"
 # Section order below is the passbook redesign's (#1318, 2026-09-10), verified directly against
 # DashboardScreen.tsx rather than assumed -- it superseded the #1301 premium-redesign order this

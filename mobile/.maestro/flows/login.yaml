@@ -40,6 +40,9 @@ env:
 - tapOn:
     id: "login-submit"
 
+# Every signed-in phone sets a PIN before anything else (PinSetup.tsx, #2514); see the subflow.
+- runFlow: ../subflows/set-pin.yaml
+
 # RootNavigator swaps the whole Auth stack out once AuthContext holds a token and the account is
 # phone-verified (see LoginScreen.tsx's own comment: "No navigation on success"). Home is the
 # first bottom tab -- see AppTabs.tsx -- and renders DashboardScreen. But onboardingCompleted is
@@ -57,7 +60,7 @@ env:
 # same account server-side, so their own logins (after this flow's skip has run) land on Home
 # directly, same as any returning user.
 #
-# Before either of those comes the consent step (useConsent / ConsentScreen, V302): the account
+# After the PIN (set-pin.yaml, above) and before either of those comes the consent step (useConsent / ConsentScreen, V302): the account
 # seed-test-user.sh registers has not accepted the current Terms, so this full-screen step replaces
 # everything until the required box is ticked and Continue is pressed. The AI box is left alone, so
 # AI features stay off for this account. The notice above the boxes is longer than the emulator

@@ -1,0 +1,24 @@
+# The required PIN setup every signed-in phone goes through before reaching the app (PinSetup.tsx,
+# #2514). There is no skip, and each flow starts from `clearState: true`, which clears the stored
+# PIN, so every flow sets one right after signing in. Enter four digits, then the same four again.
+#
+# On a phone with a fingerprint enrolled, PinSetup then offers "Unlock with Face ID or
+# fingerprint?". The CI emulator has none enrolled (appLock.isSupported needs hardware AND an
+# enrolment), so the offer is not expected; "Not now" is tapped only if it does appear.
+#
+# Kept outside flows/ so run-flows.sh never runs it on its own.
+appId: com.fynora.android
+---
+- assertVisible: "Set a 4-digit PIN"
+- tapOn: "1"
+- tapOn: "3"
+- tapOn: "5"
+- tapOn: "7"
+- assertVisible: "Enter it again"
+- tapOn: "1"
+- tapOn: "3"
+- tapOn: "5"
+- tapOn: "7"
+- tapOn:
+    text: "Not now"
+    optional: true

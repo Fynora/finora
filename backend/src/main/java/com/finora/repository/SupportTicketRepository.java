@@ -80,6 +80,10 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
      * the {@code CAST(:q AS string)} PGJDBC workaround that query's own doc comment explains, and
      * the same reason for the {@code ESCAPE} clause: without it, a literal {@code %} or {@code _}
      * typed into the search box would be read as a SQL wildcard instead of the character it is.
+     *
+     * <p>{@code claimedBy} narrows to one admin's tickets ("mine") and {@code unclaimedOnly} to
+     * tickets nobody holds; both off means the whole queue. {@code CAST(:claimedBy AS uuid)} for the
+     * same PGJDBC reason as {@code :q}: a bare {@code :claimedBy IS NULL} cannot type a null.
      */
     @Query("""
             SELECT t FROM SupportTicket t
@@ -88,11 +92,15 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, UU
                AND (:q IS NULL
                     OR LOWER(t.ticketNumber) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\'
                     OR LOWER(t.subject) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) ESCAPE '\\')
+               AND (CAST(:claimedBy AS uuid) IS NULL OR t.claimedByAdminId = :claimedBy)
+               AND (:unclaimedOnly = false OR t.claimedByAdminId IS NULL)
              ORDER BY t.createdAt ASC, t.id ASC
             """)
     Page<SupportTicket> findForAdmin(@Param("status") SupportTicket.Status status,
                                      @Param("category") SupportTicket.Category category,
                                      @Param("q") String q,
+                                     @Param("claimedBy") UUID claimedBy,
+                                     @Param("unclaimedOnly") boolean unclaimedOnly,
                                      Pageable pageable);
 
     /**

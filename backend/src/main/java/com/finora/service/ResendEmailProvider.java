@@ -540,6 +540,41 @@ public class ResendEmailProvider implements EmailProvider {
         return EmailMessage.html(toEmail, subject, html, EmailMessage.Sender.SUPPORT);
     }
 
+    @Override
+    public EmailResult sendSupportTicketFinishedEmail(String toEmail, String ticketNumber, String ticketId,
+                                                      boolean resolved, String message) {
+        return send(buildSupportTicketFinishedMessage(toEmail, ticketNumber, ticketId, resolved, message));
+    }
+
+    /** Same words as V311's rows, plus the admin's message when there is one. The message is the
+     *  admin's plain text: HTML-escaped, with its line breaks kept. */
+    EmailMessage buildSupportTicketFinishedMessage(String toEmail, String ticketNumber, String ticketId,
+                                                   boolean resolved, String message) {
+        String reference = HtmlUtils.htmlEscape(ticketNumber == null ? "" : ticketNumber);
+        String outcome = resolved ? "resolved" : "closed";
+        String nextStep = resolved
+                ? "If something is still not right, reply to this email and mention your reference."
+                : "If you still need help with it, reply to this email and mention your reference.";
+        StringBuilder bodyHtml = new StringBuilder()
+                .append("<p>We have ").append(outcome).append(" your support request <strong>")
+                .append(reference).append("</strong>.</p>");
+        if (message != null && !message.isBlank()) {
+            bodyHtml.append("<p>A note from our team:</p><blockquote style=\"margin:0 0 16px;padding-left:12px;"
+                            + "border-left:3px solid #d0d0d0;\">")
+                    .append(HtmlUtils.htmlEscape(message.strip()).replace("\r\n", "\n").replace("\n", "<br>"))
+                    .append("</blockquote>");
+        }
+        bodyHtml.append("<p>").append(nextStep).append("</p>");
+        EmailLayout.CtaButton button = ticketId == null || ticketId.isBlank() ? null
+                : new EmailLayout.CtaButton("View your request",
+                        emailProperties.resolveBaseUrl(null) + "/app/support/" + HtmlUtils.htmlEscape(ticketId));
+        String subject = "Your support request " + ticketNumber + " is " + outcome;
+        // Null opt-out URL: a SECURITY notification the user cannot switch off must not claim one.
+        String html = EmailLayout.wrap(subject, bodyHtml.toString(), button, EmailLayout.Footer.SUPPORT_REPLY,
+                emailProperties.getSupportFromAddress(), null);
+        return EmailMessage.html(toEmail, subject, html, EmailMessage.Sender.SUPPORT);
+    }
+
     /** Every statement email is a FINANCIAL notification (StatementStatusNotifier), which the user
      *  can switch off, so each carries the opt-out line. */
     private String notificationSettingsUrl() {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -23,10 +23,14 @@ const row: SupportTicketRow = {
   id: '11111111-1111-1111-1111-111111111111',
   ticketNumber: 'SUP-000042',
   userId: '22222222-2222-2222-2222-222222222222',
+  customerName: 'Asha Rao',
+  customerEmail: 'asha@example.com',
   category: 'STATEMENT_IMPORT',
   subject: 'Import stuck at 60%',
   status: 'OPEN',
   claimedByAdminId: null,
+  claimedByAdminName: null,
+  claimedByYou: false,
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
   duplicateOfTicketId: null,
@@ -144,5 +148,56 @@ describe('SupportTickets', () => {
     expect(adminSupportTicketApi.list).toHaveBeenLastCalledWith(
       expect.objectContaining({ q: 'stuck import', page: 0 })
     );
+  });
+
+  // ---- 2026-11-12 ----
+
+  it('names the customer, linked to their profile, and the admin holding each ticket', async () => {
+    mockAuth(['SUPPORT_MANAGE', 'USER_VIEW']);
+    vi.mocked(adminSupportTicketApi.list).mockResolvedValue({
+      content: [
+        { ...row, claimedByAdminId: 'a1', claimedByAdminName: 'Colleague Admin' },
+        { ...row, id: 'row-2', ticketNumber: 'SUP-000043', claimedByAdminId: 'me', claimedByAdminName: 'Me', claimedByYou: true },
+      ],
+      page: 0, size: 25, totalElements: 2, totalPages: 1,
+    });
+    renderPage();
+
+    await screen.findByText('SUP-000043');
+    const table = within(screen.getByRole('table'));
+    expect(table.getAllByRole('link', { name: 'Asha Rao' })[0]).toHaveAttribute('href', '/users/22222222-2222-2222-2222-222222222222');
+    expect(table.getAllByText('asha@example.com')).toHaveLength(2);
+    expect(table.getByText('Colleague Admin')).toBeInTheDocument();
+    expect(table.getByText('You')).toBeInTheDocument();
+  });
+
+  it('shows the customer as hidden without USER_VIEW', async () => {
+    mockAuth(['SUPPORT_MANAGE']);
+    vi.mocked(adminSupportTicketApi.list).mockResolvedValue({
+      content: [{ ...row, customerName: null, customerEmail: null }], page: 0, size: 25, totalElements: 1, totalPages: 1,
+    });
+    renderPage();
+
+    await screen.findByText('SUP-000042');
+    expect(within(screen.getByRole('table')).getByText('Hidden')).toBeInTheDocument();
+  });
+
+  it('narrows the queue to my tickets, or to unclaimed ones', async () => {
+    mockAuth(['SUPPORT_MANAGE']);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('SUP-000042');
+
+    await user.selectOptions(screen.getByLabelText('Filter by who holds it'), 'MINE');
+    await waitFor(() => expect(adminSupportTicketApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ claim: 'MINE', page: 0 })));
+    await user.selectOptions(screen.getByLabelText('Filter by who holds it'), 'UNCLAIMED');
+    await waitFor(() => expect(adminSupportTicketApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ claim: 'UNCLAIMED' })));
+  });
+
+  it('says the queue is oldest first, as the server sorts it', () => {
+    mockAuth(['SUPPORT_MANAGE']);
+    renderPage();
+
+    expect(screen.getByText(/oldest first/)).toBeInTheDocument();
   });
 });

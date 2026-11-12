@@ -8,6 +8,7 @@ import com.finora.notification.domain.NotificationCategory;
 import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationType;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class SupportTicketDuplicateServiceTest {
     private SupportTicketRepository tickets;
     private AuditService auditService;
     private NotificationService notificationService;
+    private UserRepository users;
     private SupportTicketDuplicateService service;
 
     private final UUID adminId = UUID.randomUUID();
@@ -47,7 +49,12 @@ class SupportTicketDuplicateServiceTest {
         tickets = mock(SupportTicketRepository.class);
         auditService = mock(AuditService.class);
         notificationService = mock(NotificationService.class);
-        service = new SupportTicketDuplicateService(tickets, auditService, notificationService);
+        users = mock(UserRepository.class);
+        // A verified customer by default; the unverified case has its own test.
+        com.finora.entity.User customer = new com.finora.entity.User();
+        customer.setEmailVerified(true);
+        when(users.findById(any())).thenReturn(java.util.Optional.of(customer));
+        service = new SupportTicketDuplicateService(tickets, auditService, notificationService, users);
 
         ticket = ticket("SUP-000043", customerId, SupportTicket.Status.OPEN);
         reference = ticket("SUP-000042", customerId, SupportTicket.Status.IN_PROGRESS);
@@ -94,7 +101,7 @@ class SupportTicketDuplicateServiceTest {
 
         verify(auditService).record(eq(customerId), eq("SUPPORT_TICKET_MARKED_DUPLICATE"), eq("SupportTicket"),
                 eq(ticket.getId()), eq(Map.of("actorId", adminId.toString(), "ticketNumber", "SUP-000043",
-                        "duplicateOfTicketNumber", "SUP-000042", "previousStatus", "OPEN")));
+                        "duplicateOfTicketNumber", "SUP-000042", "previousStatus", "OPEN", "customerEmailed", true)));
 
         ArgumentCaptor<NotificationRequest> captor = ArgumentCaptor.forClass(NotificationRequest.class);
         verify(notificationService).request(captor.capture());
@@ -225,5 +232,22 @@ class SupportTicketDuplicateServiceTest {
                     assertThat(e.getMessage()).contains("already closed");
                 });
         assertNothingHappened();
+    }
+
+    /** Same rule as the acknowledgement (SupportTicketService.acknowledge): an address nobody proved
+     *  they own may be a stranger's. The ticket still closes as a duplicate; no email is queued. */
+    @Test
+    void anUnverifiedCustomer_isNotEmailed_butTheTicketStillCloses() {
+        com.finora.entity.User unverified = new com.finora.entity.User();
+        unverified.setEmailVerified(false);
+        when(users.findById(any())).thenReturn(java.util.Optional.of(unverified));
+
+        var result = service.markDuplicate(adminId, ticket.getId(), "SUP-000042");
+
+        assertThat(result.status()).isEqualTo(SupportTicket.Status.CLOSED);
+        verifyNoInteractions(notificationService);
+        verify(auditService).record(eq(customerId), eq("SUPPORT_TICKET_MARKED_DUPLICATE"), eq("SupportTicket"),
+                eq(ticket.getId()), eq(Map.of("actorId", adminId.toString(), "ticketNumber", "SUP-000043",
+                        "duplicateOfTicketNumber", "SUP-000042", "previousStatus", "OPEN", "customerEmailed", false)));
     }
 }

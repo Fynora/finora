@@ -72,6 +72,12 @@ public enum NotificationType {
     // ticket numbers ({{ticketNumber}}, {{referenceNumber}}); never the ticket's subject or
     // description. Keyed "SUPPORT_TICKET_DUPLICATE_" + ticket id, so a ticket is only ever told once.
     SUPPORT_TICKET_DUPLICATE,
+    // An admin resolved, or closed, the customer's ticket and chose to tell them -- see
+    // SupportTicketService.updateStatus. EMAIL only, verified addresses only. Stored copy seeded in
+    // V311 with {{ticketNumber}}; the sent email is built by ResendEmailProvider and may carry the
+    // admin's message from params. Keyed type + "_" + ticket id: a ticket finishes once, so once.
+    SUPPORT_TICKET_RESOLVED,
+    SUPPORT_TICKET_CLOSED,
     // Gate 2b spec §6: the month-start statement nudge (StatementMonthStartNudge), category
     // REMINDERS, PUSH only. Two types because a template is one row per (type, channel) and the two
     // cases have different copy (V289). FIRST: no statement imported yet, {{month}} is last month's

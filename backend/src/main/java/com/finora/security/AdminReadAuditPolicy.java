@@ -72,6 +72,8 @@ public final class AdminReadAuditPolicy {
             entry(A + "/reconciliation/explorer/{transactionId}", Rule.oneUser(Owner.TRANSACTION, "transactionId")),
             entry(A + "/statement-corrections/users/{userId}", Rule.oneUser(Owner.USER, "userId")),
             entry(A + "/support/tickets/{id}/notes", Rule.oneUser(Owner.SUPPORT_TICKET, "id")),
+            // The admin view of one ticket (2026-11-12): the customer's description, name and email.
+            entry(A + "/support/tickets/{id}", Rule.oneUser(Owner.SUPPORT_TICKET, "id")),
 
             // Listings that show several people's personal fields.
             entry(A + "/users", Rule.manyUsers()),                       // email, name, phone

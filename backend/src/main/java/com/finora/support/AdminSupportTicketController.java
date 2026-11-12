@@ -43,22 +43,35 @@ public class AdminSupportTicketController {
     /** The queue, oldest first, optionally filtered by status and/or category and/or a free-text
      *  search over ticket number and subject — see {@code SupportTicketRepository.findForAdmin}'s
      *  own doc comment for exactly what {@code q} searches and why. Carries no customer free text
-     *  beyond that — {@code description} is deliberately absent from {@link SupportTicketDto.Summary}. */
+     *  beyond that — {@code description} is deliberately absent from {@link SupportTicketDto.AdminSummary}.
+     *  {@code claim} = MINE (tickets the caller holds) or UNCLAIMED narrows it. A customer is named
+     *  only for a caller with USER_VIEW -- see {@link SupportTicketDto.AdminSummary}. */
     @GetMapping
-    public ApiResponse<PagedResponse<SupportTicketDto.Summary>> list(
+    public ApiResponse<PagedResponse<SupportTicketDto.AdminSummary>> list(
             @RequestParam(required = false) SupportTicket.Status status,
             @RequestParam(required = false) SupportTicket.Category category,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) SupportTicketDto.ClaimFilter claim,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size) {
-        return ApiResponse.ok(supportTicketService.adminList(status, category, q, page, size));
+        return ApiResponse.ok(supportTicketService.adminList(status, category, q, claim, currentUser.id(),
+                currentUser.hasAuthority("USER_VIEW"), page, size));
     }
 
-    /** 409 on an illegal transition, naming both states — see {@code SupportTicketService.updateStatus}. */
+    /** One ticket as admins see it, the customer and the claiming admin named. Records the view in
+     *  the audit log, as opening a ticket always has. */
+    @GetMapping("/{id}")
+    public ApiResponse<SupportTicketDto.AdminDetail> adminDetail(@PathVariable UUID id) {
+        return ApiResponse.ok(supportTicketService.adminDetail(currentUser.id(), id, currentUser.hasAuthority("USER_VIEW")));
+    }
+
+    /** 409 on an illegal transition, naming both states; 400 when a customer message or email is
+     *  asked for on a status that does not finish the ticket -- see {@code SupportTicketService.updateStatus}. */
     @PatchMapping("/{id}")
-    public ApiResponse<SupportTicketDto.Summary> updateStatus(@PathVariable UUID id,
-                                                               @Valid @RequestBody SupportTicketDto.UpdateStatusRequest request) {
-        return ApiResponse.ok(supportTicketService.updateStatus(currentUser.id(), id, request.status()), "Status updated");
+    public ApiResponse<SupportTicketDto.StatusChangeResult> updateStatus(@PathVariable UUID id,
+                                                                          @Valid @RequestBody SupportTicketDto.UpdateStatusRequest request) {
+        return ApiResponse.ok(supportTicketService.updateStatus(currentUser.id(), id, request.status(),
+                Boolean.TRUE.equals(request.notifyCustomer()), request.message()), "Status updated");
     }
 
     /** Closes the ticket as a duplicate of another ticket the same customer raised and emails the

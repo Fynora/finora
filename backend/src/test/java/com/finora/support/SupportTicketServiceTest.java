@@ -29,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -299,21 +300,22 @@ class SupportTicketServiceTest {
         ticket.setStatus(status);
         ticket.setTicketNumber("SUP-000042");
         when(ticketRepository.findById(any())).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(any())).thenReturn(Optional.of(ticket));
         return ticket;
     }
 
     @Test
     void openMovesToAnyOtherStatus() {
         ticketWithStatus(SupportTicket.Status.OPEN);
-        var result = service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.CLOSED);
-        assertThat(result.status()).isEqualTo(SupportTicket.Status.CLOSED);
+        var result = service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.CLOSED, false, null);
+        assertThat(result.ticket().status()).isEqualTo(SupportTicket.Status.CLOSED);
     }
 
     @Test
     void resolvedCannotMoveBackToInProgress() {
         ticketWithStatus(SupportTicket.Status.RESOLVED);
 
-        assertThatThrownBy(() -> service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.IN_PROGRESS))
+        assertThatThrownBy(() -> service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.IN_PROGRESS, false, null))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> assertThat(((ApiException) e).getStatus())
                         .isEqualTo(org.springframework.http.HttpStatus.CONFLICT));
@@ -325,15 +327,15 @@ class SupportTicketServiceTest {
     void closedIsTerminal() {
         ticketWithStatus(SupportTicket.Status.CLOSED);
 
-        assertThatThrownBy(() -> service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.OPEN))
+        assertThatThrownBy(() -> service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.OPEN, false, null))
                 .isInstanceOf(ApiException.class);
     }
 
     @Test
     void resolvingATicketStampsResolvedAt() {
         ticketWithStatus(SupportTicket.Status.IN_PROGRESS);
-        var result = service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.RESOLVED);
-        assertThat(result.status()).isEqualTo(SupportTicket.Status.RESOLVED);
+        var result = service.updateStatus(adminId, UUID.randomUUID(), SupportTicket.Status.RESOLVED, false, null);
+        assertThat(result.ticket().status()).isEqualTo(SupportTicket.Status.RESOLVED);
     }
 
     @Test
@@ -341,7 +343,7 @@ class SupportTicketServiceTest {
         SupportTicket ticket = ticketWithStatus(SupportTicket.Status.OPEN);
         UUID ticketId = UUID.randomUUID();
 
-        service.updateStatus(adminId, ticketId, SupportTicket.Status.IN_PROGRESS);
+        service.updateStatus(adminId, ticketId, SupportTicket.Status.IN_PROGRESS, false, null);
 
         verify(auditService).record(eq(userId), eq("SUPPORT_TICKET_STATUS_CHANGED"), eq("SupportTicket"), any(),
                 eq(Map.of("actorId", adminId.toString(), "ticketNumber", ticket.getTicketNumber(),
@@ -485,11 +487,11 @@ class SupportTicketServiceTest {
     @Test
     void adminList_passesTheSearchTermThrough_trimmed() {
         Page<SupportTicket> page = new PageImpl<>(List.of());
-        when(ticketRepository.findForAdmin(any(), any(), any(), any())).thenReturn(page);
+        when(ticketRepository.findForAdmin(any(), any(), any(), any(), anyBoolean(), any())).thenReturn(page);
 
-        service.adminList(null, null, "  stuck import  ", 0, 25);
+        service.adminList(null, null, "  stuck import  ", null, adminId, true, 0, 25);
 
-        verify(ticketRepository).findForAdmin(isNull(), isNull(), eq("stuck import"), any());
+        verify(ticketRepository).findForAdmin(isNull(), isNull(), eq("stuck import"), isNull(), eq(false), any());
     }
 
     @Test
@@ -498,10 +500,10 @@ class SupportTicketServiceTest {
         // pins down is that an unfilled search box means the WHERE clause is skipped entirely --
         // not that it happens to match everything through the LIKE itself.
         Page<SupportTicket> page = new PageImpl<>(List.of());
-        when(ticketRepository.findForAdmin(any(), any(), isNull(), any())).thenReturn(page);
+        when(ticketRepository.findForAdmin(any(), any(), isNull(), any(), anyBoolean(), any())).thenReturn(page);
 
-        service.adminList(null, null, "   ", 0, 25);
+        service.adminList(null, null, "   ", null, adminId, true, 0, 25);
 
-        verify(ticketRepository).findForAdmin(isNull(), isNull(), isNull(), any());
+        verify(ticketRepository).findForAdmin(isNull(), isNull(), isNull(), isNull(), eq(false), any());
     }
 }

@@ -44,14 +44,64 @@ class LayoutIntelligenceServiceTest {
         si.setLayoutFingerprint(fingerprint);
         si.setImportedAt(at);
         si.setImportDurationMs(durationMs);
-        si.setActivatedCapabilitiesJson(
-                capabilities.stream().map(c -> '"' + c + '"').reduce((a, b) -> a + "," + b)
-                        .map(joined -> "[" + joined + "]").orElse("[]"));
+        si.setActivatedCapabilitiesJson(capabilitiesJson(capabilities));
         String headers = unknownHeaders.stream().map(h -> '"' + h + '"').reduce((a, b) -> a + "," + b)
                 .map(joined -> "[" + joined + "]").orElse("[]");
         si.setLayoutMetadataJson("{\"sourceFormat\":\"PDF\",\"parser\":\"PdfPreviewGenerator\","
                 + "\"pages\":1,\"tables\":1,\"columns\":5,\"headers\":[],\"unknownHeaders\":" + headers + "}");
         return si;
+    }
+
+    /** The column exactly as an import writes it: DocumentContext records the capabilities and
+     *  ImportSessionService serialises {@code capabilities()} with Jackson, giving
+     *  [{"capability":"...","status":"SUCCESS"}]. This fixture once wrote a list of plain strings,
+     *  a shape no import produces, so the tests passed while every real row failed to read. */
+    private static String capabilitiesJson(List<String> capabilities) {
+        DocumentContext context = new DocumentContext("PDF", "PdfPreviewGenerator");
+        capabilities.forEach(context::record);
+        try {
+            return new ObjectMapper().writeValueAsString(context.capabilities());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test
+    void readsCapabilitiesInTheShapeTheImportPipelineStoresThem() {
+        // Literal copy of what ImportServiceSessionTest proves confirmSession stores.
+        StatementImport si = imported("FP-1-REAL", JAN, List.of(), List.of(), 400L);
+        si.setActivatedCapabilitiesJson("[{\"capability\":\"DR_CR_SUFFIX\",\"status\":\"SUCCESS\"},"
+                + "{\"capability\":\"RUNNING_BALANCE\",\"status\":\"SUCCESS\"}]");
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(si));
+
+        assertThat(service.layoutOverview().get(0).stableCapabilities())
+                .containsExactly("DR_CR_SUFFIX", "RUNNING_BALANCE");
+        assertThat(service.timeline("FP-1-REAL").get(0).capabilities())
+                .containsExactly("DR_CR_SUFFIX", "RUNNING_BALANCE");
+    }
+
+    @Test
+    void aCapabilityListedTwiceInOneImportCountsOnceTowardsStability() {
+        StatementImport twice = imported("FP-1-TWICE", JAN, List.of(), List.of(), 400L);
+        twice.setActivatedCapabilitiesJson("[{\"capability\":\"DR_CR_SUFFIX\",\"status\":\"SUCCESS\"},"
+                + "{\"capability\":\"DR_CR_SUFFIX\",\"status\":\"SUCCESS\"}]");
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(
+                twice, imported("FP-1-TWICE", JAN.plus(1, ChronoUnit.DAYS), List.of(), List.of(), 400L)));
+
+        // Counted twice it would equal the two imports and read as stable; it fired on one.
+        LayoutSummary layout = service.layoutOverview().get(0);
+        assertThat(layout.stableCapabilities()).isEmpty();
+        assertThat(layout.unstableCapabilities()).containsExactly("DR_CR_SUFFIX");
+    }
+
+    @Test
+    void anEntryWithoutANameIsDroppedWithoutLosingTheImportsOtherCapabilities() {
+        StatementImport si = imported("FP-1-NONAME", JAN, List.of(), List.of(), 400L);
+        si.setActivatedCapabilitiesJson("[{\"status\":\"SUCCESS\"},"
+                + "{\"capability\":\"RUNNING_BALANCE\",\"status\":\"SUCCESS\"}]");
+        when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(si));
+
+        assertThat(service.layoutOverview().get(0).stableCapabilities()).containsExactly("RUNNING_BALANCE");
     }
 
     @Test
@@ -213,10 +263,12 @@ class LayoutIntelligenceServiceTest {
         when(repository.findAllWithLayoutFingerprint()).thenReturn(List.of(
                 broken, imported("FP-1-BBBB", JAN, List.of("RUNNING_BALANCE"), List.of(), 400L)));
 
-        // Telemetry, not a ledger: one unreadable row is skipped, the rest still reports.
+        // Telemetry, not a ledger: one unreadable row is skipped, the rest still reports -- with
+        // its capabilities, not just its fingerprint.
         assertThat(service.layoutOverview()).hasSize(2);
-        assertThat(service.layoutOverview()).extracting(LayoutSummary::fingerprint)
-                .contains("FP-1-BBBB");
+        assertThat(service.layoutOverview()).filteredOn(l -> l.fingerprint().equals("FP-1-BBBB"))
+                .singleElement().extracting(LayoutSummary::stableCapabilities)
+                .isEqualTo(List.of("RUNNING_BALANCE"));
     }
 
     // ------------------------------------------------------------------ the registry overlay

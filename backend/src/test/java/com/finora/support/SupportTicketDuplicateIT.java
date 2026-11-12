@@ -68,6 +68,9 @@ class SupportTicketDuplicateIT extends AbstractIntegrationTest {
         user.setRole(role);
         user.setAccountScope("ADMIN".equals(role) ? User.SCOPE_ADMIN : User.SCOPE_USER);
         user.setPhoneVerified(true);
+        // The duplicate email goes to verified addresses only (2026-11-12); these tests are about
+        // what a verified customer receives. The unverified case is its own test below.
+        user.setEmailVerified(true);
         return userRepository.save(user);
     }
 
@@ -360,5 +363,22 @@ class SupportTicketDuplicateIT extends AbstractIntegrationTest {
         assertThat(deleted).isEqualTo(2);
         assertThat(ticketRepository.findById(UUID.fromString(again.get("id").asText()))).isEmpty();
         assertThat(ticketRepository.findById(UUID.fromString(original.get("id").asText()))).isEmpty();
+    }
+
+    @Test
+    void anUnverifiedCustomer_isNotEmailed_butTheTicketStillClosesAsADuplicate() throws Exception {
+        User customer = createCustomer();
+        customer.setEmailVerified(false);
+        userRepository.save(customer);
+        User admin = createUser("ADMIN");
+        JsonNode original = createTicket(customer, "First", "The first report.");
+        JsonNode again = createTicket(customer, "Again", "The same again.");
+
+        ResponseEntity<String> marked = markDuplicate(admin, again.get("id").asText(), original.get("ticketNumber").asText());
+
+        assertThat(marked.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(readOwn(customer, again.get("id").asText()).get("status").asText()).isEqualTo("CLOSED");
+        assertThat(notificationRepository.findByNotificationKey(
+                "SUPPORT_TICKET_DUPLICATE_" + again.get("id").asText() + ":EMAIL")).isEmpty();
     }
 }

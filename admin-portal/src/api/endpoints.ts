@@ -9,7 +9,7 @@ import type {
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
   HeldStatementTelemetrySummary, HeldStatementStagedRows,
   HoldWithoutReviewRecordRow, BlankedCopy, OriginalViewOpened,
-  SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote,
+  SupportTicketRow, SupportTicketQuery, SupportTicketDetail, SupportTicketNote, SupportTicketStatusChange,
   FeedbackRow, FeedbackQuery, FeedbackBreakdown,
   CreateAccountRequest, CreateBankRequest, CreateMerchantTemplateRequest, CreateRelationshipRequest,
   CreateRuleRequest, CreateTrustedSenderRequest, CreateUserRequest, FeatureFlagDto, GmailMerchantParserStatDto, LearningGrowthPoint, LearningPlatformStatsDto, LearningSummaryDto, SignupSourceCountDto,
@@ -1118,9 +1118,13 @@ export const adminSupportTicketApi = {
   list: (params: SupportTicketQuery) =>
     api.get<PagedResponse<SupportTicketRow>>('/admin/support/tickets', { params }).then((r) => r.data),
   get: (id: string) =>
-    api.get<SupportTicketDetail>(`/support/tickets/${id}`).then((r) => r.data),
-  updateStatus: (id: string, status: SupportTicketRow['status']) =>
-    api.patch<SupportTicketRow>(`/admin/support/tickets/${id}`, { status }).then((r) => r.data),
+    api.get<SupportTicketDetail>(`/admin/support/tickets/${id}`).then((r) => r.data),
+  // notifyCustomer/message apply only when resolving or closing: the customer is emailed (a
+  // verified address only) with the message, if any. See SupportTicketService.updateStatus.
+  updateStatus: (id: string, status: SupportTicketRow['status'], tell: { notifyCustomer: boolean; message?: string } = { notifyCustomer: false }) =>
+    api.patch<SupportTicketStatusChange>(`/admin/support/tickets/${id}`, {
+      status, notifyCustomer: tell.notifyCustomer, ...(tell.message ? { message: tell.message } : {}),
+    }).then((r) => r.data),
   // Closes the ticket as a duplicate of another ticket the SAME customer raised, and emails the
   // customer once -- see SupportTicketDuplicateService for the rules the server enforces.
   markDuplicate: (id: string, referenceTicketNumber: string) =>

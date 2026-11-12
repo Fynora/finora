@@ -1,6 +1,8 @@
 package com.finora.imports;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.dto.ImportDto.CapabilityActivation;
 import com.finora.dto.ImportDto.FinancialDocumentMetadata;
 import com.finora.entity.RegisteredLayout;
 import com.finora.entity.StatementImport;
@@ -447,12 +449,25 @@ public class LayoutIntelligenceService {
         return imports.stream().mapToInt(StatementImport::getTransactionsSkipped).average().orElse(0);
     }
 
+    /**
+     * The capability names one import recorded, sorted. The column holds DocumentContext's
+     * {@code capabilities()} as Jackson wrote it -- [{"capability":"...","status":"SUCCESS"}] --
+     * the same shape CapabilityCoverageService reads. This once read a list of plain strings, a
+     * shape no import has written, so every row with a capability failed here, the overview showed
+     * no capabilities at all, and each page view logged a stack trace per import.
+     */
     private List<String> capabilitiesOf(StatementImport si) {
-        if (si.getActivatedCapabilitiesJson() == null) return List.of();
+        String json = si.getActivatedCapabilitiesJson();
+        if (json == null || json.isBlank()) return List.of();
         try {
-            List<String> parsed = objectMapper.readValue(si.getActivatedCapabilitiesJson(),
-                    objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            return parsed.stream().sorted().toList();
+            List<CapabilityActivation> parsed =
+                    objectMapper.readValue(json, new TypeReference<List<CapabilityActivation>>() {});
+            // Distinct: the stable/unstable split counts imports per capability, so one import
+            // listing a capability twice must not count as two. An entry without a name is
+            // dropped on its own rather than failing the sort and losing the import's other ones.
+            return parsed.stream().map(CapabilityActivation::capability)
+                    .filter(name -> name != null && !name.isBlank())
+                    .distinct().sorted().toList();
         } catch (Exception e) {
             // One malformed row must not blank the whole report -- it is telemetry, not a ledger.
             log.warn("Unreadable activated capabilities on statement import {}", si.getId(), e);

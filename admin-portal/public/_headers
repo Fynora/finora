@@ -22,7 +22,7 @@
   # SPA. Same reasoning as frontend/public/_headers (this app shares the same Firebase Phone Auth
   # flow, Google Fonts link, and Sentry monitoring setup -- see src/lib/phoneAuth.ts,
   # index.html, src/lib/monitoring.ts) except it has no Brandfetch usage, so img-src stays 'self'
-  # data: with no third-party host added.
+  # data: (plus blob:, below) with no third-party host added.
   #   - script-src adds https://www.gstatic.com and https://www.google.com -- Firebase Phone
   #     Auth's invisible reCAPTCHA Enterprise widget. Both are needed: gstatic.com serves
   #     supporting assets, but the loader script itself (recaptcha/enterprise.js) is served from
@@ -49,10 +49,15 @@
   #     covered by script-src) is fetch/XHR from this page's own context, so it needs connect-src,
   #     not just frame-src/script-src -- see frontend/public/_headers' own fix for the identical
   #     gap, found via a real browser repro.
+  #   - img-src adds blob: -- the held-statement viewer (src/components/OriginalStatementViewer.tsx)
+  #     fetches each page image with the admin's token and shows it through URL.createObjectURL,
+  #     because a plain <img src> cannot send that token. Without blob: every page was blocked and
+  #     rendered as a broken image (found on its first production use). A blob: URL can only name
+  #     data this page already holds, so it adds no outside source.
   #   - frame-src allows https://www.google.com -- the reCAPTCHA challenge iframe.
   #   - frame-ancestors 'none' takes over X-Frame-Options' job (both do the same thing; setting
   #     both would just be two places to keep in sync).
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.gstatic.com https://www.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.fynora.net https://dev-api.fynora.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; frame-src https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.gstatic.com https://www.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.fynora.net https://dev-api.fynora.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.google.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io; frame-src https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Referrer-Policy: strict-origin-when-cross-origin
 

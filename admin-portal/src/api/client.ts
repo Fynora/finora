@@ -222,6 +222,13 @@ api.interceptors.response.use(
           endSessionAndRedirect(refreshError?.response?.data?.message);
           return Promise.reject(error);
         }
+      } else if (originalRequest.headers?.Authorization) {
+        // Sent with a token this tab no longer has: it signed out (the button, or the idle
+        // sign-out) while the request was out, and the backend ends the access token at logout.
+        // That sign-out already showed the sign-in page with its own reason; a redirect here would
+        // reload the page over it with a generic one. frontend/src/api/client.ts has the same
+        // branch.
+        return Promise.reject(error);
       } else {
         endSessionAndRedirect();
       }

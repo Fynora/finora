@@ -207,6 +207,26 @@ describe('api response interceptor', () => {
       .toBe('Your session has ended. Please sign in again to continue.');
   });
 
+  // A request that went out with a token, and whose 401 arrives after this tab signed out (the idle
+  // sign-out firing while a System Health poll is in flight, or the Sign out button): the backend
+  // ends the access token at logout, so the 401 is expected. The sign-out already showed the
+  // sign-in page with its own reason; this must not reload the page over it with a generic one.
+  it('leaves a 401 that arrives after this tab signed out alone', async () => {
+    refreshMock.mockReset();
+    localStorage.setItem('finora_admin_session_ended_reason', 'You were signed out after 15 minutes of inactivity.');
+    const hrefBefore = window.location.href;
+
+    await expect(rejectedHandler()({
+      response: { status: 401, data: { message: 'Unauthorized', errorCode: null } },
+      config: { url: '/admin/health', _retried: false, headers: { Authorization: 'Bearer the-signed-out-token' } },
+    })).rejects.toBeTruthy();
+
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem('finora_admin_session_ended_reason'))
+      .toBe('You were signed out after 15 minutes of inactivity.');
+    expect(window.location.href).toBe(hrefBefore);
+  });
+
   /** Bug 42-class, response-interceptor half: an unrelated endpoint must still get the normal
    *  retry-on-401 treatment even when its query string happens to contain an auth path. */
   it('still retries an unrelated endpoint on 401 even when its query string contains an auth path', async () => {

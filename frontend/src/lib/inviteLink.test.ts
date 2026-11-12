@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { inviteMessage, invitePlayLink, inviteSignupLink } from './inviteLink';
+import { inviteAppStoreLink, inviteMessage, invitePlayLink, inviteSignupLink } from './inviteLink';
+import { APP_STORE_URL } from './openInApp';
 
 describe('inviteLink', () => {
   it('builds the sign-up link with the referral code and the campaign tags', () => {
@@ -28,10 +29,16 @@ describe('inviteLink', () => {
     });
   });
 
-  it('puts both links and the code in the message', () => {
+  it('links the iPhone app at its App Store listing', () => {
+    expect(inviteAppStoreLink()).toBe(APP_STORE_URL);
+    expect(new URL(inviteAppStoreLink()).hostname).toBe('apps.apple.com');
+  });
+
+  it('puts the sign-up link, both app links and the code in the message', () => {
     const message = inviteMessage('https://app.fynora.net', 'AB12CD34');
     expect(message).toContain(inviteSignupLink('https://app.fynora.net', 'AB12CD34'));
     expect(message).toContain(invitePlayLink());
+    expect(message).toContain(`iPhone app: ${APP_STORE_URL}`);
     expect(message).toContain('My referral code: AB12CD34');
     // No reward claim in what the friend receives.
     expect(message).not.toMatch(/free|reward|earn/i);

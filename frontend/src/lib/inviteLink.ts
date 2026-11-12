@@ -1,4 +1,4 @@
-import { PLAY_STORE_URL } from './openInApp';
+import { APP_STORE_URL, PLAY_STORE_URL } from './openInApp';
 
 /**
  * What the invite-a-friend card (components/InviteFriendCard.tsx) shares: the person's own referral
@@ -15,6 +15,9 @@ import { PLAY_STORE_URL } from './openInApp';
  *    (the format is explained in lib/playStoreLink.ts). The referral code is not in it: an install
  *    referrer goes to Google, and the app does not read it. The code is in the message instead, for
  *    the Register screen's referral field.
+ *  - The iPhone link is the App Store listing, plain: Apple's campaign links need the developer
+ *    account's provider token, which this code does not have. The code in the message serves the
+ *    iPhone app's Register screen too.
  *
  * The mobile app builds the same message (mobile/src/lib/inviteLink.ts); keep the two in step.
  */
@@ -35,6 +38,11 @@ export function invitePlayLink(): string {
   return `${PLAY_STORE_URL}&referrer=${encodeURIComponent(TAGS)}`;
 }
 
+/** The App Store listing (lib/openInApp.ts). */
+export function inviteAppStoreLink(): string {
+  return APP_STORE_URL;
+}
+
 /** The whole message for a share sheet. */
 export function inviteMessage(origin: string, code: string): string {
   return [
@@ -42,6 +50,7 @@ export function inviteMessage(origin: string, code: string): string {
     '',
     `Sign up with my link: ${inviteSignupLink(origin, code)}`,
     `Or get the Android app: ${invitePlayLink()}`,
+    `Or the iPhone app: ${inviteAppStoreLink()}`,
     `My referral code: ${code}`,
   ].join('\n');
 }

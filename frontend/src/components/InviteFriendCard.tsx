@@ -13,12 +13,27 @@ type State =
   | { kind: 'copyFailed'; code: string }
   | { kind: 'shared' };
 
-function report(event: InvitePromptEvent) {
-  try {
-    void invitePromptApi.event(event).catch(() => {});
-  } catch {
-    // Measurement must never break the screen.
-  }
+/** How long a failed report waits before its one retry. */
+export const REPORT_RETRY_MS = 3000;
+
+/**
+ * Tells the server the card was shown, or what was tapped. A failed report is sent once more a few
+ * seconds later: a dropped connection should not lose a Not now, or the card comes back sooner than
+ * promised. A repeat is safe -- the server treats it as the same event (a same-day SHOWN is one
+ * showing, Share keeps its first day, Not now its latest). Never throws: measurement must never
+ * break the screen.
+ */
+export function reportInviteEvent(event: InvitePromptEvent) {
+  const send = () => {
+    try {
+      return invitePromptApi.event(event);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  };
+  void send().catch(() => {
+    setTimeout(() => { void send().catch(() => {}); }, REPORT_RETRY_MS);
+  });
 }
 
 /** A share sheet the person closed without picking anything rejects with AbortError. */
@@ -59,7 +74,7 @@ export function InviteFriendCard({ statementImportIds }: { statementImportIds: s
         setState({ kind: 'shown', code: mine.code });
         if (reportedFor.current !== idsKey) {
           reportedFor.current = idsKey;
-          report('SHOWN');
+          reportInviteEvent('SHOWN');
         }
       })
       .catch(() => {});
@@ -80,7 +95,7 @@ export function InviteFriendCard({ statementImportIds }: { statementImportIds: s
   const link = inviteSignupLink(window.location.origin, code);
 
   async function share() {
-    report('SHARE_TAPPED');
+    reportInviteEvent('SHARE_TAPPED');
     if (typeof navigator.share === 'function') {
       try {
         await navigator.share({ title: 'Fynora', text: inviteMessage(window.location.origin, code) });
@@ -102,7 +117,7 @@ export function InviteFriendCard({ statementImportIds }: { statementImportIds: s
   }
 
   function notNow() {
-    report('DISMISSED');
+    reportInviteEvent('DISMISSED');
     setState({ kind: 'hidden' });
   }
 

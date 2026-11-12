@@ -36,6 +36,9 @@ env:
 - tapOn:
     id: "login-submit"
 
+# Every signed-in phone sets a PIN before anything else (PinSetup.tsx, #2514); see the subflow.
+- runFlow: ../subflows/set-pin.yaml
+
 # Passbook redesign (#1318, 2026-09-10) reordered the whole Dashboard screen -- the "Import a
 # statement" empty-state action (Recent Transactions' own EmptyState, for this still-zero-
 # transaction account) used to sit above the fold and needed no scroll of its own, but now sits

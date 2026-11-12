@@ -289,6 +289,7 @@ public class DataExportService {
     private final com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     private final com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     private final com.finora.repository.SignupAttributionRepository signupAttributionRepository;
+    private final com.finora.invite.InvitePromptRepository invitePromptRepository;
     private final com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository;
     private final com.finora.notification.repository.NotificationPreferenceChangeRepository notificationPreferenceChangeRepository;
     private final com.finora.repository.AiInsightTextRepository aiInsightTextRepository;
@@ -343,6 +344,7 @@ public class DataExportService {
                               com.finora.activation.ActivationAnswerRepository activationAnswerRepository,
                               com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository,
                               com.finora.repository.SignupAttributionRepository signupAttributionRepository,
+                              com.finora.invite.InvitePromptRepository invitePromptRepository,
                               com.finora.repository.AiInsightTextRepository aiInsightTextRepository,
                               com.finora.people.PeopleData peopleData,
                               StatementContentService statementContentService,
@@ -368,6 +370,7 @@ public class DataExportService {
         this.activationAnswerRepository = activationAnswerRepository;
         this.insightAcknowledgementRepository = insightAcknowledgementRepository;
         this.signupAttributionRepository = signupAttributionRepository;
+        this.invitePromptRepository = invitePromptRepository;
         this.termsAcceptanceRepository = termsAcceptanceRepository;
         this.notificationPreferenceChangeRepository = notificationPreferenceChangeRepository;
         this.aiInsightTextRepository = aiInsightTextRepository;
@@ -542,6 +545,14 @@ public class DataExportService {
                         .map(a -> new com.finora.dto.DataExportDto.SignupAttributionExportDto(
                                 a.getReferrerHost(), a.getUtmSource(), a.getUtmMedium(), a.getUtmCampaign(),
                                 a.getUtmContent(), a.getLandingPath(), a.getCreatedAt()))
+                        .toList();
+        // V315: the invite-a-friend card's record, in the purge scope, so exported. One row at most;
+        // none when the card was never shown.
+        List<com.finora.dto.DataExportDto.InvitePromptExportDto> invitePrompt =
+                invitePromptRepository.findById(userId).stream()
+                        .map(p -> new com.finora.dto.DataExportDto.InvitePromptExportDto(
+                                p.getTimesShown(), isoDate(p.getLastShownOn()), isoDate(p.getSharedOn()),
+                                isoDate(p.getDismissedOn())))
                         .toList();
         // V302: every acceptance of the Terms and Privacy Policy -- a record about the user, so
         // theirs to see (the AI features answer itself is in profile.json).
@@ -854,7 +865,7 @@ public class DataExportService {
                 paymentExports, subscriptionOrderExports, referrals, referralCode, referralRewards, wallet,
                 notifications, notificationPreferences, timeline, transactionLinks, statementExcludedRows,
                 merchantCategoryVotes, statementRefreshRuns, activityDays, spendingTracking, importFunnelDays,
-                activationAnswers, insightAcknowledgements, signupSource, aiInsights, sharedPayments,
+                activationAnswers, insightAcknowledgements, signupSource, invitePrompt, aiInsights, sharedPayments,
                 termsAcceptances, notificationPreferenceHistory, suspensionOf(user));
     }
 
@@ -939,6 +950,7 @@ public class DataExportService {
             writeJsonEntry(zos, "activation_answers.json", bundle.activationAnswers());
             writeJsonEntry(zos, "insight_acknowledgements.json", bundle.insightAcknowledgements());
             writeJsonEntry(zos, "signup_source.json", bundle.signupSource());
+            writeJsonEntry(zos, "invite_prompt.json", bundle.invitePrompt());
             writeJsonEntry(zos, "ai_insights.json", bundle.aiInsights());
             writeJsonEntry(zos, "shared_payments.json", bundle.sharedPayments());
             writeJsonEntry(zos, "terms_acceptances.json", bundle.termsAcceptances());
@@ -1095,6 +1107,7 @@ public class DataExportService {
                 new ManifestEntry("activation_answers.json", "Your answers when Fynora asked what stopped you, with the date only.", bundle.activationAnswers().size()),
                 new ManifestEntry("insight_acknowledgements.json", "The Insights notes you marked \"Got it\", so the app stops showing them.", bundle.insightAcknowledgements().size()),
                 new ManifestEntry("signup_source.json", "Where the website visit that ended in your sign-up came from: the referring site's name, the campaign tags on the link and the first Fynora page you landed on (its address only), if any.", bundle.signupSource().size()),
+                new ManifestEntry("invite_prompt.json", "Whether Fynora showed you the invite-a-friend card after an import: how many times, the last date it was shown, and the date you tapped Share or Not now, if you did. Dates only, and nothing about anyone you shared with.", bundle.invitePrompt().size()),
                 new ManifestEntry("ai_insights.json", "The AI-written month stories and \"Why?\" answers on your Insights, and the thumbs up or down you gave them.", bundle.aiInsights().size()),
                 new ManifestEntry("shared_payments.json", "Shares of bills you linked, split rules, money you lent or borrowed, the people you marked as family, and the UPI id you gave for payment requests.", bundle.sharedPayments().size()),
                 new ManifestEntry("terms_acceptances.json", "Each time you agreed to the Terms of Service and Privacy Policy: the version, when, from which app, and whether you ticked the box or continued past the earlier notice.", bundle.termsAcceptances().size()),
@@ -1171,6 +1184,10 @@ public class DataExportService {
      *  each statement's bytes ({@code id()}/{@code fileName()}) -- a separate entity list is no
      *  longer carried alongside it (removed in the same fix that made {@code buildBundle} stop
      *  loading full {@code StatementImport} entities at all; see this class's own doc comment). */
+    private static String isoDate(java.time.LocalDate day) {
+        return day == null ? null : day.toString();
+    }
+
     public record ExportBundle(
             UUID userId, String email,
             List<AccountExportEntry> accounts, List<TransactionDto> transactions, List<BudgetDto> budgets,
@@ -1208,6 +1225,7 @@ public class DataExportService {
             List<com.finora.dto.DataExportDto.ActivationAnswerExportDto> activationAnswers,
             List<com.finora.dto.DataExportDto.InsightAcknowledgementExportDto> insightAcknowledgements,
             List<com.finora.dto.DataExportDto.SignupAttributionExportDto> signupSource,
+            List<com.finora.dto.DataExportDto.InvitePromptExportDto> invitePrompt,
             List<com.finora.dto.DataExportDto.AiInsightTextExportDto> aiInsights,
             com.finora.people.PeopleData.PeopleExport sharedPayments,
             List<com.finora.dto.DataExportDto.TermsAcceptanceExportDto> termsAcceptances,

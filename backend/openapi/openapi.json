@@ -3585,6 +3585,36 @@
                 }
             }
         },
+        "/api/v1/invite-prompt/events": {
+            "post": {
+                "tags": [
+                    "invite-prompt-controller"
+                ],
+                "operationId": "event",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InvitePromptEventRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseVoid"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/setu/links": {
             "get": {
                 "tags": [
@@ -10502,6 +10532,40 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseNetWorthDto"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/invite-prompt": {
+            "get": {
+                "tags": [
+                    "invite-prompt-controller"
+                ],
+                "operationId": "check",
+                "parameters": [
+                    {
+                        "name": "statementImportIds",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseInvitePromptResponse"
                                 }
                             }
                         }
@@ -19821,6 +19885,22 @@
                     }
                 }
             },
+            "InvitePromptEventRequest": {
+                "type": "object",
+                "properties": {
+                    "event": {
+                        "type": "string",
+                        "enum": [
+                            "SHOWN",
+                            "SHARE_TAPPED",
+                            "DISMISSED"
+                        ]
+                    }
+                },
+                "required": [
+                    "event"
+                ]
+            },
             "InitiateLinkRequest": {
                 "type": "object",
                 "properties": {
@@ -27167,6 +27247,45 @@
                     "totalCount": {
                         "type": "integer",
                         "format": "int32"
+                    }
+                }
+            },
+            "ApiResponseInvitePromptResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/InvitePromptResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "InvitePromptResponse": {
+                "type": "object",
+                "properties": {
+                    "show": {
+                        "type": "boolean"
+                    },
+                    "shownRecently": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -35798,6 +35917,23 @@
                     }
                 }
             },
+            "ActivationInvitePrompt": {
+                "type": "object",
+                "properties": {
+                    "shown": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "shareTapped": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "notNow": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
             "ActivationLandingPathRow": {
                 "type": "object",
                 "properties": {
@@ -36029,6 +36165,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ActivationReleaseMarker"
                         }
+                    },
+                    "invitePrompt": {
+                        "$ref": "#/components/schemas/ActivationInvitePrompt"
                     }
                 }
             },

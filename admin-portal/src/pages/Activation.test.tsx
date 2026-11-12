@@ -533,6 +533,29 @@ describe('Activation', () => {
     expect(within(table).getByText('2')).toBeInTheDocument();
   });
 
+  // V315: the invite-a-friend card after a first import, in people.
+  it('shows how many people saw the invite card and what they tapped', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ invitePrompt: { shown: 8, shareTapped: 2, notNow: 5 } }));
+    renderPage();
+
+    const table = await screen.findByRole('table', { name: 'Invite card after a first import' });
+    expect(within(table).getByText('8')).toBeInTheDocument();
+    expect(within(table).getByText('2 (25%)')).toBeInTheDocument();
+    expect(within(table).getByText('5 (63%)')).toBeInTheDocument();
+  });
+
+  it('says when nobody has seen the invite card, and shows nothing from an older backend', async () => {
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report({ invitePrompt: { shown: 0, shareTapped: 0, notNow: 0 } }));
+    const { unmount } = renderPage();
+    expect(await screen.findByText('Nobody has been shown the invite card yet.')).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(adminActivationApi.report).mockResolvedValue(report());
+    renderPage();
+    await screen.findByRole('table', { name: 'Month-start nudges by month' });
+    expect(screen.queryByText('Invite card after a first import')).not.toBeInTheDocument();
+  });
+
   it('says when no month-start nudge has been sent', async () => {
     vi.mocked(adminActivationApi.report).mockResolvedValue(report({ monthStartNudges: [] }));
     renderPage();

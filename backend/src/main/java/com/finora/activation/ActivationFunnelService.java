@@ -182,7 +182,24 @@ public class ActivationFunnelService {
                 secondImport(users.values()),
                 monthStartNudges(),
                 reached(users.values(), funnelGoLive),
-                releaseMarkers(markers(), users.values(), reportingDay.today()));
+                releaseMarkers(markers(), users.values(), reportingDay.today()),
+                invitePrompt());
+    }
+
+    /** V315: people shown the invite card, who tapped Share, who tapped Not now -- counted users only,
+     *  the same filter as {@link #monthStartNudges}. */
+    private ActivationReportDto.InvitePrompt invitePrompt() {
+        return jdbc.queryForObject("""
+                SELECT count(*) FILTER (WHERE p.times_shown > 0) AS shown,
+                       count(p.shared_on) AS share_tapped,
+                       count(p.dismissed_on) AS not_now
+                  FROM invite_prompts p
+                  JOIN users u ON u.id = p.user_id
+                 WHERE u.account_scope = 'USER'
+                   AND u.internal_account = false
+                   AND u.status NOT IN ('PENDING_DELETION', 'DELETED')
+                """, (rs, i) -> new ActivationReportDto.InvitePrompt(rs.getLong("shown"), rs.getLong("share_tapped"),
+                        rs.getLong("not_now")));
     }
 
     /** A stored release marker (V303). */

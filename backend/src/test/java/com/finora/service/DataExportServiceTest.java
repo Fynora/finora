@@ -137,6 +137,8 @@ class DataExportServiceTest {
             mock(com.finora.repository.InsightAcknowledgementRepository.class);
     private final com.finora.repository.SignupAttributionRepository signupAttributionRepository =
             mock(com.finora.repository.SignupAttributionRepository.class);
+    private final com.finora.invite.InvitePromptRepository invitePromptRepository =
+            mock(com.finora.invite.InvitePromptRepository.class);
     private final com.finora.repository.UserTermsAcceptanceRepository termsAcceptanceRepository =
             mock(com.finora.repository.UserTermsAcceptanceRepository.class);
     private final com.finora.notification.repository.NotificationPreferenceChangeRepository notificationPreferenceChangeRepository =
@@ -332,7 +334,7 @@ class DataExportServiceTest {
                 accountAggregatorLinkRepository, userMerchantCategoryResolutionRepository,
                 inflowKindRepository, senderInflowRuleRepository, objectMapper,
                 mock(com.finora.repository.StatementPasswordRepository.class), featureViewCountRepository,
-paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, aiInsightTextRepository, peopleData,
+paymentRepository, subscriptionOrderRepository, referralRepository, referralCodeRepository, referralGrantRepository, walletLedgerRepository, notificationRepository, notificationPreferenceRepository, timelineEventRepository, transactionRelationshipRepository, statementImportExcludedRowRepository, counterpartyCategoryObservationRepository, statementRefreshRunRepository, userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, invitePromptRepository, aiInsightTextRepository, peopleData,
                 statementContentService, termsAcceptanceRepository, notificationPreferenceChangeRepository);
     }
 
@@ -437,6 +439,26 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 .contains("news.example.org").contains("article").contains("/help");
         String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
         assertThat(manifest).contains("signup_source.json");
+    }
+
+    /** V315: the invite-a-friend card's record is the user's own data, in the purge scope, so it is
+     *  exported, dates only. */
+    @Test
+    void writeZip_exportsTheInvitePrompt() throws IOException {
+        com.finora.invite.InvitePrompt row = entity(com.finora.invite.InvitePrompt.class,
+                "userId", userId, "timesShown", (short) 1, "lastShownOn", java.time.LocalDate.of(2026, 11, 12),
+                "sharedOn", null, "dismissedOn", java.time.LocalDate.of(2026, 11, 12));
+        when(invitePromptRepository.findById(userId)).thenReturn(Optional.of(row));
+
+        DataExportService.ExportBundle bundle = service.buildBundle(userId, "correct-password", null, null);
+
+        assertThat(bundle.invitePrompt()).singleElement().isEqualTo(
+                new com.finora.dto.DataExportDto.InvitePromptExportDto(1, "2026-11-12", null, "2026-11-12"));
+        Map<String, byte[]> entries = writeZipAndReadEntries(bundle);
+        assertThat(new String(entries.get("invite_prompt.json"), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("2026-11-12").contains("notNowTappedOn");
+        String manifest = new String(entries.get("manifest.json"), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(manifest).contains("invite_prompt.json");
     }
 
     @Test
@@ -1229,7 +1251,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 b.subscriptionOrders(), b.referrals(), b.referralCode(), b.referralRewards(), b.wallet(),
                 b.notifications(), b.notificationPreferences(), b.timeline(), b.transactionLinks(),
                 b.statementExcludedRows(), b.merchantCategoryVotes(), b.statementRefreshRuns(), b.activityDays(),
-                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances(), b.notificationPreferenceHistory(), b.suspension());
+                b.spendingTracking(), b.importFunnelDays(), b.activationAnswers(), b.insightAcknowledgements(), b.signupSource(), b.invitePrompt(), b.aiInsights(), b.sharedPayments(), b.termsAcceptances(), b.notificationPreferenceHistory(), b.suspension());
     }
 
     private ImportJob job(String fileName, String contentHash, String objectKey) {
@@ -1959,6 +1981,7 @@ paymentRepository, subscriptionOrderRepository, referralRepository, referralCode
                 Map.entry("activationAnswerRepository.deleteByUserId", "activation_answers.json"),
                 Map.entry("insightAcknowledgementRepository.deleteByUserId", "insight_acknowledgements.json"),
                 Map.entry("signupAttributionRepository.deleteByUserId", "signup_source.json"),
+                Map.entry("invitePromptRepository.deleteByUserId", "invite_prompt.json"),
                 Map.entry("peopleData.deleteByUserId", "shared_payments.json"),
                 Map.entry("statementAnalysisSessionRepository.anonymizeByUserId", "statement_analysis_sessions"));
 

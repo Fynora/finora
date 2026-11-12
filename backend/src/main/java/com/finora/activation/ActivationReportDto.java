@@ -40,8 +40,19 @@ public record ActivationReportDto(
          *  step before. The same people as {@code weeks}, summed. */
         Reached reached,
         /** V303: release markers, oldest first, each with the signups either side of it compared. */
-        List<ReleaseMarker> releaseMarkers
+        List<ReleaseMarker> releaseMarkers,
+        /** V315: the invite-a-friend card after a first import, in people. */
+        InvitePrompt invitePrompt
 ) {
+    /**
+     * The invite-a-friend card after a first import (V315), counted users only (USER scope, not
+     * internal, not deleted): how many people were shown it, how many tapped Share, and how many
+     * tapped Not now (one person can be in both, over two showings). People, never who. Sign-ups
+     * that came through a shared web link show in {@code bySource} as utm_source friend_invite.
+     */
+    @Schema(name = "ActivationInvitePrompt")
+    public record InvitePrompt(long shown, long shareTapped, long notNow) {}
+
     /**
      * A dated event an admin marked on the page, such as "Gate 2b live". {@code before} and
      * {@code after} compare the signups either side over windows of the same number of days:

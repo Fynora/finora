@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldImports from './HeldImports';
 import { useAdminAuth } from '../context/AdminAuthContext';
@@ -68,12 +68,18 @@ const heldDetail: HeldImportDetail = {
   objectKey: 'statements/11/22/112233.bin',
 };
 
-function renderPage() {
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
+function renderPage(entry = '/held-imports') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <HeldImports />
+        <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -524,5 +530,56 @@ describe('HeldImports', () => {
 
     expect(await screen.findByText('3')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
+  });
+});
+
+describe('HeldImports — opened from a hold email', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(adminHeldImportApi.summary).mockResolvedValue({ held: 1, reprocessing: 0 });
+    vi.mocked(adminHeldImportApi.list).mockResolvedValue({
+      content: [heldRow], page: 0, size: 25, totalElements: 1, totalPages: 1,
+    });
+    vi.mocked(adminHeldImportApi.get).mockResolvedValue(heldDetail);
+    vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: false });
+    mockAuth(['IMPORT_TRIAGE_MANAGE']);
+  });
+
+  it('opens that hold\'s details straight away, and brings them into view', async () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderPage(`/held-imports?job=${heldRow.id}`);
+
+      const panel = await screen.findByTestId('held-import-panel');
+      expect(adminHeldImportApi.get).toHaveBeenCalledWith(heldRow.id);
+      expect(await within(panel).findByText('hdfc-june.pdf')).toBeInTheDocument();
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('keeps the open hold in the address, and clears it on close', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Details' }));
+    expect(screen.getByTestId('location')).toHaveTextContent(`/held-imports?job=${heldRow.id}`);
+    fireEvent.click(within(await screen.findByTestId('held-import-panel')).getByRole('button', { name: 'Close' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/held-imports$/);
+    expect(screen.queryByTestId('held-import-panel')).not.toBeInTheDocument();
+  });
+
+  it('says why when the linked hold cannot be opened', async () => {
+    vi.mocked(adminHeldImportApi.get).mockRejectedValue({
+      response: { data: { message: 'This import is no longer held for review.' } },
+    });
+
+    renderPage('/held-imports?job=33333333-3333-3333-3333-333333333333');
+
+    expect(await screen.findByText("Couldn't load this held import: This import is no longer held for review."))
+      .toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ import { setupApi } from '../api/endpoints';
 import { ADMIN_SESSION_ENDED_REASON_KEY } from '../api/client';
 import { AUTH_MFA_REQUIRED } from '../api/errorCodes';
 import { safeStorage } from '../lib/safeStorage';
+import { safeReturnPath } from '../lib/returnTo';
 
 /**
  * The only two post-login destinations that exist today. Deliberately a plain function over a
@@ -17,14 +18,18 @@ import { safeStorage } from '../lib/safeStorage';
  * see docs/adr/0001-administrator-verification-strategy.md -- at which point a real NextStep
  * union (dashboard | verify-phone | verify-totp | enroll-totp | ...) earns its keep.
  */
-function nextRouteFor(phoneVerified: boolean): '/' | '/verify-phone' {
-  return phoneVerified ? '/' : '/verify-phone';
+/** Phone verification first when it is pending; otherwise the page the admin set out to open
+ *  (`?next=`, see lib/returnTo.ts), or the dashboard. */
+function nextRouteFor(phoneVerified: boolean, next: string | null): string {
+  if (!phoneVerified) return '/verify-phone';
+  return next ?? '/';
 }
 
 export default function Login() {
   const { token, phoneVerified, login, completeMfaChallenge } = useAdminAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const next = safeReturnPath(new URLSearchParams(location.search).get('next'));
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +82,7 @@ export default function Login() {
   // Already signed in (e.g. hit /login directly with a valid session) -- bounce straight to the
   // dashboard, UNLESS verification is still pending, in which case that's genuinely where this
   // session needs to go next rather than a dashboard it can't actually load permissions for.
-  if (token) return <Navigate to={nextRouteFor(phoneVerified)} replace />;
+  if (token) return <Navigate to={nextRouteFor(phoneVerified, next)} replace />;
 
   if (checkingSetup) {
     return (
@@ -93,7 +98,7 @@ export default function Login() {
     setSubmitting(true);
     try {
       const verified = await login(identifier, password);
-      void navigate(nextRouteFor(verified));
+      void navigate(nextRouteFor(verified, next));
     } catch (err: any) {
       // AUTH_MFA_REQUIRED: the password was correct, but this account has MFA enabled -- not a
       // failure to display, a second step to start. The challenge token travels in `details`
@@ -122,7 +127,7 @@ export default function Login() {
     setSubmitting(true);
     try {
       const verified = await completeMfaChallenge(mfaChallengeToken, mfaCode.trim());
-      void navigate(nextRouteFor(verified));
+      void navigate(nextRouteFor(verified, next));
     } catch (err: any) {
       setMfaError(err?.message ?? "That code didn't work. Check your authenticator app and try again.");
     } finally {

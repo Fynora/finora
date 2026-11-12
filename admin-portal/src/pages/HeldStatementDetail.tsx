@@ -9,6 +9,7 @@ import { adminBlankedCopyApi, adminHeldStatementApi } from '../api/endpoints';
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
 import ClaudeFixLine from '../components/ClaudeFixLine';
 import OpeningReasonDialog from '../components/OpeningReasonDialog';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import OriginalStatementViewer from '../components/OriginalStatementViewer';
 import { BALANCE_MISMATCH_KEYS, BalanceMismatchList, balanceMismatchShapes } from '../components/BalanceMismatchList';
 import { formatWhen } from '../lib/formatWhen';
@@ -137,6 +138,9 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
   const [approveNote, setApproveNote] = useState('');
   const [markFalsePositive, setMarkFalsePositive] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  // Approve and Reject both tell the customer at once and cannot be taken back, so each asks first:
+  // on a phone a stray tap is easy.
+  const [confirmingDecision, setConfirmingDecision] = useState<'approve' | 'reject' | null>(null);
   const [reopenReason, setReopenReason] = useState('');
   const [engineerIdInput, setEngineerIdInput] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
@@ -207,11 +211,13 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
         heldId, approveNote || undefined, markFalsePositive || undefined),
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
+    onSettled: () => setConfirmingDecision(null),
   });
   const reject = useMutation({
     mutationFn: () => adminHeldStatementApi.reject(heldId, rejectReason || undefined),
     onSuccess: () => { setActionError(null); invalidate(); },
     onError,
+    onSettled: () => setConfirmingDecision(null),
   });
   const reopen = useMutation({
     mutationFn: () => adminHeldStatementApi.reopen(heldId, reopenReason || undefined),
@@ -349,6 +355,20 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
 
       <ClaudeFixLine fix={detail.data?.claudeFix} />
 
+      {confirmingDecision && (
+        <ConfirmDialog
+          title={confirmingDecision === 'approve' ? `Approve ${summary.heldId}?` : `Reject ${summary.heldId}?`}
+          message={confirmingDecision === 'approve'
+            ? 'The rows go to the customer\'s confirm step, and they are told their statement is ready.'
+            : 'The statement is not imported, and the customer is told so (not if they have uploaded it again).'}
+          confirmLabel={confirmingDecision === 'approve' ? 'Approve' : 'Reject'}
+          danger={confirmingDecision === 'reject'}
+          busy={approve.isPending || reject.isPending}
+          onConfirm={() => (confirmingDecision === 'approve' ? approve.mutate() : reject.mutate())}
+          onCancel={() => setConfirmingDecision(null)}
+        />
+      )}
+
       {/* Trigger evidence */}
       <section className="bg-card border border-border rounded-xl2 p-6 space-y-3">
         <h3 className="text-sm font-semibold text-ink">Why this fired</h3>
@@ -384,6 +404,92 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
           )}
         </section>
       )}
+
+      {/* Resolution: right after the evidence (why it fired, the staged rows), so a decision made on a
+          phone needs no scrolling past the engineering tools below. */}
+      <section className="bg-card border border-border rounded-xl2 p-4 sm:p-6 space-y-4" data-testid="resolve-section">
+        <h3 className="text-sm font-semibold text-ink">Resolve</h3>
+        {resolved && (
+          <p className="text-xs text-muted">
+            This hold was already {summary.status.replace(/_/g, ' ')}; it cannot be resolved again.
+          </p>
+        )}
+        {!resolved && (
+          <p className="text-xs text-muted" data-testid="decision-notice">
+            The user is told either way, by push and email unless they have turned these
+            notifications off: Approve says their statement is ready, Reject says it wasn&apos;t
+            imported (not sent if they have uploaded it again). Notes and reasons stay internal.
+          </p>
+        )}
+        {summary.status === 'REJECTED' && (
+          <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
+            <p className="text-xs text-muted">
+              Reopen it to read the statement again once its parser fix is live: it goes back to the
+              open queue, and the user&apos;s import shows &quot;we&apos;re double-checking this statement&quot; again.
+              Re-run the parser before approving.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="Reason (optional)…"
+                className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink"
+              />
+              <button
+                type="button"
+                onClick={() => reopen.mutate()}
+                disabled={busy}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink disabled:opacity-50"
+              >
+                Reopen
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={approveNote}
+            onChange={(e) => setApproveNote(e.target.value)}
+            placeholder="Note (optional)…"
+            disabled={resolved}
+            className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-2.5 sm:py-1.5 text-sm text-ink disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={() => setConfirmingDecision('approve')}
+            disabled={busy || resolved}
+            className="rounded-lg bg-primary px-4 py-2.5 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
+          >
+            Approve
+          </button>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={markFalsePositive}
+            onChange={(e) => setMarkFalsePositive(e.target.checked)}
+            disabled={resolved}
+          />
+          Mark as false positive — the trust predicate flagged this, but the extraction was actually fine
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Internal reason (optional)…"
+            disabled={resolved}
+            className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-2.5 sm:py-1.5 text-sm text-ink disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={() => setConfirmingDecision('reject')}
+            disabled={busy || resolved}
+            className="rounded-lg border border-danger text-danger px-4 py-2.5 sm:px-3 sm:py-1.5 text-sm sm:text-xs font-medium disabled:opacity-50"
+          >
+            Reject
+          </button>
+        </div>
+      </section>
 
       {/* Extraction snapshot */}
       <section className="bg-card border border-border rounded-xl2 p-6">
@@ -570,91 +676,6 @@ function HeldStatementDetailContent({ heldId }: { heldId: string }) {
             className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-ink disabled:opacity-50"
           >
             {saveFindings.isPending ? 'Saving…' : 'Save findings'}
-          </button>
-        </div>
-      </section>
-
-      {/* Resolution */}
-      <section className="bg-card border border-border rounded-xl2 p-6 space-y-4">
-        <h3 className="text-sm font-semibold text-ink">Resolve</h3>
-        {resolved && (
-          <p className="text-xs text-muted">
-            This hold was already {summary.status.replace(/_/g, ' ')}; it cannot be resolved again.
-          </p>
-        )}
-        {!resolved && (
-          <p className="text-xs text-muted" data-testid="decision-notice">
-            The user is told either way, by push and email unless they have turned these
-            notifications off: Approve says their statement is ready, Reject says it wasn&apos;t
-            imported (not sent if they have uploaded it again). Notes and reasons stay internal.
-          </p>
-        )}
-        {summary.status === 'REJECTED' && (
-          <div className="space-y-2 rounded-lg border border-border p-3" data-testid="reopen-panel">
-            <p className="text-xs text-muted">
-              Reopen it to read the statement again once its parser fix is live: it goes back to the
-              open queue, and the user&apos;s import shows &quot;we&apos;re double-checking this statement&quot; again.
-              Re-run the parser before approving.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={reopenReason}
-                onChange={(e) => setReopenReason(e.target.value)}
-                placeholder="Reason (optional)…"
-                className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink"
-              />
-              <button
-                type="button"
-                onClick={() => reopen.mutate()}
-                disabled={busy}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink disabled:opacity-50"
-              >
-                Reopen
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={approveNote}
-            onChange={(e) => setApproveNote(e.target.value)}
-            placeholder="Note (optional)…"
-            disabled={resolved}
-            className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={() => approve.mutate()}
-            disabled={busy || resolved}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-dark disabled:opacity-50"
-          >
-            Approve
-          </button>
-        </div>
-        <label className="flex items-center gap-2 text-xs text-muted">
-          <input
-            type="checkbox"
-            checked={markFalsePositive}
-            onChange={(e) => setMarkFalsePositive(e.target.checked)}
-            disabled={resolved}
-          />
-          Mark as false positive — the trust predicate flagged this, but the extraction was actually fine
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Internal reason (optional)…"
-            disabled={resolved}
-            className="flex-1 min-w-[16rem] rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-ink disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={() => reject.mutate()}
-            disabled={busy || resolved}
-            className="rounded-lg border border-danger text-danger px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          >
-            Reject
           </button>
         </div>
       </section>

@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -46,8 +46,9 @@ public class HeldItemAdminAlertService {
     private static final String IMPORT_TRIAGE_MANAGE = "IMPORT_TRIAGE_MANAGE";
     private static final String TRUST_REVIEW_MANAGE = "TRUST_REVIEW_MANAGE";
 
+    /** IST, as the admin portal shows every time: these emails are read on a phone, in India. */
     private static final DateTimeFormatter TIMESTAMP_FORMAT =
-            DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm 'UTC'", Locale.ENGLISH).withZone(ZoneOffset.UTC);
+            DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm 'IST'", Locale.ENGLISH).withZone(ZoneId.of("Asia/Kolkata"));
 
     private final UserRepository userRepository;
     private final ImportJobRepository importJobRepository;
@@ -93,8 +94,9 @@ public class HeldItemAdminAlertService {
                 + "<li><strong>Failure code:</strong> " + escape(job.getFailureCode()) + "</li>"
                 + "<li><strong>Reason:</strong> " + escape(job.getLastError()) + "</li>"
                 + "<li><strong>Held at:</strong> " + escape(formatTimestamp(job.getFinishedAt())) + "</li>"
+                + answerByLine(job.getFinishedAt())
                 + "</ul>"
-                + "<p><a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a></p>";
+                + "<p><a href=\"" + heldImportLink(job.getId()) + "\">Open this held import</a></p>";
         sendToRecipients(IMPORT_TRIAGE_MANAGE, subject, html);
     }
 
@@ -122,6 +124,7 @@ public class HeldItemAdminAlertService {
                 + bankLine
                 + "<li><strong>Reason:</strong> " + escape(held.getTriggerSummary()) + "</li>"
                 + "<li><strong>Held at:</strong> " + escape(formatTimestamp(held.getCreatedAt())) + "</li>"
+                + answerByLine(holdClockStart(held))
                 + "</ul>"
                 + "<p><a href=\"" + adminBaseUrl() + "/held-statements/" + escape(held.getHeldId())
                 + "\">Open this held statement</a></p>";
@@ -136,7 +139,7 @@ public class HeldItemAdminAlertService {
      * escalation marking it and this send makes the nudge moot. A trust hold names its review
      * ({@code heldId}, as {@link #alertTrustReviewHeld} does) and links to it; one held with no
      * review record links to the held-statements queue, where those are listed; an import hold
-     * names its file, as {@link #alertImportHeld} does, and links to the held-imports queue.
+     * names its file, as {@link #alertImportHeld} does, and links to that hold on the held-imports page.
      */
     public void alertHoldOverdue(UUID jobId) {
         Optional<ImportJob> found = importJobRepository.findById(jobId);
@@ -185,7 +188,7 @@ public class HeldItemAdminAlertService {
                             + "<li><strong>Held since:</strong> " + heldAt + "</li>"
                             + claudeLine
                             + "</ul>"
-                            + "<p><a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a></p>");
+                            + "<p><a href=\"" + heldImportLink(job.getId()) + "\">Open this held import</a></p>");
             default -> log.info("Overdue-hold alert for import job {} not sent: it is {} now, no longer held",
                     jobId, job.getStatus());
         }
@@ -222,8 +225,8 @@ public class HeldItemAdminAlertService {
      *
      * <p>Re-reads the view by id, as the other alerts re-read their item, so it is safe to call
      * after the opening's transaction has committed. The reason is passed in: the view row does not
-     * keep it (V271); the audit entry does. An import hold links to the held-imports queue
-     * (the portal has no page per held import) and names the job; a trust hold links to its own page.
+     * keep it (V271); the audit entry does. An import hold links to its details on the held-imports
+     * page ({@code ?job=}) and names the job; a trust hold links to its own page.
      */
     public void alertOriginalOpened(UUID viewId, String reason) {
         Optional<StatementOriginalView> found = originalViewRepository.findById(viewId);
@@ -241,7 +244,8 @@ public class HeldItemAdminAlertService {
         String link = trust
                 ? "<a href=\"" + adminBaseUrl() + "/held-statements/" + escape(view.getItemRef())
                         + "\">Open this held statement</a>"
-                : "<a href=\"" + adminBaseUrl() + "/held-imports\">Open the held-imports queue</a>";
+                : "<a href=\"" + adminBaseUrl() + "/held-imports?job=" + escape(view.getItemRef())
+                        + "\">Open this held import</a>";
         // A trust hold's staged rows are the statement's content as much as its pages are (V273);
         // the email says which was opened.
         String subject = (rows ? "A held statement's rows were opened — " : "A held statement was opened — ")
@@ -376,6 +380,28 @@ public class HeldItemAdminAlertService {
      *  kills the whole alert (the exact bug this guard fixes). */
     private static String formatTimestamp(Instant instant) {
         return instant == null ? "unknown" : TIMESTAMP_FORMAT.format(instant);
+    }
+
+    /** The held-imports page opens this one hold's details from {@code ?job=}. */
+    private String heldImportLink(UUID jobId) {
+        return adminBaseUrl() + "/held-imports?job=" + jobId;
+    }
+
+    /**
+     * When the customer was promised an answer: the hold's start plus {@link ImportJob#HOLD_PROMISE},
+     * the same clock {@code ImportJob.isHoldOverdue} and the overdue escalation use. Left out when
+     * the start is unknown rather than guessed.
+     */
+    private static String answerByLine(Instant holdStart) {
+        if (holdStart == null) return "";
+        return "<li><strong>Customer told to expect an answer by:</strong> "
+                + escape(formatTimestamp(holdStart.plus(ImportJob.HOLD_PROMISE))) + "</li>";
+    }
+
+    /** A trust hold's promise clock is its import job's ({@code finishedAt}, set on every entry into a hold). */
+    private Instant holdClockStart(HeldStatement held) {
+        if (held.getImportJobId() == null) return null;
+        return importJobRepository.findById(held.getImportJobId()).map(ImportJob::getFinishedAt).orElse(null);
     }
 
     private void sendToRecipients(String permissionName, String subject, String html) {

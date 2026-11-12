@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { Link, MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import HeldStatementDetail from './HeldStatementDetail';
@@ -343,9 +343,54 @@ describe('HeldStatementDetail', () => {
 
     fireEvent.click(screen.getByLabelText(/mark as false positive/i));
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Approve' }));
 
     await waitFor(() => expect(adminHeldStatementApi.approve)
       .toHaveBeenCalledWith('HLD-2026-100001', undefined, true));
+  });
+
+  it('asks before approving, and approving nothing when cancelled', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Approve HLD-2026-100001?');
+    expect(dialog).toHaveTextContent('told their statement is ready');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(adminHeldStatementApi.approve).not.toHaveBeenCalled();
+  });
+
+  it('asks before rejecting, then sends the internal reason', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    vi.mocked(adminHeldStatementApi.reject).mockResolvedValue(undefined as never);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    fireEvent.change(screen.getByPlaceholderText(/internal reason/i), { target: { value: 'Wrong bank' } });
+    fireEvent.click(screen.getByRole('button', { name: /^reject$/i }));
+    expect(adminHeldStatementApi.reject).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Reject HLD-2026-100001?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
+
+    await waitFor(() => expect(adminHeldStatementApi.reject).toHaveBeenCalledWith('HLD-2026-100001', 'Wrong bank'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('puts the decision right after the evidence, before the engineering tools', async () => {
+    mockAuth(['TRUST_REVIEW_MANAGE'], ['ADMIN']);
+    renderPage();
+    await screen.findByText(/count disagree/i);
+
+    const resolve = screen.getByTestId('resolve-section');
+    const why = screen.getByRole('heading', { name: 'Why this fired' });
+    const rerun = screen.getByRole('heading', { name: 'Re-run parser' });
+    expect(why.compareDocumentPosition(resolve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(resolve.compareDocumentPosition(rerun) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('omits falsePositive entirely when the checkbox is left unchecked, never sends false', async () => {
@@ -358,6 +403,7 @@ describe('HeldStatementDetail', () => {
     await screen.findByText(/count disagree/i);
 
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Approve' }));
 
     await waitFor(() => expect(adminHeldStatementApi.approve)
       .toHaveBeenCalledWith('HLD-2026-100001', undefined, undefined));

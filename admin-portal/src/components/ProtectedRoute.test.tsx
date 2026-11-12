@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { ProtectedRoute, RequirePermission } from './ProtectedRoute';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
@@ -48,6 +48,25 @@ describe('ProtectedRoute', () => {
     renderProtected();
 
     expect(screen.getByText('Login page')).toBeInTheDocument();
+  });
+
+  it('remembers the page being opened, so signing in lands on it', () => {
+    vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({ token: null, loading: false }));
+    function LoginProbe() {
+      const location = useLocation();
+      return <div>Login at {location.search}</div>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/held-imports?job=job-1']}>
+        <Routes>
+          <Route path="/held-imports" element={<ProtectedRoute><div>Held imports</div></ProtectedRoute>} />
+          <Route path="/login" element={<LoginProbe />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Login at ?next=%2Fheld-imports%3Fjob%3Djob-1')).toBeInTheDocument();
   });
 
   it('renders the protected content once loading has finished and a token is present', () => {

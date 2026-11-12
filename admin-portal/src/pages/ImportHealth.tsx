@@ -244,10 +244,21 @@ const REFRESH_COLUMNS: DataTableColumn<RefreshRow>[] = [
 function RefreshSection() {
   const [draft, setDraft] = useState('');
   const [version, setVersion] = useState('');
-  const refresh = useQuery({
-    queryKey: ['import-health-refresh', version],
-    queryFn: () => adminImportHealthApi.refresh(version || undefined),
+  // The running build is always fetched: only it is still being checked (the worker re-reads
+  // statements for the build it runs as), so another build's numbers are judged against it.
+  const running = useQuery({
+    queryKey: ['import-health-refresh', ''],
+    queryFn: () => adminImportHealthApi.refresh(),
   });
+  const typed = useQuery({
+    queryKey: ['import-health-refresh', version],
+    queryFn: () => adminImportHealthApi.refresh(version),
+    enabled: version !== '',
+  });
+  const refresh = version === '' ? running : typed;
+  const runningVersion = running.data?.parserVersion ?? null;
+  const shownVersion = refresh.data?.parserVersion ?? null;
+  const isRunning = shownVersion != null && shownVersion === runningVersion;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -279,23 +290,34 @@ function RefreshSection() {
       {refresh.data && refresh.data.parserVersion == null && (
         <p className="text-sm text-muted">This server doesn't know which build it's running, so there's nothing to compare.</p>
       )}
-      {refresh.data?.parserVersion != null && (
+      {refresh.data && shownVersion != null && isRunning && (
         <p className="text-sm text-ink">
-          Build <span className="font-mono">{refresh.data.parserVersion}</span>
-          {version === '' && ' (running now)'}:{' '}
+          Build <span className="font-mono">{shownVersion}</span> (running now):{' '}
           {refresh.data.statementsAwaitingCheck === 0
             ? 'nothing is waiting to be checked.'
             : `${count(refresh.data.statementsAwaitingCheck)} statements still waiting to be checked.`}
         </p>
       )}
-      {(refresh.isLoading || refresh.error != null || refresh.data?.parserVersion != null) && (
+      {/* Not the running build: nothing more is checked against it, and a statement's result for it
+          is deleted once a newer build checks that statement (StatementRefreshDryRunService), so
+          its "awaiting" count would never go down and its totals are only what is left. */}
+      {refresh.data && shownVersion != null && !isRunning && (
+        <p className="text-sm text-ink">
+          Build <span className="font-mono">{shownVersion}</span>
+          {runningVersion != null && <> is not the running build (<span className="font-mono">{runningVersion}</span>)</>}
+          {runningVersion != null
+            ? ', so nothing more is checked against it. These are its results still on record; a statement\'s result is removed once a newer build checks it.'
+            : ': its results on record.'}
+        </p>
+      )}
+      {(refresh.isLoading || refresh.error != null || shownVersion != null) && (
         <DataTable
           columns={REFRESH_COLUMNS}
           rows={refresh.data?.byStatus}
           keyFor={(r) => r.status}
           loading={refresh.isLoading}
           error={refresh.error}
-          emptyMessage="No statement has been checked against this build yet."
+          emptyMessage={isRunning ? 'No statement has been checked against this build yet.' : 'No results are on record for this build.'}
         />
       )}
     </section>

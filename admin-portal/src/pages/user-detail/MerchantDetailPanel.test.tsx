@@ -34,8 +34,7 @@ function txn(i: number, overrides: Partial<TransactionDto> = {}): TransactionDto
   } as TransactionDto;
 }
 
-function renderPanel(canManage = true) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPanel(canManage = true, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MerchantDetailPanel userId="u1" merchantId="m1" merchantName="Swiggy" canManage={canManage} />
@@ -76,7 +75,9 @@ describe('MerchantDetailPanel', () => {
   it('sets a transaction\'s category only after confirming, and says what it changes', async () => {
     vi.mocked(adminUserMerchantsApi.confirmCategory).mockResolvedValue(SWIGGY);
     const user = userEvent.setup();
-    renderPanel();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    renderPanel(true, queryClient);
 
     const select = await screen.findByRole('combobox', { name: 'Category for SWIGGY ORDER 1' });
     // The transaction's current category is not offered as a change.
@@ -87,13 +88,21 @@ describe('MerchantDetailPanel', () => {
     expect(adminUserMerchantsApi.confirmCategory).not.toHaveBeenCalled();
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('Set this transaction to Food?');
-    expect(dialog).toHaveTextContent("changes in the customer's account");
-    expect(dialog).toHaveTextContent('Swiggy learns Food');
+    expect(dialog).toHaveTextContent("changes to Food in the customer's account");
+    expect(dialog).toHaveTextContent('future payments to Swiggy can be filed as Food');
+    expect(dialog).toHaveTextContent('the transaction and future filing stay');
     await user.click(within(dialog).getByRole('button', { name: 'Set category' }));
 
     await waitFor(() => expect(adminUserMerchantsApi.confirmCategory)
       .toHaveBeenCalledWith('u1', 'm1', { categoryId: 'c-food', applyToTransactionId: 't1' }));
     expect(notify.success).toHaveBeenCalledWith('Category set.');
+    // Every section on User Detail that shows this customer's categories reloads.
+    const refreshed = invalidate.mock.calls.map(([filters]) => (filters as { queryKey: unknown[] }).queryKey[0]);
+    expect(refreshed).toEqual(expect.arrayContaining([
+      'admin-user-merchant', 'admin-user-merchant-transactions', 'admin-user-merchants', 'admin-user-transactions',
+      'admin-user-analytics-top-categories', 'admin-user-analytics-category-confidence', 'admin-user-workspace',
+      'admin-user-audit',
+    ]));
   });
 
   it('says why when setting the category is refused', async () => {

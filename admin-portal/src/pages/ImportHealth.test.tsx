@@ -106,6 +106,10 @@ describe('Import Health', () => {
   });
 
   it('shows the running build\'s re-check, and another build on request', async () => {
+    vi.mocked(adminImportHealthApi.refresh).mockImplementation(async (v?: string) => ({
+      parserVersion: v ?? 'def5678', statementsAwaitingCheck: 3,
+      byStatus: [{ status: 'CHANGES', statements: 4, users: 2, rowsChanged: 6, rowsAdded: 1, rowsRemoved: 0, rowsConflicting: 0, factsChanged: 1 }],
+    }));
     const user = userEvent.setup();
     renderPage();
 
@@ -113,11 +117,31 @@ describe('Import Health', () => {
     expect(screen.getByText('(running now)', { exact: false })).toBeInTheDocument();
     const row = screen.getByText('Changes found').closest('tr') as HTMLElement;
     expect(within(row).getByText('6 / 1 / 0')).toBeInTheDocument();
-    expect(adminImportHealthApi.refresh).toHaveBeenCalledWith(undefined);
+    expect(adminImportHealthApi.refresh).toHaveBeenCalledWith();
 
     await user.type(screen.getByLabelText('Build'), ' 0a1b2c3 ');
     await user.click(screen.getByRole('button', { name: 'Show' }));
     await waitFor(() => expect(adminImportHealthApi.refresh).toHaveBeenLastCalledWith('0a1b2c3'));
+    // An older build is no longer being checked, so no "waiting" count is shown for it.
+    expect(await screen.findByText(/is not the running build/)).toHaveTextContent('nothing more is checked against it');
+    expect(screen.queryByText(/still waiting to be checked/)).not.toBeInTheDocument();
+    expect(screen.getByText('Changes found')).toBeInTheDocument();
+  });
+
+  it('treats the running build typed in by name as the running build', async () => {
+    vi.mocked(adminImportHealthApi.refresh).mockImplementation(async (v?: string) => ({
+      parserVersion: v ?? 'def5678', statementsAwaitingCheck: 2, byStatus: [],
+    }));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText(/2 statements still waiting/);
+
+    await user.type(screen.getByLabelText('Build'), 'def5678');
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+
+    await waitFor(() => expect(adminImportHealthApi.refresh).toHaveBeenLastCalledWith('def5678'));
+    expect(screen.getByText(/2 statements still waiting/)).toBeInTheDocument();
+    expect(screen.queryByText(/is not the running build/)).not.toBeInTheDocument();
   });
 
   it('says so when the server does not know its build', async () => {

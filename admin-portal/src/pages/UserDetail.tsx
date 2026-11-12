@@ -89,12 +89,12 @@ function UserDetailContent({ id }: { id: string }) {
       notify.success('Account deleted.');
       void navigate('/users');
     },
-    // The dialog stays open: a deletion that failed partway leaves the account marked for deletion,
-    // and the nightly sweep finishes it (AccountPurgeSweepService), so the message says so.
+    // The dialog stays open so the admin can try again. A refusal (4xx) says why in its own words.
+    // A failure partway (5xx, or no response) leaves the account PENDING_DELETION, which
+    // AccountPurgeSweepService retries on its own (at least 30 minutes later), so the message says
+    // that instead of the server's generic text, and the page reloads the account's new status.
     onError: (err) => {
-      // A refusal (4xx) says why in its own words. A failure partway (5xx, or no response) leaves
-      // the account marked for deletion, which the scheduled sweep retries -- say that instead of
-      // the server's generic error text.
+      invalidateUser();
       const status = (err as { response?: { status?: number } })?.response?.status;
       notify.error(status !== undefined && status < 500
         ? serverMessage(err, 'Could not delete this account.')

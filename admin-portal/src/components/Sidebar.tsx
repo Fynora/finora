@@ -13,7 +13,7 @@ import { initials } from '../lib/initials';
 // rendered first in the old flat list. Every other entry carries the same shape (including
 // `end`, even when false) -- a mixed shape where only some entries had an `end` key would make
 // the destructuring in visibleGroups.map() below fail to type-check for the entries that omitted
-// it. Grouping is pure presentation: the SAME 24 links, same permissions, same routes -- just
+// it. Grouping is pure presentation: the same links, same permissions, same routes -- just
 // under section headers instead of one long flat list. A link's group here has no bearing on
 // which permission gates it or which page it points to.
 const DASHBOARD_LINK = { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true, permission: null } as const;
@@ -90,7 +90,7 @@ const GROUPS = [
   },
 ] as const;
 
-// 24 links across 5 groups is a lot to scan at once -- collapsing groups the admin isn't
+// This many links across several groups is a lot to scan at once -- collapsing groups the admin isn't
 // currently using is the whole point of this being persisted, not reset every login the way a
 // dashboard card's default-expanded state is (see FinancialJourney.tsx's own comment on why that
 // one deliberately does the opposite). Best-effort only: a private-browsing tab or a blocked

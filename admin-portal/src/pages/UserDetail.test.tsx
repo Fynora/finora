@@ -413,8 +413,11 @@ describe('UserDetail — deleting an account', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('You cannot purge your own account.'));
+    const loadsBefore = vi.mocked(adminUsersApi.get).mock.calls.length;
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
     await waitFor(() => expect(notify.error).toHaveBeenLastCalledWith(expect.stringContaining('marked for deletion and will be completed automatically')));
     expect(screen.getByText('Target User')).toBeInTheDocument();
+    // The account is now marked for deletion on the server, so the page reloads its status.
+    await waitFor(() => expect(vi.mocked(adminUsersApi.get).mock.calls.length).toBeGreaterThan(loadsBefore));
   });
 });

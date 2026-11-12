@@ -25,8 +25,8 @@ function actionLabel(action: string) {
  * One merchant of one customer, opened from the Merchants section (2026-11-12): what the engine
  * has learned for it, every learning event, and the transactions attributed to it. From a
  * transaction an admin can set its category on the customer's behalf -- the merchant-centric
- * confirm (POST .../confirm-category), which also teaches the merchant that category, so it asks
- * first and says so.
+ * confirm (POST .../confirm-category), which also teaches the merchant that category and pins it
+ * for the payee's future payments, so it asks first and says so.
  */
 export function MerchantDetailPanel({ userId, merchantId, merchantName, canManage }: {
   userId: string;
@@ -68,7 +68,9 @@ export function MerchantDetailPanel({ userId, merchantId, merchantName, canManag
         ['admin-user-merchant', userId, merchantId], ['admin-user-merchant-audit', userId, merchantId],
         ['admin-user-merchant-transactions', userId, merchantId], ['admin-user-merchants', userId],
         ['admin-user-transactions', userId], ['admin-user-learning-summary', userId],
-        ['admin-user-learning-timeline', userId],
+        ['admin-user-learning-timeline', userId], ['admin-user-analytics-top-categories', userId],
+        ['admin-user-analytics-category-confidence', userId], ['admin-user-workspace', userId],
+        ['admin-user-audit', userId],
       ]) void queryClient.invalidateQueries({ queryKey: key });
       notify.success('Category set.');
     },
@@ -190,9 +192,14 @@ export function MerchantDetailPanel({ userId, merchantId, merchantName, canManag
       {confirming && (
         <ConfirmDialog
           title={`Set this transaction to ${categoryName(confirming.categoryId)}?`}
-          message={`"${confirming.txn.description}" (${rupees(confirming.txn)}) changes in the customer's account, and `
-            + `${merchantName} learns ${categoryName(confirming.categoryId)} as one of its categories. Undo on the `
-            + 'merchant rolls back only the learning, not the transaction.'}
+          // What TransactionService.confirmMerchantCategory does: the same as the customer's own
+          // "this and future" change -- it sets the transaction, teaches the merchant, and pins the
+          // payee's category for future imports. Merchant Undo reverts the learning only; it does
+          // not touch the transaction or the pin.
+          message={`"${confirming.txn.description}" (${rupees(confirming.txn)}) changes to `
+            + `${categoryName(confirming.categoryId)} in the customer's account. ${merchantName} also learns it, so `
+            + `future payments to ${merchantName} can be filed as ${categoryName(confirming.categoryId)} too. Undo on `
+            + 'the merchant takes back only the learning: the transaction and future filing stay until changed again.'}
           confirmLabel="Set category"
           busy={confirmMutation.isPending}
           onConfirm={() => confirmMutation.mutate(confirming)}

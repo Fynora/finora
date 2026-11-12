@@ -17,7 +17,8 @@ export function DeleteAccountDialog({
 }) {
   const [typed, setTyped] = useState('');
   const id = useId();
-  const matches = typed.trim().toLowerCase() === email.trim().toLowerCase();
+  // An empty box never matches, even against an empty email.
+  const matches = typed.trim() !== '' && typed.trim().toLowerCase() === email.trim().toLowerCase();
   return (
     <ConfirmDialog
       title={`Delete ${name}'s account permanently?`}

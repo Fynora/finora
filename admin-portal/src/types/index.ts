@@ -1781,6 +1781,17 @@ export interface RegistryEntry {
    *  null when it has not moved in its current profile (V245). */
   previousProfileVersion: number | null;
   profileVersionChangedAt: string | null;
+  /** Whether a blanked copy of the latest upload can be made, checked as the copy itself would before
+   *  reading anything. Only the review queue fills it; absent or null elsewhere, meaning not checked. */
+  reviewCopy?: ReviewCopyAvailability | null;
+}
+
+/** Why no blanked copy can be made, as a code. CUSTOMER_STOPPED does not say which customer choice. */
+export type ReviewCopyRefusal = 'UNKNOWN_UPLOAD' | 'NOT_FLAGGED' | 'NO_KEPT_FILE' | 'CUSTOMER_STOPPED' | 'NOT_PDF' | 'NO_UPLOAD';
+
+export interface ReviewCopyAvailability {
+  available: boolean;
+  refusal: ReviewCopyRefusal | null;
 }
 
 /** A family of layouts, members in version order. `automatic` profiles are created and filled by

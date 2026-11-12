@@ -234,6 +234,8 @@ function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   };
 }
 
+const COPYABLE = { reviewCopy: { available: true, refusal: null } } as const;
+
 describe('LayoutIntelligence — layout review queue and profiles', () => {
   it('opens the review queue from the alert email link, with the reasons in plain words and the count on the tab', async () => {
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
@@ -279,7 +281,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('makes a blanked copy of the latest upload for an Admin, after a typed reason', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
-    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry(COPYABLE)]);
     vi.mocked(adminBlankedCopyApi.flaggedLayoutUpload).mockResolvedValue({
       fileName: 'blanked-SA-000001.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
       notCheckedReason: null, differences: [],
@@ -303,7 +305,7 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
   it('offers no blanked copy to a curator without the Admin role', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['SUPPORT']);
-    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry(COPYABLE)]);
     renderPage('/layout-intelligence?tab=review');
 
     expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
@@ -314,31 +316,42 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
   it('offers no blanked copy while the server switch is off', async () => {
     mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['SUPER_ADMIN']);
     vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: false });
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry(COPYABLE)]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
+    await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['NOT_PDF', 'Blanked copy not available for CSV yet.'],
+    ['NO_KEPT_FILE', "No blanked copy: this upload's file was not kept."],
+    ['CUSTOMER_STOPPED', 'No blanked copy can be made of this upload.'],
+    ['NO_UPLOAD', 'No blanked copy can be made of this upload.'],
+  ] as const)('says why no copy can be made (%s), in place of the button', async (refusal, text) => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({
+      reviewAnalysisReference: refusal === 'NO_UPLOAD' ? null : 'SA-000001',
+      reviewCopy: { available: false, refusal },
+    })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    // A customer's own choice is never named on this page.
+    expect(screen.queryByText(/cancel|closed|deleted/i)).not.toBeInTheDocument();
+  });
+
+  it('shows neither the button nor a reason when the server does not say whether a copy can be made', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
     vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
     renderPage('/layout-intelligence?tab=review');
 
     expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
     await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
-  });
-
-  it('says a CSV layout has no blanked copy, in place of the button', async () => {
-    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
-    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ sourceFormat: 'CSV' })]);
-    renderPage('/layout-intelligence?tab=review');
-
-    expect(await screen.findByText('Blanked copy not available for CSV yet.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
-  });
-
-  it('offers no blanked copy for a layout with no latest upload', async () => {
-    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
-    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ reviewAnalysisReference: null })]);
-    renderPage('/layout-intelligence?tab=review');
-
-    expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
-    await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
-    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No blanked copy|not available for CSV/)).not.toBeInTheDocument();
   });
 
   it('shows the queue read-only without LAYOUT_REGISTRY_MANAGE', async () => {

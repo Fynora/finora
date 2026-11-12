@@ -7319,6 +7319,11 @@ export interface components {
             previousProfileVersion?: number;
             /** Format: date-time */
             profileVersionChangedAt?: string;
+            reviewCopy?: components["schemas"]["ReviewCopy"];
+        };
+        ReviewCopy: {
+            available?: boolean;
+            refusal?: string;
         };
         UpdateFeatureFlagRequest: {
             enabled?: boolean;

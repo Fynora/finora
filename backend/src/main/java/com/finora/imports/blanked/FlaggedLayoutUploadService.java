@@ -109,22 +109,9 @@ public class FlaggedLayoutUploadService {
     @Transactional
     public FlaggedUpload contentForBlankedCopy(UUID actingAdminId, String reference, String rawReason) {
         String reason = OriginalStatementViewService.validReason(rawReason);
-        StatementAnalysisSession analysis = analyses.findByReference(reference).orElseThrow(() ->
-                new ApiException(HttpStatus.NOT_FOUND, "No upload has the reference " + reference + "."));
-        String fingerprint = analysis.getLayoutFingerprint();
-        boolean flagged = fingerprint != null
-                && layouts.findByFingerprint(fingerprint).map(RegisteredLayout::isNeedsReview).orElse(false);
-        if (!flagged) {
-            throw new ApiException(HttpStatus.CONFLICT, "Upload " + reference
-                    + " is not of a layout waiting for review, so no copy of it can be made here.");
-        }
-        ImportJob job = jobOf(analysis);
-        requireCustomerStillHere(job, reference);
-        // The copy is a PDF trace; BlankedCopyService refuses anything else, but only after this
-        // method has read the file and recorded the access. Refused here, nothing is read or recorded.
-        if (!"PDF".equalsIgnoreCase(job.getSourceFormat())) {
-            throw new ApiException(HttpStatus.CONFLICT, "Blanked copy not available for CSV yet.");
-        }
+        Copyable copyable = requireCopyable(reference);
+        ImportJob job = copyable.job();
+        String fingerprint = copyable.fingerprint();
 
         boolean savedPassword = passwords.hasJobPassword(job.getId());
         Map<String, Object> details = details(actingAdminId, job, reference, fingerprint);
@@ -146,6 +133,63 @@ public class FlaggedLayoutUploadService {
         // The copy's name carries the reference, never the customer's file name.
         return new FlaggedUpload(reference, fingerprint, job.getId(), job.getUserId(), reason,
                 new StaffStatementContent(reference, job.getSourceFormat(), content));
+    }
+
+    /** An upload that passed every check made before a copy reads anything. */
+    private record Copyable(ImportJob job, String fingerprint) {}
+
+    /**
+     * Why no copy can be made, as a code for listings. {@code CUSTOMER_STOPPED} covers an import the
+     * customer cancelled and an account they are closing or have closed, without saying which: the
+     * layout pages carry no personal data (AdminReadAuditPolicy), so a listing does not name a
+     * customer's choice. The copy itself answers in words, to the Admin who asked for it.
+     */
+    public enum Refusal { UNKNOWN_UPLOAD, NOT_FLAGGED, NO_KEPT_FILE, CUSTOMER_STOPPED, NOT_PDF }
+
+    /** A refusal before anything is read: the 409 or 404 the copy answers, carrying its code. */
+    private static final class RefusedCopy extends ApiException {
+        private final Refusal refusal;
+
+        RefusedCopy(Refusal refusal, HttpStatus status, String message) {
+            super(status, message);
+            this.refusal = refusal;
+        }
+    }
+
+    /**
+     * Why no copy of this upload can be made, or empty when one can -- the refusals the copy itself
+     * makes before it reads the file or records anything, in the same order and words, so the
+     * review queue shows the button only where pressing it can work. Reads nothing and records
+     * nothing. A stored file swept since is not seen here: the copy finds it gone and says so.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<Refusal> copyRefusal(String reference) {
+        try {
+            requireCopyable(reference);
+            return java.util.Optional.empty();
+        } catch (RefusedCopy refused) {
+            return java.util.Optional.of(refused.refusal);
+        }
+    }
+
+    private Copyable requireCopyable(String reference) {
+        StatementAnalysisSession analysis = analyses.findByReference(reference).orElseThrow(() ->
+                new RefusedCopy(Refusal.UNKNOWN_UPLOAD, HttpStatus.NOT_FOUND, "No upload has the reference " + reference + "."));
+        String fingerprint = analysis.getLayoutFingerprint();
+        boolean flagged = fingerprint != null
+                && layouts.findByFingerprint(fingerprint).map(RegisteredLayout::isNeedsReview).orElse(false);
+        if (!flagged) {
+            throw new RefusedCopy(Refusal.NOT_FLAGGED, HttpStatus.CONFLICT, "Upload " + reference
+                    + " is not of a layout waiting for review, so no copy of it can be made here.");
+        }
+        ImportJob job = jobOf(analysis);
+        requireCustomerStillHere(job, reference);
+        // The copy is a PDF trace; BlankedCopyService refuses anything else, but only after the
+        // file has been read and the access recorded. Refused here, nothing is read or recorded.
+        if (!"PDF".equalsIgnoreCase(job.getSourceFormat())) {
+            throw new RefusedCopy(Refusal.NOT_PDF, HttpStatus.CONFLICT, "Blanked copy not available for CSV yet.");
+        }
+        return new Copyable(job, fingerprint);
     }
 
     /**
@@ -181,7 +225,7 @@ public class FlaggedLayoutUploadService {
         // every job that never recorded a session.
         return (sessionId == null ? java.util.List.<ImportJob>of() : jobs.findByImportSessionId(sessionId))
                 .stream().findFirst()
-                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Upload " + analysis.getReference()
+                .orElseThrow(() -> new RefusedCopy(Refusal.NO_KEPT_FILE, HttpStatus.CONFLICT, "Upload " + analysis.getReference()
                         + " has no kept file: it was not made through the import queue, or its import no longer exists."));
     }
 
@@ -192,13 +236,13 @@ public class FlaggedLayoutUploadService {
      */
     private void requireCustomerStillHere(ImportJob job, String reference) {
         if (job.getStatus() == ImportJob.Status.CANCELLED) {
-            throw new ApiException(HttpStatus.CONFLICT,
+            throw new RefusedCopy(Refusal.CUSTOMER_STOPPED, HttpStatus.CONFLICT,
                     "The customer cancelled upload " + reference + ", so no copy of it can be made.");
         }
         String status = users.findById(job.getUserId()).map(User::getStatus).orElse(User.STATUS_DELETED);
         if (User.STATUS_PENDING_DELETION.equals(status) || User.STATUS_DELETED.equals(status)
                 || User.STATUS_DEACTIVATED.equals(status)) {
-            throw new ApiException(HttpStatus.CONFLICT, "The account behind upload " + reference
+            throw new RefusedCopy(Refusal.CUSTOMER_STOPPED, HttpStatus.CONFLICT, "The account behind upload " + reference
                     + " is closed or being closed, so no copy of it can be made.");
         }
     }

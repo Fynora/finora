@@ -40,6 +40,7 @@ public class LayoutCurationService {
     private final jakarta.persistence.EntityManager entityManager;
     private final BankManagementService bankManagementService;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.finora.imports.blanked.FlaggedLayoutUploadService flaggedUploads;
 
     public LayoutCurationService(RegisteredLayoutRepository layoutRepository,
                                  LayoutProfileRepository profileRepository,
@@ -48,7 +49,9 @@ public class LayoutCurationService {
                                  LayoutProfileBackfill backfill,
                                  jakarta.persistence.EntityManager entityManager,
                                  BankManagementService bankManagementService,
-                                 org.springframework.jdbc.core.JdbcTemplate jdbc) {
+                                 org.springframework.jdbc.core.JdbcTemplate jdbc,
+                                 com.finora.imports.blanked.FlaggedLayoutUploadService flaggedUploads) {
+        this.flaggedUploads = flaggedUploads;
         this.backfill = backfill;
         this.jdbc = jdbc;
         this.bankManagementService = bankManagementService;
@@ -74,7 +77,16 @@ public class LayoutCurationService {
             String profileLinkSource,
             /** The version it had before an earlier-seen layout joined and moved it up (V245), and
              *  when; both null when it has not moved in its current profile. */
-            Integer previousProfileVersion, Instant profileVersionChangedAt) {}
+            Integer previousProfileVersion, Instant profileVersionChangedAt,
+            /** Whether a blanked copy can be made of {@code reviewAnalysisReference}, and if not why.
+             *  Filled for the review queue only; null in every other listing, meaning not checked. */
+            ReviewCopy reviewCopy) {}
+
+    /** {@code refusal} says why no copy can be made, as a code, when {@code available} is false
+     *  ({@link com.finora.imports.blanked.FlaggedLayoutUploadService.Refusal}, or NO_UPLOAD when the
+     *  flag recorded no upload). A code, not the copy's own words: those can name a customer's
+     *  choice, and this listing carries no personal data. */
+    public record ReviewCopy(boolean available, String refusal) {}
 
     /** A profile and its layouts, in version order. {@code automatic} is true for a profile the
      *  engine groups into by bank and account family. */
@@ -105,8 +117,11 @@ public class LayoutCurationService {
     @Transactional(readOnly = true)
     public List<RegistryEntry> reviewQueue() {
         Map<UUID, String> profileNames = profileNames();
+        // Each flagged layout's latest upload is checked the way a blanked copy of it would be,
+        // before anything is read, so the portal offers the copy only where it can be made. The
+        // queue is short (a handful of layouts), so a few lookups each is fine.
         return layoutRepository.findByNeedsReviewTrueOrderByReviewFlaggedAtAsc().stream()
-                .map(layout -> entryOf(layout, profileNames)).toList();
+                .map(layout -> entryOf(layout, profileNames, reviewCopyOf(layout))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -370,13 +385,25 @@ public class LayoutCurationService {
         return names;
     }
 
+    private ReviewCopy reviewCopyOf(RegisteredLayout layout) {
+        String reference = layout.getReviewAnalysisReference();
+        if (reference == null) return new ReviewCopy(false, "NO_UPLOAD");
+        return flaggedUploads.copyRefusal(reference)
+                .map(refusal -> new ReviewCopy(false, refusal.name()))
+                .orElseGet(() -> new ReviewCopy(true, null));
+    }
+
     private static RegistryEntry entryOf(RegisteredLayout l, Map<UUID, String> profileNames) {
+        return entryOf(l, profileNames, null);
+    }
+
+    private static RegistryEntry entryOf(RegisteredLayout l, Map<UUID, String> profileNames, ReviewCopy reviewCopy) {
         return new RegistryEntry(l.getFingerprint(), l.getName(), l.getStatus().name(), l.getSourceFormat(),
                 l.getParser(), l.getObservationCount(), l.getStagingCount(), l.getFirstSeen(), l.getLastSeen(),
                 l.isNeedsReview(), l.getReviewReasons(), l.getReviewFlaggedAt(), l.getReviewAnalysisReference(),
                 l.getReviewReasonSources(), l.getAcknowledgedReasons(), l.getProfileId(),
                 l.getProfileId() == null ? null : profileNames.get(l.getProfileId()), l.getProfileVersion(),
-                l.getProfileLinkSource(), l.getPreviousProfileVersion(), l.getProfileVersionChangedAt());
+                l.getProfileLinkSource(), l.getPreviousProfileVersion(), l.getProfileVersionChangedAt(), reviewCopy);
     }
 
     /** Locked for the rest of the transaction: every caller writes the layout, and staging may be

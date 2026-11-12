@@ -96,9 +96,21 @@ public class InvitePromptService {
                 // A same-day repeat is not a new showing, so it is not counted either.
                 if (repository.recordShown(userId, today) == 0) return;
             }
-            case SHARE_TAPPED -> repository.recordShareTapped(userId, today);
-            case DISMISSED -> repository.recordDismissed(userId, today);
+            case SHARE_TAPPED -> {
+                recordImpliedShowing(userId, today, platform);
+                repository.recordShareTapped(userId, today);
+            }
+            case DISMISSED -> {
+                recordImpliedShowing(userId, today, platform);
+                repository.recordDismissed(userId, today);
+            }
         }
         metrics.event(event, platform);
+    }
+
+    /** Share or Not now on a card whose SHOWN report never arrived: it was seen, so it counts as a
+     *  showing (see InvitePromptRepository.recordShownIfNever). */
+    private void recordImpliedShowing(UUID userId, LocalDate today, ClientPlatform platform) {
+        if (repository.recordShownIfNever(userId, today) == 1) metrics.event(InvitePromptEvent.SHOWN, platform);
     }
 }

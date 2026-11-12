@@ -1179,15 +1179,16 @@ public class DataExportService {
         return fileName.replaceAll("[^A-Za-z0-9._ -]", "_");
     }
 
+    /** A day as an ISO date (2026-11-12), or null -- the same form as the other date-only exports. */
+    private static String isoDate(java.time.LocalDate day) {
+        return day == null ? null : day.toString();
+    }
+
     /** Internal transport between {@link #buildBundle} and {@link #writeZip} -- never serialized
      *  directly. {@code statementSummaries} alone carries what {@link #writeZip} needs to resolve
      *  each statement's bytes ({@code id()}/{@code fileName()}) -- a separate entity list is no
      *  longer carried alongside it (removed in the same fix that made {@code buildBundle} stop
      *  loading full {@code StatementImport} entities at all; see this class's own doc comment). */
-    private static String isoDate(java.time.LocalDate day) {
-        return day == null ? null : day.toString();
-    }
-
     public record ExportBundle(
             UUID userId, String email,
             List<AccountExportEntry> accounts, List<TransactionDto> transactions, List<BudgetDto> budgets,

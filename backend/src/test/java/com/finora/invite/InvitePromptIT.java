@@ -280,6 +280,56 @@ class InvitePromptIT extends AbstractIntegrationTest {
         assertThat(check(user, muchLater).get("show").asBoolean()).as("after the second showing").isFalse();
     }
 
+    /** The app reports SHOWN and Not now separately, fire and forget. When the SHOWN report is lost
+     *  (a dropped connection) and only Not now arrives, the card was still seen: it stays away for
+     *  the full 180 days, and the rating ask still waits a week. */
+    @Test
+    void notNowWhoseShownReportWasLostStillKeepsTheCardAway() {
+        User user = user();
+        statementImport(user, 3, false);
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW));
+        double shownBefore = counter("shown", "web");
+        event(user, "DISMISSED");
+        assertThat(timesShown(user)).as("Not now means it was seen").isEqualTo(1);
+        // The SHOWN report turning up late that day is the same showing, not a second one.
+        event(user, "SHOWN");
+        assertThat(timesShown(user)).isEqualTo(1);
+        assertThat(counter("shown", "web") - shownBefore).as("one showing, counted once").isEqualTo(1.0);
+
+        pinTo(TODAY.minusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW - 1));
+        UUID nextDay = statementImport(user, 3, false);
+        JsonNode soon = check(user, nextDay);
+        assertThat(soon.get("show").asBoolean()).as("the next day").isFalse();
+        assertThat(soon.get("shownRecently").asBoolean()).as("the next day").isTrue();
+
+        pinTo(TODAY.minusDays(1));
+        UUID tooSoon = statementImport(user, 3, false);
+        assertThat(check(user, tooSoon).get("show").asBoolean()).as("179 days later").isFalse();
+
+        pinTo(TODAY);
+        UUID later = statementImport(user, 3, false);
+        assertThat(check(user, later).get("show").asBoolean()).as("180 days later").isTrue();
+        event(user, "SHOWN");
+        event(user, "DISMISSED");
+
+        pinTo(TODAY.plusDays(InvitePromptService.QUIET_DAYS_AFTER_NOT_NOW * 2L));
+        UUID muchLater = statementImport(user, 3, false);
+        assertThat(check(user, muchLater).get("show").asBoolean())
+                .as("the lost showing and this one make two: never again").isFalse();
+    }
+
+    /** Share on a card whose SHOWN report was lost: counted as shown too, so the activation page
+     *  never has more people tapping Share than people shown the card. */
+    @Test
+    void shareWhoseShownReportWasLostCountsAsShown() {
+        User user = user();
+        UUID first = statementImport(user, 3, false);
+        event(user, "SHARE_TAPPED");
+
+        assertThat(timesShown(user)).isEqualTo(1);
+        assertThat(check(user, first).get("shownRecently").asBoolean()).isTrue();
+    }
+
     @Test
     void shareTappedMeansNeverAgain() {
         User user = user();

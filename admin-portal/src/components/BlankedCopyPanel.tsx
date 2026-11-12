@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FileText } from 'lucide-react';
 import { downloadBlob } from '../lib/download';
+import OpeningReasonDialog from './OpeningReasonDialog';
 import type { BlankedCopy, BlankedCopyDifference, BlankedCopyUnusualRow } from '../types';
 
 /** One label per `BlankedCopyComparison.Field` on the backend. */
@@ -41,16 +42,37 @@ function unusualLine(u: BlankedCopyUnusualRow): string {
  * Only field names, row numbers, line and page counts, and words already hidden in the copy are
  * shown -- never a value.
  */
-export default function BlankedCopyPanel({ fetchCopy }: { fetchCopy: () => Promise<BlankedCopy> }) {
+export default function BlankedCopyPanel({ fetchCopy, askReason = false }: {
+  fetchCopy: (reason?: string) => Promise<BlankedCopy>;
+  /** Ask for a typed reason first, in the dialog that says who is told -- for a copy of an upload
+   *  nothing held, where making it tells the customer and the Super Admins. */
+  askReason?: boolean;
+}) {
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [result, setResult] = useState<BlankedCopy | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function run() {
-    setBusy(true);
+  // Past this point the copy exists and its making was audited server-side; only the browser's
+  // save can still fail, and the check's verdict on the copy stands either way.
+  function deliver(copy: BlankedCopy) {
+    setResult(copy);
+    try {
+      downloadBlob(new Blob([copy.trace], { type: 'text/plain' }), copy.fileName);
+    } catch {
+      setError('The blanked copy was made, but your browser could not save it. Try again.');
+    }
+  }
+
+  function start() {
     setError(null);
     // A second attempt that fails must not leave the first attempt's verdict on screen beside it.
     setResult(null);
+  }
+
+  async function run() {
+    setBusy(true);
+    start();
     let copy: BlankedCopy;
     try {
       copy = await fetchCopy();
@@ -60,23 +82,36 @@ export default function BlankedCopyPanel({ fetchCopy }: { fetchCopy: () => Promi
       setBusy(false);
       return;
     }
-    // Past this point the copy exists and its making was audited server-side; only the browser's
-    // save can still fail, and the check's verdict on the copy stands either way.
-    setResult(copy);
-    try {
-      downloadBlob(new Blob([copy.trace], { type: 'text/plain' }), copy.fileName);
-    } catch {
-      setError('The blanked copy was made, but your browser could not save it. Try again.');
-    } finally {
-      setBusy(false);
-    }
+    deliver(copy);
+    setBusy(false);
   }
 
   return (
     <div className="space-y-2">
+      {asking && (
+        <OpeningReasonDialog
+          title="Make a blanked copy of this statement"
+          confirmLabel="Make blanked copy"
+          failureText="The blanked copy could not be made."
+          // A refusal throws here and keeps the dialog open with the server's message under it.
+          onOpen={async (reason) => {
+            const copy = await fetchCopy(reason);
+            setAsking(false);
+            deliver(copy);
+          }}
+          onClose={() => setAsking(false)}
+        />
+      )}
       <button
         type="button"
-        onClick={() => void run()}
+        onClick={() => {
+          if (askReason) {
+            start();
+            setAsking(true);
+          } else {
+            void run();
+          }
+        }}
         disabled={busy}
         className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-ink hover:bg-card disabled:opacity-50"
       >

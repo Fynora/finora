@@ -2452,6 +2452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/statement-analyses/{reference}/blanked-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["flaggedLayoutUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rules": {
         parameters: {
             query?: never;
@@ -9279,6 +9295,48 @@ export interface components {
             runId?: string;
             userNotified?: boolean;
         };
+        OriginalViewOpenRequest: {
+            reason?: string;
+        };
+        ApiResponseBlankedCopyResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["BlankedCopyResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        BlankedCopyDifference: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            field?: string;
+            maskedTokens?: string[];
+        };
+        BlankedCopyResponse: {
+            fileName?: string;
+            trace?: string;
+            check?: string;
+            notCheckedReason?: string;
+            differences?: components["schemas"]["BlankedCopyDifference"][];
+            unusualRows?: components["schemas"]["BlankedCopyUnusualRow"][];
+        };
+        BlankedCopyUnusualRow: {
+            /** Format: int32 */
+            section?: number;
+            /** Format: int32 */
+            row?: number;
+            kind?: string;
+            /** Format: int32 */
+            lines?: number;
+            /** Format: int32 */
+            pages?: number;
+        };
         TestRequest: {
             field: string;
             operator: string;
@@ -9736,9 +9794,6 @@ export interface components {
             aiSuggestedDiagnosisAt?: string;
             lockedWithoutPassword?: boolean;
         };
-        OriginalViewOpenRequest: {
-            reason?: string;
-        };
         ApiResponseHeldStatementStagedRowsDto: {
             success?: boolean;
             message?: string;
@@ -9830,45 +9885,6 @@ export interface components {
             pageCount?: number;
             /** Format: date-time */
             expiresAt?: string;
-        };
-        ApiResponseBlankedCopyResponse: {
-            success?: boolean;
-            message?: string;
-            data?: components["schemas"]["BlankedCopyResponse"];
-            /** Format: date-time */
-            timestamp?: string;
-            errorCode?: string;
-            requestId?: string;
-            details?: {
-                [key: string]: unknown;
-            };
-        };
-        BlankedCopyDifference: {
-            /** Format: int32 */
-            section?: number;
-            /** Format: int32 */
-            row?: number;
-            field?: string;
-            maskedTokens?: string[];
-        };
-        BlankedCopyResponse: {
-            fileName?: string;
-            trace?: string;
-            check?: string;
-            notCheckedReason?: string;
-            differences?: components["schemas"]["BlankedCopyDifference"][];
-            unusualRows?: components["schemas"]["BlankedCopyUnusualRow"][];
-        };
-        BlankedCopyUnusualRow: {
-            /** Format: int32 */
-            section?: number;
-            /** Format: int32 */
-            row?: number;
-            kind?: string;
-            /** Format: int32 */
-            lines?: number;
-            /** Format: int32 */
-            pages?: number;
         };
         ApiResponseHeldImportDto: {
             success?: boolean;
@@ -19409,6 +19425,32 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseAppliedCorrection"];
+                };
+            };
+        };
+    };
+    flaggedLayoutUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reference: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OriginalViewOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseBlankedCopyResponse"];
                 };
             };
         };

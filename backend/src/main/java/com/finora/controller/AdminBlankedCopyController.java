@@ -2,6 +2,7 @@ package com.finora.controller;
 
 import com.finora.dto.ApiResponse;
 import com.finora.dto.BlankedCopyDto;
+import com.finora.dto.OriginalViewDto;
 import com.finora.exception.ApiException;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.ImportConcurrencyLimiter;
@@ -9,6 +10,7 @@ import com.finora.imports.blanked.BlankedCopy;
 import com.finora.imports.blanked.BlankedCopyOutcome;
 import com.finora.imports.blanked.BlankedCopyRefusedException;
 import com.finora.imports.blanked.BlankedCopyService;
+import com.finora.imports.blanked.FlaggedLayoutUploadService;
 import com.finora.imports.blanked.StaffStatementContent;
 import com.finora.security.CurrentUser;
 import com.finora.service.AdminHeldImportService;
@@ -19,6 +21,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,6 +33,7 @@ import java.util.function.Consumer;
  * Blanked copies of held statements: the one way statement-derived data leaves the server in
  * normal work. Gated by each queue's own permission, deliberately without the ADMIN role pin the
  * real-document endpoints carry -- the copy is blanked, which is what a support role may receive.
+ * The one exception is a flagged layout's upload, which nothing held: see {@link #flaggedLayoutUpload}.
  * Behind {@code app.blanked-copy.enabled}: off, the copy endpoints answer 404 before anything is
  * read or audited.
  *
@@ -56,24 +60,27 @@ public class AdminBlankedCopyController {
     private final AdminHeldImportService heldImports;
     private final HeldStatementService heldStatements;
     private final BlankedCopyService blankedCopies;
+    private final FlaggedLayoutUploadService flaggedUploads;
     private final CurrentUser currentUser;
     private final ImportConcurrencyLimiter concurrencyLimiter;
     private final boolean enabled;
 
     public AdminBlankedCopyController(AdminHeldImportService heldImports, HeldStatementService heldStatements,
-                                      BlankedCopyService blankedCopies, CurrentUser currentUser,
+                                      BlankedCopyService blankedCopies, FlaggedLayoutUploadService flaggedUploads,
+                                      CurrentUser currentUser,
                                       ImportConcurrencyLimiter concurrencyLimiter,
                                       @Value("${app.blanked-copy.enabled:false}") boolean enabled) {
         this.heldImports = heldImports;
         this.heldStatements = heldStatements;
         this.blankedCopies = blankedCopies;
+        this.flaggedUploads = flaggedUploads;
         this.currentUser = currentUser;
         this.concurrencyLimiter = concurrencyLimiter;
         this.enabled = enabled;
     }
 
     /** Whether the copy endpoints exist, so the portal can show or hide the button. */
-    @PreAuthorize("hasAnyAuthority('IMPORT_TRIAGE_MANAGE', 'TRUST_REVIEW_MANAGE')")
+    @PreAuthorize("hasAnyAuthority('IMPORT_TRIAGE_MANAGE', 'TRUST_REVIEW_MANAGE', 'LAYOUT_REGISTRY_MANAGE')")
     @GetMapping("/blanked-copy/status")
     public ApiResponse<BlankedCopyDto.SwitchStatus> status() {
         return ApiResponse.ok(new BlankedCopyDto.SwitchStatus(enabled));
@@ -100,6 +107,25 @@ public class AdminBlankedCopyController {
         return ApiResponse.ok(BlankedCopyDto.Response.of(gated(
                 () -> makeAndRecord(heldStatements.contentForBlankedCopy(actor, heldId),
                         outcome -> heldStatements.recordBlankedCopyResult(actor, heldId, outcome)))));
+    }
+
+    /**
+     * A blanked copy of one upload of a layout flagged for review, which no held queue has. Unlike
+     * the held queues' copies this needs a typed reason and the Admin role, and tells the customer
+     * and the Super Admins (see {@link FlaggedLayoutUploadService}): nothing about this upload was
+     * held, so nothing already told the customer a person would look at it.
+     */
+    @PreAuthorize("hasAuthority('LAYOUT_REGISTRY_MANAGE') and hasAnyRole('ADMIN', 'SUPER_ADMIN')")
+    @PostMapping("/statement-analyses/{reference}/blanked-copy")
+    public ApiResponse<BlankedCopyDto.Response> flaggedLayoutUpload(
+            @PathVariable String reference, @RequestBody(required = false) OriginalViewDto.OpenRequest body) throws Exception {
+        requireEnabled();
+        UUID actor = currentUser.id();
+        String reason = body == null ? null : body.reason();
+        return ApiResponse.ok(BlankedCopyDto.Response.of(gated(() -> {
+            FlaggedLayoutUploadService.FlaggedUpload upload = flaggedUploads.contentForBlankedCopy(actor, reference, reason);
+            return makeAndRecord(upload.content(), outcome -> flaggedUploads.recordBlankedCopyResult(actor, upload, outcome));
+        })));
     }
 
     /**

@@ -3,6 +3,7 @@ package com.finora.controller;
 import com.finora.AbstractIntegrationTest;
 import com.finora.entity.HeldStatement;
 import com.finora.entity.ImportJob;
+import com.finora.imports.analysis.StatementAnalysisSession;
 import com.finora.entity.User;
 import com.finora.exception.ErrorCode;
 import com.finora.imports.pdf.fixtures.PdfFixtureBuilder;
@@ -49,6 +50,9 @@ class AdminBlankedCopyDisabledIT extends AbstractIntegrationTest {
     @Autowired private JwtService jwtService;
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private StatementStorage storage;
+    @Autowired private com.finora.imports.analysis.StatementAnalysisSessionRepository analysisRepository;
+    @Autowired private com.finora.repository.RegisteredLayoutRepository layoutRepository;
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private User createUser(String role) {
         User user = new User();
@@ -113,6 +117,34 @@ class AdminBlankedCopyDisabledIT extends AbstractIntegrationTest {
         assertThat(get("/api/v1/admin/blanked-copy/status", admin).getBody()).contains("\"enabled\":false");
         assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId()))
                 .noneSatisfy(e -> assertThat(e.getAction()).isEqualTo("HELD_IMPORT_BLANKED_COPY"));
+    }
+
+    @Test
+    void offMeansNotFoundForAFlaggedLayoutsUploadToo() throws Exception {
+        // A real upload of a layout waiting for review, so the switch is the only reason to refuse.
+        User owner = createUser("USER");
+        ContentAddress address = storage.store(PdfFixtureBuilder.buildSampleWithPlantedCustomerData());
+        ImportJob job = new ImportJob(owner.getId(), "statement.pdf", address.hash(), address.key(), "PDF");
+        job.markClaimed("worker", Instant.now());
+        UUID sessionId = UUID.randomUUID();
+        job.complete(sessionId, Instant.now());
+        importJobRepository.save(job);
+        String fingerprint = "FP-1-" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        layoutRepository.observe(fingerprint, "PDF", "PdfPreviewGenerator", Instant.now());
+        jdbc.update("UPDATE layout_registry SET needs_review = TRUE, review_reasons = 'NEW_LAYOUT', "
+                + "review_flagged_at = now() WHERE fingerprint = ?", fingerprint);
+        String reference = "SA-IT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
+                StatementAnalysisSession.Source.CUSTOMER_IMPORT, "statement.pdf", "PDF", 100L,
+                fingerprint, 1, 100L, 5, "{}", sessionId, "it-correlation"));
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/statement-analyses/" + reference + "/blanked-copy", HttpMethod.POST,
+                new HttpEntity<>(java.util.Map.of("reason", "Rebuild the reader for this flagged layout"),
+                        bearerFor(createUser("ADMIN"))), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(job.getId())).isEmpty();
     }
 
     @Test

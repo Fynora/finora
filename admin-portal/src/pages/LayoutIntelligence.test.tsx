@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LayoutIntelligence from './LayoutIntelligence';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { mockAdminAuthState } from '../test/mockAdminAuth';
-import { adminLayoutsApi, adminLayoutRegistryApi, banksApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminLayoutsApi, adminLayoutRegistryApi, banksApi } from '../api/endpoints';
+import * as download from '../lib/download';
 import type { LayoutEvidenceReport, LayoutProfileView, LayoutSummary, RegistryEntry, UnknownHeaderSummary } from '../types';
 
 // AdminLayout now renders ThemeToggle (dark-mode support), which calls useTheme() --
@@ -44,6 +45,10 @@ vi.mock('../api/endpoints', () => ({
   banksApi: {
     search: vi.fn(),
   },
+  adminBlankedCopyApi: {
+    status: vi.fn(),
+    flaggedLayoutUpload: vi.fn(),
+  },
 }));
 
 function renderPage(path = '/layout-intelligence') {
@@ -57,10 +62,11 @@ function renderPage(path = '/layout-intelligence') {
   );
 }
 
-function mockAuth(permissions: string[] = ['PLATFORM_DIAGNOSTICS_VIEW']) {
+function mockAuth(permissions: string[] = ['PLATFORM_DIAGNOSTICS_VIEW'], roles: string[] = []) {
   vi.mocked(useAdminAuth).mockReturnValue(mockAdminAuthState({
     hasPermission: (p: string) => permissions.includes(p),
     permissions,
+    roles,
     fullName: 'Ops Admin',
   }));
 }
@@ -98,6 +104,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAuth();
   vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([]);
+  vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: true });
   vi.mocked(adminLayoutRegistryApi.profiles).mockResolvedValue([]);
   vi.mocked(adminLayoutRegistryApi.registry).mockResolvedValue([]);
   vi.mocked(adminLayoutsApi.evidence).mockResolvedValue(EVIDENCE);
@@ -268,6 +275,61 @@ describe('LayoutIntelligence — layout review queue and profiles', () => {
 
     await waitFor(() => expect(adminLayoutRegistryApi.resolveReview).toHaveBeenCalled());
     expect(vi.mocked(adminLayoutRegistryApi.resolveReview).mock.calls[0][0]).toBe('FP-1-AAAA0001');
+  });
+
+  it('makes a blanked copy of the latest upload for an Admin, after a typed reason', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    vi.mocked(adminBlankedCopyApi.flaggedLayoutUpload).mockResolvedValue({
+      fileName: 'blanked-SA-000001.trace', trace: '# finora-pdf-trace v3\n', check: 'MATCHES',
+      notCheckedReason: null, differences: [],
+    });
+    const save = vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    const user = userEvent.setup();
+    renderPage('/layout-intelligence?tab=review');
+
+    await user.click(await screen.findByRole('button', { name: 'Download blanked copy' }));
+    expect(screen.getByText(/The customer will be told the date/)).toBeInTheDocument();
+    expect(adminBlankedCopyApi.flaggedLayoutUpload).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Reason'), 'Rebuild the reader for this layout');
+    await user.click(screen.getByRole('button', { name: 'Make blanked copy' }));
+
+    await waitFor(() => expect(adminBlankedCopyApi.flaggedLayoutUpload)
+      .toHaveBeenCalledWith('SA-000001', 'Rebuild the reader for this layout'));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.any(Blob), 'blanked-SA-000001.trace'));
+    expect(screen.getByText('Matches the real statement')).toBeInTheDocument();
+    save.mockRestore();
+  });
+
+  it('offers no blanked copy to a curator without the Admin role', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['SUPPORT']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+    expect(adminBlankedCopyApi.status).not.toHaveBeenCalled();
+  });
+
+  it('offers no blanked copy while the server switch is off', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['SUPER_ADMIN']);
+    vi.mocked(adminBlankedCopyApi.status).mockResolvedValue({ enabled: false });
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry()]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
+    await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
+  });
+
+  it('offers no blanked copy for a layout with no latest upload', async () => {
+    mockAuth(['PLATFORM_DIAGNOSTICS_VIEW', 'LAYOUT_REGISTRY_MANAGE'], ['ADMIN']);
+    vi.mocked(adminLayoutRegistryApi.reviewQueue).mockResolvedValue([entry({ reviewAnalysisReference: null })]);
+    renderPage('/layout-intelligence?tab=review');
+
+    expect(await screen.findByRole('button', { name: /Resolve/ })).toBeInTheDocument();
+    await waitFor(() => expect(adminBlankedCopyApi.status).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Download blanked copy' })).not.toBeInTheDocument();
   });
 
   it('shows the queue read-only without LAYOUT_REGISTRY_MANAGE', async () => {

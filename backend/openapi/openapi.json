@@ -6388,6 +6388,45 @@
                 }
             }
         },
+        "/api/v1/admin/statement-analyses/{reference}/blanked-copy": {
+            "post": {
+                "tags": [
+                    "admin-blanked-copy-controller"
+                ],
+                "operationId": "flaggedLayoutUpload",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OriginalViewOpenRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseBlankedCopyResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/rules": {
             "get": {
                 "tags": [
@@ -22266,6 +22305,117 @@
                     }
                 }
             },
+            "OriginalViewOpenRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseBlankedCopyResponse": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/BlankedCopyResponse"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "BlankedCopyDifference": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "field": {
+                        "type": "string"
+                    },
+                    "maskedTokens": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "BlankedCopyResponse": {
+                "type": "object",
+                "properties": {
+                    "fileName": {
+                        "type": "string"
+                    },
+                    "trace": {
+                        "type": "string"
+                    },
+                    "check": {
+                        "type": "string"
+                    },
+                    "notCheckedReason": {
+                        "type": "string"
+                    },
+                    "differences": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlankedCopyDifference"
+                        }
+                    },
+                    "unusualRows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlankedCopyUnusualRow"
+                        }
+                    }
+                }
+            },
+            "BlankedCopyUnusualRow": {
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "row": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "pages": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
             "TestRequest": {
                 "type": "object",
                 "properties": {
@@ -23464,14 +23614,6 @@
                     }
                 }
             },
-            "OriginalViewOpenRequest": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string"
-                    }
-                }
-            },
             "ApiResponseHeldStatementStagedRowsDto": {
                 "type": "object",
                 "properties": {
@@ -23703,109 +23845,6 @@
                     "expiresAt": {
                         "type": "string",
                         "format": "date-time"
-                    }
-                }
-            },
-            "ApiResponseBlankedCopyResponse": {
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "message": {
-                        "type": "string"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/BlankedCopyResponse"
-                    },
-                    "timestamp": {
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "errorCode": {
-                        "type": "string"
-                    },
-                    "requestId": {
-                        "type": "string"
-                    },
-                    "details": {
-                        "type": "object",
-                        "additionalProperties": {}
-                    }
-                }
-            },
-            "BlankedCopyDifference": {
-                "type": "object",
-                "properties": {
-                    "section": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "row": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "field": {
-                        "type": "string"
-                    },
-                    "maskedTokens": {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                }
-            },
-            "BlankedCopyResponse": {
-                "type": "object",
-                "properties": {
-                    "fileName": {
-                        "type": "string"
-                    },
-                    "trace": {
-                        "type": "string"
-                    },
-                    "check": {
-                        "type": "string"
-                    },
-                    "notCheckedReason": {
-                        "type": "string"
-                    },
-                    "differences": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BlankedCopyDifference"
-                        }
-                    },
-                    "unusualRows": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/BlankedCopyUnusualRow"
-                        }
-                    }
-                }
-            },
-            "BlankedCopyUnusualRow": {
-                "type": "object",
-                "properties": {
-                    "section": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "row": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "kind": {
-                        "type": "string"
-                    },
-                    "lines": {
-                        "type": "integer",
-                        "format": "int32"
-                    },
-                    "pages": {
-                        "type": "integer",
-                        "format": "int32"
                     }
                 }
             },

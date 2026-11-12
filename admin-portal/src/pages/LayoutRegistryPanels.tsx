@@ -255,8 +255,8 @@ function BankOriginsTable() {
   );
 }
 
-/** What the queue says in place of the copy button. A customer's choice (a cancelled import, a
- *  closed account) is not named: this page carries no personal data. */
+/** What the queue says in place of the copy button. A customer's choice (a cancelled, discarded or
+ *  deleted import, a closed account) is not named: this page carries no personal data. */
 function copyRefusalText(refusal: ReviewCopyRefusal | null): string {
   if (refusal === 'NO_KEPT_FILE') return "No blanked copy: this upload's file was not kept.";
   if (refusal === 'NOT_PDF') return 'Blanked copy not available for CSV yet.';

@@ -9,7 +9,10 @@ import com.finora.imports.analysis.StatementAnalysisSessionRepository;
 import com.finora.imports.original.OriginalStatementViewService;
 import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.storage.StatementStorageException;
+import com.finora.entity.ImportSession;
 import com.finora.repository.ImportJobRepository;
+import com.finora.repository.ImportSessionRepository;
+import com.finora.repository.StatementImportRepository;
 import com.finora.repository.RegisteredLayoutRepository;
 import com.finora.repository.UserRepository;
 import com.finora.entity.User;
@@ -35,8 +38,13 @@ import java.util.UUID;
  *
  * <p>The rules are those of opening a held statement, because the customer is told the same thing:
  * <ul>
- *   <li>only an upload whose layout is waiting for review right now, so this is never a general way
- *       into customers' statements;</li>
+ *   <li>only an upload whose layout is waiting for review right now, and only one the flag names:
+ *       its latest flagged upload or the upload that raised one of its reasons. A popular layout
+ *       flagged by one bad reading does not open every customer's upload of it, so this is never a
+ *       general way into customers' statements;</li>
+ *   <li>only a statement the customer still has: staged and not expired, held, or imported and not
+ *       deleted. One they cancelled, discarded or deleted, or an account they are closing, is not
+ *       ours to open;</li>
  *   <li>a typed reason of 15 to 500 characters, checked before anything is read or audited;</li>
  *   <li>an audit entry, in its own transaction, before the file is read;</li>
  *   <li>once a copy exists: the customer's "opened to fix a reading problem" notice, written in the
@@ -70,6 +78,8 @@ public class FlaggedLayoutUploadService {
     private final ApplicationEventPublisher events;
     private final LayoutUploadBlankedCopyRepository copies;
     private final UserRepository users;
+    private final ImportSessionRepository sessions;
+    private final StatementImportRepository statementImports;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -77,16 +87,21 @@ public class FlaggedLayoutUploadService {
                                       ImportJobRepository jobs, StatementContentService statementContent,
                                       StatementPasswordService passwords, AuditService audit,
                                       StatementStatusNotifier notifier, ApplicationEventPublisher events,
-                                      LayoutUploadBlankedCopyRepository copies, UserRepository users) {
+                                      LayoutUploadBlankedCopyRepository copies, UserRepository users,
+                                      ImportSessionRepository sessions, StatementImportRepository statementImports) {
         this(analyses, layouts, jobs, statementContent, passwords, audit, notifier, events, copies, users,
-                Clock.systemUTC());
+                sessions, statementImports, Clock.systemUTC());
     }
 
     FlaggedLayoutUploadService(StatementAnalysisSessionRepository analyses, RegisteredLayoutRepository layouts,
                                ImportJobRepository jobs, StatementContentService statementContent,
                                StatementPasswordService passwords, AuditService audit,
                                StatementStatusNotifier notifier, ApplicationEventPublisher events,
-                               LayoutUploadBlankedCopyRepository copies, UserRepository users, Clock clock) {
+                               LayoutUploadBlankedCopyRepository copies, UserRepository users,
+                               ImportSessionRepository sessions, StatementImportRepository statementImports,
+                               Clock clock) {
+        this.sessions = sessions;
+        this.statementImports = statementImports;
         this.analyses = analyses;
         this.layouts = layouts;
         this.jobs = jobs;
@@ -144,7 +159,7 @@ public class FlaggedLayoutUploadService {
      * layout pages carry no personal data (AdminReadAuditPolicy), so a listing does not name a
      * customer's choice. The copy itself answers in words, to the Admin who asked for it.
      */
-    public enum Refusal { UNKNOWN_UPLOAD, NOT_FLAGGED, NO_KEPT_FILE, CUSTOMER_STOPPED, NOT_PDF }
+    public enum Refusal { UNKNOWN_UPLOAD, NOT_FLAGGED, NOT_FLAGGING_UPLOAD, NO_KEPT_FILE, CUSTOMER_STOPPED, NOT_PDF }
 
     /** A refusal before anything is read: the 409 or 404 the copy answers, carrying its code. */
     private static final class RefusedCopy extends ApiException {
@@ -176,11 +191,16 @@ public class FlaggedLayoutUploadService {
         StatementAnalysisSession analysis = analyses.findByReference(reference).orElseThrow(() ->
                 new RefusedCopy(Refusal.UNKNOWN_UPLOAD, HttpStatus.NOT_FOUND, "No upload has the reference " + reference + "."));
         String fingerprint = analysis.getLayoutFingerprint();
-        boolean flagged = fingerprint != null
-                && layouts.findByFingerprint(fingerprint).map(RegisteredLayout::isNeedsReview).orElse(false);
-        if (!flagged) {
+        RegisteredLayout layout = fingerprint == null ? null
+                : layouts.findByFingerprint(fingerprint).filter(RegisteredLayout::isNeedsReview).orElse(null);
+        if (layout == null) {
             throw new RefusedCopy(Refusal.NOT_FLAGGED, HttpStatus.CONFLICT, "Upload " + reference
                     + " is not of a layout waiting for review, so no copy of it can be made here.");
+        }
+        if (!namedByFlag(layout, analysis.getReference())) {
+            throw new RefusedCopy(Refusal.NOT_FLAGGING_UPLOAD, HttpStatus.CONFLICT, "Upload " + reference
+                    + " did not raise this layout's review, so no copy of it can be made here. Copy the upload"
+                    + " the review queue names.");
         }
         ImportJob job = jobOf(analysis);
         requireCustomerStillHere(job, reference);
@@ -230,14 +250,27 @@ public class FlaggedLayoutUploadService {
     }
 
     /**
-     * Nothing about this upload was held, so the customer is not waiting on us: an import they
-     * cancelled, or an account they are leaving or have left, is not ours to open. Refused before
-     * anything is read or recorded.
+     * Whether the flag names this upload: its latest flagged upload, or the one that raised a reason
+     * it still carries (V270). Any other upload of the layout read without raising this review.
+     */
+    private static boolean namedByFlag(RegisteredLayout layout, String reference) {
+        return reference.equals(layout.getReviewAnalysisReference())
+                || layout.getReviewReasonSources().containsValue(reference);
+    }
+
+    /**
+     * The customer is not waiting on us unless the statement is still theirs: an import they
+     * cancelled, a staging they discarded or let expire, an import they deleted, or an account they
+     * are leaving or have left, is not ours to open. Refused before anything is read or recorded.
      */
     private void requireCustomerStillHere(ImportJob job, String reference) {
         if (job.getStatus() == ImportJob.Status.CANCELLED) {
             throw new RefusedCopy(Refusal.CUSTOMER_STOPPED, HttpStatus.CONFLICT,
                     "The customer cancelled upload " + reference + ", so no copy of it can be made.");
+        }
+        if (!customerStillHasIt(job)) {
+            throw new RefusedCopy(Refusal.CUSTOMER_STOPPED, HttpStatus.CONFLICT, "The customer discarded or deleted"
+                    + " upload " + reference + ", or it expired before they imported it, so no copy of it can be made.");
         }
         String status = users.findById(job.getUserId()).map(User::getStatus).orElse(User.STATUS_DELETED);
         if (User.STATUS_PENDING_DELETION.equals(status) || User.STATUS_DELETED.equals(status)
@@ -245,6 +278,30 @@ public class FlaggedLayoutUploadService {
             throw new RefusedCopy(Refusal.CUSTOMER_STOPPED, HttpStatus.CONFLICT, "The account behind upload " + reference
                     + " is closed or being closed, so no copy of it can be made.");
         }
+    }
+
+    /**
+     * The statement is still the customer's: held by us (they are waiting on the review), staged
+     * and still confirmable, or imported and not deleted. The queue keeps the job's file for the
+     * retention window whatever the customer did with the staging, so the job alone cannot say.
+     * Nothing links an import back to its job (statement_imports.import_job_id is never filled), so
+     * an import is found by its owner and the hash of the uploaded bytes, which the job and every
+     * account section of that upload share; deleted imports are hidden by StatementImport's own
+     * restriction. Another upload of the very same file that the customer kept counts: they still
+     * have that statement.
+     */
+    private boolean customerStillHasIt(ImportJob job) {
+        if (job.getStatus() == ImportJob.Status.HELD_FOR_REVIEW
+                || job.getStatus() == ImportJob.Status.HELD_FOR_TRUST_REVIEW) {
+            return true;
+        }
+        Instant now = clock.instant();
+        boolean staged = job.getImportSessionId() != null && sessions.findById(job.getImportSessionId())
+                .filter(s -> ImportSession.STATUS_STAGED.equals(s.getStatus()))
+                .filter(s -> s.getExpiresAt() == null || s.getExpiresAt().isAfter(now))
+                .isPresent();
+        return staged || (job.getContentHash() != null && statementImports
+                .findFirstByUserIdAndContentHashOrderByImportedAtDesc(job.getUserId(), job.getContentHash()).isPresent());
     }
 
     private static Map<String, Object> details(UUID actingAdminId, ImportJob job, String reference, String fingerprint) {

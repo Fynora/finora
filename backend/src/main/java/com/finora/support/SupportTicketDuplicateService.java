@@ -1,6 +1,7 @@
 package com.finora.support;
 
 import com.finora.entity.SupportTicket;
+import com.finora.entity.User;
 import com.finora.exception.ApiException;
 import com.finora.notification.api.NotificationRequest;
 import com.finora.notification.api.NotificationService;
@@ -9,6 +10,7 @@ import com.finora.notification.domain.NotificationChannel;
 import com.finora.notification.domain.NotificationPriority;
 import com.finora.notification.domain.NotificationType;
 import com.finora.repository.SupportTicketRepository;
+import com.finora.repository.UserRepository;
 import com.finora.service.AuditService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -67,12 +69,14 @@ public class SupportTicketDuplicateService {
     private final SupportTicketRepository ticketRepository;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final UserRepository userRepository;
 
     public SupportTicketDuplicateService(SupportTicketRepository ticketRepository, AuditService auditService,
-                                         NotificationService notificationService) {
+                                         NotificationService notificationService, UserRepository userRepository) {
         this.ticketRepository = ticketRepository;
         this.auditService = auditService;
         this.notificationService = notificationService;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -128,10 +132,17 @@ public class SupportTicketDuplicateService {
         ticket.setClosedAt(Instant.now());
         SupportTicket saved = ticketRepository.save(ticket);
 
+        // Verified addresses only, for the reason SupportTicketService.acknowledge gives: an address
+        // nobody proved they own may be a stranger's. This email went to any address until
+        // 2026-11-12; the ticket still closes either way.
+        boolean emailVerified = userRepository.findById(ticket.getUserId()).map(User::isEmailVerified).orElse(false);
         auditService.record(ticket.getUserId(), "SUPPORT_TICKET_MARKED_DUPLICATE", "SupportTicket", ticket.getId(),
                 Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber(),
                         "duplicateOfTicketNumber", reference.getTicketNumber(),
-                        "previousStatus", previousStatus.name()));
+                        "previousStatus", previousStatus.name(), "customerEmailed", emailVerified));
+        if (!emailVerified) {
+            return SupportTicketDto.Summary.from(saved);
+        }
         notificationService.request(NotificationRequest.of(
                 ticket.getUserId(),
                 NotificationType.SUPPORT_TICKET_DUPLICATE,

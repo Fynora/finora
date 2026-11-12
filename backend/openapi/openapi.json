@@ -9083,6 +9083,35 @@
             }
         },
         "/api/v1/admin/support/tickets/{id}": {
+            "get": {
+                "tags": [
+                    "admin-support-ticket-controller"
+                ],
+                "operationId": "adminDetail",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseAdminSupportTicketDetail"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "patch": {
                 "tags": [
                     "admin-support-ticket-controller"
@@ -9115,7 +9144,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseSupportTicketSummary"
+                                    "$ref": "#/components/schemas/ApiResponseStatusChangeResult"
                                 }
                             }
                         }
@@ -12130,6 +12159,18 @@
                         }
                     },
                     {
+                        "name": "claim",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "MINE",
+                                "UNCLAIMED"
+                            ]
+                        }
+                    },
+                    {
                         "name": "page",
                         "in": "query",
                         "required": false,
@@ -12156,7 +12197,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponsePagedResponseSupportTicketSummary"
+                                    "$ref": "#/components/schemas/ApiResponsePagedResponseAdminSupportTicketSummary"
                                 }
                             }
                         }
@@ -22013,6 +22054,9 @@
                         "type": "string",
                         "format": "uuid"
                     },
+                    "adminName": {
+                        "type": "string"
+                    },
                     "note": {
                         "type": "string"
                     },
@@ -24301,11 +24345,61 @@
                             "RESOLVED",
                             "CLOSED"
                         ]
+                    },
+                    "notifyCustomer": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string",
+                        "maxLength": 2000,
+                        "minLength": 0
                     }
                 },
                 "required": [
                     "status"
                 ]
+            },
+            "ApiResponseStatusChangeResult": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/StatusChangeResult"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "StatusChangeResult": {
+                "type": "object",
+                "properties": {
+                    "ticket": {
+                        "$ref": "#/components/schemas/SupportTicketSummary"
+                    },
+                    "customerEmailed": {
+                        "type": "boolean"
+                    },
+                    "notEmailedReason": {
+                        "type": "string"
+                    }
+                }
             },
             "ApiResponseWorkspaceSummaryDto": {
                 "type": "object",
@@ -30734,6 +30828,261 @@
                     "checkedAt": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                }
+            },
+            "AdminSupportTicketSummary": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "ticketNumber": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "customerName": {
+                        "type": "string"
+                    },
+                    "customerEmail": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "STATEMENT_IMPORT",
+                            "CATEGORIZATION",
+                            "ACCOUNT_LINKING",
+                            "DATA_ACCURACY",
+                            "TECHNICAL_ISSUE",
+                            "OTHER",
+                            "SUSPENSION_APPEAL",
+                            "SUSPENSION_DELETION_REQUEST"
+                        ]
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "OPEN",
+                            "IN_PROGRESS",
+                            "RESOLVED",
+                            "CLOSED"
+                        ]
+                    },
+                    "claimedByAdminId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "claimedByAdminName": {
+                        "type": "string"
+                    },
+                    "claimedByYou": {
+                        "type": "boolean"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "duplicateOfTicketId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "duplicateOfTicketNumber": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponsePagedResponseAdminSupportTicketSummary": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/PagedResponseAdminSupportTicketSummary"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "PagedResponseAdminSupportTicketSummary": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdminSupportTicketSummary"
+                        }
+                    },
+                    "page": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "totalElements": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totalPages": {
+                        "type": "integer",
+                        "format": "int32"
+                    }
+                }
+            },
+            "AdminSupportTicketDetail": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "ticketNumber": {
+                        "type": "string"
+                    },
+                    "userId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "customerName": {
+                        "type": "string"
+                    },
+                    "customerEmail": {
+                        "type": "string"
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "STATEMENT_IMPORT",
+                            "CATEGORIZATION",
+                            "ACCOUNT_LINKING",
+                            "DATA_ACCURACY",
+                            "TECHNICAL_ISSUE",
+                            "OTHER",
+                            "SUSPENSION_APPEAL",
+                            "SUSPENSION_DELETION_REQUEST"
+                        ]
+                    },
+                    "subject": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "OPEN",
+                            "IN_PROGRESS",
+                            "RESOLVED",
+                            "CLOSED"
+                        ]
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": [
+                            "WEB",
+                            "MOBILE_ANDROID",
+                            "MOBILE_IOS"
+                        ]
+                    },
+                    "appVersion": {
+                        "type": "string"
+                    },
+                    "claimedByAdminId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "claimedByAdminName": {
+                        "type": "string"
+                    },
+                    "claimedByYou": {
+                        "type": "boolean"
+                    },
+                    "resolvedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "closedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "attachments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AttachmentSummary"
+                        }
+                    },
+                    "duplicateOfTicketId": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "duplicateOfTicketNumber": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseAdminSupportTicketDetail": {
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/AdminSupportTicketDetail"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "errorCode": {
+                        "type": "string"
+                    },
+                    "requestId": {
+                        "type": "string"
+                    },
+                    "details": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 }
             },

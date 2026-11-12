@@ -15,6 +15,8 @@ vi.mock('../context/ThemeContext', () => ({
 vi.mock('../context/AdminAuthContext', () => ({
   useAdminAuth: vi.fn(),
 }));
+const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('../context/NotificationContext', () => ({ useNotify: () => notify }));
 vi.mock('../api/endpoints', () => ({
   adminSupportTicketApi: {
     get: vi.fn(), updateStatus: vi.fn(), notes: vi.fn(), addNote: vi.fn(),
@@ -28,6 +30,8 @@ const ticket: SupportTicketDetailDto = {
   id: ticketId,
   ticketNumber: 'SUP-000042',
   userId: '22222222-2222-2222-2222-222222222222',
+  customerName: 'Asha Rao',
+  customerEmail: 'asha@example.com',
   category: 'TECHNICAL_ISSUE',
   subject: 'Import stuck at 60%',
   description: 'Progress bar froze at 60% and never finished.',
@@ -35,6 +39,8 @@ const ticket: SupportTicketDetailDto = {
   source: 'WEB',
   appVersion: null,
   claimedByAdminId: null,
+  claimedByAdminName: null,
+  claimedByYou: false,
   resolvedAt: null,
   closedAt: null,
   createdAt: '2026-09-01T08:00:00Z',
@@ -51,10 +57,14 @@ const claimedRow: SupportTicketRow = {
   id: ticketId,
   ticketNumber: 'SUP-000042',
   userId: '22222222-2222-2222-2222-222222222222',
+  customerName: 'Asha Rao',
+  customerEmail: 'asha@example.com',
   category: 'TECHNICAL_ISSUE',
   subject: 'Import stuck at 60%',
   status: 'OPEN',
   claimedByAdminId: 'me',
+  claimedByAdminName: 'Me Admin',
+  claimedByYou: true,
   createdAt: '2026-09-01T08:00:00Z',
   updatedAt: '2026-09-01T08:00:00Z',
   duplicateOfTicketId: null,
@@ -64,6 +74,7 @@ const claimedRow: SupportTicketRow = {
 const note: SupportTicketNote = {
   id: 'note-1',
   adminId: '33333333-3333-3333-3333-333333333333',
+  adminName: 'Ops Admin',
   note: 'Reproduced on Android 1.3.7',
   createdAt: '2026-09-01T09:00:00Z',
 };
@@ -121,8 +132,19 @@ describe('SupportTicketDetail', () => {
     expect(screen.getByRole('button', { name: 'Move to CLOSED' })).toBeInTheDocument();
   });
 
-  it('shows no status-change buttons at all for a resolved ticket', async () => {
+  // The backend allows RESOLVED -> CLOSED (SupportTicket.Status); this page offered nothing for a
+  // resolved ticket until 2026-11-12, so one could never be closed from here.
+  it('offers only Close for a resolved ticket', async () => {
     vi.mocked(adminSupportTicketApi.get).mockResolvedValue({ ...ticket, status: 'RESOLVED' });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    const moves = screen.getAllByRole('button', { name: /Move to/ });
+    expect(moves.map((b) => b.textContent)).toEqual(['Move to CLOSED']);
+  });
+
+  it('shows no status-change buttons at all for a closed ticket', async () => {
+    vi.mocked(adminSupportTicketApi.get).mockResolvedValue({ ...ticket, status: 'CLOSED' });
     renderPage();
 
     expect(await screen.findByText(/can't change status again/i)).toBeInTheDocument();
@@ -142,7 +164,7 @@ describe('SupportTicketDetail', () => {
 
   it('asks for confirmation before taking over an already-claimed ticket, naming who holds it', async () => {
     const user = userEvent.setup();
-    const claimedTicket = { ...ticket, claimedByAdminId: '99999999-9999-9999-9999-999999999999' };
+    const claimedTicket = { ...ticket, claimedByAdminId: '99999999-9999-9999-9999-999999999999', claimedByAdminName: 'Colleague Admin' };
     vi.mocked(adminSupportTicketApi.get).mockResolvedValue(claimedTicket);
     renderPage();
     await screen.findByText('Import stuck at 60%');
@@ -150,7 +172,7 @@ describe('SupportTicketDetail', () => {
     await user.click(screen.getByRole('button', { name: 'Take over' }));
 
     expect(screen.getByText('Take over this ticket?')).toBeInTheDocument();
-    expect(screen.getByText(/claimed by 99999999-9999-9999-9999-999999999999/)).toBeInTheDocument();
+    expect(screen.getByText(/claimed by Colleague Admin/)).toBeInTheDocument();
     expect(adminSupportTicketApi.claim).not.toHaveBeenCalled();
 
     // Two "Take over" buttons exist once the dialog is open (the trigger behind it, and the
@@ -271,5 +293,139 @@ describe('SupportTicketDetail', () => {
       expect(screen.getByText(/Closed as a duplicate of/)).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'SUP-000041' })).toHaveAttribute('href', `/support-tickets/${referenceId}`);
     });
+  });
+
+  // ---- 2026-11-12: names, platform, and telling the customer ----
+
+  it('names the customer with a link to their profile, and the app they wrote from', async () => {
+    mockAuth(['SUPPORT_MANAGE', 'USER_VIEW']);
+    vi.mocked(adminSupportTicketApi.get).mockResolvedValue({ ...ticket, source: 'MOBILE_ANDROID', appVersion: '1.2.1' });
+    renderPage();
+
+    const customer = await screen.findByTestId('ticket-customer');
+    expect(customer).toHaveTextContent('From Asha Rao · asha@example.com');
+    expect(within(customer).getByRole('link', { name: 'Asha Rao' })).toHaveAttribute('href', '/users/22222222-2222-2222-2222-222222222222');
+    expect(screen.getByText(/Sent from the Android app 1.2.1/)).toBeInTheDocument();
+  });
+
+  it('says the customer is hidden, with no profile link, without USER_VIEW', async () => {
+    vi.mocked(adminSupportTicketApi.get).mockResolvedValue({ ...ticket, customerName: null, customerEmail: null });
+    renderPage();
+
+    expect(await screen.findByTestId('ticket-customer')).toHaveTextContent('Customer hidden: needs the USER_VIEW permission');
+    expect(screen.queryByRole('link', { name: 'Asha Rao' })).not.toBeInTheDocument();
+  });
+
+  it('says "You" for a ticket you hold, and offers no take-over of your own ticket', async () => {
+    vi.mocked(adminSupportTicketApi.get).mockResolvedValue({
+      ...ticket, claimedByAdminId: 'me', claimedByAdminName: 'Me Admin', claimedByYou: true,
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Claimed by:/)).toHaveTextContent('Claimed by: You');
+    expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unclaim' })).toBeInTheDocument();
+  });
+
+  it('names the admin who wrote each note', async () => {
+    vi.mocked(adminSupportTicketApi.notes).mockResolvedValue([note]);
+    renderPage();
+
+    expect(await screen.findByText('Ops Admin')).toBeInTheDocument();
+    expect(screen.queryByText('33333333-3333-3333-3333-333333333333')).not.toBeInTheDocument();
+  });
+
+  it('resolving asks first, emails the customer by default, and sends the note', async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminSupportTicketApi.updateStatus).mockResolvedValue({
+      ticket: { id: ticketId, status: 'RESOLVED' }, customerEmailed: true, notEmailedReason: null,
+    });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to RESOLVED' }));
+    expect(adminSupportTicketApi.updateStatus).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('checkbox', { name: /Email the customer/ })).toBeChecked();
+    await user.type(within(dialog).getByLabelText(/Note to include/), 'We re-read your statement.');
+    await user.click(within(dialog).getByRole('button', { name: 'Resolve' }));
+
+    expect(adminSupportTicketApi.updateStatus).toHaveBeenCalledWith(ticketId, 'RESOLVED',
+      { notifyCustomer: true, message: 'We re-read your statement.' });
+    expect(notify.success).toHaveBeenCalledWith('Status changed. The customer will be emailed.');
+  });
+
+  it('says plainly when the customer could not be emailed, and why', async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminSupportTicketApi.updateStatus).mockResolvedValue({
+      ticket: { id: ticketId, status: 'CLOSED' }, customerEmailed: false,
+      notEmailedReason: "The customer's email address is not verified, so no email was sent.",
+    });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to CLOSED' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
+
+    expect(await screen.findByText(/Status changed, but the customer was not emailed. The customer's email address is not verified/))
+      .toBeInTheDocument();
+  });
+
+  it('can resolve without emailing the customer', async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminSupportTicketApi.updateStatus).mockResolvedValue({
+      ticket: { id: ticketId, status: 'RESOLVED' }, customerEmailed: false, notEmailedReason: null,
+    });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to RESOLVED' }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('checkbox', { name: /Email the customer/ }));
+    expect(within(dialog).queryByLabelText(/Note to include/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Resolve' }));
+
+    expect(adminSupportTicketApi.updateStatus).toHaveBeenCalledWith(ticketId, 'RESOLVED', { notifyCustomer: false, message: undefined });
+    expect(notify.success).not.toHaveBeenCalled();
+  });
+
+  it('closing an already-resolved ticket does not email the customer again unless asked', async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminSupportTicketApi.get).mockResolvedValue({ ...ticket, status: 'RESOLVED' });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to CLOSED' }));
+
+    expect(within(screen.getByRole('dialog')).getByRole('checkbox', { name: /Email the customer/ })).not.toBeChecked();
+  });
+
+  it('moving to In Progress needs no dialog and emails nobody', async () => {
+    const user = userEvent.setup();
+    vi.mocked(adminSupportTicketApi.updateStatus).mockResolvedValue({
+      ticket: { id: ticketId, status: 'IN_PROGRESS' }, customerEmailed: false, notEmailedReason: null,
+    });
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to IN PROGRESS' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(adminSupportTicketApi.updateStatus).toHaveBeenCalledWith(ticketId, 'IN_PROGRESS', { notifyCustomer: false, message: undefined });
+  });
+
+  it('will not send a note over 2,000 characters', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Import stuck at 60%');
+
+    await user.click(screen.getByRole('button', { name: 'Move to RESOLVED' }));
+    const dialog = screen.getByRole('dialog');
+    const box = within(dialog).getByLabelText(/Note to include/);
+    await user.click(box);
+    await user.paste('x'.repeat(2001));
+
+    expect(within(dialog).getByRole('button', { name: 'Resolve' })).toBeDisabled();
+    expect(within(dialog).getByText(/2001 \/ 2000/)).toBeInTheDocument();
   });
 });

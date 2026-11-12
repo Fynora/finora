@@ -148,7 +148,7 @@ class PagedListSortEndsOnIdIT extends AbstractIntegrationTest {
 
     @Test
     void theAdminSupportTicketQueue() {
-        assertSortEndsOnId(Sort.Direction.ASC, () -> supportTicketService.adminList(null, null, null, 0, 20));
+        assertSortEndsOnId(Sort.Direction.ASC, () -> supportTicketService.adminList(null, null, null, null, UUID.randomUUID(), true, 0, 20));
     }
 
     @Test

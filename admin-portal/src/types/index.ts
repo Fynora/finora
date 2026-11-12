@@ -1873,15 +1873,22 @@ export type SupportTicketCategory =
 export type SupportTicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 export type ClientPlatform = 'WEB' | 'MOBILE_ANDROID' | 'MOBILE_IOS';
 
-/** One row of the ticket queue -- mirrors SupportTicketDto.Summary. */
+/** One row of the ticket queue (see the doc on the interface itself). */
+/** Mirrors SupportTicketDto.AdminSummary -- a queue row as admins see it. customerName/
+ *  customerEmail are null for a caller without USER_VIEW and for a deleted account;
+ *  claimedByYou is whether the signed-in admin holds the ticket. */
 export interface SupportTicketRow {
   id: string;
   ticketNumber: string;
   userId: string;
+  customerName: string | null;
+  customerEmail: string | null;
   category: SupportTicketCategory;
   subject: string;
   status: SupportTicketStatus;
   claimedByAdminId: string | null;
+  claimedByAdminName: string | null;
+  claimedByYou: boolean;
   createdAt: string;
   updatedAt: string;
   /** Set when an admin closed this ticket as a duplicate of another of the same customer's. */
@@ -1897,6 +1904,16 @@ export interface SupportTicketQuery {
   status?: SupportTicketStatus;
   category?: SupportTicketCategory;
   q?: string;
+  /** MINE: tickets the signed-in admin holds. UNCLAIMED: tickets nobody holds. */
+  claim?: 'MINE' | 'UNCLAIMED';
+}
+
+/** Mirrors SupportTicketDto.StatusChangeResult. When the admin asked to tell the customer but no
+ *  email went (an unverified address), notEmailedReason says why. */
+export interface SupportTicketStatusChange {
+  ticket: { id: string; status: SupportTicketStatus };
+  customerEmailed: boolean;
+  notEmailedReason: string | null;
 }
 
 export interface SupportTicketAttachment {
@@ -1906,14 +1923,15 @@ export interface SupportTicketAttachment {
   sizeBytes: number;
 }
 
-/** Mirrors SupportTicketDto.Detail -- the SAME shape the ticket's own owner sees, served by the
- *  same non-admin-rooted endpoint (SupportTicketController.detail's own doc explains why there is
- *  no separate admin detail route). Structurally excludes internal-note content -- there is no
- *  such field here at all, matching the backend DTO, not merely an admin-portal choice to hide it. */
+/** Mirrors SupportTicketDto.AdminDetail (GET /admin/support/tickets/{id}): the customer's own
+ *  view plus the customer and claiming admin, named under SupportTicketRow's rules. Structurally
+ *  excludes internal-note content -- there is no such field here at all, matching the backend DTO. */
 export interface SupportTicketDetail {
   id: string;
   ticketNumber: string;
   userId: string;
+  customerName: string | null;
+  customerEmail: string | null;
   category: SupportTicketCategory;
   subject: string;
   description: string;
@@ -1921,6 +1939,8 @@ export interface SupportTicketDetail {
   source: ClientPlatform;
   appVersion: string | null;
   claimedByAdminId: string | null;
+  claimedByAdminName: string | null;
+  claimedByYou: boolean;
   resolvedAt: string | null;
   closedAt: string | null;
   createdAt: string;
@@ -1934,6 +1954,8 @@ export interface SupportTicketDetail {
 export interface SupportTicketNote {
   id: string;
   adminId: string;
+  /** Null when the writing admin's account no longer exists. */
+  adminName: string | null;
   note: string;
   createdAt: string;
 }

@@ -78,6 +78,7 @@ public class ImportJobService {
     private final EncryptionService encryptionService;
     private final com.finora.imports.passwords.StatementPasswordService statementPasswordService;
     private final StatementOriginalViewRepository originalViews;
+    private final com.finora.imports.blanked.LayoutUploadBlankedCopyRepository blankedCopies;
     private final ImportJobReviewStates reviewStates;
 
     @org.springframework.beans.factory.annotation.Value("${app.import.queue.enabled:false}")
@@ -92,6 +93,7 @@ public class ImportJobService {
                              EncryptionService encryptionService,
                              com.finora.imports.passwords.StatementPasswordService statementPasswordService,
                              StatementOriginalViewRepository originalViews,
+                             com.finora.imports.blanked.LayoutUploadBlankedCopyRepository blankedCopies,
                              ImportJobReviewStates reviewStates) {
         this.reviewStates = reviewStates;
         this.jobStore = jobStore;
@@ -103,6 +105,7 @@ public class ImportJobService {
         this.encryptionService = encryptionService;
         this.statementPasswordService = statementPasswordService;
         this.originalViews = originalViews;
+        this.blankedCopies = blankedCopies;
     }
 
     /**
@@ -416,8 +419,15 @@ public class ImportJobService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Import job not found."));
         // The days our team opened this statement to fix a reading problem, in India time, once
         // each -- what the customer was told by push and email, kept where they can look it up.
-        List<LocalDate> openedOn = originalViews.findByJobIdOrderByOpenedAtAsc(jobId).stream()
-                .map(v -> v.getOpenedAt().atZone(UserZone.DEFAULT).toLocalDate())
+        // Two ways tell them: a held statement's real pages opened, and a blanked copy made of an
+        // upload of a layout flagged for review (V313).
+        List<LocalDate> openedOn = java.util.stream.Stream.concat(
+                        originalViews.findByJobIdOrderByOpenedAtAsc(jobId).stream()
+                                .map(com.finora.imports.original.StatementOriginalView::getOpenedAt),
+                        blankedCopies.findByJobIdOrderByMadeAtAsc(jobId).stream()
+                                .map(com.finora.imports.blanked.LayoutUploadBlankedCopy::getMadeAt))
+                .sorted()
+                .map(at -> at.atZone(UserZone.DEFAULT).toLocalDate())
                 .distinct()
                 .toList();
         return ImportJobDto.Timeline.of(job, stageRepository.findByJobIdOrderByRecordedAtAsc(jobId), openedOn);

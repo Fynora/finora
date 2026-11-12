@@ -11,6 +11,8 @@ import com.finora.imports.storage.StatementContentService;
 import com.finora.imports.storage.StatementStorageException;
 import com.finora.repository.ImportJobRepository;
 import com.finora.repository.RegisteredLayoutRepository;
+import com.finora.repository.UserRepository;
+import com.finora.entity.User;
 import com.finora.service.AuditService;
 import com.finora.imports.passwords.StatementPasswordService;
 import org.slf4j.Logger;
@@ -66,20 +68,25 @@ public class FlaggedLayoutUploadService {
     private final AuditService audit;
     private final StatementStatusNotifier notifier;
     private final ApplicationEventPublisher events;
+    private final LayoutUploadBlankedCopyRepository copies;
+    private final UserRepository users;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
     public FlaggedLayoutUploadService(StatementAnalysisSessionRepository analyses, RegisteredLayoutRepository layouts,
                                       ImportJobRepository jobs, StatementContentService statementContent,
                                       StatementPasswordService passwords, AuditService audit,
-                                      StatementStatusNotifier notifier, ApplicationEventPublisher events) {
-        this(analyses, layouts, jobs, statementContent, passwords, audit, notifier, events, Clock.systemUTC());
+                                      StatementStatusNotifier notifier, ApplicationEventPublisher events,
+                                      LayoutUploadBlankedCopyRepository copies, UserRepository users) {
+        this(analyses, layouts, jobs, statementContent, passwords, audit, notifier, events, copies, users,
+                Clock.systemUTC());
     }
 
     FlaggedLayoutUploadService(StatementAnalysisSessionRepository analyses, RegisteredLayoutRepository layouts,
                                ImportJobRepository jobs, StatementContentService statementContent,
                                StatementPasswordService passwords, AuditService audit,
-                               StatementStatusNotifier notifier, ApplicationEventPublisher events, Clock clock) {
+                               StatementStatusNotifier notifier, ApplicationEventPublisher events,
+                               LayoutUploadBlankedCopyRepository copies, UserRepository users, Clock clock) {
         this.analyses = analyses;
         this.layouts = layouts;
         this.jobs = jobs;
@@ -88,6 +95,8 @@ public class FlaggedLayoutUploadService {
         this.audit = audit;
         this.notifier = notifier;
         this.events = events;
+        this.copies = copies;
+        this.users = users;
         this.clock = clock;
     }
 
@@ -110,6 +119,7 @@ public class FlaggedLayoutUploadService {
                     + " is not of a layout waiting for review, so no copy of it can be made here.");
         }
         ImportJob job = jobOf(analysis);
+        requireCustomerStillHere(job, reference);
 
         boolean savedPassword = "PDF".equalsIgnoreCase(job.getSourceFormat()) && passwords.hasJobPassword(job.getId());
         Map<String, Object> details = details(actingAdminId, job, reference, fingerprint);
@@ -136,7 +146,8 @@ public class FlaggedLayoutUploadService {
     /**
      * The second entry, once the copy is made or refused: the ids and the check's result, never
      * statement text. A made copy also tells the customer, in this transaction, and the Super
-     * Admins, after it commits.
+     * Admins, after it commits; and it is recorded for the customer's import timeline (V313),
+     * which is where they can look up what the notice told them.
      */
     @Transactional
     public void recordBlankedCopyResult(UUID actingAdminId, FlaggedUpload upload, BlankedCopyOutcome outcome) {
@@ -148,6 +159,7 @@ public class FlaggedLayoutUploadService {
         if (BlankedCopyOutcome.REFUSED.equals(outcome.check())) return;
 
         Instant now = clock.instant();
+        copies.save(LayoutUploadBlankedCopy.made(job.getId(), job.getUserId(), actingAdminId, upload.reference(), now));
         notifier.notifyOpenedForFix(job.getUserId(), job.getId(), OriginalStatementViewService.noticeDay(now));
         events.publishEvent(new LayoutUploadCopied(actingAdminId, upload.reference(), upload.fingerprint(),
                 job.getId(), upload.reason(), now));
@@ -165,7 +177,25 @@ public class FlaggedLayoutUploadService {
         return (sessionId == null ? java.util.List.<ImportJob>of() : jobs.findByImportSessionId(sessionId))
                 .stream().findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "Upload " + analysis.getReference()
-                        + " was not made through the import queue, so its file was not kept."));
+                        + " has no kept file: it was not made through the import queue, or its import no longer exists."));
+    }
+
+    /**
+     * Nothing about this upload was held, so the customer is not waiting on us: an import they
+     * cancelled, or an account they are leaving or have left, is not ours to open. Refused before
+     * anything is read or recorded.
+     */
+    private void requireCustomerStillHere(ImportJob job, String reference) {
+        if (job.getStatus() == ImportJob.Status.CANCELLED) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "The customer cancelled upload " + reference + ", so no copy of it can be made.");
+        }
+        String status = users.findById(job.getUserId()).map(User::getStatus).orElse(User.STATUS_DELETED);
+        if (User.STATUS_PENDING_DELETION.equals(status) || User.STATUS_DELETED.equals(status)
+                || User.STATUS_DEACTIVATED.equals(status)) {
+            throw new ApiException(HttpStatus.CONFLICT, "The account behind upload " + reference
+                    + " is closed or being closed, so no copy of it can be made.");
+        }
     }
 
     private static Map<String, Object> details(UUID actingAdminId, ImportJob job, String reference, String fingerprint) {

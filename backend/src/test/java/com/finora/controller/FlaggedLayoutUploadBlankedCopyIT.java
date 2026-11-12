@@ -130,6 +130,16 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         return userRepository.save(user);
     }
 
+    /** A customer: no admin scope, as the import timeline expects. */
+    private User createCustomer() {
+        User user = new User();
+        user.setEmail("layout-copy-owner-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("irrelevant-for-this-test");
+        user.setFullName("Layout Copy Owner");
+        user.setPhoneVerified(true);
+        return userRepository.save(user);
+    }
+
     /** A support-portal account holding only the layout permission, through a real role, and no ADMIN role. */
     private User createLayoutSupportUser() {
         Permission p = permissionRepository.findAll().stream()
@@ -180,7 +190,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
 
     /** A queue upload that finished staging: the job keeps the stored file and names the staged session. */
     private Upload queueUpload(byte[] content, boolean waitingForReview) {
-        User owner = createUser("USER");
+        User owner = createCustomer();
         ContentAddress address = storage.store(content);
         ImportJob job = new ImportJob(owner.getId(), CUSTOMER_FILE_NAME, address.hash(), address.key(), "PDF");
         job.markClaimed("worker", Instant.now());
@@ -198,6 +208,19 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
 
     private Upload queueUpload() {
         return queueUpload(plantedPdf(), true);
+    }
+
+    /** The days the customer's own import timeline says our team opened the statement. */
+    private List<String> timelineOpenedDays(ImportJob job) throws Exception {
+        User owner = userRepository.findById(job.getUserId()).orElseThrow();
+        ResponseEntity<String> timeline = restTemplate.exchange("/api/v1/import/jobs/" + job.getId() + "/timeline",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(owner)), String.class);
+        assertThat(timeline.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var days = new com.fasterxml.jackson.databind.ObjectMapper().readTree(timeline.getBody())
+                .get("data").get("openedForFixOn");
+        List<String> out = new java.util.ArrayList<>();
+        days.forEach(d -> out.add(d.asText()));
+        return out;
     }
 
     private List<String> actionsOn(UUID entityId) {
@@ -258,7 +281,35 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void twoCopiesOnOneDayTellTheCustomerOnce() {
+    void theCustomersImportTimelineShowsTheDayACopyWasMade() throws Exception {
+        Upload upload = queueUpload();
+        assertThat(timelineOpenedDays(upload.job())).isEmpty();
+
+        // The day in India either side of the copy, so a copy made at midnight there cannot flake.
+        String before = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString();
+        assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        String after = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).toString();
+
+        List<String> days = timelineOpenedDays(upload.job());
+        assertThat(days).hasSize(1);
+        assertThat(days.get(0)).isIn(before, after);
+    }
+
+    @Test
+    void aJobDeletedWithItsAccountTakesItsCopyRecordsWithIt() {
+        Upload upload = queueUpload();
+        assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM layout_upload_blanked_copies WHERE job_id = ?",
+                Integer.class, upload.job().getId())).isEqualTo(1);
+
+        jdbc.update("DELETE FROM import_jobs WHERE id = ?", upload.job().getId());
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM layout_upload_blanked_copies WHERE job_id = ?",
+                Integer.class, upload.job().getId())).isZero();
+    }
+
+    @Test
+    void twoCopiesOnOneDayTellTheCustomerOnce() throws Exception {
         Upload upload = queueUpload();
         User admin = createUser("ADMIN");
 
@@ -266,12 +317,13 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(copy(upload.reference(), REASON, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(openedNoticesFor(upload.job().getUserId())).hasSize(2);
+        assertThat(timelineOpenedDays(upload.job())).hasSize(1);
         assertThat(actionsOn(upload.job().getId())).containsExactly("LAYOUT_UPLOAD_BLANKED_COPY",
                 "LAYOUT_UPLOAD_BLANKED_COPY_RESULT", "LAYOUT_UPLOAD_BLANKED_COPY", "LAYOUT_UPLOAD_BLANKED_COPY_RESULT");
     }
 
     @Test
-    void aCopyThePrivacyScanRefusesTellsNobody() throws IOException {
+    void aCopyThePrivacyScanRefusesTellsNobody() throws Exception {
         Upload upload = queueUpload(PdfFixtureBuilder.buildSampleWithAnEmailTheRedactorCannotBlank(), true);
         User superAdmin = createUser("SUPER_ADMIN");
 
@@ -282,6 +334,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
                 .containsExactly("LAYOUT_UPLOAD_BLANKED_COPY", "LAYOUT_UPLOAD_BLANKED_COPY_RESULT");
         assertThat(auditOf(upload.job().getId())).contains("REFUSED");
         assertThat(openedNoticesFor(upload.job().getUserId())).isEmpty();
+        assertThat(timelineOpenedDays(upload.job())).isEmpty();
         verify(emailProvider, after(1_500).never()).send(argThat(m -> m != null && superAdmin.getEmail().equals(m.to())));
     }
 
@@ -390,6 +443,43 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
                 fingerprint, 1, 100L, 0, "{}", null, null));
 
         assertThat(copy(reference, REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void anImportTheCustomerCancelledIsRefused() {
+        Upload upload = queueUpload();
+        // A job cancelled after its staged session was recorded: status set directly, as the entity
+        // only cancels from states before a session exists.
+        jdbc.update("UPDATE import_jobs SET status = 'CANCELLED' WHERE id = ?", upload.job().getId());
+
+        ResponseEntity<String> response = copy(upload.reference(), REASON, createUser("ADMIN"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("cancelled");
+        assertThat(actionsOn(upload.job().getId())).isEmpty();
+        assertThat(openedNoticesFor(upload.job().getUserId())).isEmpty();
+    }
+
+    @Test
+    void anAccountBeingClosedOrClosedIsRefused() {
+        for (String status : List.of(User.STATUS_PENDING_DELETION, User.STATUS_DEACTIVATED, User.STATUS_DELETED)) {
+            Upload upload = queueUpload();
+            jdbc.update("UPDATE users SET status = ? WHERE id = ?", status, upload.job().getUserId());
+
+            ResponseEntity<String> response = copy(upload.reference(), REASON, createUser("ADMIN"));
+
+            assertThat(response.getStatusCode()).as(status).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(actionsOn(upload.job().getId())).as(status).isEmpty();
+            assertThat(openedNoticesFor(upload.job().getUserId())).as(status).isEmpty();
+        }
+    }
+
+    @Test
+    void aSuspendedAccountsUploadCanStillBeCopied() {
+        Upload upload = queueUpload();
+        jdbc.update("UPDATE users SET status = ? WHERE id = ?", User.STATUS_SUSPENDED, upload.job().getUserId());
+
+        assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

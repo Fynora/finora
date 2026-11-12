@@ -351,11 +351,18 @@ public class SupportTicketService {
         }));
     }
 
-    /** The admin's view of one ticket: {@link #getDetail} (which records the view in the audit log)
-     *  plus the customer and the claiming admin, named under {@link SupportTicketDto.AdminDetail}'s rules. */
+    /** The admin's view of one ticket: what {@link #getDetail} shows its owner, plus the customer and
+     *  the claiming admin, named under {@link SupportTicketDto.AdminDetail}'s rules. Records the view
+     *  as SUPPORT_TICKET_VIEWED with the admin as actor, as an admin opening a ticket always has. Not
+     *  readOnly, for the audit write -- see {@link #getDetail}. */
     @Transactional
-    public SupportTicketDto.AdminDetail adminDetail(UUID callerId, UUID ticketId, boolean mayNameCustomers) {
-        SupportTicketDto.Detail d = getDetail(callerId, true, ticketId);
+    public SupportTicketDto.AdminDetail adminDetail(UUID actingAdminId, UUID ticketId, boolean mayNameCustomers) {
+        SupportTicket ticket = requireTicket(ticketId);
+        List<SupportTicketDto.AttachmentSummary> attachments = attachmentRepository.findMetadataByTicketId(ticket.getId())
+                .stream().map(SupportTicketDto.AttachmentSummary::from).toList();
+        auditService.record(ticket.getUserId(), "SUPPORT_TICKET_VIEWED", "SupportTicket", ticket.getId(),
+                Map.of("actorId", actingAdminId.toString(), "ticketNumber", ticket.getTicketNumber()));
+        SupportTicketDto.Detail d = SupportTicketDto.Detail.from(ticket, attachments);
         Map<UUID, User> people = peopleNamedIn(java.util.Arrays.asList(d.userId(), d.claimedByAdminId()));
         User customer = nameable(people.get(d.userId()), mayNameCustomers);
         User claimer = d.claimedByAdminId() != null ? nameable(people.get(d.claimedByAdminId()), mayNameCustomers) : null;
@@ -363,7 +370,7 @@ public class SupportTicketService {
                 customer != null ? customer.getFullName() : null, customer != null ? customer.getEmail() : null,
                 d.category(), d.subject(), d.description(), d.status(), d.source(), d.appVersion(),
                 d.claimedByAdminId(), claimer != null ? claimer.getFullName() : null,
-                d.claimedByAdminId() != null && d.claimedByAdminId().equals(callerId),
+                d.claimedByAdminId() != null && d.claimedByAdminId().equals(actingAdminId),
                 d.resolvedAt(), d.closedAt(), d.createdAt(), d.updatedAt(), d.attachments(),
                 d.duplicateOfTicketId(), d.duplicateOfTicketNumber());
     }

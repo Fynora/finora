@@ -202,6 +202,10 @@ class SupportTicketAdminIT extends AbstractIntegrationTest {
         assertThat(detail.get("description").asText()).startsWith("Something went wrong");
         assertThat(detail.has("source")).isTrue();
         assertThat(notes.get(0).get("adminName").asText()).isEqualTo("Ops Admin");
+        // Opening the ticket is recorded with the admin as actor, as it was through the old route.
+        assertThat(auditLogRepository.findByEntityIdOrderByCreatedAtAsc(UUID.fromString(id)).stream()
+                .filter(row -> row.getAction().equals("SUPPORT_TICKET_VIEWED"))
+                .anyMatch(row -> admin.getId().toString().equals(row.getMetadata().get("actorId")))).isTrue();
     }
 
     @Test

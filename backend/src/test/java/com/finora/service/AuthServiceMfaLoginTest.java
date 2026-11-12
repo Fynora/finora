@@ -54,6 +54,8 @@ class AuthServiceMfaLoginTest {
         refreshTokenService = mock(RefreshTokenService.class);
         when(refreshTokenService.issue(any())).thenReturn(
                 new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
+        when(refreshTokenService.issue(any(), any())).thenReturn(
+                new RefreshTokenService.IssuedToken("test-refresh-token", Instant.now().plusSeconds(3600), UUID.randomUUID()));
         platformSettingsService = mock(PlatformSettingsService.class);
         when(platformSettingsService.getEntity()).thenReturn(new com.finora.entity.PlatformSettings());
         auditService = mock(AuditService.class);
@@ -116,6 +118,7 @@ class AuthServiceMfaLoginTest {
 
         // No session actually began -- this is only the first factor.
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any(), any());
     }
 
@@ -156,7 +159,7 @@ class AuthServiceMfaLoginTest {
 
         assertThat(response.refreshToken()).isEqualTo("test-refresh-token");
         assertThat(response.email()).isEqualTo("admin@example.com");
-        verify(refreshTokenService).issue(userId);
+        verify(refreshTokenService).issue(userId, admin.getAccountScope());
         verify(auditService).record(eq(userId), eq("USER_LOGIN"), eq("User"), eq(userId),
                 argThat(metadata -> Boolean.TRUE.equals(metadata.get("mfa"))));
     }
@@ -182,6 +185,7 @@ class AuthServiceMfaLoginTest {
                 .hasMessageContaining("suspended");
 
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any(), any());
     }
 
@@ -193,6 +197,7 @@ class AuthServiceMfaLoginTest {
         assertThatThrownBy(() -> authService.completeMfaLogin("raw-challenge-token", "000000"))
                 .isInstanceOf(ApiException.class);
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any(), any());
     }
 
@@ -231,6 +236,7 @@ class AuthServiceMfaLoginTest {
 
         verify(adminMfaService, never()).verifyChallenge(any(), any());
         verify(refreshTokenService, never()).issue(any());
+        verify(refreshTokenService, never()).issue(any(), any());
         verify(auditService, never()).record(any(), eq("USER_LOGIN"), any(), any(), any());
     }
 }

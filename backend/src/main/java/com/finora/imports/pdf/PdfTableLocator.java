@@ -157,7 +157,7 @@ public class PdfTableLocator {
     // TransactionNormalizer's own date hints (not reused directly since that method also checks
     // a couple of CSV-only variants that never apply to a PDF-bucketed row).
     private static final List<String> DATE_HINTS = List.of(
-            "date", "transaction date", "txn date", "value date", "date & time");
+            "date", "transaction date", "txn date", "tran date", "value date", "date & time");
 
     // Description-ish column names, kept in sync with TransactionNormalizer's own DESCRIPTION_HINTS
     // for the same reason DATE_HINTS above is -- used only to find where narration text that
@@ -1333,6 +1333,9 @@ public class PdfTableLocator {
         // created in exactly one place, so the pairing cannot drift onto a section that some other
         // trigger opened.
         int pendingSectionHeaderRowIndex = -1;
+        // The last physical line of the most recent header (past any wrapped lines it absorbed) --
+        // see HEADER_LABEL_WRAP_SUPPRESSED.
+        int lastHeaderLineIndex = -1;
         int firstStagedHeaderRowIndex = -1;
         List<String> pendingAuxiliary = new ArrayList<>();
         // Row-accounting evidence: physical rows that had transaction shape (a date-shaped cell
@@ -1875,6 +1878,7 @@ public class PdfTableLocator {
                         previousRowY = row.get(0).y();
                     }
                 }
+                lastHeaderLineIndex = rowIndex;
                 // Bug fix, verified against a real SBI credit-card statement: a "for Statement
                 // Period: ..." caption prints on THIS page's repeat of the header's own physical row
                 // (a per-page rendering variance -- the same caption sits comfortably far from the
@@ -2075,7 +2079,7 @@ public class PdfTableLocator {
                 // this header (the loop below) reuses the same measurement. Sampled forward from
                 // the row right after the header itself, the same way headerQualityWeak already
                 // samples forward from a candidate header to judge it.
-                textColumnSpans = measureTextColumnSpans(headerNames,
+                textColumnSpans = measureTextColumnSpans(headerNames, headerAnchors, headerEnds,
                         sampleRealDataRows(rows, thisHeaderRowIndex + 1, COLUMN_SPAN_SAMPLE_SIZE), yearsByPage);
                 currentHeaderSignature = signature;
                 currentRows = new ArrayList<>();
@@ -2209,6 +2213,24 @@ public class PdfTableLocator {
                 // See HEADER_ANNOTATION's own doc comment.
                 if (ctx != null) ctx.record("HEADER_ANNOTATION_SUPPRESSED");
                 recordIfTransactionShaped(row, "HEADER_ANNOTATION_SUPPRESSED", pendingDroppedCandidates);
+                continue;
+            } else if (currentRows.isEmpty() && pendingLeading == null && rowIndex == lastHeaderLineIndex + 1
+                    && gapFromPreviousRow != null && gapFromPreviousRow <= HEADER_WRAP_MAX_GAP
+                    && carriesNoDataValue(row) && liesWithinHeaderLabels(row, headerNames, headerAnchors, headerEnds)) {
+                // HEADER_LABEL_WRAP_SUPPRESSED. The same role as HEADER_ANNOTATION, found by position
+                // instead of brackets: the second line of a column heading, printed directly under
+                // its own label. A real Axis Bank savings statement heads its last column "Init." over
+                // "Br". wrappedHeaderAt rightly does not merge a lone word that adds no column name
+                // the normalizer can read, so "Br" was located as the section's FIRST row, and with
+                // a row already open, the "OPENING BALANCE" line under it was no longer read as the
+                // table's opening line: the first transaction's narration was glued onto it. Only
+                // the line right under the header, before any row exists, every run of it inside a
+                // header label's own width, and no date or number in it -- narration starts at its
+                // column's left edge and runs past a heading, so it never lies inside one. Never under
+                // a description column's label: a short first narration line under a left-aligned
+                // "Description" would fit inside it.
+                pendingAuxiliary.add(rowLine);
+                if (ctx != null) ctx.record("HEADER_LABEL_WRAP_SUPPRESSED");
                 continue;
             } else if (CARDHOLDER_SUBTABLE_BANNER.matcher(rowLine).matches()
                     || ADD_ON_CARDHOLDER_BANNER.matcher(rowLine).matches()) {
@@ -4503,6 +4525,35 @@ public class PdfTableLocator {
                 || STATEMENT_CLOSING_MARKER.matcher(line).find();
     }
 
+    /** True when every non-blank run of {@code row} lies inside the printed width (1pt either side) of
+     *  a header label that does not name a description column -- see HEADER_LABEL_WRAP_SUPPRESSED.
+     *  False without measured label widths. */
+    private boolean liesWithinHeaderLabels(List<PositionedText> row, List<String> headerNames,
+                                           List<Float> headerAnchors, List<Float> headerEnds) {
+        if (headerNames == null || headerAnchors == null || headerEnds == null
+                || headerAnchors.size() != headerEnds.size() || headerNames.size() != headerAnchors.size()) {
+            return false;
+        }
+        boolean any = false;
+        for (PositionedText t : row) {
+            if (t.text().isBlank()) continue;
+            if (t.width() <= 0) return false;
+            boolean inside = false;
+            for (int i = 0; i < headerAnchors.size(); i++) {
+                float left = headerAnchors.get(i);
+                float right = headerEnds.get(i);
+                if (right > left && t.x() >= left - 1f && t.endX() <= right + 1f) {
+                    if (matchesAnyHint(headerNames.get(i), DESCRIPTION_COLUMN_HINTS)) return false;
+                    inside = true;
+                    break;
+                }
+            }
+            if (!inside) return false;
+            any = true;
+        }
+        return any;
+    }
+
     /** True when no cell in {@code row} reads as a date or a number -- i.e. the row states names,
      *  not values. Uses the same parsers the rest of the pipeline judges values by, so "is this a
      *  value" cannot mean one thing here and another downstream. */
@@ -6033,7 +6084,8 @@ public class PdfTableLocator {
      * (not a date/amount column to begin with, or fewer than {@link #COLUMN_SPAN_MIN_SAMPLE}
      * contributing rows).
      */
-    private ColumnSpan[] measureTextColumnSpans(List<String> headerNames, List<List<PositionedText>> sample,
+    private ColumnSpan[] measureTextColumnSpans(List<String> headerNames, List<Float> headerAnchors,
+                                                 List<Float> headerEnds, List<List<PositionedText>> sample,
                                                  Map<Integer, PageDateEvidence> yearsByPage) {
         int columnCount = headerNames.size();
         ColumnSpan[] spans = new ColumnSpan[columnCount];
@@ -6059,6 +6111,7 @@ public class PdfTableLocator {
         Arrays.fill(minLeft, Float.MAX_VALUE);
         Arrays.fill(maxRight, -Float.MAX_VALUE);
 
+        List<List<PositionedText>> textRows = new ArrayList<>();
         for (List<PositionedText> row : sample) {
             if (row.isEmpty()) continue;
             PageDateEvidence pageYears = yearsByPage.getOrDefault(row.get(0).pageIndex(), PageDateEvidence.NONE);
@@ -6098,6 +6151,17 @@ public class PdfTableLocator {
             int textRegionEnd = amountCellIndex >= 0 ? amountCellIndex : cells.size();
             List<PositionedText> textCells = cells.subList(dateCellIndex + 1, textRegionEnd);
             if (textCells.isEmpty()) continue;
+            textRows.add(textCells);
+        }
+
+        float[][] labelExtents = textLabelExtents(textHeaderIndices, headerAnchors, headerEnds);
+        boolean[] skippable = new boolean[textHeaderIndices.size()];
+        for (int i = 0; i < skippable.length; i++) {
+            skippable[i] = !matchesAnyHint(headerNames.get(textHeaderIndices.get(i)), DESCRIPTION_COLUMN_HINTS);
+        }
+        List<List<Float>> coveredLeftEdges =
+                leftEdgesOfCellsCoveringALaterLabel(textRows, textHeaderIndices, labelExtents, skippable);
+        for (List<PositionedText> textCells : textRows) {
 
             // Guard 5 counts CONTRIBUTING ROWS, not contributing cells -- the overflow branch below
             // can assign several of THIS ROW's own cells to the same (first) column, and counting
@@ -6108,10 +6172,19 @@ public class PdfTableLocator {
                 // Guard 3: a row missing one of the expected text columns' data (a genuinely blank
                 // cell this row's product doesn't populate) contributes only to however many text
                 // columns it actually has, left to right -- never force-matched to the wrong one.
+                //
+                // Left to right, but a cell may skip a column it plainly does not belong to -- see
+                // laterTextColumnFor. Without that, a blank FIRST text column hands its place to the
+                // next column's data.
+                int next = 0;
                 for (int i = 0; i < textCells.size(); i++) {
-                    int headerIndex = textHeaderIndices.get(i);
+                    int lastAllowed = textHeaderIndices.size() - (textCells.size() - i);
+                    int position = laterTextColumnFor(textCells.get(i), next, lastAllowed, labelExtents,
+                            skippable, coveredLeftEdges);
+                    int headerIndex = textHeaderIndices.get(position);
                     accumulateColumnSpanSample(headerIndex, textCells.get(i), minLeft, maxRight);
                     touchedThisRow[headerIndex] = true;
+                    next = position + 1;
                 }
             } else {
                 // MORE cells than expected text columns -- a cell PDFBox split into several runs (a
@@ -6151,6 +6224,83 @@ public class PdfTableLocator {
                                              float[] maxRight) {
         minLeft[headerIndex] = Math.min(minLeft[headerIndex], cell.x());
         maxRight[headerIndex] = Math.max(maxRight[headerIndex], cell.endX());
+    }
+
+    // How far apart two runs' left edges may be and still count as one left-aligned column's data.
+    private static final float SHARED_LEFT_EDGE_TOLERANCE = 1.0f;
+
+    /**
+     * BLANK_LEADING_TEXT_COLUMN. Where in the text columns (a position in {@code textHeaderIndices})
+     * a row's cell belongs, starting from {@code from}: {@code from} itself, unless the cell plainly
+     * belongs to a later column, at most {@code lastAllowed} (so every cell after it still has a
+     * column).
+     *
+     * <p>Found on a real Axis Bank savings statement (held 2026-11-11): "Chq No" then "Particulars",
+     * the Particulars label centred far to the right of where its left-aligned narration begins, and
+     * Chq No blank on almost every row. Strictly left to right, each narration was measured as Chq
+     * No's data, Particulars was never measured, and every description staged into Chq No, leaving
+     * Particulars, and so the transaction's description, empty.
+     *
+     * <p>A cell skips to a later column only when every column it skips is {@code skippable} (never a
+     * description column: narration that runs into the next heading stays narration), it starts past
+     * the END of every label it skips (so it cannot be that column's data printed under its heading),
+     * and either its own extent overlaps the later column's label, or it starts where a cell that did
+     * overlap that label starts (a short narration, left-aligned with the long ones). Without label
+     * widths (traces recorded before widths existed), nothing ever skips.
+     */
+    private static int laterTextColumnFor(PositionedText cell, int from, int lastAllowed, float[][] labelExtents,
+                                          boolean[] skippable, List<List<Float>> coveredLeftEdges) {
+        if (labelExtents == null || cell.width() <= 0) return from;
+        for (int k = from + 1; k <= lastAllowed; k++) {
+            float[] skipped = labelExtents[k - 1];
+            if (!skippable[k - 1] || skipped == null || cell.x() <= skipped[1]) return from;
+            float[] label = labelExtents[k];
+            if (label == null) continue;
+            boolean overlapsLabel = cell.x() < label[1] && cell.endX() > label[0];
+            boolean sharesACoveringLeftEdge = coveredLeftEdges != null && coveredLeftEdges.get(k).stream()
+                    .anyMatch(left -> Math.abs(left - cell.x()) <= SHARED_LEFT_EDGE_TOLERANCE);
+            if (overlapsLabel || sharesACoveringLeftEdge) return k;
+        }
+        return from;
+    }
+
+    /** Each text column's label as [left, right], index-aligned with {@code textHeaderIndices};
+     *  {@code null} overall when any label has no measured width. */
+    private static float[][] textLabelExtents(List<Integer> textHeaderIndices, List<Float> headerAnchors,
+                                              List<Float> headerEnds) {
+        if (headerAnchors == null || headerEnds == null) return null;
+        float[][] extents = new float[textHeaderIndices.size()][];
+        for (int i = 0; i < textHeaderIndices.size(); i++) {
+            int headerIndex = textHeaderIndices.get(i);
+            if (headerIndex >= headerAnchors.size() || headerIndex >= headerEnds.size()) return null;
+            float left = headerAnchors.get(headerIndex);
+            float right = headerEnds.get(headerIndex);
+            if (right <= left) return null;
+            extents[i] = new float[]{left, right};
+        }
+        return extents;
+    }
+
+    /** Per text-column position, the left edges of sample cells that skip to it by overlapping its
+     *  label -- the evidence {@link #laterTextColumnFor} lets a short cell sharing that edge follow. */
+    private static List<List<Float>> leftEdgesOfCellsCoveringALaterLabel(List<List<PositionedText>> textRows,
+                                                                         List<Integer> textHeaderIndices,
+                                                                         float[][] labelExtents,
+                                                                         boolean[] skippable) {
+        List<List<Float>> edges = new ArrayList<>();
+        for (int i = 0; i < textHeaderIndices.size(); i++) edges.add(new ArrayList<>());
+        if (labelExtents == null) return edges;
+        for (List<PositionedText> textCells : textRows) {
+            if (textCells.size() > textHeaderIndices.size()) continue;
+            int next = 0;
+            for (int i = 0; i < textCells.size(); i++) {
+                int lastAllowed = textHeaderIndices.size() - (textCells.size() - i);
+                int position = laterTextColumnFor(textCells.get(i), next, lastAllowed, labelExtents, skippable, null);
+                if (position != next) edges.get(position).add(textCells.get(i).x());
+                next = position + 1;
+            }
+        }
+        return edges;
     }
 
     private Map<String, String> bucketRow(List<PositionedText> row, List<String> headerNames, List<Float> headerAnchors,
@@ -6422,9 +6572,15 @@ public class PdfTableLocator {
             // after the reference column's own header position. The second is what keeps a
             // narration tail that spills past the midpoint ("... FOR 123456" on a real HDFC
             // statement) in the narration: it starts left of the reference header.
+            // A third, BLANK_LEADING_TEXT_COLUMN: the token does not start exactly where another
+            // text column's measured data starts. On a real Axis Bank savings statement a wrapped
+            // narration line ("<channel>/<ref>/<name>", no spaces) starts at the Particulars data's
+            // own left edge, right of the blank Chq No column's heading; kept as a reference, it
+            // split the narration across two columns.
             boolean keptAsReference = isReferenceColumn(columnName) && looksLikeReferenceToken(t.text())
                     && headerAnchors != null && nearest < headerAnchors.size()
-                    && t.x() >= headerAnchors.get(nearest) - 1f;
+                    && t.x() >= headerAnchors.get(nearest) - 1f
+                    && !startsAnotherTextColumnsData(t, nearest, textColumnSpans);
             if (keptAsReference && textColumnSpans != null && ctx != null && nearest == originalNearest) {
                 // Recorded only where it changed the outcome: another column's measured span claims
                 // this position and would otherwise have taken the token.
@@ -6719,12 +6875,14 @@ public class PdfTableLocator {
     }
 
     // A totals label, whole: "Total", "Totals", "Sub total"/"Subtotal"/"Sub-total", "Grand total",
-    // "Page total", optionally followed by a currency ("TOTAL (INR)" is a real Bank of Baroda label)
-    // and a colon. Never "Total Amount Due" or any other qualified field name.
+    // "Page total", "Transaction total" (a real Axis Bank savings label, printed with the debit and
+    // credit totals under the last transaction), optionally followed by a currency ("TOTAL (INR)" is
+    // a real Bank of Baroda label) and a colon. Never "Total Amount Due" or any other qualified field
+    // name.
     //
     // (?U): real text runs end in U+00A0 and nothing on the extraction path replaces it; without
     // the flag, \s does not match it and "Total<NBSP>" fell through to the merge.
-    private static final String TOTALS_LABEL = "(?:grand\\s+|sub\\s*-?\\s*|page\\s+)?totals?"
+    private static final String TOTALS_LABEL = "(?:grand\\s+|sub\\s*-?\\s*|page\\s+|transactions?\\s+)?totals?"
             + "(?:\\s*(?:\\(\\s*(?:inr|rs\\.?|\u20B9)\\s*\\)|inr|rs\\.?|\u20B9))?\\s*:?";
     private static final Pattern BARE_TOTALS_LABEL =
             Pattern.compile("(?iU)^\\s*" + TOTALS_LABEL + "\\s*$");
@@ -7128,6 +7286,19 @@ public class PdfTableLocator {
         String v = fragment.trim();
         return v.length() > 2 && v.startsWith("(") && v.endsWith(")")
                 && CsvParser.parseDate(v.substring(1, v.length() - 1).trim()) != null;
+    }
+
+    /** True when {@code t} starts where another text column's measured data starts -- see the third
+     *  condition on REFERENCE_KEPT_IN_ITS_COLUMN in bucketRow. */
+    private static boolean startsAnotherTextColumnsData(PositionedText t, int column, ColumnSpan[] textColumnSpans) {
+        if (textColumnSpans == null) return false;
+        for (int i = 0; i < textColumnSpans.length; i++) {
+            if (i != column && textColumnSpans[i] != null
+                    && Math.abs(textColumnSpans[i].left() - t.x()) <= SHARED_LEFT_EDGE_TOLERANCE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** One token, no blanks, 6 to 30 characters, carrying a digit: a cheque number, a UTR, a bank's

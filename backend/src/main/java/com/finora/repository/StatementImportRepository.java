@@ -220,19 +220,22 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
     List<LatestPeriodEnd> findLatestPeriodEndsByAccount(@Param("userId") UUID userId,
                                                          @Param("accountIds") java.util.Collection<UUID> accountIds);
 
-    /** One row per account: where its earliest active statement overlapping a month starts. */
-    interface EarliestPeriodStart {
+    /** One row per account: where its active statements overlapping a month start and end. */
+    interface PrintedSpan {
         UUID getAccountId();
         LocalDate getEarliestStart();
+        LocalDate getLatestEnd();
     }
 
     /**
-     * Where each of these accounts' printed coverage of [monthStart, monthEnd] begins: the earliest
-     * period start among its active (not superseded) statements that state a period and overlap the
-     * month. An account with no such statement has no row. Backs the dashboard's "20–30 Nov".
+     * Where each of these accounts' printed coverage of [monthStart, monthEnd] begins and ends: the
+     * earliest period start and the latest period end among its active (not superseded) statements
+     * that state a period and overlap the month. An account with no such statement has no row.
+     * Backs the dashboard's "20–30 Nov".
      */
     @Query("""
-           SELECT si.accountId AS accountId, MIN(si.statementPeriodStart) AS earliestStart
+           SELECT si.accountId AS accountId, MIN(si.statementPeriodStart) AS earliestStart,
+                  MAX(si.statementPeriodEnd) AS latestEnd
              FROM StatementImport si
             WHERE si.userId = :userId
               AND si.accountId IN :accountIds
@@ -243,10 +246,10 @@ public interface StatementImportRepository extends JpaRepository<StatementImport
               AND si.statementPeriodEnd >= :monthStart
             GROUP BY si.accountId
            """)
-    List<EarliestPeriodStart> findEarliestPeriodStartsOverlapping(@Param("userId") UUID userId,
-                                                                   @Param("accountIds") java.util.Collection<UUID> accountIds,
-                                                                   @Param("monthStart") LocalDate monthStart,
-                                                                   @Param("monthEnd") LocalDate monthEnd);
+    List<PrintedSpan> findPrintedSpansOverlapping(@Param("userId") UUID userId,
+                                                  @Param("accountIds") java.util.Collection<UUID> accountIds,
+                                                  @Param("monthStart") LocalDate monthStart,
+                                                  @Param("monthEnd") LocalDate monthEnd);
 
     /**
      * The latest statement period end already on file for this account, ignoring one row.

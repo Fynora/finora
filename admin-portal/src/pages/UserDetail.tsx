@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../components/LoadError';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -10,6 +11,7 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SuspendDialog, SUSPENSION_REASONS } from '../components/SuspendDialog';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { useNotify } from '../context/NotificationContext';
 import { adminAuditApi, adminRolesApi, adminUsersApi, type SuspensionReason } from '../api/endpoints';
 import { STATUS_LABELS, promptReactivationReason } from './Users';
 
@@ -32,6 +34,11 @@ import { StatementCorrectionsSection } from './user-detail/StatementCorrectionsS
 import { TransactionsSection } from './user-detail/TransactionsSection';
 import { WorkspaceSection } from './user-detail/WorkspaceSection';
 
+/** The server's own message when it sent one (a 404 says "User not found", a refusal says why). */
+function serverMessage(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { message?: string } } } | null)?.response?.data?.message ?? fallback;
+}
+
 function UserDetailContent({ id }: { id: string }) {
   const { hasPermission } = useAdminAuth();
   const canModify = hasPermission('USER_DELETE');
@@ -39,16 +46,17 @@ function UserDetailContent({ id }: { id: string }) {
   const canManageRoles = hasPermission('ROLE_MANAGE');
   const canViewAccounts = hasPermission('USER_VIEW');
   const queryClient = useQueryClient();
+  const notify = useNotify();
   const [selectedRole, setSelectedRole] = useState('');
   const [editingProfile, setEditingProfile] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
   const [confirmRevokeRole, setConfirmRevokeRole] = useState<string | null>(null);
 
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-user', id],
     queryFn: () => adminUsersApi.get(id),
   });
-  const { data: auditLogs } = useQuery({
+  const { data: auditLogs, error: auditError } = useQuery({
     queryKey: ['admin-user-audit', id],
     queryFn: () => adminAuditApi.forUser(id),
     enabled: hasPermission('AUDIT_VIEW'),
@@ -67,11 +75,13 @@ function UserDetailContent({ id }: { id: string }) {
   const suspendMutation = useMutation({
     mutationFn: ({ reason, message }: { reason: SuspensionReason; message?: string }) =>
       adminUsersApi.suspend(id, reason, message),
-    onSuccess: invalidateUser,
+    onSuccess: () => { invalidateUser(); notify.success('Suspension saved.'); },
+    onError: (err) => notify.error(serverMessage(err, 'Could not suspend this account.')),
   });
   const reactivateMutation = useMutation({
     mutationFn: (reason?: string) => adminUsersApi.reactivate(id, reason),
-    onSuccess: invalidateUser,
+    onSuccess: () => { invalidateUser(); notify.success('Account reactivated.'); },
+    onError: (err) => notify.error(serverMessage(err, 'Could not reactivate this account.')),
   });
   const assignRoleMutation = useMutation({
     mutationFn: (roleName: string) => adminRolesApi.assignRole(id, roleName),
@@ -79,18 +89,33 @@ function UserDetailContent({ id }: { id: string }) {
       setSelectedRole('');
       invalidateUser();
     },
+    onError: (err) => notify.error(serverMessage(err, 'Could not grant this role.')),
   });
   const revokeRoleMutation = useMutation({
     mutationFn: (roleName: string) => adminRolesApi.revokeRole(id, roleName),
     onSuccess: invalidateUser,
+    onError: (err) => notify.error(serverMessage(err, 'Could not revoke this role.')),
   });
   const internalMutation = useMutation({
     mutationFn: (internal: boolean) => adminUsersApi.setInternal(id, internal),
     onSuccess: invalidateUser,
   });
 
-  if (isLoading || !user) {
+  if (isLoading) {
     return <p className="text-muted text-sm">Loading…</p>;
+  }
+  // A missing or deleted id used to sit on "Loading…" forever, since only isLoading was checked.
+  // Keyed on having no data, not on the error: a failed background refresh keeps its error while
+  // the profile already loaded stays valid and on screen.
+  if (!user) {
+    return (
+      <div className="space-y-4">
+        <Link to="/users" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+          <ArrowLeft size={15} /> Back to Users
+        </Link>
+        <p role="alert" className="text-sm text-danger">{serverMessage(loadError, 'Could not load this account.')}</p>
+      </div>
+    );
   }
 
   const assignableRoles = (roles ?? []).filter((r) => !user.roleNames.includes(r.name));
@@ -305,7 +330,8 @@ function UserDetailContent({ id }: { id: string }) {
         <div className="bg-card border border-border rounded-xl2 shadow-card p-6">
           <h3 className="text-sm font-semibold text-ink mb-3">Recent activity</h3>
           <div className="space-y-2">
-            {(auditLogs ?? []).length === 0 && <p className="text-sm text-muted">No recorded activity for this account.</p>}
+            <LoadError error={auditError} what="this account's activity" />
+            {!auditError && (auditLogs ?? []).length === 0 && <p className="text-sm text-muted">No recorded activity for this account.</p>}
             {(auditLogs ?? []).slice(0, 20).map((log) => (
               <div key={log.id} className="flex items-center justify-between text-sm py-2 border-b border-border last:border-b-0">
                 <span className="text-ink font-medium">{log.action}</span>

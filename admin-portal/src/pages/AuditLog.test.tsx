@@ -69,6 +69,17 @@ describe('AuditLog', () => {
     expect(screen.getByText("You don't have access to this section")).toBeInTheDocument();
   });
 
+  // Audit 2026-11-10: a failed load said "No activity recorded yet".
+  it('says the log could not be loaded when the request fails', async () => {
+    mockAuth(['AUDIT_VIEW']);
+    vi.mocked(adminAuditApi.global).mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load this list: Service unavailable");
+    expect(screen.queryByText('No activity recorded yet.')).not.toBeInTheDocument();
+  });
+
   it('shows the empty message when there is no activity yet', async () => {
     mockAuth(['AUDIT_VIEW']);
     vi.mocked(adminAuditApi.global).mockResolvedValue(pagedResponse([]));

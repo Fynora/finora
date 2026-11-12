@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight, ExternalLink } from 'lucide-react';
 import { PublicLayout, PublicSection } from '../components/PublicLayout';
 import NotFound from './NotFound';
 import { HelpContactCard } from './HelpContactCard';
+import { GetTheApp } from '../components/GetTheApp';
 import {
   type StatementCode,
   STATEMENT_CODES_INDEX,
@@ -25,6 +26,8 @@ export function StatementCodeView({ code }: { code: StatementCode }) {
     <PublicLayout title={code.title} description={code.description}>
       <article>
         <p className="text-base text-ink leading-relaxed max-w-2xl mb-10">{code.answer}</p>
+
+        <GetTheApp variant="compact" placement="badge_top" className="mb-10 max-w-2xl" />
 
         <nav aria-label="Breadcrumb" className="mb-10 text-xs text-muted">
           <ol className="flex flex-wrap items-center gap-1.5">

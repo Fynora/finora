@@ -39,15 +39,13 @@ export const ADMIN_PORTAL_PERMISSIONS = [
   // The Merchant Review Center. Separate from MERCHANT_MANAGE (curating one user's merchants while
   // helping them) because this is working a cross-user queue of the engine's own guesses -- V64.
   'MERCHANT_REVIEW',
-  // Subscriptions page (D-28 PR4-A) -- gates the page/sidebar entry, same as every other _VIEW
-  // permission here. SUBSCRIPTION_MANAGEMENT_MANAGE (the plan-change mutation) is deliberately NOT
-  // listed: nothing in the frontend gates on it directly (the page always renders the dropdown;
-  // the backend alone rejects an unauthorized change), so it isn't a portal-entry permission.
-  'SUBSCRIPTION_MANAGEMENT_VIEW',
-  // Referrals page -- REFERRAL_MANAGEMENT_MANAGE (crediting a reward) is deliberately NOT listed,
-  // since the frontend always renders the "Credit Reward" button and only the backend rejects an
-  // unauthorized attempt, same reasoning as SUBSCRIPTION_MANAGEMENT_VIEW above.
-  'REFERRAL_MANAGEMENT_VIEW',
+  // Subscriptions and Billing Offers pages (D-28 PR4-A) -- _VIEW gates the page and sidebar entry.
+  // _MANAGE gates the controls on them (plan change, cancel paid subscription, create/end offer):
+  // until the 2026-11-10 audit every admin saw those controls and a view-only one got a refusal on
+  // each click, so the pages now check it, which is why it is listed here too.
+  'SUBSCRIPTION_MANAGEMENT_VIEW', 'SUBSCRIPTION_MANAGEMENT_MANAGE',
+  // Referrals page -- _VIEW gates the page, _MANAGE the credit form, for the same reason as above.
+  'REFERRAL_MANAGEMENT_VIEW', 'REFERRAL_MANAGEMENT_MANAGE',
   // Insight Explorer, Phase 2's Founder Operations Dashboard (docs/proposals/reconciliation-
   // evolution-roadmap-proposal.md, Part 9). Its own permission rather than a reuse of USER_VIEW or
   // RECONCILIATION_VIEW -- this is the first admin surface exposing a user's actual computed

@@ -18,18 +18,6 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      *  mock was called. */
     List<AuditLog> findByEntityIdOrderByCreatedAtAsc(UUID entityId);
 
-    // Admin Portal, Operational Dashboard KPI -- "Active users today." User has no lastLoginAt
-    // column, so this counts distinct accounts with a real USER_LOGIN audit event (AuthService
-    // already writes one on every successful login) in the window, rather than adding a new
-    // column purely for this one tile.
-    @Query("SELECT COUNT(DISTINCT a.userId) FROM AuditLog a WHERE a.action = :action AND a.createdAt >= :since")
-    long countDistinctUsersByActionSince(@Param("action") String action, @Param("since") Instant since);
-
-    // Admin Portal, Operational Dashboard "vs yesterday" delta for "Active users today."
-    // Inclusive on both ends, matching Spring Data's own Between semantics.
-    @Query("SELECT COUNT(DISTINCT a.userId) FROM AuditLog a WHERE a.action = :action AND a.createdAt >= :start AND a.createdAt <= :end")
-    long countDistinctUsersByActionBetween(@Param("action") String action, @Param("start") Instant start, @Param("end") Instant end);
-
     // Backs the admin portal's global audit feed (AdminController.globalAuditLogs) -- unlike
     // findByUserIdOrderByCreatedAtDesc below, this is genuinely unbounded across every user on
     // the platform, so it's paginated from the start rather than fetched in full. Superseded by

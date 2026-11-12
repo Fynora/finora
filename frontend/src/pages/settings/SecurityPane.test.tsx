@@ -29,4 +29,11 @@ describe('SecurityPane', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Sign out this device' }));
     await waitFor(() => expect(deviceApi.revoke).toHaveBeenCalledWith('s1'));
   });
+
+  it('states the web and app session limits', async () => {
+    vi.mocked(deviceApi.list).mockResolvedValue([]);
+    render(<SecurityPane user={user()} loading={false} loadError={false} onUserUpdate={vi.fn()} />);
+    expect(await screen.findByText(/on the web after 15 minutes without activity/i)).toBeTruthy();
+    expect(screen.getByText(/in the Fynora app after 90 days unused/i)).toBeTruthy();
+  });
 });

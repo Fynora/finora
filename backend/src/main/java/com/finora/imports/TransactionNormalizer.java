@@ -43,8 +43,10 @@ public class TransactionNormalizer {
     // PdfPreviewGenerator/PdfTableLocator) carry no debit or credit value at all -- only a Balance
     // column -- so without this fallback those two rows have a date but no recognizable amount and
     // get silently dropped, before PdfPreviewGenerator's own balancePoints logic ever sees them.
+    // "tran date": Axis Bank's savings statement heads its date column "Tran Date". A held
+    // statement (2026-11-11) staged none of its rows, each refused for having no date column.
     private static final String[] DATE_HINTS =
-            {"date", "transaction_date", "txn date", "transaction date", "value date", "date & time"};
+            {"date", "transaction_date", "txn date", "tran date", "transaction date", "value date", "date & time"};
     // Bug fix: verified against a real Kotak Mahindra Bank statement -- its columns are literally
     // named "Deposit (Cr.)" / "Withdrawal (Dr.)", which CsvParser.normalizeHeaderCell reduces to
     // the SINGULAR "deposit"/"withdrawal" (the parenthesized "(Cr.)"/"(Dr.)" suffix strips the

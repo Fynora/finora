@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
 import { HelpContactCard } from './HelpContactCard';
+import { GetTheApp } from '../components/GetTheApp';
 import { STATEMENT_CODES, STATEMENT_CODES_TITLE, statementCodePath } from './statementCodes';
 
 /** /bank-statement-codes: every code page, each with its one-line answer, so the index itself answers. */
@@ -26,6 +27,7 @@ export default function StatementCodeIndex() {
         means for your account. Questions about Fynora itself are answered in the{' '}
         <Link to="/help" className={INLINE_LINK}>Help Center</Link>.
       </p>
+      <GetTheApp variant="full" placement="badge_bottom" className="mb-10" />
       <HelpContactCard />
     </PublicLayout>
   );

@@ -282,6 +282,7 @@ function HeldStatementsContent() {
         rows={list.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={list.isLoading}
+        error={list.error}
         emptyMessage="Nothing is held for trust review. Every import either completed, failed for a recognised reason, or is waiting for a parser fix elsewhere."
       />
 

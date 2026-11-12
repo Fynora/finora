@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Download, FileSpreadsheet, Lock, ShieldCheck } from 'lucide-react';
 import { INLINE_LINK, PublicLayout } from '../components/PublicLayout';
+import { GetTheApp, PlayBadge } from '../components/GetTheApp';
 import { converterApi } from '../api/endpoints';
 import { downloadBlob } from '../lib/download';
 import { XLSX_MIME } from '../lib/xlsx';
@@ -250,9 +251,13 @@ export function ConverterTool() {
           <p className="text-sm text-muted mb-3">
             Fynora reads your statements, sorts your spending into categories and shows where your money went.
           </p>
-          <Link to="/auth" className="text-sm font-semibold text-primary hover:underline">
-            Create a free account
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link to="/auth" className="text-sm font-semibold text-primary hover:underline">
+              Create a free account
+            </Link>
+            <span className="text-sm text-muted">or get the Android app</span>
+            <PlayBadge placement="result" className="-ml-3" />
+          </div>
         </div>
       </section>
     );
@@ -365,6 +370,8 @@ export default function StatementConverter() {
             ))}
           </dl>
         </section>
+
+        <GetTheApp variant="full" placement="badge_bottom" />
       </div>
     </PublicLayout>
   );

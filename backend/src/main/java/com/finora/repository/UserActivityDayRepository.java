@@ -15,6 +15,11 @@ public interface UserActivityDayRepository extends JpaRepository<UserActivityDay
 
     List<UserActivityDay> findByUserIdOrderByActivityDateAsc(UUID userId);
 
+    /** Admin dashboard "Active today" / "vs yesterday": user-portal accounts that made at least one
+     *  authenticated request on that reporting-zone day. One row per user per day, so a row count is
+     *  a distinct-user count. */
+    long countByActivityDate(LocalDate activityDate);
+
     /** Idempotent insert -- a second request on the same day, from this instance or another one,
      *  is a no-op rather than a unique-constraint failure. Its own transaction because the caller
      *  (UserActivityInterceptor) runs before any controller, outside every service transaction. */

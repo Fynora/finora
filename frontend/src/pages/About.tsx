@@ -9,7 +9,7 @@ import {
   SUPPORT_EMAIL,
   SUPPORT_MAILTO,
 } from '../lib/contact';
-import { PLAY_STORE_URL } from '../lib/openInApp';
+import { playStoreLink } from '../lib/playStoreLink';
 import { everywhere } from './landing/landing-config';
 
 export default function About() {
@@ -78,7 +78,7 @@ export default function About() {
         </p>
         <p>
           {everywhere.nativeNote}{' '}
-          <a href={PLAY_STORE_URL} className={INLINE_LINK}>Fynora on Google Play</a>.
+          <a href={playStoreLink('/about', 'text')} className={INLINE_LINK}>Fynora on Google Play</a>.
         </p>
         <p>
           For help, see the <Link to="/help" className={INLINE_LINK}>Help Center</Link> or

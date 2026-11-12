@@ -202,7 +202,7 @@ public final class PdfTraceRedactor {
      */
     private static final Set<String> STRUCTURAL_WORDS = new LinkedHashSet<>(List.of(
             // column headers and their variants
-            "date", "txn", "transaction", "value", "dt", "narration", "description", "particulars",
+            "date", "txn", "tran", "transaction", "value", "dt", "narration", "description", "particulars",
             "remarks", "details", "withdrawal", "withdrawals", "deposit", "deposits", "debit",
             "debits", "credit", "credits", "amount", "amt", "balance", "closing", "opening",
             "chq", "cheque", "ref", "no", "reference", "dr", "cr", "count",

@@ -303,6 +303,14 @@ describe('Dashboard — Platform Activity chart + Insights row', () => {
     expect(await screen.findByText('17 users')).toBeInTheDocument();
     expect(screen.getByText('Inactive 7+ days')).toBeInTheDocument();
   });
+
+  it('says "1 user", not "1 users"', async () => {
+    vi.mocked(adminDashboardApi.overview).mockResolvedValue(overview({ inactiveUsersLast7Days: 1 }));
+
+    renderPage();
+
+    expect(await screen.findByText('1 user')).toBeInTheDocument();
+  });
 });
 
 describe('Dashboard — needs attention: open holds', () => {
@@ -357,5 +365,34 @@ describe('Dashboard — needs attention: open holds', () => {
     expect(overdue.compareDocumentPosition(held) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(overdue.closest('[data-overdue]')).toHaveClass('bg-danger-bg');
     expect(held.closest('[data-overdue]')).toBeNull();
+  });
+});
+
+// Audit 2026-11-10: with the overview request failed, overallStatus was undefined, so the banner
+// stayed green (the default tone) while its text fell through to "A monitored system is down".
+describe('Dashboard — overview request fails', () => {
+  beforeEach(() => {
+    vi.mocked(useAdminAuth).mockReset();
+    vi.mocked(adminDashboardApi.overview).mockReset().mockRejectedValue({ response: { data: { message: 'Service unavailable' } } });
+    vi.mocked(adminDashboardApi.activationFunnel).mockReset().mockResolvedValue({
+      signedUp: 0, firstImport: 0, firstBudget: 0, firstGoal: 0,
+    });
+    vi.mocked(adminDashboardApi.activityTrend).mockReset().mockResolvedValue([]);
+    vi.mocked(adminStatsApi.overview).mockReset().mockResolvedValue({
+      totalAccounts: 0, newUsersLast7Days: 0, totalStatementImports: 0, suspendedUsers: 0,
+    } as any);
+    vi.mocked(adminStatsApi.signupSources).mockReset().mockResolvedValue([]);
+    vi.mocked(adminSystemApi.health).mockReset();
+    mockAuth(['PLATFORM_STATS_VIEW']);
+  });
+
+  it('says the status could not be checked instead of claiming a system is down', async () => {
+    renderPage();
+
+    expect(await screen.findByText(/Couldn't check system status/)).toBeInTheDocument();
+    expect(screen.queryByText('A monitored system is down')).not.toBeInTheDocument();
+    // Review 2026-11-11: the tiles read "0" users, transactions and imports, as if that were real.
+    expect(screen.getByText('Total users').closest('div')?.parentElement).toHaveTextContent('—');
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(5);
   });
 });

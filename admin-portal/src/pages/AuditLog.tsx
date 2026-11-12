@@ -11,6 +11,7 @@ import { Pagination } from '../components/Pagination';
 import { useSavedViews } from '../hooks/useSavedViews';
 import { adminAuditApi } from '../api/endpoints';
 import type { AuditLogDto } from '../types';
+import { loadErrorMessage } from '../lib/loadError';
 
 const PAGE_SIZE = 25;
 
@@ -132,7 +133,7 @@ function AuditLogContent() {
   const [searchInput, setSearchInput] = useState('');
   const savedViews = useSavedViews<AuditFilterValues>('finora-admin-views-audit-log');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-audit-global', page, filters],
     queryFn: () => adminAuditApi.global(page, PAGE_SIZE, {
       q: filters.q || undefined,
@@ -186,7 +187,10 @@ function AuditLogContent() {
 
       <div className="bg-card border border-border rounded-xl2 shadow-card overflow-hidden">
         {isLoading && <p className="px-4 py-8 text-center text-muted text-sm">Loading…</p>}
-        {!isLoading && groups.length === 0 && (
+        {!isLoading && loadError != null && (
+          <p role="alert" className="px-4 py-4 text-center text-danger text-sm">{loadErrorMessage(loadError)}</p>
+        )}
+        {!isLoading && loadError == null && groups.length === 0 && (
           <p className="px-4 py-8 text-center text-muted text-sm">
             {filters.q || filters.dateFrom || filters.dateTo
               ? 'No activity matches these filters.'

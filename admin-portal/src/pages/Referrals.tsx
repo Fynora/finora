@@ -6,6 +6,8 @@ import { RequirePermission } from '../components/ProtectedRoute';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Pagination } from '../components/Pagination';
 import { useNotify } from '../context/NotificationContext';
+import { useAdminAuth } from '../context/AdminAuthContext';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { adminReferralsApi } from '../api/endpoints';
 import type { AdminReferralSummaryDto } from '../types';
 
@@ -15,6 +17,15 @@ const PAGE_SIZE = 20;
  *  en-IN grouping, since reward is a real NUMERIC(10,2) money value, not a whole-rupee count. */
 function formatReward(amount: number) {
   return '₹' + amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** A rupee amount the server accepts: at least 0.01 (its @DecimalMin) with at most two decimals,
+ *  so the confirmation shows exactly what will be credited, never a rounded figure. */
+function creditableAmount(raw: string | undefined): number | null {
+  const text = (raw ?? '').trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const amount = Number(text);
+  return amount >= 0.01 ? amount : null;
 }
 
 function errorMessage(err: any, fallback: string) {
@@ -56,7 +67,11 @@ function ReferralsContent() {
   const notify = useNotify();
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
-  const { data, isLoading } = useQuery({
+  // Crediting is REFERRAL_MANAGEMENT_MANAGE on the backend; a view-only admin used to see the form
+  // and get a refusal. It also pays money, so it asks first.
+  const canCredit = useAdminAuth().hasPermission('REFERRAL_MANAGEMENT_MANAGE');
+  const [confirmingCredit, setConfirmingCredit] = useState<{ row: AdminReferralSummaryDto; amount: number } | null>(null);
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-referrals', page],
     queryFn: () => adminReferralsApi.list(page, PAGE_SIZE),
   });
@@ -64,6 +79,7 @@ function ReferralsContent() {
   const creditMutation = useMutation({
     mutationFn: ({ referralId, amount }: { referralId: string; amount: number }) =>
       adminReferralsApi.creditReward(referralId, amount, 'Admin credited referral reward'),
+    onSettled: () => setConfirmingCredit(null),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['admin-referrals'] });
       setAmounts((prev) => {
@@ -87,7 +103,7 @@ function ReferralsContent() {
       header: 'Reward',
       render: (r) => {
         if (r.status === 'REWARDED') return formatReward(r.reward ?? 0);
-        if (r.status !== 'SUBSCRIBED') return <span className="text-muted">—</span>;
+        if (r.status !== 'SUBSCRIBED' || !canCredit) return <span className="text-muted">—</span>;
         return (
           <div className="flex items-center gap-1.5">
             <input
@@ -101,8 +117,11 @@ function ReferralsContent() {
             />
             <button
               type="button"
-              disabled={creditMutation.isPending || !amounts[r.referralId]}
-              onClick={() => creditMutation.mutate({ referralId: r.referralId, amount: Number(amounts[r.referralId]) })}
+              disabled={creditMutation.isPending || creditableAmount(amounts[r.referralId]) === null}
+              onClick={() => {
+                const amount = creditableAmount(amounts[r.referralId]);
+                if (amount !== null) setConfirmingCredit({ row: r, amount });
+              }}
               className="text-xs font-semibold bg-primary hover:bg-primary-dark text-on-primary rounded-lg px-2.5 py-1.5 disabled:opacity-40"
             >
               Credit
@@ -126,8 +145,19 @@ function ReferralsContent() {
         rows={data?.content ?? []}
         keyFor={(r) => r.referralId}
         loading={isLoading}
+        error={loadError}
         emptyMessage="No referrals yet."
       />
+      {confirmingCredit && (
+        <ConfirmDialog
+          title={`Credit ${formatReward(confirmingCredit.amount)}?`}
+          message={`The reward goes to ${confirmingCredit.row.referrerFullName ?? confirmingCredit.row.referrerEmail ?? 'the referrer'} for referring ${confirmingCredit.row.referredFullName ?? confirmingCredit.row.referredEmail ?? 'this account'}. A referral can be credited only once.`}
+          confirmLabel="Credit reward"
+          busy={creditMutation.isPending}
+          onConfirm={() => creditMutation.mutate({ referralId: confirmingCredit.row.referralId, amount: confirmingCredit.amount })}
+          onCancel={() => setConfirmingCredit(null)}
+        />
+      )}
       {data && (
         <Pagination
           page={page}

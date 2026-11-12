@@ -181,20 +181,23 @@ public class AccountCoverageService {
         return ends;
     }
 
+    /** Where an account's printed statements overlapping a month begin and end. */
+    public record PrintedSpan(LocalDate start, LocalDate end) {}
+
     /**
-     * Where each of these accounts' printed statement coverage of {@code month} begins (the earliest
-     * active statement period overlapping it). An account whose statements print no period -- a CSV
-     * export -- or that has none (entered by hand, linked) has no entry: nothing says where its
-     * coverage starts.
+     * Where each of these accounts' printed statement coverage of {@code month} begins and ends (the
+     * earliest start and latest end among its active statements overlapping it). An account whose
+     * statements print no period -- a CSV export -- or that has none (entered by hand, linked) has no
+     * entry: nothing says where its coverage starts or stops.
      */
     @Transactional(readOnly = true)
-    public java.util.Map<UUID, LocalDate> earliestPrintedStartsOverlapping(UUID userId, java.util.Set<UUID> accountIds,
-                                                                           java.time.YearMonth month) {
+    public java.util.Map<UUID, PrintedSpan> printedSpansOverlapping(UUID userId, java.util.Set<UUID> accountIds,
+                                                                    java.time.YearMonth month) {
         if (accountIds.isEmpty()) return java.util.Map.of();
-        java.util.Map<UUID, LocalDate> starts = new java.util.HashMap<>();
-        statementImportRepository.findEarliestPeriodStartsOverlapping(userId, accountIds, month.atDay(1), month.atEndOfMonth())
-                .forEach(row -> starts.put(row.getAccountId(), row.getEarliestStart()));
-        return starts;
+        java.util.Map<UUID, PrintedSpan> spans = new java.util.HashMap<>();
+        statementImportRepository.findPrintedSpansOverlapping(userId, accountIds, month.atDay(1), month.atEndOfMonth())
+                .forEach(row -> spans.put(row.getAccountId(), new PrintedSpan(row.getEarliestStart(), row.getLatestEnd())));
+        return spans;
     }
 
     /** Every gap across every live account, for a caller (Multi-Year Comparison, issue #1455)

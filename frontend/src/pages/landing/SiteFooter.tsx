@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Logo } from './Nav';
 import { footer } from './landing-config';
-import { APP_STORE_URL, PLAY_STORE_URL } from '../../lib/openInApp';
-import playStoreQr from '../../assets/landing/play-store-qr.svg';
+import { APP_STORE_URL } from '../../lib/openInApp';
+import { playQrPath, playStoreLink } from '../../lib/playStoreLink';
 import appStoreQr from '../../assets/landing/app-store-qr.svg';
 import googlePlayBadge from '../../assets/landing/google-play-badge.png';
 import appStoreBadge from '../../assets/landing/app-store-badge.svg';
@@ -36,12 +36,15 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
  * `rel="noopener noreferrer"` on the external link is not optional -- `target="_blank"` without
  * it hands the opened tab a reference back to this one.
  *
- * The two QR codes are static SVGs (assets/landing/play-store-qr.svg and app-store-qr.svg) that
- * encode PLAY_STORE_URL and APP_STORE_URL exactly. They were generated offline with the `qrcode`
- * package (error correction M, 4-module quiet zone) and checked by decoding the rendered image.
- * They do not follow the constants: if either URL in lib/openInApp.ts ever changes, regenerate the
- * matching SVG for the new URL and decode it again before shipping, or the code will send people
- * to a dead listing.
+ * The Google Play badge and QR code carry the homepage's install referrer (lib/playStoreLink.ts,
+ * utm_term "footer" and "qr"), so installs from here are counted apart from the other pages. The
+ * Play QR code is built with the site (scripts/prerender.mjs writes /qr/play-home-home.svg from
+ * playStoreLink), so it always matches the link. The App Store code is a static SVG
+ * (assets/landing/app-store-qr.svg) that encodes APP_STORE_URL exactly. It was generated offline
+ * with the `qrcode` package (error correction M, 4-module quiet zone) and checked by decoding the
+ * rendered image. It does not follow the constant: if APP_STORE_URL ever changes, regenerate the
+ * SVG for the new URL and decode it again before shipping, or the code will send people to a dead
+ * listing.
  *
  * The badges are the stores' own artwork, unmodified: google-play-badge.png is Google's
  * en_badge_web_generic.png from play.google.com/intl/en_us/badges/, and app-store-badge.svg is
@@ -84,7 +87,10 @@ export function SiteFooter() {
                 screen, so the codes only appear from tablet width up; on a phone each unit is just
                 its badge. Each white tile is its SVG's own quiet zone, which a scanner needs, so it
                 is not cropped or tinted. Units wrap instead of shrinking where the column is
-                narrow, so a code never drops below 104px.
+                narrow, so a code never drops below 128px. 128, not the 104 these first shipped at:
+                the Play code now carries an install referrer, a longer link and so a denser code
+                (65 modules with its quiet zone), and at 104px a decoder failed to read it from a
+                screenshot at 1x; at 128px it read every page's code. The App Store code matches it.
 
                 Both badges are the stores' own artwork, shown unmodified: Google's and Apple's
                 rules forbid redrawing, recoloring, cropping or distorting them, so they are only
@@ -100,9 +106,9 @@ export function SiteFooter() {
                 clear space Apple asks for. */}
             <div className="flex flex-wrap items-start gap-x-3 gap-y-5">
               <div className="flex flex-col items-start gap-3">
-                <img src={playStoreQr} alt={footer.playQrAlt} width={104} height={104} className="hidden md:block rounded-lg" />
+                <img src={playQrPath('/')} alt={footer.playQrAlt} width={128} height={128} className="hidden md:block rounded-lg" />
                 <a
-                  href={PLAY_STORE_URL}
+                  href={playStoreLink('/', 'footer')}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="m-tap inline-block"
@@ -111,7 +117,7 @@ export function SiteFooter() {
                 </a>
               </div>
               <div className="flex flex-col items-start gap-3">
-                <img src={appStoreQr} alt={footer.appStoreQrAlt} width={104} height={104} className="hidden md:block rounded-lg" />
+                <img src={appStoreQr} alt={footer.appStoreQrAlt} width={128} height={128} className="hidden md:block rounded-lg" />
                 <a
                   href={APP_STORE_URL}
                   target="_blank"

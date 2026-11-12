@@ -15,7 +15,7 @@ import type { LearningGrowthPoint } from '../types';
  * on the self-service Merchants console, see AdminUserLearningController's class comment).
  */
 function LearningEngineContent() {
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-learning-stats'],
     queryFn: () => adminLearningApi.platformStats(),
   });
@@ -36,10 +36,10 @@ function LearningEngineContent() {
       </p>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? 0} />
-        <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? 0} />
-        <StatCard icon={TrendingUp} label="Corrections" value={isLoading ? '…' : stats?.correctedCount ?? 0} />
-        <StatCard icon={RotateCcw} label="Resets" value={isLoading ? '…' : stats?.resetCount ?? 0} />
+        <StatCard icon={Sparkles} label="Learned pairs" value={isLoading ? '…' : stats?.learnedMerchantPairs ?? '—'} />
+        <StatCard icon={CheckCircle2} label="Confirmations" value={isLoading ? '…' : stats?.totalConfirmations ?? '—'} />
+        <StatCard icon={TrendingUp} label="Corrections" value={isLoading ? '…' : stats?.correctedCount ?? '—'} />
+        <StatCard icon={RotateCcw} label="Resets" value={isLoading ? '…' : stats?.resetCount ?? '—'} />
       </div>
 
       <div>
@@ -49,6 +49,7 @@ function LearningEngineContent() {
           rows={stats?.trend}
           keyFor={(p) => p.month}
           loading={isLoading}
+          error={loadError}
           emptyMessage="No learning activity recorded on the platform yet."
         />
       </div>

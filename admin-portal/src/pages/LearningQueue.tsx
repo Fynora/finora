@@ -48,6 +48,8 @@ function LearningQueueContent() {
   const [status, setStatus] = useState<string>('FAILED');
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<LearningQueueEvent | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const onActionError = (err: unknown) => setActionError(refusal(err, 'That action could not be completed.'));
   const queryClient = useQueryClient();
 
   const summary = useQuery({
@@ -61,6 +63,7 @@ function LearningQueueContent() {
   });
 
   const refreshAll = () => {
+    setActionError(null);
     void queryClient.invalidateQueries({ queryKey: ['learning-queue'] });
     void queryClient.invalidateQueries({ queryKey: ['learning-queue-summary'] });
   };
@@ -71,11 +74,13 @@ function LearningQueueContent() {
       setSelected(updated);
       refreshAll();
     },
+    onError: onActionError,
   });
 
   const retryAll = useMutation({
     mutationFn: () => adminLearningQueueApi.retryAll(),
     onSuccess: refreshAll,
+    onError: onActionError,
   });
 
   const resolve = useMutation({
@@ -90,6 +95,7 @@ function LearningQueueContent() {
       }
       refreshAll();
     },
+    onError: onActionError,
   });
 
   const columns: DataTableColumn<LearningQueueEvent>[] = [
@@ -136,7 +142,7 @@ function LearningQueueContent() {
         <div className="flex gap-2">
           <button
             className="text-xs text-primary hover:underline"
-            onClick={() => setSelected(row)}
+            onClick={() => { setSelected(row); setActionError(null); }}
           >
             Details
           </button>
@@ -156,8 +162,14 @@ function LearningQueueContent() {
 
   const counts = summary.data;
 
+  // Shown next to whatever the admin just clicked: above the open panel, else above the list.
+  const alertEl = actionError && (
+    <p role="alert" className="rounded-lg bg-danger-bg px-3 py-2 text-sm text-danger">{actionError}</p>
+  );
+
   return (
     <div className="space-y-6">
+      {!selected && alertEl}
       <div className="flex items-start justify-between gap-4">
         <p className="text-muted text-sm">
           Failed confirmations are safe to leave here: the transactions they came from are already
@@ -216,6 +228,7 @@ function LearningQueueContent() {
         rows={queue.data?.content ?? []}
         keyFor={(row) => row.id}
         loading={queue.isLoading}
+        error={queue.error}
         emptyMessage={
           status === 'FAILED'
             ? 'Nothing has failed. The queue is healthy.'
@@ -233,10 +246,11 @@ function LearningQueueContent() {
         />
       )}
 
+      {selected && alertEl}
       {selected && (
         <EventDetail
           event={selected}
-          onClose={() => setSelected(null)}
+          onClose={() => { setSelected(null); setActionError(null); }}
           onRetry={() => retry.mutate(selected.id)}
           onResolve={() => resolve.mutate(selected.id)}
           busy={retry.isPending || resolve.isPending}
@@ -244,6 +258,11 @@ function LearningQueueContent() {
       )}
     </div>
   );
+}
+
+/** The server's own message when it sent one; a refused action used to show nothing at all. */
+function refusal(err: unknown, fallback: string): string {
+  return (err as { response?: { data?: { message?: string } } } | null)?.response?.data?.message ?? fallback;
 }
 
 /**

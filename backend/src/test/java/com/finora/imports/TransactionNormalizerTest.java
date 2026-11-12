@@ -744,6 +744,21 @@ class TransactionNormalizerTest {
     // withdrawal on that statement imported with amount 0 while the one genuine deposit imported
     // correctly. Silently wrong data rather than a dropped row, and the file looked like it worked.
 
+    // Axis Bank's savings statement heads its date column "Tran Date". Unrecognized, every row of a
+    // real statement (held 2026-11-11) was rejected for having no date column.
+    @Test
+    void normalize_readsTheDate_fromATranDateColumn() {
+        Map<String, String> row = rowOf(
+                "Tran Date", "01-04-2025", "Chq No", "", "Particulars", "UPI/P2M/100000000001/SAMPLE SHOP",
+                "Debit", "244.00", "Credit", "", "Balance", "9756.00");
+
+        StagedRow staged = normalizer.normalize(userId, row);
+
+        assertThat(staged.date()).isEqualTo(java.time.LocalDate.of(2025, 4, 1));
+        assertThat(staged.amount()).isEqualByComparingTo("244.00");
+        assertThat(staged.type()).isEqualTo("EXPENSE");
+    }
+
     @Test
     void normalize_readsTheWithdrawal_whenTheDepositColumnHoldsAZero() {
         Map<String, String> row = rowOf(

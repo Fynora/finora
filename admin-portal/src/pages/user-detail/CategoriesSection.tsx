@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import { LoadError } from '../../components/LoadError';
 import { Sparkles } from 'lucide-react';
 import { adminUserCategoriesApi } from '../../api/endpoints';
 
 export function CategoriesSection({ userId }: { userId: string }) {
-  const { data: categories, isLoading } = useQuery({
+  const { data: categories, isLoading, error } = useQuery({
     queryKey: ['admin-user-ai-categories', userId],
     queryFn: () => adminUserCategoriesApi.aiCreated(userId),
   });
@@ -16,7 +17,8 @@ export function CategoriesSection({ userId }: { userId: string }) {
       </div>
 
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
-      {!isLoading && (categories ?? []).length === 0 && (
+      <LoadError error={error} />
+      {!isLoading && !error && (categories ?? []).length === 0 && (
         <p className="text-sm text-muted">This user has no Fynora-created categories.</p>
       )}
       <div>

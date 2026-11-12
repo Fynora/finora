@@ -13,6 +13,8 @@ public class JwtProperties {
     private long idleTimeoutMs;
     private long absoluteSessionMs;
     private long refreshReuseGraceMs;
+    private long mobileIdleTimeoutMs;
+    private long mobileAbsoluteSessionMs;
 
     public String getSecret() { return secret; }
     public void setSecret(String secret) { this.secret = secret; }
@@ -32,4 +34,12 @@ public class JwtProperties {
     /** See {@code app.jwt.refresh-reuse-grace-ms} in application.yml. 0 disables the window. */
     public long getRefreshReuseGraceMs() { return refreshReuseGraceMs; }
     public void setRefreshReuseGraceMs(long refreshReuseGraceMs) { this.refreshReuseGraceMs = refreshReuseGraceMs; }
+
+    /** See {@code app.jwt.mobile-idle-timeout-ms} in application.yml. 0 disables the limit. */
+    public long getMobileIdleTimeoutMs() { return mobileIdleTimeoutMs; }
+    public void setMobileIdleTimeoutMs(long mobileIdleTimeoutMs) { this.mobileIdleTimeoutMs = mobileIdleTimeoutMs; }
+
+    /** See {@code app.jwt.mobile-absolute-session-ms} in application.yml. 0 disables the cap. */
+    public long getMobileAbsoluteSessionMs() { return mobileAbsoluteSessionMs; }
+    public void setMobileAbsoluteSessionMs(long mobileAbsoluteSessionMs) { this.mobileAbsoluteSessionMs = mobileAbsoluteSessionMs; }
 }

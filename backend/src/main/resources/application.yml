@@ -223,15 +223,25 @@ app:
     # what banks do" web-session number) made every reopen after a normal multi-hour gap into a
     # full re-login -- on mobile, worse than useless, since it also means the biometric App Lock
     # (AppLockGate.tsx) never gets a live session to unlock: Face ID can prove it's you, it can't
-    # revive a refresh token that's already dead. Deliberately one shared value for both platforms
-    # rather than branching on X-Client-Platform -- that header is client-asserted and explicitly
-    # documented as unfit for anything security-bearing (see ClientIdentity's own doc comment), and
-    # session lifetime is exactly that: how long an already-issued credential stays valid.
+    # revive a refresh token that's already dead. This is the WEB value -- and the value for any
+    # phone-app build without the PIN lock. Phone sessions from the PIN-lock build use the
+    # mobile-* values below instead (design 2026-11-10, mobile PIN unlock).
     idle-timeout-ms: ${JWT_IDLE_TIMEOUT_MS:86400000}                # 24 hours
     # Absolute: the longest a session may live no matter how actively it is used, measured from
     # sign-in and unaffected by rotation. This is the one that ends "logged in since March". 7 days
     # was unusually aggressive for a consumer app people check every few days rather than daily.
     absolute-session-ms: ${JWT_ABSOLUTE_SESSION_MS:2592000000}      # 30 days
+    #
+    # Phone sessions (SessionKind.MOBILE): a sign-in from a phone-app build that requires a PIN (and
+    # optionally Face ID / fingerprint) every time the app is opened, the way Google Pay and Paytm
+    # keep you signed in behind an app lock. The device lock is what guards the session day to day,
+    # so the server limit only ends a phone nobody has opened in 90 days. The kind is stamped at
+    # sign-in and copied by every rotation; see RefreshTokenService#issue(UUID) and ClientIdentity
+    # for why reading the client's own headers is acceptable at that one point and nowhere else.
+    # 0 disables either limit. Sessions that existed before this shipped are WEB and keep the
+    # limits above until their next sign-in.
+    mobile-idle-timeout-ms: ${JWT_MOBILE_IDLE_TIMEOUT_MS:7776000000}         # 90 days
+    mobile-absolute-session-ms: ${JWT_MOBILE_ABSOLUTE_SESSION_MS:0}          # no cap
     #
     # Both accept 0 to disable, which exists for tests and for a deliberate, documented decision --
     # not as a convenient way to silence an inconvenient logout.

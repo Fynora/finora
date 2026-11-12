@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LoadError } from '../../components/LoadError';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Store } from 'lucide-react';
 import { useAdminAuth } from '../../context/AdminAuthContext';
@@ -256,7 +257,7 @@ export function MerchantsSection({ userId }: { userId: string }) {
   const { hasPermission } = useAdminAuth();
   const canManage = hasPermission('MERCHANT_MANAGE');
 
-  const { data: merchants, isLoading } = useQuery({
+  const { data: merchants, isLoading, error: loadError } = useQuery({
     queryKey: ['admin-user-merchants', userId],
     queryFn: () => adminUserMerchantsApi.list(userId),
   });
@@ -269,7 +270,8 @@ export function MerchantsSection({ userId }: { userId: string }) {
         <h3 className="text-sm font-semibold text-ink">Merchants</h3>
       </div>
       {isLoading && <p className="text-sm text-muted">Loading…</p>}
-      {!isLoading && (merchants ?? []).length === 0 && (
+      <LoadError error={loadError} />
+      {!isLoading && !loadError && (merchants ?? []).length === 0 && (
         <p className="text-sm text-muted">No merchants recorded for this user yet.</p>
       )}
       <div>

@@ -436,4 +436,18 @@ describe('Privacy policy matches what the product does', () => {
     expect(t).toMatch(/kept with your account and deleted with\s+it/i);
   });
 
+
+  // Session limits (design 2026-11-10): web idle sign-out in IdleSignOut.tsx; phone sessions in
+  // RefreshTokenService (SessionKind.MOBILE, 90 days idle, no absolute cap) behind the app PIN in
+  // mobile/src/lib/pinLock.ts (stored on the phone only, 5 wrong tries sign out).
+  it('states the web and app session limits the code enforces', () => {
+    const t = policyText();
+    expect(t).toMatch(/On the website, you are signed out after 15 minutes without activity/i);
+    expect(t).toMatch(/after 24 hours of inactivity or 30 days after you signed in/i);
+    expect(t).toMatch(/In the Fynora app, you stay signed in on that phone until you sign out or the app goes unused for\s+90 days/i);
+    expect(t).toMatch(/4-digit PIN/i);
+    expect(t).toMatch(/stored only on your phone and never sent to us/i);
+    expect(t).toMatch(/five wrong PINs in a row sign you out on that phone/i);
+    expect(t).not.toMatch(/a session signs itself out after 24 hours of inactivity, and in any\s+case after 30 days/i);
+  });
 });

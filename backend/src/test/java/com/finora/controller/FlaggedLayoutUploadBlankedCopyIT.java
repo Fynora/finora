@@ -507,6 +507,106 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(openedNoticesFor(owner.getId())).isEmpty();
     }
 
+    // ------------------------------------------------------------------------- the review queue says where a copy can be made
+
+    /** Points the layout's review at this upload, as staging does when it flags. */
+    private void reviewNames(String fingerprint, String reference) {
+        jdbc.update("UPDATE layout_registry SET review_analysis_reference = ? WHERE fingerprint = ?", reference, fingerprint);
+    }
+
+    /** The review queue's {@code reviewCopy} for one layout, as the portal receives it. */
+    private com.fasterxml.jackson.databind.JsonNode reviewCopyOf(String fingerprint, User caller) throws Exception {
+        ResponseEntity<String> queue = restTemplate.exchange("/api/v1/admin/imports/layout-registry/review-queue",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(caller)), String.class);
+        assertThat(queue.getStatusCode()).isEqualTo(HttpStatus.OK);
+        for (var entry : new com.fasterxml.jackson.databind.ObjectMapper().readTree(queue.getBody()).get("data")) {
+            if (fingerprint.equals(entry.get("fingerprint").asText())) return entry.get("reviewCopy");
+        }
+        throw new AssertionError("layout " + fingerprint + " is not in the review queue");
+    }
+
+    @Test
+    void theQueueSaysACopyCanBeMadeOfAKeptPdfUpload() throws Exception {
+        Upload upload = queueUpload();
+        reviewNames(upload.fingerprint(), upload.reference());
+
+        var copy = reviewCopyOf(upload.fingerprint(), createUser("ADMIN"));
+
+        assertThat(copy.get("available").asBoolean()).isTrue();
+        assertThat(copy.get("refusal").isNull()).isTrue();
+        // Checking reads nothing and records nothing.
+        assertThat(actionsOn(upload.job().getId())).isEmpty();
+        assertThat(openedNoticesFor(upload.job().getUserId())).isEmpty();
+    }
+
+    @Test
+    void theQueueSaysWhyNoCopyCanBeMade_withoutNamingTheCustomersChoice() throws Exception {
+        User admin = createUser("ADMIN");
+
+        Upload cancelled = queueUpload();
+        reviewNames(cancelled.fingerprint(), cancelled.reference());
+        jdbc.update("UPDATE import_jobs SET status = 'CANCELLED' WHERE id = ?", cancelled.job().getId());
+        Upload closing = queueUpload();
+        reviewNames(closing.fingerprint(), closing.reference());
+        jdbc.update("UPDATE users SET status = ? WHERE id = ?", User.STATUS_PENDING_DELETION, closing.job().getUserId());
+
+        User owner = createCustomer();
+        String direct = newFingerprint();
+        registerLayout(direct, true);
+        String directRef = newReference();
+        analysisRepository.save(StatementAnalysisSession.parsed(directRef, owner.getId(),
+                StatementAnalysisSession.Source.CUSTOMER_IMPORT, CUSTOMER_FILE_NAME, "PDF", 100L,
+                direct, 1, 100L, 5, "{}", UUID.randomUUID(), "it-correlation"));
+        reviewNames(direct, directRef);
+
+        String noUpload = newFingerprint();
+        registerLayout(noUpload, true);
+
+        assertThat(reviewCopyOf(cancelled.fingerprint(), admin).get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
+        assertThat(reviewCopyOf(closing.fingerprint(), admin).get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
+        assertThat(reviewCopyOf(direct, admin).get("refusal").asText()).isEqualTo("NO_KEPT_FILE");
+        assertThat(reviewCopyOf(noUpload, admin).get("refusal").asText()).isEqualTo("NO_UPLOAD");
+        assertThat(reviewCopyOf(direct, admin).get("available").asBoolean()).isFalse();
+
+        ResponseEntity<String> queue = restTemplate.exchange("/api/v1/admin/imports/layout-registry/review-queue",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
+        assertThat(queue.getBody()).doesNotContain("cancelled").doesNotContain("closed or being closed");
+    }
+
+    @Test
+    void theQueueSaysACsvUploadCannotBeCopied() throws Exception {
+        User owner = createCustomer();
+        byte[] csv = "Date,Narration,Amount\n01/01/2026,SYNTHETIC SHOP,100.00\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        ContentAddress address = storage.store(csv);
+        ImportJob job = new ImportJob(owner.getId(), "statement.csv", address.hash(), address.key(), "CSV");
+        job.markClaimed("worker", Instant.now());
+        UUID sessionId = UUID.randomUUID();
+        job.complete(sessionId, Instant.now());
+        importJobRepository.save(job);
+        String fingerprint = newFingerprint();
+        registerLayout(fingerprint, true);
+        String reference = newReference();
+        analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
+                StatementAnalysisSession.Source.CUSTOMER_IMPORT, "statement.csv", "CSV", (long) csv.length,
+                fingerprint, 1, 100L, 1, "{}", sessionId, "it-correlation"));
+        reviewNames(fingerprint, reference);
+
+        assertThat(reviewCopyOf(fingerprint, createUser("ADMIN")).get("refusal").asText()).isEqualTo("NOT_PDF");
+    }
+
+    @Test
+    void theFullRegistryDoesNotCheckCopies() throws Exception {
+        Upload upload = queueUpload();
+        reviewNames(upload.fingerprint(), upload.reference());
+
+        ResponseEntity<String> registry = restTemplate.exchange("/api/v1/admin/imports/layout-registry",
+                HttpMethod.GET, new HttpEntity<>(bearerFor(createUser("ADMIN"))), String.class);
+        var found = java.util.stream.StreamSupport.stream(new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(registry.getBody()).get("data").spliterator(), false)
+                .filter(e -> upload.fingerprint().equals(e.get("fingerprint").asText())).findFirst().orElseThrow();
+        assertThat(found.get("reviewCopy").isNull()).isTrue();
+    }
+
     @Test
     void anUnknownReferenceIsNotFound() {
         assertThat(copy(newReference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);

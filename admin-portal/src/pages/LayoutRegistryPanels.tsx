@@ -5,7 +5,7 @@ import { adminBlankedCopyApi, adminLayoutRegistryApi, banksApi } from '../api/en
 import BlankedCopyPanel from '../components/BlankedCopyPanel';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { withSep } from '../lib/withSep';
-import type { BankChoiceCount, BankDto, BankOriginWeek, LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry } from '../types';
+import type { BankChoiceCount, BankDto, BankOriginWeek, LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry, ReviewCopyRefusal } from '../types';
 
 /**
  * The layout registry's curation panels (V243), shown as tabs on Layout Intelligence.
@@ -255,6 +255,14 @@ function BankOriginsTable() {
   );
 }
 
+/** What the queue says in place of the copy button. A customer's choice (a cancelled import, a
+ *  closed account) is not named: this page carries no personal data. */
+function copyRefusalText(refusal: ReviewCopyRefusal | null): string {
+  if (refusal === 'NO_KEPT_FILE') return "No blanked copy: this upload's file was not kept.";
+  if (refusal === 'NOT_PDF') return 'Blanked copy not available for CSV yet.';
+  return 'No blanked copy can be made of this upload.';
+}
+
 export function ReviewQueuePanel() {
   const { hasPermission, roles } = useAdminAuth();
   const canManage = hasPermission('LAYOUT_REGISTRY_MANAGE');
@@ -346,10 +354,12 @@ export function ReviewQueuePanel() {
                         <CheckCircle2 size={14} /> Resolve
                       </button>
                     )}
-                    {/* PDF only, as the server makes them; a CSV layout is told so in place of a
-                        button that could only fail, as the held-imports page does. */}
-                    {canCopy && entry.reviewAnalysisReference && (
-                      entry.sourceFormat?.toUpperCase() === 'PDF' ? (
+                    {/* The server checks each flagged layout's latest upload as a copy would,
+                        before anything is read; the button shows only where pressing it can work,
+                        and otherwise the reason does, as a code it turns into words here. Without
+                        that answer (a server that does not send it yet) nothing shows. */}
+                    {canCopy && entry.reviewCopy && (
+                      entry.reviewCopy.available && entry.reviewAnalysisReference ? (
                         <div className="mt-2">
                           <BlankedCopyPanel
                             askReason
@@ -357,9 +367,9 @@ export function ReviewQueuePanel() {
                               entry.reviewAnalysisReference as string, reason ?? '')}
                           />
                         </div>
-                      ) : entry.sourceFormat?.toUpperCase() === 'CSV' ? (
-                        <p className="mt-2 text-xs text-muted">Blanked copy not available for CSV yet.</p>
-                      ) : null
+                      ) : (
+                        <p className="mt-2 text-xs text-muted">{copyRefusalText(entry.reviewCopy.refusal)}</p>
+                      )
                     )}
                   </td>
                 </tr>

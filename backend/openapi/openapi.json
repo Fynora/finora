@@ -16906,6 +16906,20 @@
                     "profileVersionChangedAt": {
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "reviewCopy": {
+                        "$ref": "#/components/schemas/ReviewCopy"
+                    }
+                }
+            },
+            "ReviewCopy": {
+                "type": "object",
+                "properties": {
+                    "available": {
+                        "type": "boolean"
+                    },
+                    "refusal": {
+                        "type": "string"
                     }
                 }
             },

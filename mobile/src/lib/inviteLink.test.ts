@@ -1,4 +1,4 @@
-import { inviteMessage, invitePlayLink, inviteSignupLink } from './inviteLink';
+import { inviteAppStoreLink, inviteMessage, invitePlayLink, inviteSignupLink } from './inviteLink';
 
 describe('inviteLink', () => {
   it('builds the web sign-up link with the referral code and the campaign tags', () => {
@@ -27,10 +27,15 @@ describe('inviteLink', () => {
     );
   });
 
-  it('puts both links and the code in the message, and no reward claim', () => {
+  it('links the iPhone app at the same App Store listing the website links', () => {
+    expect(inviteAppStoreLink()).toBe('https://apps.apple.com/in/app/fynora-personal-finance/id6809816093'); // synthetic-ok: the public App Store listing URL, not customer data
+  });
+
+  it('puts the sign-up link, both app links and the code in the message, and no reward claim', () => {
     const message = inviteMessage('AB12CD34');
     expect(message).toContain(inviteSignupLink('AB12CD34'));
     expect(message).toContain(invitePlayLink());
+    expect(message).toContain(`iPhone app: ${inviteAppStoreLink()}`);
     expect(message).toContain('My referral code: AB12CD34');
     expect(message).not.toMatch(/free|reward|earn/i);
   });

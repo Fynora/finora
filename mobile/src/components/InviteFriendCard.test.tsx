@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Share } from 'react-native';
-import { InviteFriendCard } from './InviteFriendCard';
+import { InviteFriendCard, REPORT_RETRY_MS, reportInviteEvent } from './InviteFriendCard';
 import { invitePromptApi, referralsApi } from '../api/endpoints';
 import { inviteMessage } from '../lib/inviteLink';
 import { isSharing } from '../lib/appLock';
@@ -90,6 +90,39 @@ describe('InviteFriendCard', () => {
 
     expect(event).toHaveBeenCalledWith('DISMISSED');
     expect(screen.queryByTestId('invite-friend-card')).not.toBeOnTheScreen();
+  });
+
+  it('sends a failed report once more, a few seconds later, and then gives up', async () => {
+    jest.useFakeTimers();
+    try {
+      event.mockRejectedValue(new Error('offline'));
+      reportInviteEvent('DISMISSED');
+      await act(async () => { await jest.advanceTimersByTimeAsync(0); });
+      expect(event).toHaveBeenCalledTimes(1);
+      await act(async () => { await jest.advanceTimersByTimeAsync(REPORT_RETRY_MS); });
+      expect(event).toHaveBeenCalledTimes(2);
+      expect(event).toHaveBeenLastCalledWith('DISMISSED');
+      await act(async () => { await jest.advanceTimersByTimeAsync(REPORT_RETRY_MS * 10); });
+      expect(event).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not resend a report that went through', async () => {
+    jest.useFakeTimers();
+    try {
+      reportInviteEvent('SHOWN');
+      await act(async () => { await jest.advanceTimersByTimeAsync(REPORT_RETRY_MS * 2); });
+      expect(event).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a report that throws before sending never throws out of it', () => {
+    event.mockImplementation(() => { throw new Error('no client'); });
+    expect(() => reportInviteEvent('SHOWN')).not.toThrow();
   });
 
   it('a failed report never breaks the card', async () => {

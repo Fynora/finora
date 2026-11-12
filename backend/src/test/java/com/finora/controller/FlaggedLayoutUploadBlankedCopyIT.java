@@ -101,6 +101,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private StatementStorage storage;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.finora.repository.AccountRepository accountRepository;
     @MockitoBean private EmailProvider emailProvider;
 
     @BeforeEach
@@ -197,13 +198,21 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         UUID sessionId = UUID.randomUUID();
         job.complete(sessionId, Instant.now());
         importJobRepository.save(job);
+        stagedSession(sessionId, owner.getId());
         String fingerprint = newFingerprint();
         registerLayout(fingerprint, waitingForReview);
         String reference = newReference();
         analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
                 StatementAnalysisSession.Source.CUSTOMER_IMPORT, CUSTOMER_FILE_NAME, "PDF", (long) content.length,
                 fingerprint, 1, 100L, 5, "{}", sessionId, "it-correlation"));
+        if (waitingForReview) reviewNames(fingerprint, reference);
         return new Upload(reference, fingerprint, job);
+    }
+
+    /** The staged session the worker leaves for the customer to confirm, still confirmable. */
+    private void stagedSession(UUID sessionId, UUID ownerId) {
+        jdbc.update("INSERT INTO import_sessions (id, user_id, file_name, file_content, status, expires_at) "
+                + "VALUES (?, ?, 'staged.pdf', ?, 'STAGED', now() + interval '1 day')", sessionId, ownerId, new byte[] {1});
     }
 
     private Upload queueUpload() {
@@ -424,6 +433,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
                 StatementAnalysisSession.Source.CUSTOMER_IMPORT, CUSTOMER_FILE_NAME, "PDF", 100L,
                 fingerprint, 1, 100L, 5, "{}", UUID.randomUUID(), "it-correlation"));
+        reviewNames(fingerprint, reference);
 
         ResponseEntity<String> response = copy(reference, REASON, createUser("ADMIN"));
 
@@ -441,6 +451,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
                 StatementAnalysisSession.Source.CUSTOMER_IMPORT, CUSTOMER_FILE_NAME, "PDF", 100L,
                 fingerprint, 1, 100L, 0, "{}", null, null));
+        reviewNames(fingerprint, reference);
 
         assertThat(copy(reference, REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
@@ -482,6 +493,135 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
+    // ------------------------------------------------------------------------- the statement must still be the customer's
+
+    /** The customer confirmed the staging: the session says so and the import holds the upload's hash. */
+    private UUID imported(Upload upload) {
+        jdbc.update("UPDATE import_sessions SET status = 'CONFIRMED' WHERE id = ?", upload.job().getImportSessionId());
+        com.finora.entity.Account account = new com.finora.entity.Account();
+        account.setUserId(upload.job().getUserId());
+        account.setName("Layout Copy IT Savings");
+        account.setAccountType(com.finora.entity.Account.Type.SAVINGS);
+        account.setBalance(java.math.BigDecimal.ZERO);
+        UUID accountId = accountRepository.save(account).getId();
+        UUID importId = UUID.randomUUID();
+        jdbc.update("INSERT INTO statement_imports (id, user_id, account_id, file_name, file_content, content_hash) "
+                + "VALUES (?, ?, ?, ?, ?, ?)", importId, upload.job().getUserId(), accountId, "statement.pdf", new byte[] {1},
+                upload.job().getContentHash());
+        return importId;
+    }
+
+    private void assertRefusedAsTheCustomersChoice(Upload upload) {
+        ResponseEntity<String> response = copy(upload.reference(), REASON, createUser("ADMIN"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("discarded or deleted");
+        assertThat(actionsOn(upload.job().getId())).isEmpty();
+        assertThat(openedNoticesFor(upload.job().getUserId())).isEmpty();
+    }
+
+    @Test
+    void aStagingTheCustomerDiscardedIsRefused() {
+        Upload upload = queueUpload();
+        // Discarding deletes the session; the queue keeps the job and its file for the retention window.
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", upload.job().getImportSessionId());
+
+        assertRefusedAsTheCustomersChoice(upload);
+    }
+
+    @Test
+    void aStagingThatExpiredUnconfirmedIsRefused() {
+        Upload upload = queueUpload();
+        jdbc.update("UPDATE import_sessions SET expires_at = now() - interval '1 minute' WHERE id = ?",
+                upload.job().getImportSessionId());
+
+        assertRefusedAsTheCustomersChoice(upload);
+    }
+
+    @Test
+    void anImportTheCustomerDeletedIsRefused() {
+        Upload upload = queueUpload();
+        UUID importId = imported(upload);
+        jdbc.update("UPDATE statement_imports SET deleted_at = now() WHERE id = ?", importId);
+
+        assertRefusedAsTheCustomersChoice(upload);
+    }
+
+    @Test
+    void anImportTheCustomerKeptCanBeCopied_evenOnceItsSessionIsGone() {
+        Upload upload = queueUpload();
+        imported(upload);
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", upload.job().getImportSessionId());
+
+        assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void anotherCustomersImportOfTheSameFileDoesNotCount() {
+        Upload upload = queueUpload();
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", upload.job().getImportSessionId());
+        User someoneElse = createCustomer();
+        com.finora.entity.Account account = new com.finora.entity.Account();
+        account.setUserId(someoneElse.getId());
+        account.setName("Other customer savings");
+        account.setAccountType(com.finora.entity.Account.Type.SAVINGS);
+        account.setBalance(java.math.BigDecimal.ZERO);
+        UUID accountId = accountRepository.save(account).getId();
+        jdbc.update("INSERT INTO statement_imports (user_id, account_id, file_name, file_content, content_hash) "
+                + "VALUES (?, ?, ?, ?, ?)", someoneElse.getId(), accountId, "statement.pdf", new byte[] {1},
+                upload.job().getContentHash());
+
+        assertRefusedAsTheCustomersChoice(upload);
+    }
+
+    @Test
+    void aHeldUploadCanBeCopied_whateverItsSessionsExpiry() {
+        Upload upload = queueUpload();
+        // A hold keeps its session past its expiry (the sweep spares it); the customer is waiting on us.
+        jdbc.update("UPDATE import_jobs SET status = 'HELD_FOR_TRUST_REVIEW' WHERE id = ?", upload.job().getId());
+        jdbc.update("UPDATE import_sessions SET expires_at = now() - interval '1 minute' WHERE id = ?",
+                upload.job().getImportSessionId());
+
+        assertThat(copy(upload.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    // ------------------------------------------------------------------------- only the uploads the flag names
+
+    /** A second upload of the same layout by another customer, which read without raising the review. */
+    private Upload anotherUploadOf(Upload first) {
+        Upload other = queueUpload(plantedPdf(), false);
+        jdbc.update("UPDATE statement_analysis_sessions SET layout_fingerprint = ? WHERE reference = ?",
+                first.fingerprint(), other.reference());
+        return new Upload(other.reference(), first.fingerprint(), other.job());
+    }
+
+    @Test
+    void anUploadTheFlagDoesNotNameIsRefused() {
+        Upload flagged = queueUpload();
+        Upload other = anotherUploadOf(flagged);
+
+        ResponseEntity<String> response = copy(other.reference(), REASON, createUser("ADMIN"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).contains("did not raise this layout's review");
+        assertThat(actionsOn(other.job().getId())).isEmpty();
+        assertThat(openedNoticesFor(other.job().getUserId())).isEmpty();
+        assertThat(copy(flagged.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void theUploadThatRaisedAReasonCanBeCopied_afterALaterUploadMovedTheReview() {
+        Upload first = queueUpload();
+        Upload later = anotherUploadOf(first);
+        // The later upload raised a reason of its own and the review now points at it; the first
+        // upload stays the source of the reason it raised (V270).
+        jdbc.update("UPDATE layout_registry SET review_analysis_reference = ?, "
+                + "review_reason_sources = jsonb_build_object('NEW_LAYOUT', ?::text, 'VERIFICATION_NOT_PASSED:BALANCE_CHAIN', ?::text) "
+                + "WHERE fingerprint = ?", later.reference(), first.reference(), later.reference(), first.fingerprint());
+
+        assertThat(copy(first.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(copy(later.reference(), REASON, createUser("ADMIN")).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     @Test
     void aCsvUploadIsRefusedBeforeItsFileIsReadOrTheAccessRecorded() {
         User owner = createCustomer();
@@ -492,12 +632,14 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         UUID sessionId = UUID.randomUUID();
         job.complete(sessionId, Instant.now());
         importJobRepository.save(job);
+        stagedSession(sessionId, owner.getId());
         String fingerprint = newFingerprint();
         registerLayout(fingerprint, true);
         String reference = newReference();
         analysisRepository.save(StatementAnalysisSession.parsed(reference, owner.getId(),
                 StatementAnalysisSession.Source.CUSTOMER_IMPORT, "statement.csv", "CSV", (long) csv.length,
                 fingerprint, 1, 100L, 1, "{}", sessionId, "it-correlation"));
+        reviewNames(fingerprint, reference);
 
         ResponseEntity<String> response = copy(reference, REASON, createUser("ADMIN"));
 
@@ -562,7 +704,11 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         String noUpload = newFingerprint();
         registerLayout(noUpload, true);
 
+        Upload discarded = queueUpload();
+        jdbc.update("DELETE FROM import_sessions WHERE id = ?", discarded.job().getImportSessionId());
+
         assertThat(reviewCopyOf(cancelled.fingerprint(), admin).get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
+        assertThat(reviewCopyOf(discarded.fingerprint(), admin).get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
         assertThat(reviewCopyOf(closing.fingerprint(), admin).get("refusal").asText()).isEqualTo("CUSTOMER_STOPPED");
         assertThat(reviewCopyOf(direct, admin).get("refusal").asText()).isEqualTo("NO_KEPT_FILE");
         assertThat(reviewCopyOf(noUpload, admin).get("refusal").asText()).isEqualTo("NO_UPLOAD");
@@ -570,7 +716,8 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
 
         ResponseEntity<String> queue = restTemplate.exchange("/api/v1/admin/imports/layout-registry/review-queue",
                 HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
-        assertThat(queue.getBody()).doesNotContain("cancelled").doesNotContain("closed or being closed");
+        assertThat(queue.getBody()).doesNotContain("cancelled").doesNotContain("closed or being closed")
+                .doesNotContain("discarded");
     }
 
     @Test
@@ -583,6 +730,7 @@ class FlaggedLayoutUploadBlankedCopyIT extends AbstractIntegrationTest {
         UUID sessionId = UUID.randomUUID();
         job.complete(sessionId, Instant.now());
         importJobRepository.save(job);
+        stagedSession(sessionId, owner.getId());
         String fingerprint = newFingerprint();
         registerLayout(fingerprint, true);
         String reference = newReference();

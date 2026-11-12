@@ -1786,8 +1786,10 @@ export interface RegistryEntry {
   reviewCopy?: ReviewCopyAvailability | null;
 }
 
-/** Why no blanked copy can be made, as a code. CUSTOMER_STOPPED does not say which customer choice. */
-export type ReviewCopyRefusal = 'UNKNOWN_UPLOAD' | 'NOT_FLAGGED' | 'NO_KEPT_FILE' | 'CUSTOMER_STOPPED' | 'NOT_PDF' | 'NO_UPLOAD';
+/** Why no blanked copy can be made, as a code. CUSTOMER_STOPPED does not say which customer choice
+ *  (cancelled, discarded, deleted, expired unconfirmed, account closing). NOT_FLAGGING_UPLOAD only
+ *  comes from the copy itself: the queue checks the upload its review names. */
+export type ReviewCopyRefusal = 'UNKNOWN_UPLOAD' | 'NOT_FLAGGED' | 'NOT_FLAGGING_UPLOAD' | 'NO_KEPT_FILE' | 'CUSTOMER_STOPPED' | 'NOT_PDF' | 'NO_UPLOAD';
 
 export interface ReviewCopyAvailability {
   available: boolean;

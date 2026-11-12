@@ -10,6 +10,7 @@ import { errorMessage } from './errorMessage';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Pagination } from '../../components/Pagination';
 import { usePagedList } from './usePagedList';
+import { MerchantDetailPanel } from './MerchantDetailPanel';
 
 function MerchantRow({
   userId, merchant, allMerchants, canManage,
@@ -32,6 +33,8 @@ function MerchantRow({
   const [confirmMerge, setConfirmMerge] = useState(false);
   const [confirmUndo, setConfirmUndo] = useState(false);
   const [confirmResetLearning, setConfirmResetLearning] = useState(false);
+  // The detail panel: what was learned, the learning history, and the merchant's transactions.
+  const [open, setOpen] = useState(false);
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ['admin-user-merchants', userId] });
@@ -103,7 +106,8 @@ function MerchantRow({
   const hasLearning = merchant.topCategory !== null;
 
   return (
-    <div className="flex items-center justify-between text-sm py-2.5 border-b border-border last:border-b-0 gap-3">
+    <div className="border-b border-border last:border-b-0">
+    <div className="flex items-center justify-between text-sm py-2.5 gap-3">
       <div className="min-w-0 flex-1">
         {editing ? (
           <div className="flex items-center gap-1.5">
@@ -143,6 +147,17 @@ function MerchantRow({
         )}
         {error && <p className="text-xs text-danger mt-1">{error}</p>}
       </div>
+      {!editing && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${open ? 'Hide' : 'Show'} details for ${merchant.canonicalName}`}
+          onClick={() => setOpen((o) => !o)}
+          className="text-xs font-semibold text-primary px-2 py-1.5 flex-shrink-0"
+        >
+          {open ? 'Hide details' : 'Details'}
+        </button>
+      )}
       {canManage && !editing && (
         <div className="flex items-center gap-2 flex-shrink-0">
           {canMerge && !merging && (
@@ -245,6 +260,10 @@ function MerchantRow({
           onCancel={() => setConfirmResetLearning(false)}
         />
       )}
+    </div>
+    {open && (
+      <MerchantDetailPanel userId={userId} merchantId={merchant.id} merchantName={merchant.canonicalName} canManage={canManage} />
+    )}
     </div>
   );
 }

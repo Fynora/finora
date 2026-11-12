@@ -117,6 +117,15 @@ public class CategoryService {
         return saved;
     }
 
+    /** Every category a user has, by name -- what an admin picks from when setting a category on
+     *  the user's behalf (AdminUserCategoriesController). */
+    @Transactional(readOnly = true)
+    public List<Category> listForUser(UUID userId) {
+        return categoryRepository.findByUserId(userId).stream()
+                .sorted(java.util.Comparator.comparing(Category::getName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
     /** AdminUserCategoriesController's read (spec §10) -- kept behind this service, not a direct
      *  repository call from the controller, per this repo's controller/repository layering rule
      *  (LayerDependencyDirectionTest). */

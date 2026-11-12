@@ -166,6 +166,23 @@ class AdminUserControllerIT extends AbstractIntegrationTest {
         assertThat(userRepository.findById(admin.getId()).orElseThrow().getStatus()).isEqualTo("ACTIVE");
     }
 
+    /** Customers only (2026-11-12): a direct call can't delete a colleague's admin account. */
+    @Test
+    void admin_cannotPurgeAnotherAdminAccount() {
+        User admin = createUser("SUPER_ADMIN");
+        User colleague = createUser("ADMIN");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/users/" + colleague.getId() + "/purge",
+                HttpMethod.POST, new HttpEntity<>(bearerFor(admin)), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).contains("Only customer accounts can be deleted");
+        User untouched = userRepository.findById(colleague.getId()).orElseThrow();
+        assertThat(untouched.getStatus()).isEqualTo("ACTIVE");
+        assertThat(untouched.getEmail()).isEqualTo(colleague.getEmail());
+    }
+
     @Test
     void plainUser_isForbiddenFromPurging() {
         User user = createUser("USER");

@@ -334,7 +334,7 @@ export function ImportScreen() {
   }, []);
   // The invite-a-friend card (InviteFriendCard) for the import on the done screen: the server's
   // answer, asked once per import. The rating ask reads the same answer, so the two never land on
-  // one import: the invite takes the first import, and the rating waits for a later one at least
+  // one import: the invite takes the import it shows on, and the rating waits for a later one at least
   // a week after the card was shown (shownRecently). `inviteCheckFor` is the request for the
   // import on screen; a stale answer (after "Import another") is dropped.
   const [inviteCheck, setInviteCheck] = useState<InvitePromptCheck | null>(null);
@@ -1184,7 +1184,7 @@ export function ImportScreen() {
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
       // Whether to show the invite-a-friend card: only for an import that saved transactions, and
-      // the server decides the rest (first import only, InvitePromptService). A failed check shows
+      // the server decides the rest (once per person, InvitePromptService). A failed check shows
       // no card.
       const inviteRequest = result.imported > 0 && result.statementImportId
         ? checkInvite(result.statementImportId)
@@ -1686,7 +1686,7 @@ export function ImportScreen() {
               }}
             />
           </View>
-          {/* After a first successful import only; the server decides (InvitePromptService). Keyed
+          {/* Once per person, on an import that saved rows; the server decides (InvitePromptService). Keyed
               by the import, so a later import never inherits a card that was dismissed. */}
           {inviteCheck?.show ? (
             <InviteFriendCard key={summary.statementImportId ?? 'import'} style={styles.inviteCard} />

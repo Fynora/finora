@@ -3745,14 +3745,14 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
 
   /**
    * The invite-a-friend card and the rating sheet never land on one import, or back to back: the
-   * invite takes the first import (InvitePromptService), and the rating waits for a later import at
+   * invite takes the import it shows on (InvitePromptService), and the rating waits for a later import at
    * least a week after the card was shown.
    */
   describe('and the invite-a-friend card', () => {
     const { invitePromptApi: invite } = jest.requireMock('../../api/endpoints');
     afterEach(() => invite.check.mockReset().mockResolvedValue({ show: false, shownRecently: false }));
 
-    it('shows the card on a first import, asked with the import\'s id, and no rating sheet', async () => {
+    it('shows the card when the server says to, asked with the import\'s id, and no rating sheet', async () => {
       invite.check.mockResolvedValue({ show: true, shownRecently: false });
       api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-first' } as never);
       await importFreshStatement();

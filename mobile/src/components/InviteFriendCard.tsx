@@ -19,9 +19,10 @@ function report(event: InvitePromptEvent) {
 }
 
 /**
- * "Know someone who'd want this?" on the import done screen, after a person's first successful
- * import. ImportScreen asks the server whether to show it (InvitePromptService: the first import
- * that saved transactions, once more at least 180 days after "Not now", never after Share) and
+ * "Know someone who'd want this?" on the import done screen, after a successful import.
+ * ImportScreen asks the server whether to show it (InvitePromptService: once per person, on the next
+ * import that saves transactions -- people who imported before it existed included -- once more at
+ * least 180 days after "Not now", never after Share) and
  * renders this only when the answer is yes; a held or refused statement never reaches the done
  * screen. Renders nothing until the person's referral code is read, and nothing if it cannot be --
  * the import itself succeeded either way.

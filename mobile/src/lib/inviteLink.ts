@@ -11,14 +11,14 @@ import { linkToShare } from './webUrl';
  *    installed, the OS hands this https link to the app (appLinks.config.js claims /register), and
  *    useReferralDeepLink opens Register with the code filled in.
  *  - The Android link is the Google Play listing with the same tags as its install referrer, so
- *    Play Console counts these installs under "Ads and referrals", campaign after_first_import. The
+ *    Play Console counts these installs under "Ads and referrals", campaign after_import. The
  *    code is not in it (an install referrer goes to Google, and the app does not read it); it is in
  *    the message instead, for the Register screen's referral field.
  */
 
 export const INVITE_UTM_SOURCE = 'friend_invite';
 export const INVITE_UTM_MEDIUM = 'referral';
-export const INVITE_UTM_CAMPAIGN = 'after_first_import';
+export const INVITE_UTM_CAMPAIGN = 'after_import';
 
 /** The production Android app's package (app.config.ts `android.package`). */
 export const ANDROID_PACKAGE = 'com.fynora.android';

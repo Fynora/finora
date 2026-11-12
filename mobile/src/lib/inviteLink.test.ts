@@ -7,12 +7,12 @@ describe('inviteLink', () => {
     expect(url.searchParams.get('ref')).toBe('AB12CD34');
     expect(url.searchParams.get('utm_source')).toBe('friend_invite');
     expect(url.searchParams.get('utm_medium')).toBe('referral');
-    expect(url.searchParams.get('utm_campaign')).toBe('after_first_import');
+    expect(url.searchParams.get('utm_campaign')).toBe('after_import');
   });
 
   it('is the same link the web app shares (frontend/src/lib/inviteLink.ts)', () => {
     expect(inviteSignupLink('AB12CD34')).toBe(
-      'https://app.fynora.net/register?ref=AB12CD34&utm_source=friend_invite&utm_medium=referral&utm_campaign=after_first_import',
+      'https://app.fynora.net/register?ref=AB12CD34&utm_source=friend_invite&utm_medium=referral&utm_campaign=after_import',
     );
   });
 
@@ -23,7 +23,7 @@ describe('inviteLink', () => {
   it('gives the Play link the tags as one encoded install referrer, without the code', () => {
     expect(invitePlayLink()).toBe(
       'https://play.google.com/store/apps/details?id=com.fynora.android'
-        + '&referrer=utm_source%3Dfriend_invite%26utm_medium%3Dreferral%26utm_campaign%3Dafter_first_import',
+        + '&referrer=utm_source%3Dfriend_invite%26utm_medium%3Dreferral%26utm_campaign%3Dafter_import',
     );
   });
 

@@ -351,7 +351,7 @@ export default function Privacy() {
           difficult. These records are linked to your account and are deleted if you delete your account.
         </p>
         <p>
-          After your first statement import, Fynora may ask whether you'd like to invite a friend. We record
+          After a statement import, Fynora may ask whether you'd like to invite a friend. We record
           how many times we asked, the last date we asked, and the date you tapped Share or Not now, so we
           don't keep asking. The date only, never the time, and nothing about who you share with or whether
           you sent anything. This record is linked to your account and is deleted if you delete your account.

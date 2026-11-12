@@ -31,7 +31,7 @@ describe('InviteFriendCard', () => {
   });
   afterEach(() => setShare(undefined));
 
-  it('asks after a first import, with the exact reward, and reports it was shown once', async () => {
+  it('asks after an import, with the exact reward, and reports it was shown once', async () => {
     render(<InviteFriendCard statementImportIds={['imp-1']} />);
 
     expect(await screen.findByText('Fynora sorted your statement.')).toBeInTheDocument();

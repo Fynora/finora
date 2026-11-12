@@ -27,9 +27,9 @@ function isAbort(e: unknown): boolean {
 }
 
 /**
- * "Know someone who'd want this?" on the import summary, after a person's first successful import.
- * Whether to show it is the server's call (InvitePromptService): the first import that saved
- * transactions, once more at least 180 days after "Not now", never after Share. A held or refused
+ * "Know someone who'd want this?" on the import summary, after a successful import. Whether to
+ * show it is the server's call (InvitePromptService): the next import that saves
+ * transactions for someone never shown it (people who imported before it existed included), once more at least 180 days after "Not now", never after Share. A held or refused
  * statement never reaches the summary, so it never asks. Renders nothing while it checks, when it
  * should not show, or when the check or the referral code cannot be read -- the import itself
  * succeeded either way.

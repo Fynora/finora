@@ -11,7 +11,7 @@ import { PLAY_STORE_URL } from './openInApp';
  *    opens the app's Register screen with the code filled in (mobile/appLinks.config.js claims
  *    /register).
  *  - The Android link is the Google Play listing with the same tags as its install referrer, so
- *    Play Console counts these installs under "Ads and referrals", campaign after_first_import
+ *    Play Console counts these installs under "Ads and referrals", campaign after_import
  *    (the format is explained in lib/playStoreLink.ts). The referral code is not in it: an install
  *    referrer goes to Google, and the app does not read it. The code is in the message instead, for
  *    the Register screen's referral field.
@@ -21,7 +21,7 @@ import { PLAY_STORE_URL } from './openInApp';
 
 export const INVITE_UTM_SOURCE = 'friend_invite';
 export const INVITE_UTM_MEDIUM = 'referral';
-export const INVITE_UTM_CAMPAIGN = 'after_first_import';
+export const INVITE_UTM_CAMPAIGN = 'after_import';
 
 const TAGS = `utm_source=${INVITE_UTM_SOURCE}&utm_medium=${INVITE_UTM_MEDIUM}&utm_campaign=${INVITE_UTM_CAMPAIGN}`;
 

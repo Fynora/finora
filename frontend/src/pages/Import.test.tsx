@@ -4833,7 +4833,7 @@ describe('Import — invite card after an import', () => {
     vi.mocked(invitePromptApi.check).mockReset().mockResolvedValue({ show: false, shownRecently: false });
   });
 
-  it('shows the card on the summary when the server says this is the first import, and not after Import another', async () => {
+  it('shows the card on the summary when the server says to, and not after Import another', async () => {
     const user = userEvent.setup();
     renderImport();
 

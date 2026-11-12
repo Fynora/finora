@@ -3012,7 +3012,7 @@ function ImportSummaryScreen({
       {/* Above Quick sort: these answers change the headline Income figure. */}
       <ImportMoneyInCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
 
-      {/* After a first successful import only; the server decides (InvitePromptService). */}
+      {/* Shown once per person, on an import that saved rows; the server decides (InvitePromptService). */}
       <InviteFriendCard statementImportIds={summary.statementImportId ? [summary.statementImportId] : []} />
 
       <div className="flex flex-wrap gap-3">

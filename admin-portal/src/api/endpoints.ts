@@ -594,6 +594,10 @@ export const adminBlankedCopyApi = {
     api.post<BlankedCopy>(`/admin/held-imports/${jobId}/blanked-copy`).then((r) => r.data),
   heldStatement: (heldId: string) =>
     api.post<BlankedCopy>(`/admin/held-statements/${heldId}/blanked-copy`).then((r) => r.data),
+  /** An upload of a layout flagged for review: needs a typed reason, and tells the customer and the Super Admins. */
+  flaggedLayoutUpload: (reference: string, reason: string) =>
+    api.post<BlankedCopy>(`/admin/statement-analyses/${encodeURIComponent(reference)}/blanked-copy`, { reason })
+      .then((r) => r.data),
 };
 
 /** The Merchant Review Center (WI4). Listing crosses users; every action is scoped to the owner,

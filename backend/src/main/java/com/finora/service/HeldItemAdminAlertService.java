@@ -270,6 +270,34 @@ public class HeldItemAdminAlertService {
     }
 
     /**
+     * An Admin or Super Admin made a blanked copy of an upload of a layout flagged for review. Told
+     * to every active Super Admin, as an opened held statement is: the customer is told their
+     * statement was opened, and the people who answer for that hear it first. Names who made it,
+     * when, the upload's reference, its layout and the typed reason -- never the customer, the file
+     * name or anything from the statement. Every value is escaped; the reason is typed by staff.
+     */
+    public void alertLayoutUploadCopied(com.finora.imports.blanked.LayoutUploadCopied event) {
+        String madeBy = userRepository.findById(event.actorId()).map(User::getEmail).orElse("unknown");
+        String subject = "A blanked copy of a customer's statement was made — " + event.reference();
+        String html = "<p>An administrator made a blanked copy of a customer's uploaded statement, to fix a "
+                + "statement layout flagged for review. The customer is told their statement was opened.</p>"
+                + "<ul>"
+                + "<li><strong>Made by:</strong> " + escape(madeBy) + "</li>"
+                + "<li><strong>When:</strong> " + escape(formatTimestamp(event.copiedAt())) + "</li>"
+                + "<li><strong>Upload:</strong> " + escape(event.reference()) + "</li>"
+                + "<li><strong>Layout:</strong> " + escape(event.fingerprint()) + "</li>"
+                + "<li><strong>Reason:</strong> " + escape(event.reason()) + "</li>"
+                + "</ul>"
+                + "<p><a href=\"" + adminBaseUrl() + "/layout-intelligence\">Open Layout Intelligence</a></p>";
+        List<User> superAdmins = userRepository.findActiveUsersWithRole(User.SUPER_ADMIN_ROLE, User.STATUS_ACTIVE);
+        if (superAdmins.isEmpty()) {
+            log.warn("No active Super Admin -- no blanked-copy alert sent for upload {}", event.reference());
+            return;
+        }
+        send(superAdmins, subject, html);
+    }
+
+    /**
      * The automatic Claude fix job reached its monthly cap ({@code app.claude-fix.monthly-cap}): held
      * statements go to a person until the month ends. Sent to every active Super Admin, once a month
      * ({@code FixJobStarter} claims the month before calling). Names the month and the cap only.

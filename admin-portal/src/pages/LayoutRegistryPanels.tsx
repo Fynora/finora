@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Plus, X } from 'lucide-react';
-import { adminLayoutRegistryApi, banksApi } from '../api/endpoints';
+import { adminBlankedCopyApi, adminLayoutRegistryApi, banksApi } from '../api/endpoints';
+import BlankedCopyPanel from '../components/BlankedCopyPanel';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { withSep } from '../lib/withSep';
 import type { BankChoiceCount, BankDto, BankOriginWeek, LayoutProfileView, LayoutReviewReason, LayoutStatus, RegistryEntry } from '../types';
@@ -255,8 +256,15 @@ function BankOriginsTable() {
 }
 
 export function ReviewQueuePanel() {
-  const { hasPermission } = useAdminAuth();
+  const { hasPermission, roles } = useAdminAuth();
   const canManage = hasPermission('LAYOUT_REGISTRY_MANAGE');
+  // A copy of an upload nothing held tells the customer, so the server pins it to these roles, as
+  // it does the real statement; the button follows the same rule and the server's switch.
+  const isAdmin = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+  const blankedStatus = useQuery({
+    queryKey: ['blanked-copy-status'], queryFn: adminBlankedCopyApi.status, enabled: canManage && isAdmin,
+  });
+  const canCopy = canManage && isAdmin && blankedStatus.data?.enabled === true;
   const [actionError, setActionError] = useState<string | null>(null);
   const queueQ = useQuery({ queryKey: ['layout-review-queue'], queryFn: adminLayoutRegistryApi.reviewQueue });
   const profilesQ = useQuery({ queryKey: ['layout-profiles'], queryFn: adminLayoutRegistryApi.profiles });
@@ -337,6 +345,15 @@ export function ReviewQueuePanel() {
                       >
                         <CheckCircle2 size={14} /> Resolve
                       </button>
+                    )}
+                    {canCopy && entry.reviewAnalysisReference && (
+                      <div className="mt-2">
+                        <BlankedCopyPanel
+                          askReason
+                          fetchCopy={(reason) => adminBlankedCopyApi.flaggedLayoutUpload(
+                            entry.reviewAnalysisReference as string, reason ?? '')}
+                        />
+                      </div>
                     )}
                   </td>
                 </tr>

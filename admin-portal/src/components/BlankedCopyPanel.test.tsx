@@ -14,6 +14,42 @@ describe('BlankedCopyPanel', () => {
     vi.restoreAllMocks();
   });
 
+  it('asks for a reason first when told to, and sends it with the request', async () => {
+    const spy = vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    const fetchCopy = vi.fn((reason?: string) => { void reason; return Promise.resolve(copy()); });
+    render(<BlankedCopyPanel askReason fetchCopy={fetchCopy} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    expect(fetchCopy).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Make blanked copy' })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText('Reason'), 'Rebuild the reader for this layout');
+    await userEvent.click(screen.getByRole('button', { name: 'Make blanked copy' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.any(Blob), 'blanked-HLD-1.trace'));
+    expect(fetchCopy).toHaveBeenCalledWith('Rebuild the reader for this layout');
+    expect(screen.queryByRole('button', { name: 'Make blanked copy' })).not.toBeInTheDocument();
+    expect(screen.getByText('Matches the real statement')).toBeInTheDocument();
+  });
+
+  it('keeps the reason dialog open with the server\'s message when the copy is refused', async () => {
+    const spy = vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
+    const fetchCopy = vi.fn(() => Promise.reject({ response: { status: 409, data: { message: 'its file was not kept' } } }));
+    render(<BlankedCopyPanel askReason fetchCopy={fetchCopy} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    await userEvent.type(screen.getByLabelText('Reason'), 'Rebuild the reader for this layout');
+    await userEvent.click(screen.getByRole('button', { name: 'Make blanked copy' }));
+    expect(await screen.findByText('its file was not kept')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reason')).toHaveValue('Rebuild the reader for this layout');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('makes nothing when the reason dialog is cancelled', async () => {
+    const fetchCopy = vi.fn(() => Promise.resolve(copy()));
+    render(<BlankedCopyPanel askReason fetchCopy={fetchCopy} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Download blanked copy' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(fetchCopy).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument();
+  });
+
   it('downloads the copy and says it matches', async () => {
     const spy = vi.spyOn(download, 'downloadBlob').mockImplementation(() => {});
     render(<BlankedCopyPanel fetchCopy={() => Promise.resolve(copy())} />);

@@ -360,6 +360,23 @@ class AdminUserServiceTest {
         verify(accountPurgeSweepService).adminPurge(targetId, adminId);
     }
 
+    @Test
+    void purge_refusesAnAdminAccount() {
+        User colleague = user(targetId, "ACTIVE");
+        colleague.setAccountScope(User.SCOPE_ADMIN);
+        when(userRepository.findById(targetId)).thenReturn(Optional.of(colleague));
+
+        try {
+            adminUserService.purge(targetId, adminId);
+        } catch (ApiException e) {
+            assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(e.getMessage()).isEqualTo("Only customer accounts can be deleted. Suspend an admin account instead.");
+            verifyNoInteractions(accountPurgeSweepService);
+            return;
+        }
+        throw new AssertionError("Expected purge() to refuse an admin account");
+    }
+
     // --- Support-assisted profile edit (updateProfile / AdminUpdateUserRequest) -- the
     // phone-uniqueness guard is the one piece of real logic here beyond field assignment, so it's
     // the part worth locking in at the unit level (the HTTP contract itself is AdminUserControllerIT's

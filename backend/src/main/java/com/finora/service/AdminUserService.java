@@ -308,13 +308,21 @@ public class AdminUserService {
      * deletes financial data across ~30 tables). Deliberately NOT {@code @Transactional}: {@code
      * adminPurge} makes outbound Gmail/Razorpay HTTPS calls that must not run with a pooled DB
      * connection held open the whole time (BH-016/BH-047) -- see that method's own doc.
+     *
+     * <p>Customer accounts only: an ADMIN-scope account is refused (400), and is suspended instead.
      */
     public void purge(UUID userId, UUID actingAdminId) {
         if (userId.equals(actingAdminId)) {
             // Same self-lockout guard as suspend() above -- purging is even less recoverable.
             throw new ApiException(HttpStatus.BAD_REQUEST, "You cannot purge your own account.");
         }
-        requireUser(userId);
+        User target = requireUser(userId);
+        if (!User.SCOPE_USER.equals(target.getAccountScope())) {
+            // Customers only (Sid, 2026-11-12). The portal offers delete only on customer
+            // accounts; this makes the server agree, so a direct call can't erase a colleague.
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Only customer accounts can be deleted. Suspend an admin account instead.");
+        }
         accountPurgeSweepService.adminPurge(userId, actingAdminId);
     }
 

@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { LoadError } from '../components/LoadError';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, ShieldBan, ShieldCheck, Wallet, ArrowLeftRight, Phone, Mail, Calendar,
-  Pencil,
+  Pencil, Trash2,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { RequirePermission } from '../components/ProtectedRoute';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { DeleteAccountDialog } from '../components/DeleteAccountDialog';
 import { SuspendDialog, SUSPENSION_REASONS } from '../components/SuspendDialog';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useNotify } from '../context/NotificationContext';
@@ -77,6 +78,28 @@ function UserDetailContent({ id }: { id: string }) {
       adminUsersApi.suspend(id, reason, message),
     onSuccess: () => { invalidateUser(); notify.success('Suspension saved.'); },
     onError: (err) => notify.error(serverMessage(err, 'Could not suspend this account.')),
+  });
+  const navigate = useNavigate();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: () => adminUsersApi.purge(id),
+    onSuccess: () => {
+      setConfirmDelete(false);
+      void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      notify.success('Account deleted.');
+      void navigate('/users');
+    },
+    // The dialog stays open: a deletion that failed partway leaves the account marked for deletion,
+    // and the nightly sweep finishes it (AccountPurgeSweepService), so the message says so.
+    onError: (err) => {
+      // A refusal (4xx) says why in its own words. A failure partway (5xx, or no response) leaves
+      // the account marked for deletion, which the scheduled sweep retries -- say that instead of
+      // the server's generic error text.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      notify.error(status !== undefined && status < 500
+        ? serverMessage(err, 'Could not delete this account.')
+        : 'The deletion did not finish. The account is marked for deletion and will be completed automatically; you can also try again.');
+    },
   });
   const reactivateMutation = useMutation({
     mutationFn: (reason?: string) => adminUsersApi.reactivate(id, reason),
@@ -189,6 +212,17 @@ function UserDetailContent({ id }: { id: string }) {
                 className="inline-flex items-center gap-1.5 text-sm font-medium text-success border border-success/30 hover:bg-success-bg rounded-lg px-3.5 py-2"
               >
                 <ShieldCheck size={15} /> Reactivate account
+              </button>
+            )}
+            {/* Customer accounts only: deleting a staff account is not something this page offers. */}
+            {canModify && user.accountScope === 'USER' && user.status !== 'DELETED' && (
+              <button
+                type="button"
+                disabled={deleteMutation.isPending}
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-on-danger bg-danger hover:opacity-90 rounded-lg px-3.5 py-2 disabled:opacity-50"
+              >
+                <Trash2 size={15} /> Delete account permanently
               </button>
             )}
           </div>
@@ -350,6 +384,16 @@ function UserDetailContent({ id }: { id: string }) {
           initialMessage={user.suspensionMessage}
           onConfirm={(reason, message) => { setConfirmSuspend(false); suspendMutation.mutate({ reason, message }); }}
           onCancel={() => setConfirmSuspend(false)}
+        />
+      )}
+
+      {confirmDelete && (
+        <DeleteAccountDialog
+          name={user.fullName}
+          email={user.email}
+          busy={deleteMutation.isPending}
+          onConfirm={() => deleteMutation.mutate()}
+          onCancel={() => setConfirmDelete(false)}
         />
       )}
 

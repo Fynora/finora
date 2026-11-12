@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import UserDetail from './UserDetail';
@@ -41,7 +41,7 @@ vi.mock('../context/NotificationContext', () => ({
 vi.mock('../api/endpoints', () => {
   const pending = () => new Promise(() => {});
   return {
-    adminUsersApi: { get: vi.fn(), suspend: vi.fn(), reactivate: vi.fn(), update: vi.fn(), setInternal: vi.fn() },
+    adminUsersApi: { get: vi.fn(), suspend: vi.fn(), reactivate: vi.fn(), update: vi.fn(), setInternal: vi.fn(), purge: vi.fn() },
     adminAuditApi: { forUser: vi.fn(pending) },
     adminRolesApi: { listRoles: vi.fn(pending), assignRole: vi.fn(), revokeRole: vi.fn() },
     adminAccountsApi: { forUser: vi.fn(pending), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -114,6 +114,7 @@ function renderWith(permissions: string[]) {
       <MemoryRouter initialEntries={['/users/user-1']}>
         <Routes>
           <Route path="/users/:id" element={<UserDetail />} />
+          <Route path="/users" element={<p>The users list</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -344,5 +345,76 @@ describe('UserDetail — failures are visible', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Grant' }));
 
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('Not allowed'));
+  });
+});
+
+// Support-assisted account deletion (2026-11-12): instant and irreversible, so it asks for the
+// account's email typed out before the button does anything.
+describe('UserDetail — deleting an account', () => {
+  it('is offered only with USER_DELETE, and only on a customer account that is not already deleted', async () => {
+    renderWith(['USER_VIEW']);
+    await screen.findByText('Target User');
+    expect(screen.queryByRole('button', { name: /Delete account permanently/ })).not.toBeInTheDocument();
+
+    vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, accountScope: 'ADMIN' });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await waitFor(() => expect(screen.getAllByText('Target User').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('button', { name: /Delete account permanently/ })).not.toBeInTheDocument();
+  });
+
+  it('is not offered for an account that is already deleted', async () => {
+    vi.mocked(adminUsersApi.get).mockResolvedValue({ ...USER, status: 'DELETED' });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    expect(screen.queryByRole('button', { name: /Delete account permanently/ })).not.toBeInTheDocument();
+  });
+
+  it('deletes only once the email is typed, then returns to the users list', async () => {
+    vi.mocked(adminUsersApi.purge).mockResolvedValue(undefined);
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete account permanently/ }));
+    const dialog = screen.getByRole('dialog');
+    const confirm = within(dialog).getByRole('button', { name: 'Delete permanently' });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText(/Type the account's email/), { target: { value: 'someone@example' } });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText(/Type the account's email/), { target: { value: ' SOMEONE@example.com ' } });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(adminUsersApi.purge).toHaveBeenCalledWith('user-1'));
+    expect(await screen.findByText('The users list')).toBeInTheDocument();
+    expect(notify.success).toHaveBeenCalledWith('Account deleted.');
+  });
+
+  it('cancelling deletes nothing', async () => {
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete account permanently/ }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+
+    expect(adminUsersApi.purge).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows the reason for a refusal, and explains a deletion that failed partway', async () => {
+    vi.mocked(adminUsersApi.purge)
+      .mockRejectedValueOnce({ response: { status: 400, data: { message: 'You cannot purge your own account.' } } })
+      .mockRejectedValueOnce({ response: { status: 500, data: { message: 'Unexpected error' } } });
+    renderWith(['USER_VIEW', 'USER_DELETE']);
+    await screen.findByText('Target User');
+    fireEvent.click(screen.getByRole('button', { name: /Delete account permanently/ }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Type the account's email/), { target: { value: 'someone@example.com' } });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
+    await waitFor(() => expect(notify.error).toHaveBeenCalledWith('You cannot purge your own account.'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }));
+    await waitFor(() => expect(notify.error).toHaveBeenLastCalledWith(expect.stringContaining('marked for deletion and will be completed automatically')));
+    expect(screen.getByText('Target User')).toBeInTheDocument();
   });
 });

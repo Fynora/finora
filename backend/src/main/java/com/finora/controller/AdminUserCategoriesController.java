@@ -29,6 +29,16 @@ public class AdminUserCategoriesController {
         this.categoryService = categoryService;
     }
 
+    /** Every category the user has, by name: the choices for setting a category on their behalf
+     *  (the merchant panel on User Detail). */
+    @GetMapping
+    public ApiResponse<List<CategoryDto>> customerCategories(@PathVariable UUID userId) {
+        var categories = categoryService.listForUser(userId).stream()
+                .map(c -> new CategoryDto(c.getId(), c.getName(), c.isSystem(), c.getIcon(), c.getColor(), c.getAiCreationReason()))
+                .toList();
+        return ApiResponse.ok(categories);
+    }
+
     @GetMapping("/ai-created")
     public ApiResponse<List<CategoryDto>> aiCreated(@PathVariable UUID userId) {
         var categories = categoryService.findAiCreated(userId).stream()

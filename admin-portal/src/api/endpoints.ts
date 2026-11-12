@@ -187,6 +187,9 @@ export const adminUsersApi = {
   /** Gate 2a: leave a USER account out of the activation counts, or count it again. */
   setInternal: (id: string, internal: boolean) =>
     api.put<UserSummaryDto>(`/admin/users/${id}/internal`, { internal }).then((r) => r.data),
+  // Support-assisted account deletion (AdminUserService.purge): instant and irreversible --
+  // anonymizes the account and deletes its financial data, like the customer's own deletion.
+  purge: (id: string) => api.post<void>(`/admin/users/${id}/purge`).then(() => undefined),
 };
 
 export const adminRolesApi = {
@@ -687,7 +690,27 @@ export const adminUserMerchantsApi = {
     api.post<MerchantDto>(`/admin/users/${userId}/merchants/${merchantId}/undo`).then((r) => r.data),
   resetLearning: (userId: string, merchantId: string) =>
     api.post<MerchantDto>(`/admin/users/${userId}/merchants/${merchantId}/reset-learning`).then((r) => r.data),
+  // One merchant's detail: its learned distribution, its learning history, and the transactions
+  // attributed to it, newest first.
+  get: (userId: string, merchantId: string) =>
+    api.get<MerchantDto>(`/admin/users/${userId}/merchants/${merchantId}`).then((r) => r.data),
+  audit: (userId: string, merchantId: string) =>
+    api.get<MerchantAuditEntry[]>(`/admin/users/${userId}/merchants/${merchantId}/audit`).then((r) => r.data),
+  transactions: (userId: string, merchantId: string) =>
+    api.get<TransactionDto[]>(`/admin/users/${userId}/merchants/${merchantId}/transactions`).then((r) => r.data),
+  // Sets one of the merchant's transactions to a category on the customer's behalf and records it
+  // as learning for the merchant (TransactionService.confirmMerchantCategory).
+  confirmCategory: (userId: string, merchantId: string, request: { categoryId: string; applyToTransactionId: string }) =>
+    api.post<MerchantDto>(`/admin/users/${userId}/merchants/${merchantId}/confirm-category`, request).then((r) => r.data),
 };
+
+/** Mirrors MerchantDto.AuditEntry -- one learning event on a merchant. */
+export interface MerchantAuditEntry {
+  action: string;
+  previousCategory: string | null;
+  newCategory: string | null;
+  createdAt: string;
+}
 
 /** Admin, support-assisted relationship (family/friend/own-account) tagging for a specific user
  *  -- AdminUserRelationshipController proxies the same RelationshipService the self-service
@@ -748,6 +771,8 @@ export interface CategoryDto {
 
 export const adminUserCategoriesApi = {
   aiCreated: (userId: string) => api.get<CategoryDto[]>(`/admin/users/${userId}/categories/ai-created`).then((r) => r.data),
+  /** Every category the customer has, by name. */
+  list: (userId: string) => api.get<CategoryDto[]>(`/admin/users/${userId}/categories`).then((r) => r.data),
 };
 
 export const adminReconciliationApi = {
@@ -1133,4 +1158,49 @@ export const adminFeedbackApi = {
     api.get<PagedResponse<FeedbackRow>>('/admin/feedback', { params }).then((r) => r.data),
   breakdown: () =>
     api.get<FeedbackBreakdown>('/admin/feedback/breakdown').then((r) => r.data),
+};
+
+/** Mirrors ImportDto.FailureCountDto -- customer imports that failed with one reason since a time.
+ *  bank is the layout registry's name for the most common layout behind it, or null. */
+export interface ImportFailureCount {
+  failureCode: string;
+  count: number;
+  lastSeen: string;
+  bank: string | null;
+}
+
+/** Mirrors ImportTelemetryDto.Summary -- counts only; see the backend DTO for each field. */
+export interface ImportTelemetrySummary {
+  completedJobs: number;
+  withTelemetry: number;
+  predatesTelemetry: number;
+  notCompleted: number;
+  byReliabilityStatus: Record<string, number>;
+  byTextSource: Record<string, number>;
+  headerReconstructionUncertain: number;
+  withFailedFindings: number;
+  withWarningFindings: number;
+  byParserVersion: { parserVersion: string; jobs: number; clean: number; reviewRecommended: number; needsAttention: number }[];
+}
+
+/** Mirrors StatementRefreshSummaryService.RefreshSummary -- the statement refresh dry run for one
+ *  build, totalled. parserVersion is null when the running build has no recorded commit. */
+export interface StatementRefreshSummary {
+  parserVersion: string | null;
+  statementsAwaitingCheck: number;
+  byStatus: {
+    status: 'CHANGES' | 'NO_CHANGES' | 'NEEDS_REVIEW' | 'NEEDS_PASSWORD' | 'FAILED';
+    statements: number; users: number; rowsChanged: number; rowsAdded: number;
+    rowsRemoved: number; rowsConflicting: number; factsChanged: number;
+  }[];
+}
+
+/** The Import Health page's three reports, all PLATFORM_DIAGNOSTICS_VIEW and counts only. */
+export const adminImportHealthApi = {
+  failures: (since: string) =>
+    api.get<ImportFailureCount[]>('/admin/imports/analyses/failures/summary', { params: { since } }).then((r) => r.data),
+  telemetry: () => api.get<ImportTelemetrySummary>('/admin/imports/telemetry/summary').then((r) => r.data),
+  refresh: (parserVersion?: string) =>
+    api.get<StatementRefreshSummary>('/admin/statement-refresh/summary', { params: parserVersion ? { parserVersion } : {} })
+      .then((r) => r.data),
 };

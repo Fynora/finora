@@ -37,6 +37,7 @@ const HeldImports = lazy(() => import('./pages/HeldImports'));
 const HeldStatements = lazy(() => import('./pages/HeldStatements'));
 const HeldStatementDetail = lazy(() => import('./pages/HeldStatementDetail'));
 const TrustReviewMetrics = lazy(() => import('./pages/TrustReviewMetrics'));
+const ImportHealth = lazy(() => import('./pages/ImportHealth'));
 const SupportTickets = lazy(() => import('./pages/SupportTickets'));
 const SupportTicketDetail = lazy(() => import('./pages/SupportTicketDetail'));
 const Feedback = lazy(() => import('./pages/Feedback'));
@@ -118,6 +119,7 @@ export default function App() {
               <Route path="/held-statements" element={<ProtectedRoute><HeldStatements /></ProtectedRoute>} />
               <Route path="/held-statements/:heldId" element={<ProtectedRoute><HeldStatementDetail /></ProtectedRoute>} />
               <Route path="/trust-review-metrics" element={<ProtectedRoute><TrustReviewMetrics /></ProtectedRoute>} />
+              <Route path="/import-health" element={<ProtectedRoute><ImportHealth /></ProtectedRoute>} />
               <Route path="/support-tickets" element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />
               <Route path="/support-tickets/:id" element={<ProtectedRoute><SupportTicketDetail /></ProtectedRoute>} />
               <Route path="/feedback" element={<ProtectedRoute><Feedback /></ProtectedRoute>} />

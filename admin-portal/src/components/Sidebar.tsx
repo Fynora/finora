@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ScrollText, HeartPulse, LogOut, Landmark, Settings,
   ListFilter, Store, FileCode, Sparkles, GitMerge, BarChart3, Stethoscope, FileSearch, ListRestart , BadgeCheck, Fingerprint, Route,
   CreditCard, Gift, Plug, Waypoints, Lightbulb, ListOrdered, ChevronDown, ChevronRight, Bell, Clock, ShieldAlert,
-  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent } from 'lucide-react';
+  LifeBuoy, MessageSquare, MailCheck, Megaphone, Footprints, Smartphone, BadgePercent, Activity } from 'lucide-react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { BrandMark } from './BrandMark';
 import { initials } from '../lib/initials';
@@ -82,6 +82,7 @@ const GROUPS = [
       { to: '/held-imports', label: 'Held Imports', icon: Clock, end: false, permission: 'IMPORT_TRIAGE_MANAGE' },
       { to: '/held-statements', label: 'Held Statements', icon: ShieldAlert, end: false, permission: 'TRUST_REVIEW_MANAGE' },
       { to: '/trust-review-metrics', label: 'Trust Review Metrics', icon: BarChart3, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
+      { to: '/import-health', label: 'Import Health', icon: Activity, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/import-trace', label: 'Import Trace', icon: Route, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/import-row-trace', label: 'Import Row Trace', icon: ListOrdered, end: false, permission: 'PLATFORM_DIAGNOSTICS_VIEW' },
       { to: '/settings', label: 'Settings', icon: Settings, end: false, permission: 'SYSTEM_SETTINGS' },

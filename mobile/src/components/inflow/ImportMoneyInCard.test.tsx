@@ -118,6 +118,39 @@ describe('ImportMoneyInCard', () => {
     expect(screen.queryByTestId('import-money-in-card')).not.toBeOnTheScreen();
   });
 
+  it('keeps the other payments and the undo when the refresh after an answer fails', async () => {
+    inflow.unresolvedForImport
+      .mockResolvedValueOnce([sender('t1', 'NEHA RAO', 6000, '2026-11-06'), sender('t2', 'RAVI SEN', 9000, '2026-11-07')])
+      .mockRejectedValue(new Error('down'));
+    renderCard(['imp-1']);
+
+    fireEvent.press(await screen.findByText('NEHA RAO'));
+    fireEvent.press(await screen.findByText('Income'));
+    fireEvent.press(screen.getByText('Just this one'));
+
+    expect(await screen.findByText('Saved for NEHA RAO.')).toBeOnTheScreen();
+    await waitFor(() => expect(inflow.unresolvedForImport).toHaveBeenCalledTimes(2));
+    // Let the failed refresh settle before looking.
+    await waitFor(() => expect(screen.getByText('RAVI SEN')).toBeOnTheScreen());
+    expect(screen.getByText('Undo')).toBeOnTheScreen();
+  });
+
+  it('keeps the rows when the choices were loaded before and only a refresh of them failed', async () => {
+    inflow.unresolvedForImport.mockResolvedValue([sender('t1', 'NEHA RAO', 6000, '2026-11-06')]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    queryClient.setQueryData(['inflow-kinds'], [income]);
+    inflow.kinds.mockRejectedValue(new Error('down'));
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ImportMoneyInCard statementImportIds={['imp-1']} onSeeAll={jest.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('NEHA RAO')).toBeOnTheScreen();
+    await waitFor(() => expect(inflow.kinds).toHaveBeenCalled());
+    expect(screen.queryByText(/Couldn't load the choices/)).not.toBeOnTheScreen();
+  });
+
   it('says so when the choices cannot be loaded, instead of rows that cannot be answered', async () => {
     inflow.unresolvedForImport.mockResolvedValue([sender('t1', 'NEHA RAO', 6000, '2026-11-06')]);
     inflow.kinds.mockRejectedValue(new Error('down'));

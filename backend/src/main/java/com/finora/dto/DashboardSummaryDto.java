@@ -251,8 +251,10 @@ public record DashboardSummaryDto(
         int cardsWithUnknownAmountOwed,
 
         /*
-         * The newest day with a transaction in reportingMonth, across the user's live accounts:
-         * the cards name the days they cover ("1-8 Nov") instead of only "This Month". Null when
+         * The last day of reportingMonth the figures cover: the cards name the days they cover
+         * ("1-8 Nov") instead of only "This Month". The newest across the user's live accounts of
+         * each one's latest row, or where its printed statement ends when that is later (clipped to
+         * the month, and never past today). See StatementReachService.lastCoveredDay. Null when
          * there is no reporting month or it has no rows.
          */
         LocalDate figuresThrough,
@@ -261,7 +263,7 @@ public record DashboardSummaryDto(
          * The first day of reportingMonth the figures cover: the 1st, unless every account with rows
          * that month has printed statements that start later (a first statement from the 20th reads
          * "20–30 Nov"). Never after a counted row. See StatementReachService.firstCoveredDay. Null
-         * with figuresThrough.
+         * exactly when figuresThrough is.
          */
         LocalDate figuresFrom
 ) {

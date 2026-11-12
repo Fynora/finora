@@ -216,10 +216,79 @@ class StatementReachServiceTest {
     }
 
     @Test
-    void firstCoveredDay_asksCoverageOnlyForTheAccountsWithRowsThatMonth() {
-        when(coverage.earliestPrintedStartsOverlapping(userId, java.util.Set.of(hdfc.getId()), NOV))
-                .thenReturn(Map.of(hdfc.getId(), nov(20)));
+    void coveredDays_asksCoverageOnlyForTheAccountsWithRowsThatMonth() {
+        when(coverage.printedSpansOverlapping(userId, java.util.Set.of(hdfc.getId()), NOV))
+                .thenReturn(Map.of(hdfc.getId(), new AccountCoverageService.PrintedSpan(nov(20), nov(28))));
 
-        assertThat(service.firstCoveredDay(userId, NOV, Map.of(hdfc.getId(), nov(22)))).isEqualTo(nov(20));
+        assertThat(service.coveredDays(userId, NOV, Map.of(hdfc.getId(), nov(22)), Map.of(hdfc.getId(), nov(25)), nov(30)))
+                .isEqualTo(new StatementReachService.CoveredDays(nov(20), nov(28)));
+    }
+
+    @Test
+    void coveredDays_isNullWithNoRowsInTheMonth() {
+        assertThat(service.coveredDays(userId, NOV, Map.of(), Map.of(), nov(30))).isNull();
+        verify(coverage, never()).printedSpansOverlapping(any(), any(), any());
+    }
+
+    // ---- the last day a month's figures cover (the dashboard's "1–8 Nov") ----
+
+    private static final YearMonth OCT = YearMonth.of(2026, 10);
+
+    @Test
+    void lastCoveredDay_reachesWherePrintedStatementEndsAfterItsLastRow() {
+        // A full October statement whose last transaction is on the 29th covers the 30th and 31st.
+        assertThat(StatementReachService.lastCoveredDay(OCT,
+                Map.of(hdfc.getId(), OCT.atDay(29)), Map.of(hdfc.getId(), OCT.atDay(31)), nov(10)))
+                .isEqualTo(OCT.atDay(31));
+    }
+
+    @Test
+    void lastCoveredDay_isClippedToTheMonth() {
+        assertThat(StatementReachService.lastCoveredDay(OCT,
+                Map.of(hdfc.getId(), OCT.atDay(29)), Map.of(hdfc.getId(), nov(14)), nov(20)))
+                .isEqualTo(OCT.atDay(31));
+    }
+
+    @Test
+    void lastCoveredDay_ignoresAPrintedEndAfterToday() {
+        // Printed "to the 30th" but downloaded on the 10th: nothing is known after its last row.
+        assertThat(StatementReachService.lastCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(5)), Map.of(hdfc.getId(), nov(30)), nov(10)))
+                .isEqualTo(nov(5));
+    }
+
+    @Test
+    void lastCoveredDay_usesAPrintedEndOfToday() {
+        assertThat(StatementReachService.lastCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(5)), Map.of(hdfc.getId(), nov(10)), nov(10)))
+                .isEqualTo(nov(10));
+    }
+
+    @Test
+    void lastCoveredDay_isTheLastRowWithNoPrintedPeriod() {
+        assertThat(StatementReachService.lastCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(6)), Map.of(), nov(10)))
+                .isEqualTo(nov(6));
+    }
+
+    @Test
+    void lastCoveredDay_neverEndsBeforeACountedRow() {
+        // A row after its statement's printed end (a row from a later, unprinted import) still counts.
+        assertThat(StatementReachService.lastCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(9)), Map.of(hdfc.getId(), nov(8)), nov(10)))
+                .isEqualTo(nov(9));
+    }
+
+    @Test
+    void lastCoveredDay_isTheNewestAcrossAccounts() {
+        // A CSV whose rows stop on the 4th, and a statement printed to the 8th whose last row is the 3rd.
+        assertThat(StatementReachService.lastCoveredDay(NOV,
+                Map.of(hdfc.getId(), nov(4), axis.getId(), nov(3)), Map.of(axis.getId(), nov(8)), nov(10)))
+                .isEqualTo(nov(8));
+    }
+
+    @Test
+    void lastCoveredDay_isNullWithNoRowsInTheMonth() {
+        assertThat(StatementReachService.lastCoveredDay(NOV, Map.of(), Map.of(), nov(10))).isNull();
     }
 }

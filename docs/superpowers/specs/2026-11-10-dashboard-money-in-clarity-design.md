@@ -49,8 +49,11 @@ explanation.
 ### A1. Real dates on the cards
 
 - "This Month" view: the card label names the days covered, for example "Income · 1–8 Nov". The end
-  day is the newest transaction date in the reporting month across the user's live accounts. When the
-  data reaches the month's last day, the label names the month ("Income · November").
+  day is the newest transaction date in the reporting month across the user's live accounts, or
+  where an account's printed statement ends when that is later (clipped to the month, and only when
+  that end is not after today). Without that, a full October statement whose last transaction is on
+  the 29th read "1–29 Oct", as if two days were missing. When the data reaches the month's last day,
+  the label names the month ("Income · November").
 - Range view: preset ranges also show their dates ("Income · Jun–Nov 2026") instead of only
   "Last 6 Months". Custom ranges already show dates (`rangeCardSuffix`).
 - Server: `DashboardSummaryDto` gets one new field with the newest transaction date in the reporting

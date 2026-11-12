@@ -32,7 +32,9 @@ export function ImportMoneyInCard({ statementImportIds }: { statementImportIds: 
     const ids = idsKey ? idsKey.split(',') : [];
     Promise.all(ids.map((id) => inflowApi.unresolvedForImport(id)))
       .then((lists) => setSenders(lists.flat().sort((a, b) => b.total - a.total)))
-      .catch(() => setSenders([]));
+      // The first read failing shows nothing; a refresh after an answer failing keeps the list
+      // already shown, with the Undo for that answer.
+      .catch(() => setSenders((shown) => shown ?? []));
   }, [idsKey]);
 
   useEffect(() => {

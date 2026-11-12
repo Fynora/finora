@@ -422,6 +422,18 @@ class CsvParserTest {
     // edge punctuation per word, and its comment names this exact string. The CSV engine never got
     // the fix.
 
+    // Axis Bank heads its savings date column "Tran Date". With the metadata lines a bank export
+    // carries above its table, a header whose date column the hint list does not know is never found.
+    @Test
+    void findHeaderRowIndex_findsAnAxisStyleHeaderWhoseDateColumnIsTranDate() {
+        List<String[]> rows = List.of(
+                new String[]{"Name :- SAMPLE CUSTOMER"},
+                new String[]{"Tran Date", "Chq No", "Particulars", "Debit", "Credit", "Balance", "Init.Br"},
+                new String[]{"01-04-2025", "", "UPI/P2M/100000000001/SAMPLE SHOP", "244.00", "", "9756.00", "1234"});
+
+        assertThat(new CsvParser().findHeaderRowIndex(rows)).isEqualTo(1);
+    }
+
     @Test
     void findHeaderRowIndex_findsAnHdfcStyleHeaderWhoseAmountColumnsAreAbbreviatedWithAPeriod() {
         // The failure this guards is total, not partial: with no amount column recognized,

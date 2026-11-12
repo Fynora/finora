@@ -345,6 +345,10 @@ public class CapabilityCoverageService {
             // located as the section's first row, it hid the table's real columns from product
             // discovery. See PdfTableLocator.HEADER_ANNOTATION.
             "HEADER_ANNOTATION_SUPPRESSED",
+            // A real Axis Bank savings statement prints its "Init." heading over "Br" on the next
+            // line; located as the section's first row, it stopped "OPENING BALANCE" being read as
+            // the table's opening line. See PdfTableLocator HEADER_LABEL_WRAP_SUPPRESSED.
+            "HEADER_LABEL_WRAP_SUPPRESSED",
             // A real HDFC credit-card statement splits its ledger under "Domestic Transactions" and
             // "International Transactions" headings; the heading is read as the region every row
             // after it belongs to, not merged as narration. See

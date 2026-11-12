@@ -18,6 +18,16 @@ export function webUrl(path: string): string {
 }
 
 /**
+ * A web link to send to someone else -- the referral invite (lib/inviteLink.ts) -- never opened by
+ * this app. webUrl's callers open a page in this phone's browser, so they must avoid the paths the
+ * app claims (appLinks.selfOpen.test.ts). A shared link may point at a claimed path on purpose: on
+ * the friend's phone with Fynora installed, the app answers it instead of the website.
+ */
+export function linkToShare(path: string): string {
+  return webUrl(path);
+}
+
+/**
  * Bug fix: every call site that opened one of these web pages did `Linking.openURL(webUrl(path))`
  * directly, from a bare `onPress`, with no `.catch()` -- so any rejection (seen live via Sentry: a
  * real iPhone SE on iOS 27 failing to open BOTH /trust and /your-data within the same session,

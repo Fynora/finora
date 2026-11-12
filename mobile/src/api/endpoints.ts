@@ -2243,6 +2243,26 @@ export interface MyReferralsDto {
   referralsOwed?: number;
 }
 
+/** The invite-a-friend card after an import (InvitePromptService on the backend). */
+export type InvitePromptEvent = 'SHOWN' | 'SHARE_TAPPED' | 'DISMISSED';
+export interface InvitePromptCheck {
+  /** Show the card for these imports. */
+  show: boolean;
+  /** The card was shown within the last 7 days (on any device). The store-rating ask waits then. */
+  shownRecently: boolean;
+}
+
+export const invitePromptApi = {
+  /** Whether to show the card for the statement import(s) a confirm just made. */
+  check: (statementImportIds: string[]) =>
+    api.get<InvitePromptCheck>('/invite-prompt', {
+      params: { statementImportIds: statementImportIds.join(',') },
+    }).then((r) => r.data),
+  /** Fire and forget: callers swallow every failure. */
+  event: (event: InvitePromptEvent) =>
+    api.post<void>('/invite-prompt/events', { event }).then(() => undefined),
+};
+
 export const referralsApi = {
   myCode: () => api.get<{ code: string }>('/referrals/my-code').then((r) => r.data),
   mine: () => api.get<MyReferralsDto>('/referrals/mine').then((r) => r.data),

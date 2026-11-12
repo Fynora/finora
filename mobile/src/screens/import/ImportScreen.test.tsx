@@ -23,6 +23,12 @@ beforeEach(() => resetActivationAnsweredForTests());
 // stub those tests never expect to be reached -- stageCsv/stagePdf are configured per-test only by
 // the fresh-upload describe block below.
 jest.mock('../../api/endpoints', () => ({
+  // The invite-a-friend card on the done step: not shown unless a test says so.
+  invitePromptApi: {
+    check: jest.fn().mockResolvedValue({ show: false, shownRecently: false }),
+    event: jest.fn().mockResolvedValue(undefined),
+  },
+  referralsApi: { myCode: jest.fn().mockResolvedValue({ code: 'AB12CD34' }) },
   // ImportMoneyInCard on the done step lists money not counted as income; nothing by default.
   inflowApi: {
     unresolvedForImport: jest.fn().mockResolvedValue([]),
@@ -3734,6 +3740,113 @@ describe('ImportScreen — store-rating ask after a successful import', () => {
 
       await waitPastDelay();
       expect(askForReview).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * The invite-a-friend card and the rating sheet never land on one import, or back to back: the
+   * invite takes the first import (InvitePromptService), and the rating waits for a later import at
+   * least a week after the card was shown.
+   */
+  describe('and the invite-a-friend card', () => {
+    const { invitePromptApi: invite } = jest.requireMock('../../api/endpoints');
+    afterEach(() => invite.check.mockReset().mockResolvedValue({ show: false, shownRecently: false }));
+
+    it('shows the card on a first import, asked with the import\'s id, and no rating sheet', async () => {
+      invite.check.mockResolvedValue({ show: true, shownRecently: false });
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-first' } as never);
+      await importFreshStatement();
+
+      expect(await screen.findByText('Fynora sorted your statement.')).toBeOnTheScreen();
+      expect(invite.check).toHaveBeenCalledWith(['stmt-first']);
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+    });
+
+    it('shows the card even when the summary has warnings, below them, and still no rating sheet', async () => {
+      invite.check.mockResolvedValue({ show: true, shownRecently: false });
+      api.import.confirm.mockResolvedValue({
+        ...summary(3, 'fresh'), statementImportId: 'stmt-first',
+        warnings: ['Missing statement detected: 2026-08-01 to 2026-08-31 (31 days).'],
+      } as never);
+      await importFreshStatement();
+
+      expect(await screen.findByText('Fynora sorted your statement.')).toBeOnTheScreen();
+      expect(screen.getByText(/Missing statement detected/)).toBeOnTheScreen();
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+    });
+
+    it('asks for no rating when the card was shown in the last week, and shows no card', async () => {
+      invite.check.mockResolvedValue({ show: false, shownRecently: true });
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-second' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitPastDelay();
+      expect(askForReview).not.toHaveBeenCalled();
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+    });
+
+    it('asks for a rating as before on a later import when the card is neither due nor recent', async () => {
+      invite.check.mockResolvedValue({ show: false, shownRecently: false });
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-later' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitFor(() => expect(askForReview).toHaveBeenCalledTimes(1), { timeout: 4000 });
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+    });
+
+    it('shows no card, and still asks for a rating, when the check fails', async () => {
+      invite.check.mockRejectedValue(new Error('offline'));
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-first' } as never);
+      await importFreshStatement();
+      await screen.findByText(/^Imported \d+ transaction/);
+
+      await waitFor(() => expect(askForReview).toHaveBeenCalledTimes(1), { timeout: 4000 });
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+    });
+
+    it('does not ask the server when the import added nothing', async () => {
+      api.import.confirm.mockResolvedValue({ ...summary(0, 'fresh'), statementImportId: 'stmt-empty' } as never);
+      await importFreshStatement();
+      await waitFor(() => expect(api.import.confirm).toHaveBeenCalledTimes(1));
+      await waitPastDelay();
+      expect(invite.check).not.toHaveBeenCalled();
+    });
+
+    it('a failed import shows no card', async () => {
+      invite.check.mockResolvedValue({ show: true, shownRecently: false });
+      api.import.confirm.mockRejectedValue(new Error('network'));
+      await importFreshStatement();
+      expect(await screen.findByText(/could not complete the import/i)).toBeTruthy();
+      expect(invite.check).not.toHaveBeenCalled();
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+    });
+
+    it('a statement held for review shows no card', async () => {
+      invite.check.mockResolvedValue({ show: true, shownRecently: false });
+      api.import.confirm.mockRejectedValue(Object.assign(new Error('held'), {
+        isAxiosError: true,
+        response: { status: 409, data: { errorCode: 'IMPORT_016', message: "This statement is being reviewed for accuracy and can't be confirmed yet. We'll let you know when it's ready." } },
+      }));
+      await importFreshStatement();
+      expect(await screen.findByText(/being reviewed for accuracy/i)).toBeTruthy();
+      expect(invite.check).not.toHaveBeenCalled();
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+    });
+
+    it('Not now hides the card and the next import starts without it', async () => {
+      invite.check.mockResolvedValue({ show: true, shownRecently: false });
+      api.import.confirm.mockResolvedValue({ ...summary(3, 'fresh'), statementImportId: 'stmt-first' } as never);
+      await importFreshStatement();
+      fireEvent.press(await screen.findByText('Not now'));
+      expect(invite.event).toHaveBeenCalledWith('DISMISSED');
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
+
+      fireEvent.press(screen.getByText('Import another'));
+      expect(screen.queryByText('Fynora sorted your statement.')).not.toBeOnTheScreen();
     });
   });
 });

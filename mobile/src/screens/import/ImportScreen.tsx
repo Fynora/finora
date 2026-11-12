@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { QuickSortCta } from '../../components/QuickSortCta';
 import { ImportMoneyInCard } from '../../components/inflow/ImportMoneyInCard';
+import { InviteFriendCard } from '../../components/InviteFriendCard';
 import { Card, SectionHeading } from '../../components/Card';
 import { StatementHandlingPanel } from '../../components/StatementHandlingPanel';
 import { SendFromComputerSheet, type StillWaiting } from '../../components/SendFromComputerSheet';
@@ -20,8 +21,8 @@ import { OptionPickerModal } from '../../components/OptionPickerModal';
 import { UploadProgressPanel, type UploadPanelState } from '../../components/UploadProgressPanel';
 import { StagedRowCard } from './StagedRowCard';
 import {
-  accountsApi, categoriesApi, importApi, importJobsApi, inflowApi, sendCodesApi, statementImportsApi,
-  type ActivationMoment, type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
+  accountsApi, categoriesApi, importApi, importJobsApi, inflowApi, invitePromptApi, sendCodesApi, statementImportsApi,
+  type ActivationMoment, type InvitePromptCheck, type FreePlanLimitNotice, type ImportJobProgress, type PreviousImport, type RNFile, type StagingResult,
 } from '../../api/endpoints';
 import {
   ACCOUNT_LIMIT_REACHED, PDF_PASSWORD_INVALID, PDF_PASSWORD_REQUIRED, STATEMENT_PERIOD_TOO_LONG,
@@ -108,6 +109,16 @@ export const UPLOAD_COMPLETE_DWELL_MS = 900;
 // How long after a successful import the store-rating ask waits, so the "imported" summary is read
 // before the rating sheet covers it.
 export const STORE_REVIEW_DELAY_AFTER_IMPORT_MS = 1500;
+
+/** The invite card's answer for one import, or null when it cannot be read. Never rejects and never
+ *  throws: it runs inside the import's success path, which must not turn into an error over it. */
+function checkInvite(statementImportId: string): Promise<InvitePromptCheck | null> {
+  try {
+    return invitePromptApi.check([statementImportId]).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
+}
 
 /**
  * iOS's first accessibility text size (AX1, about 1.65x). From here, both seen on the simulator at
@@ -321,6 +332,13 @@ export function ImportScreen() {
     if (storeReviewTimer.current !== null) clearTimeout(storeReviewTimer.current);
     storeReviewAsk.current = null;
   }, []);
+  // The invite-a-friend card (InviteFriendCard) for the import on the done screen: the server's
+  // answer, asked once per import. The rating ask reads the same answer, so the two never land on
+  // one import: the invite takes the import it shows on, and the rating waits for a later one at least
+  // a week after the card was shown (shownRecently). `inviteCheckFor` is the request for the
+  // import on screen; a stale answer (after "Import another") is dropped.
+  const [inviteCheck, setInviteCheck] = useState<InvitePromptCheck | null>(null);
+  const inviteCheckFor = useRef<Promise<InvitePromptCheck | null> | null>(null);
   /**
    * Whether this import's done step asks what some payments were (ImportMoneyInCard). The rating
    * sheet is held then, so it never covers that question; the next import with nothing to ask can
@@ -597,6 +615,8 @@ export function ImportScreen() {
     // "Import another" pressed before the rating ask fired: the person has moved on (and may be
     // about to open the file picker), so the ask is dropped rather than landing on top of that.
     cancelStoreReviewAsk();
+    inviteCheckFor.current = null;
+    setInviteCheck(null);
     setStep('upload');
     // The next import's done step asks Quick sort again.
     setQuickSortCount(null);
@@ -1163,6 +1183,17 @@ export function ImportScreen() {
       // The moment the import actually lands, not when the button is pressed -- firing before
       // the request resolves would celebrate a network failure too.
       hapticSuccess();
+      // Whether to show the invite-a-friend card: only for an import that saved transactions, and
+      // the server decides the rest (once per person, InvitePromptService). A failed check shows
+      // no card.
+      const inviteRequest = result.imported > 0 && result.statementImportId
+        ? checkInvite(result.statementImportId)
+        : Promise.resolve(null);
+      inviteCheckFor.current = inviteRequest;
+      setInviteCheck(null);
+      void inviteRequest.then((check) => {
+        if (inviteCheckFor.current === inviteRequest) setInviteCheck(check);
+      });
       // A good moment to ask for a store rating: a new statement just landed with transactions in
       // it. Not on a re-import (it replaces a statement already there), not when nothing was added,
       // and not when the summary has warnings to read (a missing statement period, rows left out):
@@ -1176,8 +1207,12 @@ export function ImportScreen() {
           storeReviewTimer.current = null;
           void (async () => {
             const asksAboutMoneyIn = await importAsksAboutMoneyIn(result.statementImportId);
-            // "Import another" pressed, or the screen gone, while the check was in flight.
-            if (asksAboutMoneyIn || storeReviewAsk.current !== ask) return;
+            // The invite card is on this import, or was shown in the last week: no rating sheet now,
+            // so one person never gets both back to back. A later import can ask.
+            const invite = await inviteRequest;
+            const inviteNearby = invite !== null && (invite.show || invite.shownRecently);
+            // "Import another" pressed, or the screen gone, while the checks were in flight.
+            if (asksAboutMoneyIn || inviteNearby || storeReviewAsk.current !== ask) return;
             storeReviewAsk.current = null;
             await maybeAskForStoreReview();
           })();
@@ -1651,6 +1686,11 @@ export function ImportScreen() {
               }}
             />
           </View>
+          {/* Once per person, on an import that saved rows; the server decides (InvitePromptService). Keyed
+              by the import, so a later import never inherits a card that was dismissed. */}
+          {inviteCheck?.show ? (
+            <InviteFriendCard key={summary.statementImportId ?? 'import'} style={styles.inviteCard} />
+          ) : null}
           {/* Above Quick sort: these answers change the headline Income figure. */}
           <ImportMoneyInCard
             statementImportIds={summary.statementImportId ? [summary.statementImportId] : []}
@@ -2338,5 +2378,6 @@ const styles = StyleSheet.create({
   doneTotals: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.lg, marginTop: spacing.xs },
   doneTotal: { fontSize: 15, fontWeight: '600' },
   doneChanges: { marginTop: spacing.md },
+  inviteCard: { marginTop: spacing.md },
   warnings: { marginTop: spacing.sm, gap: 4 },
 });

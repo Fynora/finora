@@ -2,8 +2,12 @@ package com.finora.controller;
 
 import com.finora.dto.PagedResponse;
 import com.finora.dto.ApiResponse;
+import com.finora.activation.ReportingDay;
 import com.finora.dto.AuditLogDto;
+import com.finora.security.CurrentUser;
 import com.finora.repository.AuditLogRepository;
+import com.finora.service.AdminAuditLogService;
+import com.finora.dto.AdminAuditLogRowDto;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -17,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import com.finora.util.LikePatterns;
@@ -42,9 +46,16 @@ import com.finora.util.LikePatterns;
 public class AdminController {
 
     private final AuditLogRepository auditLogRepository;
+    private final AdminAuditLogService auditLogService;
+    private final CurrentUser currentUser;
+    private final ReportingDay reportingDay;
 
-    public AdminController(AuditLogRepository auditLogRepository) {
+    public AdminController(AuditLogRepository auditLogRepository, AdminAuditLogService auditLogService,
+                           CurrentUser currentUser, ReportingDay reportingDay) {
         this.auditLogRepository = auditLogRepository;
+        this.auditLogService = auditLogService;
+        this.currentUser = currentUser;
+        this.reportingDay = reportingDay;
     }
 
     @GetMapping("/users/{userId}/audit-logs")
@@ -68,13 +79,17 @@ public class AdminController {
      * picking "to: today" in a date-range filter expects today's entries to actually show up.
      */
     @GetMapping("/audit-logs")
-    public ApiResponse<PagedResponse<AuditLogDto>> globalAuditLogs(
+    public ApiResponse<PagedResponse<AdminAuditLogRowDto>> globalAuditLogs(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
-            @RequestParam(defaultValue = "desc") String sortDir) {
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) UUID userId,
+            @RequestParam(required = false) UUID actorId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) String requestId) {
         int safeSize = com.finora.util.PageBounds.safeSize(size);
         int safePage = com.finora.util.PageBounds.safePage(page);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -84,11 +99,16 @@ public class AdminController {
         // entityType, where an underscore is ordinary ("USER_LOGIN"), so an unescaped _ made
         // every such search quietly over-match.
         String trimmedQ = (q != null && !q.isBlank()) ? LikePatterns.escape(q.trim()) : null;
-        Instant from = dateFrom != null ? dateFrom.atStartOfDay(ZoneOffset.UTC).toInstant() : null;
-        Instant to = dateTo != null ? dateTo.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant() : null;
+        // Days are the platform reporting zone's (IST by default), the same days the dashboard and
+        // the page's own day headings use. These were UTC midnights, so "to: today" left out
+        // everything from 00:00 to 05:30 IST on the following morning and "from: today" pulled in
+        // the previous evening.
+        ZoneId zone = reportingDay.zone();
+        Instant from = dateFrom != null ? dateFrom.atStartOfDay(zone).toInstant() : null;
+        Instant to = dateTo != null ? dateTo.plusDays(1).atStartOfDay(zone).toInstant() : null;
 
-        var pageResult = auditLogRepository.search(trimmedQ, from, to, pageable);
-        return ApiResponse.ok(PagedResponse.of(pageResult.map(this::toDto)));
+        return ApiResponse.ok(auditLogService.globalFeed(trimmedQ, from, to, userId, actorId,
+                action, requestId, pageable, currentUser.hasAuthority("USER_VIEW")));
     }
 
     private AuditLogDto toDto(com.finora.entity.AuditLog l) {

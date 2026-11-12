@@ -113,7 +113,8 @@ class GlobalAuditLogIT extends AbstractIntegrationTest {
         saveAuditEntry(admin.getId(), uniqueAction, java.time.Instant.now());
         saveAuditEntry(admin.getId(), uniqueAction, java.time.Instant.now().minus(10, java.time.temporal.ChronoUnit.DAYS));
 
-        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
+        // The filter's days are the reporting zone's (IST in tests too, by default).
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/admin/audit-logs?q=" + uniqueAction + "&dateFrom=" + today + "&dateTo=" + today,
                 HttpMethod.GET, new HttpEntity<>(bearerFor(admin)), String.class);
@@ -143,5 +144,173 @@ class GlobalAuditLogIT extends AbstractIntegrationTest {
         JsonNode content = mapper.readTree(response.getBody()).get("data").get("content");
         assertThat(content).hasSize(2);
         assertThat(content.get(0).get("createdAt").asText()).isLessThan(content.get(1).get("createdAt").asText());
+    }
+
+    // ---- Audit Log drill-down (2026-11-11) ----
+
+    private User createNamedUser(String role, String fullName) {
+        User user = createUser(role);
+        user.setFullName(fullName);
+        return userRepository.save(user);
+    }
+
+    /** An entry about {@code subject}, optionally recording {@code actor} the way admin-side
+     *  services do (metadata.actorId), with a request id. */
+    private com.finora.entity.AuditLog saveEntry(UUID subject, String action, UUID actor, String requestId) {
+        com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+        entry.setUserId(subject);
+        entry.setAction(action);
+        entry.setEntityType("TestEntity");
+        entry.setRequestId(requestId);
+        if (actor != null) entry.setMetadata(java.util.Map.of("actorId", actor.toString(), "reason", "test"));
+        return auditLogRepository.save(entry);
+    }
+
+    private JsonNode feed(User caller, String query) throws Exception {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/admin/audit-logs?" + query, HttpMethod.GET, new HttpEntity<>(bearerFor(caller)), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return mapper.readTree(response.getBody()).get("data").get("content");
+    }
+
+    @Test
+    void filtersByAccount_admin_action_andRequest_exactly() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Some Customer");
+        User other = createNamedUser("USER", "Other Customer");
+        String action = "ZTEST_DRILL_" + UUID.randomUUID();
+        String request = "req-" + UUID.randomUUID();
+        saveEntry(customer.getId(), action, admin.getId(), request);
+        saveEntry(customer.getId(), action, null, null);
+        saveEntry(other.getId(), action, admin.getId(), null);
+
+        assertThat(feed(admin, "action=" + action)).hasSize(3);
+        assertThat(feed(admin, "action=" + action + "&userId=" + customer.getId())).hasSize(2);
+        assertThat(feed(admin, "action=" + action + "&actorId=" + admin.getId())).hasSize(2);
+        assertThat(feed(admin, "requestId=" + request)).hasSize(1);
+        // action is exact, not a substring: the q search still covers "contains".
+        assertThat(feed(admin, "action=" + action.substring(0, action.length() - 4))).isEmpty();
+    }
+
+    @Test
+    void namesTheCustomerAndTheActingAdmin_forACallerWithUserView() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Some Customer");
+        String action = "ZTEST_NAMES_" + UUID.randomUUID();
+        saveEntry(customer.getId(), action, admin.getId(), null);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+
+        assertThat(row.get("userName").asText()).isEqualTo("Some Customer");
+        assertThat(row.get("userEmail").asText()).isEqualTo(customer.getEmail());
+        assertThat(row.get("actorId").asText()).isEqualTo(admin.getId().toString());
+        assertThat(row.get("actorName").asText()).isEqualTo("Acting Admin");
+        assertThat(row.get("actorEmail").asText()).isEqualTo(admin.getEmail());
+    }
+
+    /** FINANCE holds AUDIT_VIEW but not USER_VIEW (V31): it could never see who a customer is,
+     *  and naming people in the feed must not change that. Staff stay named. */
+    @Test
+    void neverNamesACustomer_toACallerWithoutUserView_butStillNamesStaff() throws Exception {
+        User finance = createNamedUser("FINANCE", "Finance Viewer");
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Some Customer");
+        String action = "ZTEST_PRIVACY_" + UUID.randomUUID();
+        saveEntry(customer.getId(), action, admin.getId(), null);
+
+        JsonNode row = feed(finance, "action=" + action).get(0);
+
+        assertThat(row.get("userId").asText()).isEqualTo(customer.getId().toString());
+        assertThat(row.get("userName").isNull()).isTrue();
+        assertThat(row.get("userEmail").isNull()).isTrue();
+        assertThat(row.get("actorName").asText()).isEqualTo("Acting Admin");
+    }
+
+    @Test
+    void anUnreadableActorId_isTreatedAsNoActor_notAnError() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_BADACTOR_" + UUID.randomUUID();
+        com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+        entry.setUserId(admin.getId());
+        entry.setAction(action);
+        entry.setMetadata(java.util.Map.of("actorId", "not-a-uuid"));
+        auditLogRepository.save(entry);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+
+        assertThat(row.get("actorId").isNull()).isTrue();
+        assertThat(row.get("actorName").isNull()).isTrue();
+    }
+
+    @Test
+    void reportsWhenRetentionRemovedAnEntrysDetail() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_REDACTED_" + UUID.randomUUID();
+        com.finora.entity.AuditLog entry = saveEntry(admin.getId(), action, null, null);
+        entry.setMetadata(java.util.Map.of("redacted", true));
+        entry.setRedactedAt(java.time.Instant.parse("2026-10-01T00:00:00Z"));
+        auditLogRepository.save(entry);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+
+        assertThat(row.get("redactedAt").asText()).isEqualTo("2026-10-01T00:00:00Z");
+    }
+
+    /** 00:30 IST yesterday is 19:00 UTC the day before. With UTC day bounds, filtering on
+     *  yesterday missed it and filtering on the day before showed it -- the opposite of the day the
+     *  page's own heading puts it under. Dated yesterday, not at a fixed past date: these tests share
+     *  one database, and an old row is swept up by AuditServiceRedactionIT's 100-day retention run,
+     *  which then counts one row too many. */
+    @Test
+    void dateFilter_usesIndianDays_notUtcDays() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_ISTDAY_" + UUID.randomUUID();
+        java.time.ZoneId ist = java.time.ZoneId.of("Asia/Kolkata");
+        LocalDate yesterday = LocalDate.now(ist).minusDays(1);
+        java.time.Instant halfPastMidnight = yesterday.atTime(0, 30).atZone(ist).toInstant();
+        saveAuditEntry(admin.getId(), action, halfPastMidnight);
+
+        assertThat(feed(admin, "action=" + action + "&dateFrom=" + yesterday + "&dateTo=" + yesterday)).hasSize(1);
+        LocalDate dayBefore = yesterday.minusDays(1);
+        assertThat(feed(admin, "action=" + action + "&dateFrom=" + dayBefore + "&dateTo=" + dayBefore)).isEmpty();
+    }
+
+    /** AdminUserService records the acting admin as suspendedBy, reactivatedBy, recordedBy, ...
+     *  rather than actorId (found by suspending a real account in a local run). Those rows must
+     *  still say who did it and answer the admin filter. */
+    @Test
+    void readsTheActingAdmin_fromEveryKeyTheServicesUse() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        User customer = createNamedUser("USER", "Some Customer");
+        String action = "ZTEST_ALTKEY_" + UUID.randomUUID();
+        for (String key : AuditLogRepository.ADMIN_ACTOR_KEYS) {
+            com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+            entry.setUserId(customer.getId());
+            entry.setAction(action);
+            entry.setMetadata(java.util.Map.of(key, admin.getId().toString()));
+            auditLogRepository.save(entry);
+        }
+
+        JsonNode rows = feed(admin, "action=" + action + "&size=50");
+        assertThat(rows).hasSize(AuditLogRepository.ADMIN_ACTOR_KEYS.size());
+        rows.forEach(row -> assertThat(row.get("actorName").asText()).isEqualTo("Acting Admin"));
+        assertThat(feed(admin, "action=" + action + "&size=50&actorId=" + admin.getId()))
+                .hasSize(AuditLogRepository.ADMIN_ACTOR_KEYS.size());
+    }
+
+    @Test
+    void namesTheBackgroundJob_whenOneActed() throws Exception {
+        User admin = createNamedUser("ADMIN", "Acting Admin");
+        String action = "ZTEST_SYSTEM_" + UUID.randomUUID();
+        com.finora.entity.AuditLog entry = new com.finora.entity.AuditLog();
+        entry.setUserId(admin.getId());
+        entry.setAction(action);
+        entry.setMetadata(java.util.Map.of("actor", "merchant-rail-name-recheck"));
+        auditLogRepository.save(entry);
+
+        JsonNode row = feed(admin, "action=" + action).get(0);
+
+        assertThat(row.get("systemActor").asText()).isEqualTo("merchant-rail-name-recheck");
+        assertThat(row.get("actorId").isNull()).isTrue();
     }
 }

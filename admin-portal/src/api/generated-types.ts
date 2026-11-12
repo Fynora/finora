@@ -14299,10 +14299,35 @@ export interface components {
             /** Format: int32 */
             totalPages?: number;
         };
-        ApiResponsePagedResponseAuditLogDto: {
+        AdminAuditLogRowDto: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            userId?: string;
+            userName?: string;
+            userEmail?: string;
+            /** Format: uuid */
+            actorId?: string;
+            actorName?: string;
+            actorEmail?: string;
+            systemActor?: string;
+            action?: string;
+            entityType?: string;
+            /** Format: uuid */
+            entityId?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            requestId?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            redactedAt?: string;
+        };
+        ApiResponsePagedResponseAdminAuditLogRowDto: {
             success?: boolean;
             message?: string;
-            data?: components["schemas"]["PagedResponseAuditLogDto"];
+            data?: components["schemas"]["PagedResponseAdminAuditLogRowDto"];
             /** Format: date-time */
             timestamp?: string;
             errorCode?: string;
@@ -14311,8 +14336,8 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        PagedResponseAuditLogDto: {
-            content?: components["schemas"]["AuditLogDto"][];
+        PagedResponseAdminAuditLogRowDto: {
+            content?: components["schemas"]["AdminAuditLogRowDto"][];
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
@@ -24899,6 +24924,10 @@ export interface operations {
                 dateFrom?: string;
                 dateTo?: string;
                 sortDir?: string;
+                userId?: string;
+                actorId?: string;
+                action?: string;
+                requestId?: string;
             };
             header?: never;
             path?: never;
@@ -24912,7 +24941,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["ApiResponsePagedResponseAuditLogDto"];
+                    "*/*": components["schemas"]["ApiResponsePagedResponseAdminAuditLogRowDto"];
                 };
             };
         };

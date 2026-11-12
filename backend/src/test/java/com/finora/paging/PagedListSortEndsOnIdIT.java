@@ -237,14 +237,14 @@ class PagedListSortEndsOnIdIT extends AbstractIntegrationTest {
     void theAuditLog_newestFirst() {
         signInWith("AUDIT_VIEW");
         assertSortEndsOnId(Sort.Direction.DESC,
-                () -> adminController.globalAuditLogs(0, 25, null, null, null, "desc"));
+                () -> adminController.globalAuditLogs(0, 25, null, null, null, "desc", null, null, null, null));
     }
 
     @Test
     void theAuditLog_oldestFirst() {
         signInWith("AUDIT_VIEW");
         assertSortEndsOnId(Sort.Direction.ASC,
-                () -> adminController.globalAuditLogs(0, 25, null, null, null, "asc"));
+                () -> adminController.globalAuditLogs(0, 25, null, null, null, "asc", null, null, null, null));
     }
 
     private static void signInWith(String authority) {

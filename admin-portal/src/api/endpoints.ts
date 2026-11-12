@@ -3,7 +3,7 @@ import { downloadBlob } from '../lib/download';
 import type { components } from './generated-types';
 import type {
 
-  AccountDto, ActivationFunnelDto, BillingOfferAdmin, BillingOfferCreateRequest, BillingOfferEndResult, BillingOfferPlanOption, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
+  AccountDto, AdminAuditLogRow, ActivationFunnelDto, BillingOfferAdmin, BillingOfferCreateRequest, BillingOfferEndResult, BillingOfferPlanOption, AppIconNow, AppIconOption, AppIconScheduleEntry, AppIconScheduleSaveRequest, ActivityTrendPointDto, AdminReferralSummaryDto, AdminUpdateUserRequest, AuditLogDto, BankDto, CategoryConfidencePoint,
   CoverageDto,
   HeldImportRow, HeldImportDetail, HeldImportSummary,
   HeldStatementRow, HeldStatementQuery, HeldStatementDetail, HeldStatementRerunResult,
@@ -363,6 +363,11 @@ export interface AuditLogFilters {
   dateFrom?: string;
   dateTo?: string;
   sortDir?: 'asc' | 'desc';
+  /** Exact matches: one account, one acting admin, one action, one request. */
+  userId?: string;
+  actorId?: string;
+  action?: string;
+  requestId?: string;
 }
 
 export const adminAuditApi = {
@@ -372,7 +377,7 @@ export const adminAuditApi = {
   // .globalAuditLogs), backing the Activity Feed's FilterBar. Unset filters are simply omitted
   // from params rather than sent as empty strings, same as UserListFilters above.
   global: (page: number, size: number, filters: AuditLogFilters = {}) =>
-    api.get<PagedResponse<AuditLogDto>>('/admin/audit-logs', { params: { page, size, ...filters } }).then((r) => r.data),
+    api.get<PagedResponse<AdminAuditLogRow>>('/admin/audit-logs', { params: { page, size, ...filters } }).then((r) => r.data),
 };
 
 export const adminStatsApi = {

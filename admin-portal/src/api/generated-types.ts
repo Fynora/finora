@@ -1284,6 +1284,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invite-prompt/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/setu/links": {
         parameters: {
             query?: never;
@@ -4300,6 +4316,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["current"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/invite-prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["check"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8402,6 +8434,10 @@ export interface components {
             /** Format: int32 */
             searches?: number;
         };
+        InvitePromptEventRequest: {
+            /** @enum {string} */
+            event: "SHOWN" | "SHARE_TAPPED" | "DISMISSED";
+        };
         InitiateLinkRequest: {
             /** @enum {string} */
             fiType?: "DEPOSIT" | "CREDIT_CARD";
@@ -11167,6 +11203,22 @@ export interface components {
             completedCount?: number;
             /** Format: int32 */
             totalCount?: number;
+        };
+        ApiResponseInvitePromptResponse: {
+            success?: boolean;
+            message?: string;
+            data?: components["schemas"]["InvitePromptResponse"];
+            /** Format: date-time */
+            timestamp?: string;
+            errorCode?: string;
+            requestId?: string;
+            details?: {
+                [key: string]: unknown;
+            };
+        };
+        InvitePromptResponse: {
+            show?: boolean;
+            shownRecently?: boolean;
         };
         AccountAggregatorLinkDto: {
             /** Format: uuid */
@@ -14594,6 +14646,14 @@ export interface components {
             /** Format: int64 */
             count?: number;
         };
+        ActivationInvitePrompt: {
+            /** Format: int64 */
+            shown?: number;
+            /** Format: int64 */
+            shareTapped?: number;
+            /** Format: int64 */
+            notNow?: number;
+        };
         ActivationLandingPathRow: {
             path?: string;
             /** Format: int64 */
@@ -14675,6 +14735,7 @@ export interface components {
             monthStartNudges?: components["schemas"]["ActivationNudgeMonth"][];
             reached?: components["schemas"]["ActivationReached"];
             releaseMarkers?: components["schemas"]["ActivationReleaseMarker"][];
+            invitePrompt?: components["schemas"]["ActivationInvitePrompt"];
         };
         ActivationSecondImport: {
             /** Format: int64 */
@@ -17363,6 +17424,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitePromptEventRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseVoid"];
+                };
             };
         };
     };
@@ -22490,6 +22575,28 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ApiResponseNetWorthDto"];
+                };
+            };
+        };
+    };
+    check: {
+        parameters: {
+            query?: {
+                statementImportIds?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ApiResponseInvitePromptResponse"];
                 };
             };
         };

@@ -43,6 +43,7 @@ class ActivationReportIT extends AbstractIntegrationTest {
     @Autowired private RefreshTokenRepository refreshTokens;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ImportFunnelDayRepository funnelDays;
+    @Autowired private com.finora.invite.InvitePromptRepository invitePrompts;
     private final ObjectMapper mapper = new ObjectMapper();
 
     /** Wednesday 5 June 2030, 06:00 UTC: the week starting Monday 3 June 2030, in IST and in UTC. */
@@ -587,6 +588,35 @@ class ActivationReportIT extends AbstractIntegrationTest {
         assertThat(july).isNotNull();
         assertThat(july.get("nudgesSent").asLong()).isEqualTo(3);
         assertThat(july.get("importedWithin3Days").asLong()).isEqualTo(1);
+    }
+
+    /** V315, in people and counted users only. Read as a difference: other tests in this suite leave
+     *  invite_prompts rows behind in the shared database. */
+    @Test
+    void countsPeopleShownTheInviteCardAndWhatTheyTapped() throws Exception {
+        JsonNode before = report(admin(), null, null).get("invitePrompt");
+        LocalDate day = LocalDate.of(2026, 11, 12);
+        User shared = signupAt(Instant.parse("2026-11-01T06:00:00Z"));
+        invitePrompts.recordShown(shared.getId(), day);
+        invitePrompts.recordShareTapped(shared.getId(), day);
+        invitePrompts.recordShareTapped(shared.getId(), day.plusDays(1));
+        User notNow = signupAt(Instant.parse("2026-11-01T06:00:00Z"));
+        invitePrompts.recordShown(notNow.getId(), day);
+        invitePrompts.recordDismissed(notNow.getId(), day);
+        User ignored = signupAt(Instant.parse("2026-11-01T06:00:00Z"));
+        invitePrompts.recordShown(ignored.getId(), day);
+        User internal = signupAt(Instant.parse("2026-11-01T06:00:00Z"));
+        internal.setInternalAccount(true);
+        userRepository.save(internal);
+        invitePrompts.recordShown(internal.getId(), day);
+        invitePrompts.recordShareTapped(internal.getId(), day);
+
+        JsonNode after = report(admin(), null, null).get("invitePrompt");
+
+        assertThat(after.get("shown").asLong() - before.get("shown").asLong()).isEqualTo(3);
+        assertThat(after.get("shareTapped").asLong() - before.get("shareTapped").asLong())
+                .as("two taps by one person are one person").isEqualTo(1);
+        assertThat(after.get("notNow").asLong() - before.get("notNow").asLong()).isEqualTo(1);
     }
 
     private User signupAt(Instant createdAt) {

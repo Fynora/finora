@@ -223,6 +223,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
     @Autowired private com.finora.activation.ActivationAnswerRepository activationAnswerRepository;
     @Autowired private com.finora.repository.InsightAcknowledgementRepository insightAcknowledgementRepository;
     @Autowired private com.finora.repository.SignupAttributionRepository signupAttributionRepository;
+    @Autowired private com.finora.invite.InvitePromptRepository invitePromptRepository;
     @Autowired private com.finora.people.PeopleData peopleData;
     @Autowired private com.finora.repository.ShareLinkRepository shareLinkRepository;
     @Autowired private com.finora.repository.SplitRuleRepository splitRuleRepository;
@@ -303,7 +304,7 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
                 emailChangeSessionRepository, phoneChangeSessionRepository, deviceTokenRepository,
                 notificationPreferenceRepository, reimportConfirmationClaimRepository, userFinancialFocusRepository,
                 userChecklistEventRepository, healthScoreSnapshotRepository, featureViewCountRepository,
-                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
+                userActivityDayRepository, importFunnelDayRepository, activationAnswerRepository, insightAcknowledgementRepository, signupAttributionRepository, invitePromptRepository, peopleData, recurringDismissalRepository, accountAggregatorLinkRepository, aiAuditLogRepository, aiInsightTextRepository, aiInsightUsageRepository,
                 chatConversationRepository, chatMessageRepository, counterpartyCategoryObservationRepository,
                 inflowKindRepository, senderInflowRuleRepository,
                 auditService,
@@ -404,6 +405,19 @@ class AccountPurgeSweepServiceIT extends AbstractIntegrationTest {
         sweepAndAssertOwnUserPurged();
         entityManager.clear();
         assertThat(signupAttributionRepository.findById(userId)).isEmpty();
+    }
+
+    /** The invite-a-friend card's record (V315), same anonymize-not-delete trap. */
+    @Test
+    @Transactional
+    void purgeDeletesInvitePrompt() {
+        invitePromptRepository.recordShown(userId, java.time.LocalDate.of(2026, 11, 12));
+        invitePromptRepository.recordDismissed(userId, java.time.LocalDate.of(2026, 11, 12));
+        assertThat(invitePromptRepository.findById(userId)).isPresent();
+
+        sweepAndAssertOwnUserPurged();
+        entityManager.clear();
+        assertThat(invitePromptRepository.findById(userId)).isEmpty();
     }
 
     /** Codes to send a statement from a computer (V293), same anonymize-not-delete trap: the

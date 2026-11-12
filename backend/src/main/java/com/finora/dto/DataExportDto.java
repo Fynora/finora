@@ -235,6 +235,11 @@ public final class DataExportDto {
                                              String utmCampaign, String utmContent, String landingPath,
                                              Instant recordedAt) {}
 
+    /** V315. The invite-a-friend card after an import: how many times it was shown, the last day it
+     *  was, and the days Share or Not now were tapped (null when never) -- ISO dates, no time. */
+    public record InvitePromptExportDto(int timesShown, String lastShownOn, String shareTappedOn,
+                                        String notNowTappedOn) {}
+
     /** V302. One acceptance of the Terms of Service and Privacy Policy: the version, when, the app
      *  it came from (UNKNOWN for one recorded before V302) and how (CHECKBOX or the earlier NOTICE). */
     public record TermsAcceptanceExportDto(String termsVersion, Instant acceptedAt, String channel, String method) {}

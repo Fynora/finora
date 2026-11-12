@@ -705,6 +705,37 @@ function MonthStartNudges({ months }: { months: NonNullable<ActivationReport['mo
   );
 }
 
+/** V315: the invite-a-friend card after an import -- people shown it, and what they tapped.
+ *  Not range-bound. People who signed up through a shared web link show under "By source" as
+ *  friend_invite. */
+function InvitePrompt({ counts }: { counts: NonNullable<ActivationReport['invitePrompt']> }) {
+  if (counts.shown === 0) return <p className="p-4 text-sm text-muted">Nobody has been shown the invite card yet.</p>;
+  const share = (n: number) => `${Math.round((n / counts.shown) * 100)}%`;
+  return (
+    <div className="p-4 space-y-2">
+      <table aria-label="Invite card after an import" className="w-full">
+        <thead>
+          <tr>
+            <th className={th}>Shown</th>
+            <th className={th}>Tapped Share</th>
+            <th className={th}>Tapped Not now</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className={`${td} tabular-nums`}>{counts.shown}</td>
+            <td className={`${td} tabular-nums`}>{counts.shareTapped} ({share(counts.shareTapped)})</td>
+            <td className={`${td} tabular-nums`}>{counts.notNow} ({share(counts.notNow)})</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="text-xs text-muted">
+        People, not taps. Sign-ups from a shared web link appear under By source as friend_invite.
+      </p>
+    </div>
+  );
+}
+
 function ActivationContent() {
   const [range, setRange] = useState(defaultRange);
   const { data: fetched, isLoading, isError } = useQuery({
@@ -839,6 +870,12 @@ function ActivationContent() {
           <Section title="Month-start nudges">
             <MonthStartNudges months={data.monthStartNudges ?? []} />
           </Section>
+
+          {data.invitePrompt && (
+            <Section title="Invite card after an import">
+              <InvitePrompt counts={data.invitePrompt} />
+            </Section>
+          )}
         </>
       )}
     </div>
